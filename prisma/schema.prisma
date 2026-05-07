@@ -122,6 +122,7 @@ model User {
   ItemUserAgg               ItemUserAgg[]
   oneDayReferrals           OneDayReferral[]       @relation("OneDayReferral_referrer")
   oneDayReferrees           OneDayReferral[]       @relation("OneDayReferral_referrees")
+  domainAuthRequests        DomainAuthRequest[]
   vaultKeyHash              String                 @default("")
   vaultKeyHashUpdatedAt     DateTime?
   showPassphrase            Boolean                @default(true)
@@ -917,13 +918,32 @@ model Domain {
   domainName              String                      @unique @db.Citext
   subName                 String                      @unique @db.Citext
   status                  DomainStatus                @default(PENDING)
+  tokenVersion            Int                         @default(0)
 
   sub                     Sub                         @relation(fields: [subName], references: [name], onDelete: Cascade, onUpdate: Cascade)
   attempts                DomainVerificationAttempt[]
   records                 DomainVerificationRecord[]
+  authRequests            DomainAuthRequest[]
   certificate             DomainCertificate?
 
   @@index([createdAt])
+}
+
+model DomainAuthRequest {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  domainId  Int
+  userId    Int
+  code      String   @unique
+  challenge String   @unique
+  expiresAt DateTime @map("expires_at")
+
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([domainId])
+  @@index([userId])
 }
 
 model DomainVerificationAttempt {

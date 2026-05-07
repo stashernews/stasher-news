@@ -275,7 +275,7 @@ function LogoutObstacle ({ onClose }) {
       await togglePushSubscription().catch(console.error)
     }
 
-    await signOut({ callbackUrl: '/' })
+    await signOut({ callbackUrl: window.location.origin + '/' })
   }
 
   return (

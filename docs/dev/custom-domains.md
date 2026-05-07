@@ -160,6 +160,19 @@ Every midnight, the `clearLongHeldDomains` job gets executed to remove domains t
 
 A domain removal also means the certificate removal, which triggers **Ask ACM to delete certificate**.
 
+### Active Domain DNS Drift Check
+A pgboss cron `checkActiveDomainsDNS` runs every 5 minutes (`*/5 * * * *`) and, for each `ACTIVE` domain:
+- re-resolves the stored `CNAME` `DomainVerificationRecord` against live DNS via the same `verifyDNSRecord` helper used during initial verification
+- on a **conclusive drift** (record present but pointing elsewhere, wrong record count, or `ENOTFOUND` / `ENODATA` from the resolver), flips the domain to `HOLD`
+- on an **inconclusive result** (timeout, `ESERVFAIL`, network error, unknown error code, …), logs and skips. a real persistent drift will surface as a conclusive answer on the next tick
+
+Switching to `HOLD` cascades into:
+1. **Bump token version**, a db trigger on `Domain` increments `tokenVersion` whenever the domain switches from or to `ACTIVE`. [see token revocation via `tokenVersion`](#token-revocation-via-tokenversion).
+2. **Delete cert + verification records**
+3. **Ask ACM to delete certificate**, chained from the cert deletion
+
+The territory owner can re-verify and the domain returns to `ACTIVE`, but with a higher `tokenVersion` than any token issued before the drift.
+
 ### Update `DomainVerificationRecord` status
 The `DomainVerification` job logs every step into `DomainVerificationAttempt`, when it comes to steps that involves DNS records like the `CNAME` record or ACM validation records, a connection between `DomainVerificationAttempt` and `DomainVerificationRecord` gets established.
 
@@ -180,3 +193,93 @@ Whenever a domain or domain certificate gets deleted, we run a job called `delet
 It detaches the ACM certificate from our ALB listener and then deletes the ACM certificate from ACM.
 
 It's a necessary step to ensure that we don't waste AWS resources and also provide safety regarding the custom domain access to Stacker News.
+
+# Auth Sync
+
+Cross-domain JWT authentication is a browser boundary problem: the main SN session cookie cannot be read or set by an `ACTIVE` custom domain. The flow uses a short-lived verifier/challenge pair, a one-time DB code, and a domain-bound JWT.
+
+### Custom domain login flow
+
+1. The user opens `/login` or `/signup` on an `ACTIVE` custom domain.
+2. `proxy.js` mints a 32-byte hex verifier, stores it in the httpOnly `domains_auth_verifier` cookie on the custom domain, derives `challenge = sha256(verifier)`, then redirects to `/api/auth/domains/begin` on the custom domain with `domain`, `challenge`, `callbackUrl`, and optional `multiAuth`.
+3. `begin.js` checks the domain is active, checks the challenge matches the custom-domain verifier cookie, normalizes the final redirect to a safe path, then redirects to main-domain `/login` or `/signup`. The main-domain `callbackUrl` becomes `/api/auth/domains/code?domain=...&challenge=...&redirectUri=...`.
+4. After main-domain auth succeeds, NextAuth calls `/api/auth/domains/code` on the main domain. `code.js` requires an active domain and a main-domain session, creates a random one-time `DomainAuthRequest` code tied to `{ userId, domainId, challenge }`, expiring after 5 minutes, then redirects back to the custom domain `/api/auth/domains/verify`.
+5. `verify.js` runs on the custom domain, reads the verifier cookie, posts `{ code, domainName, verifier }` to main-domain `/api/auth/domains/token`, then sets the returned JWT as the custom-domain session cookie. It also mirrors multi-auth cookies with the domain-bound JWT.
+6. `token.js` derives the challenge from the verifier, locks the `Domain` row, requires the domain to still be `ACTIVE`, checks the code, challenge, domain, and expiry, deletes the code, then returns a JWT carrying `domainName`, `domainId`, and `tokenVersion`.
+
+### Attack scenario: leaked code replay
+
+An attacker gets a `/api/auth/domains/verify?code=...` URL from browser history, logs, or a copied redirect. They POST that code to `/api/auth/domains/token` from their own client. The exchange fails unless they also have the custom-domain httpOnly verifier cookie whose hash matches the stored challenge. Even with the verifier, the code is single-use, expires after 5 minutes, and is bound to the original active `Domain` row.
+
+### Redirect callback allowlist
+
+NextAuth still owns the final `callbackUrl` redirect after login. [pages/api/auth/[...nextauth].js](../../pages/api/auth/[...nextauth].js)'s `redirect` callback allows:
+
+- relative paths like `/settings` resolve against `baseUrl`, which is the main SN origin for the login flow
+- absolute same-origin URLs are allowed unchanged
+- absolute URLs on an `ACTIVE` custom domain are allowed unchanged after the host is parsed with `parseSafeHost` and checked with `getDomainMapping`
+
+Everything else falls back to `baseUrl`.
+
+### Token revocation via `domainId` + `tokenVersion`
+
+JWTs are stateless, so once a session cookie has been set on `pizza.com` we cannot un-issue it: the cookie remains valid in every browser that ever signed in until it expires (30 days by default). That is a problem the moment we suspect the domain itself is no longer trustworthy.
+
+Every custom-domain JWT carries two claims that together make it revocable without abandoning the JWT model:
+
+- **`domainId`**, the primary key of the `Domain` row the token was minted against. Pins the JWT to a specific *row lifetime*. If the row is deleted and recreated (owner removes and re-adds the domain, takeover, etc.), the replacement row has a fresh autoincrement `id` that no pre-existing JWT can reference.
+- **`tokenVersion`**, this is the value of `Domain.tokenVersion` when the JWT was created. If the domain leaves and later returns to `ACTIVE`, `tokenVersion` increases. Old JWTs with a different version become invalid.
+
+A `BEFORE UPDATE` trigger on `Domain` (`bump_domain_token_version`) increments `tokenVersion` on **any transition to/from `ACTIVE`**. The trigger alone can't help across row lifetimes, which is exactly why `domainId` exists.
+
+##### Where `domainId` and `tokenVersion` are read
+
+Two sides read these, with different consistency requirements:
+
+- **Mint side**, `consumeVerificationCode` and `createSessionToken` in [pages/api/auth/domains/token.js](../../pages/api/auth/domains/token.js) read and lock the `Domain` row **directly from the DB** before snapshotting both `id` and `tokenVersion` into the JWT. Since the minted cookie lives for up to 30 days, any staleness here could mint a token against an outdated row identity or revoked reign.
+- **Verify side**, the next-auth `jwt` callback reads through `getDomainMapping`, which goes through `domainsMappingsCache` (same cache the proxy uses). This runs on every custom-domain request, so hitting the DB here would be expensive. Bounded staleness is acceptable because the mint side already guarantees that no *new* tokens can be minted with the old identity, the stale window only delays the rejection of pre-existing tokens.
+
+##### Enforcement
+
+The check happens once per request, in [pages/api/auth/[...nextauth].js](../../pages/api/auth/[...nextauth].js)'s `jwt` callback, after the existing same-domain check:
+
+```js
+if (token?.domainName) {
+  // ... same-domain check ...
+
+  const mapping = await getDomainMapping(token.domainName)
+  if (!mapping) return null                                      // domain is not ACTIVE right now
+  if (mapping.id !== token.domainId) return null                 // row was deleted and recreated
+  if (mapping.tokenVersion !== token.tokenVersion) return null  // ACTIVE reign has changed
+}
+```
+
+`getDomainMapping` reads from `domainsMappingsCache` (the same cache the proxy uses). Both SSR (`getServerSession`) and `/api/graphql` go through `getAuthOptions` -> this callback.
+
+##### Why all three checks?
+
+They cover different failure modes:
+- `!mapping`, the domain is not `ACTIVE` **right now** (on HOLD, deleted, unknown).
+- `mapping.id !== token.domainId`, the row was deleted and recreated since the token was minted. A fresh row always has a strictly greater autoincrement `id`, so old tokens can never match the new row regardless of what `tokenVersion` happens to land on.
+- `mapping.tokenVersion !== token.tokenVersion`, the domain has crossed the `ACTIVE` boundary at least once since the token was minted, within the same row lifetime.
+
+##### an attack scenario, prevented
+
+Two variants worth walking through, since they exercise different parts of the defense.
+
+**Variant A, DNS drift within a single row lifetime** (caught by `tokenVersion`):
+
+1. `pizza.com` is `ACTIVE` with `tokenVersion=3`. Alice signs in and gets a JWT carrying `{ domainName: 'pizza.com', domainId: 42, tokenVersion: 3 }`.
+2. The attacker hijacks DNS for `pizza.com` and exfiltrates her cookie.
+3. Within ~5 minutes, `checkActiveDomainsDNS` notices the CNAME no longer matches and switches the domain to `HOLD`. The `ACTIVE -> HOLD` trigger bumps `tokenVersion` to `4`, and the on-HOLD trigger deletes the certificate and verification records.
+4. Next request from Alice's browser **or** the attacker's stolen cookie, once the verifier's cache refreshes past the bump: `!mapping` is true -> the request is rejected and the user is `anon`.
+5. The territory owner notices, fixes DNS, re-verifies. The domain goes back through `PENDING` and the `PENDING -> ACTIVE` trigger bumps `tokenVersion` again, to `5`.
+6. The domain is `ACTIVE` again, so `!mapping` passes and `domainId` still matches (the row was updated, not recreated). **But** the cached `tokenVersion` is `5` while the JWT snapshots `3`, so the version check rejects them: `5 !== 3` -> both have to sign in again.
+
+**Variant B, owner removes and re-adds the domain** (caught by `domainId`):
+
+1. `pizza.com` is `ACTIVE`, row `id=42`, `tokenVersion=1`. Alice signs in and gets a JWT carrying `{ domainName: 'pizza.com', domainId: 42, tokenVersion: 1 }`. The attacker steals her cookie and keeps it warm (actively replaying so it gets re-encoded with the default 30-day session maxAge).
+2. The owner calls `setDomain(subName, null)`, which hard-deletes row `id=42` (cascading into cert cleanup). Alice's and the attacker's cookies start failing the `!mapping` check.
+3. Weeks later, the owner re-adds `pizza.com`. A fresh row is created, `id=43`, `tokenVersion` defaulted to `0`.
+4. Verification succeeds, the `PENDING -> ACTIVE` trigger bumps `tokenVersion` to `1`.
+5. The attacker tries their stolen cookie again. The domain is `ACTIVE` (so `!mapping` passes) and the new `tokenVersion=1` happens to collide with the stolen JWT's `tokenVersion=1`. Without `domainId`, **this would resurrect the stolen token**. With `domainId` in place: `mapping.id` is `43`, the JWT claims `42`, `43 !== 42` -> rejected.

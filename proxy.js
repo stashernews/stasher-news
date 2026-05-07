@@ -1,6 +1,22 @@
 import 'urlpattern-polyfill'
 import { NextRequest, NextResponse } from 'next/server'
+import { randomBytes } from 'node:crypto'
+import { HTTPS } from '@/lib/auth'
+import {
+  deriveChallenge,
+  DOMAINS_AUTH_VERIFIER_COOKIE,
+  DOMAINS_AUTH_VERIFIER_BYTES,
+  DOMAINS_AUTH_VERIFIER_TTL_S
+} from '@/lib/domains/auth'
 import { getDomainMapping, createDomainsDebugLogger } from '@/lib/domains'
+
+const verifierCookieOptions = {
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: HTTPS,
+  path: '/',
+  maxAge: DOMAINS_AUTH_VERIFIER_TTL_S
+}
 
 const referrerPattern = new URLPattern({ pathname: ':pathname(*)/r/:referrer([\\w_]+)' })
 const itemPattern = new URLPattern({ pathname: '/items/:id(\\d+){/:other(\\w+)}?' })
@@ -39,6 +55,12 @@ async function customDomainMiddleware (request, domain, subName) {
   // log the original request path
   const from = `${pathname}${url.search}`
 
+  // Auth Sync
+  if (pathname === '/login' || pathname === '/signup') {
+    const signup = pathname.startsWith('/signup')
+    return redirectToAuth(request, searchParams, domain, signup)
+  }
+
   // clean up the pathname from any subname
   if (pathname.startsWith('/~')) {
     url.pathname = pathname.replace(/^\/~[^/]+/, '') || '/'
@@ -63,6 +85,31 @@ async function customDomainMiddleware (request, domain, subName) {
 
   logger.log(`${from} -> pass-through`)
   return NextResponse.next({ request: { headers: reqHeaders } })
+}
+
+async function redirectToAuth (request, searchParams, domain, signup) {
+  // mint verifier as httponly cookie
+  const verifier = randomBytes(DOMAINS_AUTH_VERIFIER_BYTES).toString('hex')
+  const hashedVerifier = deriveChallenge(verifier)
+
+  // /api/auth/domains/begin is a workaround to handle localhost redirects.
+  const redirectUrl = new URL('/api/auth/domains/begin', request.url)
+  redirectUrl.searchParams.set('domain', domain)
+  redirectUrl.searchParams.set('challenge', hashedVerifier)
+  if (signup) redirectUrl.searchParams.set('signup', '1')
+  if (searchParams.has('callbackUrl')) {
+    redirectUrl.searchParams.set('callbackUrl', searchParams.get('callbackUrl'))
+  }
+  // forward the "add account" intent so the main /login renders the multi-auth UI
+  // instead of short-circuiting to callbackUrl when the user already has a session.
+  // never paired with signup, which always creates a fresh user.
+  if (!signup && searchParams.get('multiAuth') === 'true') {
+    redirectUrl.searchParams.set('multiAuth', 'true')
+  }
+
+  const response = NextResponse.redirect(redirectUrl)
+  response.cookies.set(DOMAINS_AUTH_VERIFIER_COOKIE, verifier, verifierCookieOptions)
+  return response
 }
 
 function getContentReferrer (request, url) {
