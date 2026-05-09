@@ -11,6 +11,7 @@ const ITEMS = gql`
         url
         ncomments
         sats
+        cost
         company
         status
         location
@@ -221,12 +222,12 @@ Have a great weekend!
 ##### Top Posts
 ${top.data.items.items.map((item, i) =>
   `${i + 1}. [${item.title}](https://stacker.news/items/${item.id})
-    - ${abbrNum(item.sats)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stacker.news/${item.user.name})\n`).join('')}
+    - ${abbrNum(item.sats + item.boost + item.cost)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stacker.news/${item.user.name})\n`).join('')}
 
 ##### Top AMAs
 ${ama.data.items.items.slice(0, 10).map((item, i) =>
   `${i + 1}. [${item.title}](https://stacker.news/items/${item.id})
-    - ${abbrNum(item.sats)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stacker.news/${item.user.name})\n`).join('')}
+    - ${abbrNum(item.sats + item.boost + item.cost)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stacker.news/${item.user.name})\n`).join('')}
 
 [**all of this week's AMAs**](https://stacker.news/~ama/top/posts/week)
 
