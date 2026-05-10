@@ -3,7 +3,7 @@ import { getProviders } from 'next-auth/react'
 import { getServerSession } from 'next-auth/next'
 import models from '@/api/models'
 import { gql } from '@apollo/client'
-import { INVITE_FIELDS } from '@/fragments/invites'
+import { PUBLIC_INVITE_FIELDS } from '@/fragments/invites'
 import getSSRApolloClient from '@/api/ssrApollo'
 import Link from 'next/link'
 import { CenterLayout } from '@/components/layout'
@@ -16,10 +16,10 @@ export async function getServerSideProps ({ req, res, query: { id, error = null 
   const client = await getSSRApolloClient({ req, res })
   const { data } = await client.query({
     query: gql`
-      ${INVITE_FIELDS}
+      ${PUBLIC_INVITE_FIELDS}
       {
         invite(id: "${id}") {
-          ...InviteFields
+          ...PublicInviteFields
         }
       }`
   })
@@ -63,7 +63,7 @@ function InviteHeader ({ invite }) {
   let Inner
   if (invite.revoked) {
     Inner = () => <div className='text-danger'>this invite link expired</div>
-  } else if ((invite.limit && invite.limit <= invite.invitees.length) || invite.poor) {
+  } else if (invite.full || invite.poor) {
     Inner = () => <div className='text-danger'>this invite link has no more cowboy credits</div>
   } else {
     Inner = () => (

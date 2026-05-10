@@ -14,9 +14,10 @@ export default gql`
   type Invite {
     id: ID!
     createdAt: Date!
-    invitees: [User!]!
     gift: Int!
     limit: Int
+    giftedCount: Int
+    full: Boolean!
     user: User!
     revoked: Boolean!
     poor: Boolean!

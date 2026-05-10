@@ -30,7 +30,7 @@ export default function Invite ({ invite, active }) {
       <div className={styles.other}>
         <span>{invite.gift} sat gift</span>
         <span> \ </span>
-        <span>{invite.invitees.length} joined{invite.limit ? ` of ${invite.limit}` : ''}</span>
+        <span>{invite.giftedCount ?? 0} joined{invite.limit ? ` of ${invite.limit}` : ''}</span>
         {active
           ? (
             <>

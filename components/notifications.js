@@ -334,7 +334,7 @@ function Invitification ({ n }) {
     <>
       <NoteHeader color='secondary'>
         your invite has been redeemed by
-        {' ' + numWithUnits(n.invite.invitees.length, {
+        {' ' + numWithUnits(n.invite.giftedCount ?? 0, {
           abbreviate: false,
           unitSingular: 'stacker',
           unitPlural: 'stackers'
@@ -344,7 +344,7 @@ function Invitification ({ n }) {
         <Invite
           invite={n.invite} active={
           !n.invite.revoked &&
-          !(n.invite.limit && n.invite.invitees.length >= n.invite.limit)
+          !n.invite.full
         }
         />
       </div>

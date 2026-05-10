@@ -75,11 +75,14 @@ export default {
   },
 
   Invite: {
-    invitees: async (invite, args, { me, models }) => {
-      return await models.user.findMany({ where: { inviteId: invite.id } })
-    },
     user: async (invite, args, { me, models }) => {
       return await models.user.findUnique({ where: { id: invite.userId } })
+    },
+    giftedCount: (invite, args, { me }) => {
+      return invite.userId === me?.id ? invite.giftedCount : null
+    },
+    full: (invite) => {
+      return Boolean(invite.limit && invite.giftedCount >= invite.limit)
     },
     poor: async (invite, args, { me, models }) => {
       const user = await models.user.findUnique({ where: { id: invite.userId } })

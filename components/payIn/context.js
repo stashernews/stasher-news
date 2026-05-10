@@ -36,7 +36,7 @@ export function PayInContext ({ payIn }) {
       return (
         <Invite
           invite={payIn.payerPrivates.invite}
-          active={!payIn.payerPrivates.invite.revoked && !(payIn.payerPrivates.invite.limit && payIn.payerPrivates.invite.invitees.length >= payIn.payerPrivates.invite.limit)}
+          active={!payIn.payerPrivates.invite.revoked && !payIn.payerPrivates.invite.full}
         />
       )
     case 'PROXY_PAYMENT':

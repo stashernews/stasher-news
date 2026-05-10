@@ -146,8 +146,7 @@ export default function Invites () {
   const [active, inactive] = data && data.invites
     ? data.invites.reduce((result, invite) => {
       result[
-        invite.revoked || (invite.limit &&
-            invite.invitees.length >= invite.limit)
+        invite.revoked || invite.full
           ? 1
           : 0].push(invite)
       return result
