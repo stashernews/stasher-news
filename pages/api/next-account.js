@@ -7,6 +7,12 @@ import { cookieOptions as baseCookieOptions, MULTI_AUTH_JWT, MULTI_AUTH_LIST, MU
  * @return {void}
  */
 export default (req, res) => {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST')
+    res.status(405).end()
+    return
+  }
+
   // is there a cookie pointer?
   const userId = req.cookies[MULTI_AUTH_POINTER]
 

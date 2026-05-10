@@ -12,7 +12,7 @@ import { useDomain } from '@/components/territory-domains'
 const b64Decode = str => Buffer.from(str, 'base64').toString('utf-8')
 
 export const nextAccount = async () => {
-  const { status } = await fetch('/api/next-account', { credentials: 'include' })
+  const { status } = await fetch('/api/next-account', { method: 'POST', credentials: 'include' })
   // if status is 302, this means the server was able to switch us to the next available account
   return status === 302
 }
