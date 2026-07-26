@@ -1,2 +1,3 @@
-ARG MONERO_IMAGE_TAG=latest
-FROM sethsimmons/simple-monerod:${MONERO_IMAGE_TAG}
+FROM madebytimo/monerod:latest
+
+ENTRYPOINT ["/opt/monero/monerod"]
