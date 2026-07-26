@@ -75,11 +75,19 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
   allowedDevOrigins: getAllowedDevOrigins(),
   env: {
     NEXT_PUBLIC_COMMIT_HASH: commitHash,
-    NEXT_PUBLIC_LND_CONNECT_ADDRESS: process.env.LND_CONNECT_ADDRESS,
     NEXT_PUBLIC_ASSET_PREFIX: isProd ? 'https://a.stacker.news' : '',
-    // in prod, we build in /var/app/staging and then cp and deploy in /var/app/current
-    // so we need to resolve the relative path to the lightning module
-    LIGHTNING_MODULE_PATH: require('path').relative(process.cwd(), require.resolve('lightning'))
+    NEXT_PUBLIC_MEDIA_URL: process.env.NEXT_PUBLIC_MEDIA_URL,
+    NEXT_PUBLIC_MEDIA_CHECK_URL: process.env.NEXT_PUBLIC_MEDIA_CHECK_URL,
+    NEXT_PUBLIC_MEDIA_DOMAIN: process.env.NEXT_PUBLIC_MEDIA_DOMAIN,
+    NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
+    NEXT_PUBLIC_FAST_POLL_INTERVAL_MS: process.env.NEXT_PUBLIC_FAST_POLL_INTERVAL_MS,
+    NEXT_PUBLIC_NORMAL_POLL_INTERVAL_MS: process.env.NEXT_PUBLIC_NORMAL_POLL_INTERVAL_MS,
+    NEXT_PUBLIC_LONG_POLL_INTERVAL_MS: process.env.NEXT_PUBLIC_LONG_POLL_INTERVAL_MS,
+    NEXT_PUBLIC_EXTRA_LONG_POLL_INTERVAL_MS: process.env.NEXT_PUBLIC_EXTRA_LONG_POLL_INTERVAL_MS,
+    NEXT_PUBLIC_MDAST_DEBUG: process.env.NEXT_PUBLIC_MDAST_DEBUG,
+    NEXT_PUBLIC_CUSTOM_DOMAINS_DEBUG: process.env.NEXT_PUBLIC_CUSTOM_DOMAINS_DEBUG,
+    SANCTIONED_COUNTRY_CODES: process.env.SANCTIONED_COUNTRY_CODES,
+    NEXT_IS_EXPORT_WORKER: 'true'
   },
   transpilePackages: ['next-plausible'],
   // the app uses plain <img> tags exclusively — disable the built-in
@@ -134,7 +142,7 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
         source: '/sw.js',
         headers: [noCacheHeader]
       },
-      
+
       // Only cache image files in public/wallets; /wallets app routes must stay uncached.
       ...['jpg', 'png', 'svg', 'webp'].map(ext => ({
         source: `/wallets/:file([^/]+\\.${ext})`,
@@ -179,7 +187,7 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
         source: '/guide',
         destination: '/items/81862'
       },
-      
+
       {
         source: '/.well-known/nostr.json',
         destination: '/api/nostr/nip05'

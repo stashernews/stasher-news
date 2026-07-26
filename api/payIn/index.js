@@ -2,13 +2,12 @@ import { USER_ID } from '@/lib/constants'
 import { Prisma } from '@prisma/client'
 import payInTypeModules from './types'
 import { isPessimistic, isProxyPayment, isWithdrawal } from './lib/is'
-import { PAY_IN_INCLUDE, payInCreate } from './lib/payInCreate'
+import { payInCreate } from './lib/payInCreate'
 import { payInClone } from './lib/payInPrisma'
 
 // grab a greedy connection for the payIn system on any server
 // if we have lock contention of payIns, we don't want to block other queries
 import createPrisma from '@/lib/create-prisma'
-import { PayInFailureReasonError } from './errors'
 import { payInReplacePayOuts } from './lib/payInFailed'
 import { GqlInputError, GqlPayInRetryRaceError } from '@/lib/error'
 const models = createPrisma({ connectionParams: { connection_limit: 2 } })
@@ -68,18 +67,6 @@ async function obtainRowLevelLocks (tx, payIn) {
 async function queueCheckPayInInvoiceCreation (tx, payInId) {
   await tx.$executeRaw`INSERT INTO pgboss.job (name, data, startafter, priority)
     VALUES ('checkPayInInvoiceCreation', jsonb_build_object('payInId', ${payInId}::INTEGER), now() + INTERVAL '60 seconds', 1000)`
-}
-
-// if there's a terminal failure after begin or retry, we want the payIn to get marked as failed as fast as possible
-async function queuePayInFailed (tx, payInId, payInFailureReason) {
-  await tx.$executeRaw`INSERT INTO pgboss.job (name, data, startafter, priority)
-    VALUES ('payInFailed', jsonb_build_object('payInId', ${payInId}::INTEGER, 'payInFailureReason', ${payInFailureReason ?? 'EXECUTION_FAILED'}),
-      now(), 1000)`
-}
-
-async function queuePayInWithdrawalFailed (tx, payInId) {
-  await tx.$executeRaw`INSERT INTO pgboss.job (name, data, startafter, priority)
-    VALUES ('payInWithdrawalFailed', jsonb_build_object('payInId', ${payInId}::INTEGER), now(), 1000)`
 }
 
 async function begin (models, payInInitial, payInArgs, { me, custodialOnly, sendProtocolId }) {

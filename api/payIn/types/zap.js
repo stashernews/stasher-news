@@ -14,11 +14,6 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-// P2P removed - Monero integration pending
-async function tryP2P (models, { sats }, { me, hasSendWallet }, item) {
-  return false
-}
-
 // 70% to the receiver(s)
 // if sub, 21% to the territory founder
 //    if p2p, 6% to rewards pool, 3% to routing fee (P2P removed - Monero integration pending)
@@ -31,9 +26,6 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   const { subNames, parentId, itemForwards, userId, user } = item
   const subs = await getSubs(models, { subNames, parentId })
   const mcost = satsToMsats(payInArgs.sats)
-  const hasSendWallet = sendProtocolId === undefined
-    ? Boolean(payInArgs.hasSendWallet)
-    : Boolean(sendProtocolId)
 
   const zapMtokens = mcost * 70n / 100n
   const payOutCustodialTokensProspects = []

@@ -2,7 +2,6 @@ import { useCallback } from 'react'
 import { AnonWalletError, InvoiceCanceledError } from '@/wallets/client/errors'
 import { useShowModal } from '@/components/modal'
 import usePayInHelper from '@/components/payIn/hooks/use-pay-in-helper'
-import { sendPayment as weblnSendPayment } from '@/wallets/client/protocols/webln'
 import useWatchPayIn from './use-watch-pay-in'
 import Qr, { QrSkeleton } from '@/components/qr'
 import PayInError from '../error'
@@ -22,10 +21,7 @@ export default function useQrPayIn () {
       waitFor = paidWaitFor
     } = {}
   ) => {
-    // if anon user and webln is available, try to pay with webln
-    if (typeof window.webln !== 'undefined' && (walletError instanceof AnonWalletError)) {
-      weblnSendPayment(payIn.payerPrivates.payInBolt11.bolt11).catch(e => { console.error('WebLN payment failed:', e) })
-    }
+    // WebLN removed - Monero payments not yet implemented
     return await new Promise((resolve, reject) => {
       let updatedPayIn
       const cancelAndReject = async (onClose) => {

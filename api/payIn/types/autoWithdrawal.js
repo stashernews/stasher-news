@@ -1,5 +1,5 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
-import { numWithUnits, msatsToSats, msatsSatsFloor, satsToMsats } from '@/lib/format'
+import { msatsSatsFloor, satsToMsats } from '@/lib/format'
 
 export const anonable = false
 
