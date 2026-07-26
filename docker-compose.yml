@@ -271,6 +271,29 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     cpu_shares: "${CPU_SHARES_LOW}"
+  monerod:
+    build:
+      context: ./docker/monerod
+      args:
+        - MONERO_IMAGE_TAG=${MONERO_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command:
+      - --stagenet
+      - --rpc-bind-ip=0.0.0.0
+      - --rpc-bind-port=38081
+      - --restricted-rpc
+      - --rpc-ssl=disabled
+      - --disable-rpc-ban
+      - --zmq-rpc-bind-ip=0.0.0.0
+      - --zmq-rpc-bind-port=38082
+      - --zmq-pub=tcp://0.0.0.0:38083
+      - --confirm-external-bind
+    volumes:
+      - monerod:/home/monero/.bitmonero
+    networks:
+      - default
+    profiles:
+      - monero
 
 volumes:
   db:
@@ -280,6 +303,7 @@ volumes:
   dnsmasq:
   caddy_data:
   caddy_config:
+  monerod:
 
 networks:
   default: {}
