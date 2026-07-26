@@ -279,6 +279,7 @@ services:
     restart: unless-stopped
     command:
       - --stagenet
+      - --prune-blockchain
       - --rpc-bind-ip=0.0.0.0
       - --rpc-bind-port=38081
       - --restricted-rpc
@@ -290,6 +291,37 @@ services:
       - --confirm-external-bind
     volumes:
       - monerod:/home/monero/.bitmonero
+    ports:
+      - "38081:38081"
+    networks:
+      - default
+    profiles:
+      - monero
+  monero-lws:
+    build: ./docker/monero-lws
+    depends_on:
+      - monerod
+    restart: unless-stopped
+    command:
+      - --network=stage
+      - --daemon=${MONEROD_ZMQ_RPC_URL}
+      - --sub=${MONEROD_ZMQ_PUB_URL}
+      - --rest-server=https://0.0.0.0:8443
+      - --admin-rest-server=https://0.0.0.0:8081/admin
+      - --rest-ssl-key=/keys/lws.key
+      - --rest-ssl-certificate=/keys/lws.crt
+      - --auto-accept-creation
+      - --max-subaddresses=50000
+      - --create-queue-max=50000
+      - --access-control-origin=stealth.news
+      - --confirm-external-bind
+      - --disable-admin-auth
+      - --webhook-ssl-verification=none
+      - --exchange-rate-interval=0
+      - --log-level=4
+    volumes:
+      - monerolws:/home/monero-lws
+      - lws-keys:/keys
     networks:
       - default
     profiles:
@@ -304,6 +336,8 @@ volumes:
   caddy_data:
   caddy_config:
   monerod:
+  monerolws:
+  lws-keys:
 
 networks:
   default: {}
