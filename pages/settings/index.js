@@ -56,9 +56,6 @@ export function SettingsHeader () {
           <Nav.Link as={Link} href='/settings/logins' eventKey='logins'>logins</Nav.Link>
         </Nav.Item>
         <Nav.Item>
-          <Nav.Link as={Link} href='/settings/wallets' eventKey='wallets'>wallets</Nav.Link>
-        </Nav.Item>
-        <Nav.Item>
           <Nav.Link as={Link} href='/settings/subscriptions/stackers' eventKey='subscriptions'>subscriptions</Nav.Link>
         </Nav.Item>
         <Nav.Item>
