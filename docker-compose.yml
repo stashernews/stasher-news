@@ -279,7 +279,6 @@ services:
     restart: unless-stopped
     command:
       - --stagenet
-      - --prune-blockchain
       - --rpc-bind-ip=0.0.0.0
       - --rpc-bind-port=38081
       - --restricted-rpc
