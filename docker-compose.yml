@@ -272,13 +272,11 @@ services:
       - caddy_config:/config
     cpu_shares: "${CPU_SHARES_LOW}"
   monerod:
-    build:
-      context: ./docker/monerod
-      args:
-        - MONERO_IMAGE_TAG=${MONERO_IMAGE_TAG:-latest}
+    build: ./docker/monerod
     restart: unless-stopped
     command:
       - --stagenet
+      - --non-interactive
       - --rpc-bind-ip=0.0.0.0
       - --rpc-bind-port=38081
       - --restricted-rpc
@@ -288,8 +286,12 @@ services:
       - --zmq-rpc-bind-port=38082
       - --zmq-pub=tcp://0.0.0.0:38083
       - --confirm-external-bind
+      - --confirm-zmq-rpc-external-bind
+      - --add-peer=node.sethforprivacy.com:38080
+      - --add-peer=stagenet.xmr-tw.org:38080
+      - --add-peer=xmr-node.cakewallet.com:38080
     volumes:
-      - monerod:/home/monero/.bitmonero
+      - monerod:/root/.bitmonero
     ports:
       - "38081:38081"
     healthcheck:
