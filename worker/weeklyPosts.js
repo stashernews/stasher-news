@@ -3,7 +3,7 @@ import { USER_ID } from '@/lib/constants'
 import { datePivot } from '@/lib/time'
 import gql from 'graphql-tag'
 
-export async function autoPost ({ data: item, models, apollo, lnd, boss }) {
+export async function autoPost ({ data: item, models, apollo, boss }) {
   return await pay('ITEM_CREATE',
     { subNames: ['meta'], ...item, userId: USER_ID.sn, apiKey: true },
     {
@@ -20,7 +20,7 @@ export async function weeklyPost (args) {
   }
 }
 
-export async function payWeeklyPostBounty ({ data: { id }, models, apollo, lnd }) {
+export async function payWeeklyPostBounty ({ data: { id }, models, apollo }) {
   const itemQ = await apollo.query({
     query: gql`
       query item($id: ID!) {

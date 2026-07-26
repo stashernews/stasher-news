@@ -1,14 +1,7 @@
 import { datePivot } from '@/lib/time'
 import { Prisma, PayInState } from '@prisma/client'
 import { onBegin, onFail, onPaid, onPaidSideEffects } from '.'
-import { walletLogger } from '@/wallets/server/logger'
-import { getPaymentFailureStatus, getPaymentOrNotSent, hodlInvoiceCltvDetails } from '../lnd'
-import { cancelHodlInvoice, parsePaymentRequest, payViaPaymentRequest, settleHodlInvoice, getInvoice } from 'ln-service'
-import { toPositiveNumber, formatSats, msatsToSats, toPositiveBigInt } from '@/lib/format'
-import { MIN_SETTLEMENT_CLTV_DELTA } from '@/wallets/server/wrap'
-import { LND_PATHFINDING_TIME_PREF_PPM, LND_PATHFINDING_TIMEOUT_MS } from '@/lib/constants'
 import { getPayInFailurePresentation } from '@/lib/pay-in'
-import { notifyWithdrawal } from '@/lib/webPush'
 import { PayInFailureReasonError } from './errors'
 
 export const PAY_IN_TERMINAL_STATES = ['PAID', 'FAILED']
@@ -18,27 +11,8 @@ const FINALIZE_OPTIONS = { retryLimit: 2 ** 31 - 1, retryBackoff: false, retryDe
 
 class MissingPayInTransitionError extends Error {}
 
-function shouldUpdateReceiveWalletStatus (withdrawalStatus) {
-  return withdrawalStatus === 'INVALID_PAYMENT'
-}
-
-function getReceiveWalletFailure (lndPayOutBolt11) {
-  const { status, message } = getPaymentFailureStatus(lndPayOutBolt11)
-  return {
-    status,
-    message,
-    updateStatus: shouldUpdateReceiveWalletStatus(status)
-  }
-}
-
 function logPayInWalletStatus (payIn, payInId, models, { level, message, protocolId = payIn.payInBolt11?.protocolId, userId = payIn.userId, context = {} }) {
-  if (!protocolId) {
-    return
-  }
-
-  const logger = walletLogger({ protocolId, userId, payInId, models })
-  logger[level](message, context)
-    .catch(err => console.error('failed to write payIn wallet log:', err))
+  // Wallet logging removed - Monero integration pending
 }
 
 function logPayInWalletFailure (payIn, payInId, models, { level, protocolId, userId, context } = {}) {
@@ -58,7 +32,7 @@ function logPayInWalletFailure (payIn, payInId, models, { level, protocolId, use
 
 async function transitionPayIn (jobName, data,
   { payInId, fromStates, toState, transitionFunc, cancelOnError },
-  { invoice, withdrawal, models, boss, lnd }) {
+  { models, boss }) {
   let payIn
 
   try {
@@ -78,16 +52,6 @@ async function transitionPayIn (jobName, data,
 
     if (!Array.isArray(fromStates)) {
       fromStates = [fromStates]
-    }
-
-    let lndPayInBolt11
-    if (currentPayIn.payInBolt11) {
-      lndPayInBolt11 = invoice ?? await getInvoice({ id: currentPayIn.payInBolt11.hash, lnd })
-    }
-
-    let lndPayOutBolt11
-    if (currentPayIn.payOutBolt11) {
-      lndPayOutBolt11 = withdrawal ?? await getPaymentOrNotSent({ id: currentPayIn.payOutBolt11.hash, lnd })
     }
 
     const transitionedPayIn = await models.$transaction(async tx => {
@@ -117,7 +81,7 @@ async function transitionPayIn (jobName, data,
         return
       }
 
-      const updateFields = await transitionFunc({ tx, payIn, lndPayInBolt11, lndPayOutBolt11 })
+      const updateFields = await transitionFunc({ tx, payIn })
 
       if (updateFields) {
         return await tx.payIn.update({
@@ -184,512 +148,42 @@ async function transitionPayIn (jobName, data,
 }
 
 export async function payInWithdrawalPaid ({ data, models, ...args }) {
-  const { payInId } = data
-
-  const transitionedPayIn = await transitionPayIn('payInWithdrawalPaid', data, {
-    payInId,
-    fromStates: 'PENDING_WITHDRAWAL',
-    toState: 'PAID',
-    transitionFunc: async ({ tx, payIn, lndPayOutBolt11 }) => {
-      if (!lndPayOutBolt11.is_confirmed) {
-        throw new Error('withdrawal is not confirmed')
-      }
-
-      // refund the routing fee
-      const { mtokens: mtokensFeeEstimated, id: routingFeeId } = payIn.payOutCustodialTokens.find(t => t.payOutType === 'ROUTING_FEE')
-      const mtokensFeeActual = toPositiveBigInt(lndPayOutBolt11.payment.fee_mtokens)
-
-      // update the routing fee to the actual amount paid
-      // in the case of force closures this can exceed the estimated amount
-      await tx.payOutCustodialToken.update({
-        where: { id: routingFeeId },
-        data: {
-          mtokens: mtokensFeeActual
-        }
-      })
-
-      // update before calling onPaid where we update balances
-      if (mtokensFeeEstimated - mtokensFeeActual > 0) {
-        await tx.payOutCustodialToken.create({
-          data: {
-            mtokens: mtokensFeeEstimated - mtokensFeeActual,
-            userId: payIn.userId,
-            payOutType: 'ROUTING_FEE_REFUND',
-            custodialTokenType: 'SATS',
-            payInId: payIn.id
-          }
-        })
-      }
-
-      await onPaid(tx, payIn.id)
-
-      return {
-        payOutBolt11: {
-          update: {
-            status: 'CONFIRMED',
-            preimage: lndPayOutBolt11.payment.secret
-          }
-        }
-      }
-    }
-  }, { models, ...args })
-
-  if (transitionedPayIn) {
-    const { payOutBolt11 } = transitionedPayIn
-    notifyWithdrawal(payOutBolt11).catch(console.error)
-    if (payOutBolt11?.protocolId) {
-      logPayInWalletStatus(transitionedPayIn, payInId, models, {
-        level: 'ok',
-        message: `↙ payment received: ${formatSats(msatsToSats(payOutBolt11.msats))}`,
-        protocolId: payOutBolt11.protocolId,
-        userId: payOutBolt11.userId,
-        context: {
-          updateStatus: true
-        }
-      })
-    }
-  }
+  throw new Error('Monero payments not implemented')
 }
 
 export async function payInWithdrawalFailed ({ data, models, ...args }) {
-  const { payInId } = data
-  let receiveFailure
-  const transitionedPayIn = await transitionPayIn('payInWithdrawalFailed', data, {
-    payInId,
-    fromStates: 'PENDING_WITHDRAWAL',
-    toState: 'FAILED',
-    transitionFunc: async ({ tx, payIn, lndPayOutBolt11 }) => {
-      if (!lndPayOutBolt11?.is_failed) {
-        throw new Error('withdrawal is not failed')
-      }
-
-      await onFail(tx, payIn.id)
-
-      receiveFailure = getReceiveWalletFailure(lndPayOutBolt11)
-
-      return {
-        payInFailureReason: 'WITHDRAWAL_FAILED',
-        payOutBolt11: {
-          update: { status: receiveFailure.status }
-        }
-      }
-    }
-  }, { models, ...args })
-
-  if (transitionedPayIn) {
-    logPayInWalletFailure(transitionedPayIn, payInId, models, {
-      protocolId: transitionedPayIn.payOutBolt11?.protocolId,
-      userId: transitionedPayIn.payOutBolt11?.userId,
-      context: {
-        detail: receiveFailure.message,
-        status: receiveFailure.status,
-        updateStatus: receiveFailure.updateStatus
-      }
-    })
-  }
+  throw new Error('Monero payments not implemented')
 }
 
 export async function payInPaid ({ data, models, ...args }) {
-  const { payInId } = data
-  const transitionedPayIn = await transitionPayIn('payInPaid', data, {
-    payInId,
-    fromStates: ['HELD', 'PENDING', 'FORWARDED'],
-    toState: 'PAID',
-    transitionFunc: async ({ tx, payIn, lndPayInBolt11 }) => {
-      if (!lndPayInBolt11.is_confirmed) {
-        throw new Error('invoice is not confirmed')
-      }
-
-      const msatsReceived = toPositiveBigInt(lndPayInBolt11.received_mtokens)
-      const msatsOverpaid = msatsReceived - payIn.payInBolt11.msatsRequested
-      if (msatsOverpaid > 0) {
-        await tx.payOutCustodialToken.create({
-          data: {
-            mtokens: msatsOverpaid,
-            userId: payIn.userId,
-            payOutType: 'INVOICE_OVERPAY_SPILLOVER',
-            custodialTokenType: 'CREDITS',
-            payInId: payIn.id
-          }
-        })
-      }
-
-      await onPaid(tx, payIn.id)
-
-      return {
-        payInBolt11: {
-          update: {
-            confirmedAt: new Date(lndPayInBolt11.confirmed_at),
-            confirmedIndex: lndPayInBolt11.confirmed_index,
-            msatsReceived
-          }
-        }
-      }
-    }
-  }, { models, ...args })
-
-  if (transitionedPayIn) {
-    const settledMtokens = transitionedPayIn.payInBolt11?.msatsReceived ?? transitionedPayIn.payInBolt11?.msatsRequested
-    logPayInWalletStatus(transitionedPayIn, payInId, models, {
-      level: 'ok',
-      message: `↗ payment settled: ${formatSats(msatsToSats(settledMtokens))}`
-    })
-
-    // run non critical side effects in the background
-    // after the transaction has been committed
-    onPaidSideEffects(models, payInId).catch(console.error)
-  }
+  throw new Error('Monero payments not implemented')
 }
 
-// this performs forward creating the outgoing payment
 export async function payInForwarding ({ data, models, boss, lnd, ...args }) {
-  const { payInId } = data
-  const transitionedPayIn = await transitionPayIn('payInForwarding', data, {
-    payInId,
-    fromStates: 'PENDING_HELD',
-    toState: 'FORWARDING',
-    transitionFunc: async ({ tx, payIn }) => {
-      // a racing payInCancel may have canceled the invoice but rolled back,
-      // leaving us with stale invoice reading 'held' but the LND invoice is 'canceled'
-      const fresh = await getInvoice({ id: payIn.payInBolt11.hash, lnd })
-      if (!fresh.is_held) {
-        throw new Error('invoice is not held')
-      }
-
-      if (!payIn.payOutBolt11) {
-        throw new Error('invoice is not associated with a forward')
-      }
-
-      const { expiryHeight, acceptHeight } = hodlInvoiceCltvDetails(fresh)
-      const invoice = await parsePaymentRequest({ request: payIn.payOutBolt11.bolt11 })
-      // maxTimeoutDelta is the number of blocks left for the outgoing payment to settle
-      const maxTimeoutDelta = toPositiveNumber(expiryHeight) - toPositiveNumber(acceptHeight) - MIN_SETTLEMENT_CLTV_DELTA
-      if (maxTimeoutDelta - toPositiveNumber(invoice.cltv_delta) < 0) {
-        // the payment will certainly fail, so we can
-        // cancel and allow transition from PENDING[_HELD] -> FAILED
-        throw new PayInFailureReasonError('invoice has insufficient cltv delta for forward', 'INVOICE_FORWARDING_CLTV_DELTA_TOO_LOW')
-      }
-
-      // if this is a pessimistic action, we want to perform it now
-      // ... we don't want it to fail after the outgoing payment is in flight
-      let pessimisticEnv
-      if (payIn.pessimisticEnv) {
-        pessimisticEnv = {
-          update: {
-            result: await onBegin(tx, payIn.id, payIn.pessimisticEnv.args)
-          }
-        }
-      }
-
-      return {
-        payInBolt11: {
-          update: {
-            msatsReceived: BigInt(fresh.received_mtokens),
-            expiryHeight,
-            acceptHeight
-          }
-        },
-        pessimisticEnv
-      }
-    },
-    cancelOnError: true
-  }, { models, boss, lnd, ...args })
-
-  // only pay if we successfully transitioned which can only happen once
-  // we can't do this inside the transaction because it isn't necessarily idempotent
-  if (transitionedPayIn?.payInBolt11 && transitionedPayIn.payOutBolt11) {
-    const { expiryHeight, acceptHeight } = transitionedPayIn.payInBolt11
-    const { mtokens: mtokensFee } = transitionedPayIn.payOutCustodialTokens.find(t => t.payOutType === 'ROUTING_FEE')
-
-    // give ourselves at least MIN_SETTLEMENT_CLTV_DELTA blocks to settle the incoming payment
-    const maxTimeoutHeight = toPositiveNumber(toPositiveNumber(expiryHeight) - MIN_SETTLEMENT_CLTV_DELTA)
-
-    console.log('forwarding with max fee', mtokensFee, 'max_timeout_height', maxTimeoutHeight,
-      'accept_height', acceptHeight, 'expiry_height', expiryHeight)
-
-    payViaPaymentRequest({
-      lnd,
-      request: transitionedPayIn.payOutBolt11.bolt11,
-      max_fee_mtokens: String(mtokensFee),
-      pathfinding_timeout: LND_PATHFINDING_TIMEOUT_MS,
-      confidence: LND_PATHFINDING_TIME_PREF_PPM,
-      max_timeout_height: maxTimeoutHeight
-    }).catch(
-      e => {
-        console.error('failed to forward', e)
-        boss.send('payInFailedForward', { payInId }, FINALIZE_OPTIONS)
-          .catch(e => console.error('failed to cancel payIn', e))
-      }
-    )
-  }
+  throw new Error('Monero payments not implemented')
 }
 
-// this finalizes the forward by settling the incoming invoice after the outgoing payment is confirmed
 export async function payInForwarded ({ data, models, lnd, boss, ...args }) {
-  const { payInId } = data
-  const transitionedPayIn = await transitionPayIn('payInForwarded', data, {
-    payInId,
-    fromStates: 'FORWARDING',
-    toState: 'FORWARDED',
-    transitionFunc: async ({ tx, payIn, lndPayInBolt11, lndPayOutBolt11 }) => {
-      if (!(lndPayInBolt11.is_held || lndPayInBolt11.is_confirmed)) {
-        throw new Error('invoice is not held')
-      }
-
-      if (!lndPayOutBolt11.is_confirmed) {
-        throw new Error('payment is not confirmed')
-      }
-
-      const { payment } = lndPayOutBolt11
-
-      // settle the invoice, allowing us to transition to PAID
-      await settleHodlInvoice({ secret: payment.secret, lnd })
-
-      // adjust the routing fee and move the rest to the rewards pool and territory revenue
-      const { mtokens: mtokensFeeEstimated, id: payOutRoutingFeeId } = payIn.payOutCustodialTokens.find(t => t.payOutType === 'ROUTING_FEE')
-      const { id: payOutRewardsPoolId } = payIn.payOutCustodialTokens.find(t => t.payOutType === 'REWARDS_POOL')
-
-      const mtokensFeeActual = toPositiveBigInt(payment.fee_mtokens)
-
-      // calculate the amount to add to the rewards pool if routing fee was overestimated
-      const rewardsPoolMtokens = mtokensFeeEstimated - mtokensFeeActual
-      let rewardsPoolMtokensUpdate
-      if (rewardsPoolMtokens >= 0n) {
-        rewardsPoolMtokensUpdate = { increment: rewardsPoolMtokens }
-      } else {
-        // on force closures the routing fee can exceed the estimated amount
-        rewardsPoolMtokensUpdate = 0n
-      }
-
-      return {
-        payInBolt11: {
-          update: {
-            preimage: payment.secret
-          }
-        },
-        payOutBolt11: {
-          update: {
-            status: 'CONFIRMED',
-            preimage: payment.secret
-          }
-        },
-        payOutCustodialTokens: {
-          update: [
-            {
-              data: { mtokens: mtokensFeeActual },
-              where: { id: payOutRoutingFeeId }
-            },
-            {
-              data: { mtokens: rewardsPoolMtokensUpdate },
-              where: { id: payOutRewardsPoolId }
-            }
-          ]
-        }
-      }
-    }
-  }, { models, lnd, boss, ...args })
-
-  if (transitionedPayIn) {
-    const { msats, protocolId, userId } = transitionedPayIn.payOutBolt11
-
-    logPayInWalletStatus(transitionedPayIn, payInId, models, {
-      level: 'ok',
-      message: `↙ payment received: ${formatSats(msatsToSats(Number(msats)))}`,
-      protocolId,
-      userId,
-      context: {
-        updateStatus: true
-      }
-    })
-  }
-
-  return transitionedPayIn
+  throw new Error('Monero payments not implemented')
 }
 
-// when the pending forward fails, we need to cancel the incoming invoice
 export async function payInFailedForward ({ data, models, lnd, boss, ...args }) {
-  const { payInId } = data
-  let receiveFailure
-  const transitionedPayIn = await transitionPayIn('payInFailedForward', data, {
-    payInId,
-    fromStates: 'FORWARDING',
-    toState: 'FAILED_FORWARD',
-    transitionFunc: async ({ tx, payIn, lndPayInBolt11, lndPayOutBolt11 }) => {
-      if (!(lndPayInBolt11.is_held || lndPayInBolt11.is_canceled)) {
-        throw new Error('invoice is not held')
-      }
-
-      if (!(lndPayOutBolt11.is_failed || lndPayOutBolt11.notSent)) {
-        throw new Error('payment is not failed')
-      }
-
-      // cancel to transition to FAILED ... this is really important we do not transition unless this call succeeds
-      // which once it does succeed will ensure we will try to cancel the held invoice until it actually cancels
-      await boss.send('payInCancel', { payInId, payInFailureReason: 'INVOICE_FORWARDING_FAILED' }, FINALIZE_OPTIONS)
-
-      receiveFailure = getReceiveWalletFailure(lndPayOutBolt11)
-
-      return {
-        payOutBolt11: {
-          update: {
-            status: receiveFailure.status
-          }
-        }
-      }
-    }
-  }, { models, lnd, boss, ...args })
-
-  if (transitionedPayIn) {
-    logPayInWalletFailure(transitionedPayIn, payInId, models, {
-      level: 'warn',
-      protocolId: transitionedPayIn.payOutBolt11?.protocolId,
-      userId: transitionedPayIn.payOutBolt11?.userId,
-      context: {
-        detail: receiveFailure.message,
-        status: receiveFailure.status,
-        updateStatus: receiveFailure.updateStatus
-      }
-    })
-  }
-
-  return transitionedPayIn
+  throw new Error('Monero payments not implemented')
 }
 
 export async function payInHeld ({ data, models, lnd, boss, ...args }) {
-  const { payInId } = data
-
-  return await transitionPayIn('payInHeld', data, {
-    payInId,
-    fromStates: 'PENDING_HELD',
-    toState: 'HELD',
-    transitionFunc: async ({ tx, payIn, lndPayInBolt11 }) => {
-      // XXX allow both held and confirmed invoices to do this transition
-      // because it's possible for a prior settleHodlInvoice to have succeeded but
-      // timeout and rollback the transaction, leaving the invoice in a pending_held state
-      if (!(lndPayInBolt11.is_held || lndPayInBolt11.is_confirmed)) {
-        throw new Error('invoice is not held')
-      }
-
-      if (payIn.payOutBolt11) {
-        throw new Error('invoice is associated with a forward')
-      }
-
-      // make sure settled or cancelled in 60 seconds to minimize risk of force closures
-      const expiresAt = new Date(Math.min(payIn.payInBolt11.expiresAt, datePivot(new Date(), { seconds: 60 })))
-      boss.send('payInCancel', { payInId, payInFailureReason: 'HELD_INVOICE_SETTLED_TOO_SLOW' }, { startAfter: expiresAt, ...FINALIZE_OPTIONS })
-        .catch(e => console.error('failed to finalize', e))
-
-      // if this is a pessimistic action, we want to perform it now
-      let pessimisticEnv
-      if (payIn.pessimisticEnv) {
-        pessimisticEnv = {
-          update: {
-            result: await onBegin(tx, payIn.id, payIn.pessimisticEnv.args)
-          }
-        }
-      }
-
-      // settle the invoice, allowing us to transition to PAID
-      await settleHodlInvoice({ secret: payIn.payInBolt11.preimage, lnd })
-
-      return {
-        payInBolt11: {
-          update: {
-            msatsReceived: BigInt(lndPayInBolt11.received_mtokens)
-          }
-        },
-        pessimisticEnv
-      }
-    },
-    cancelOnError: true
-  }, { models, lnd, boss, ...args })
+  throw new Error('Monero payments not implemented')
 }
 
 export async function payInCancel ({ data, models, lnd, boss, ...args }) {
-  const { payInId, payInFailureReason } = data
-  const transitionedPayIn = await transitionPayIn('payInCancel', data, {
-    payInId,
-    fromStates: ['HELD', 'PENDING', 'PENDING_HELD', 'FAILED_FORWARD'],
-    toState: 'CANCELLED',
-    transitionFunc: async ({ tx, payIn, lndPayInBolt11 }) => {
-      if (lndPayInBolt11.is_confirmed) {
-        throw new Error('invoice is confirmed already')
-      }
-
-      await cancelHodlInvoice({ id: payIn.payInBolt11.hash, lnd })
-
-      // transition to FAILED manually so we don't have to wait
-      await tx.$executeRaw`
-        INSERT INTO pgboss.job (name, data, priority)
-        VALUES ('payInFailed', jsonb_build_object('payInId', ${payInId}::INTEGER), 100)`
-
-      return {
-        payInFailureReason: payInFailureReason ?? 'SYSTEM_CANCELLED'
-      }
-    }
-  }, { models, lnd, boss, ...args })
-
-  if (transitionedPayIn) {
-    if (transitionedPayIn.payOutBolt11) {
-      const { protocolId, userId, bolt11 } = transitionedPayIn.payOutBolt11
-      try {
-        const decoded = parsePaymentRequest({ request: bolt11 })
-        logPayInWalletStatus(transitionedPayIn, payInId, models, {
-          level: 'info',
-          message: `invoice for ${formatSats(msatsToSats(decoded.mtokens))} canceled by payer`,
-          protocolId,
-          userId
-        })
-      } catch (err) {
-        console.error('failed to decode bolt11 for canceled payIn wallet log:', err)
-      }
-    }
-  }
-
-  return transitionedPayIn
+  throw new Error('Monero payments not implemented')
 }
 
 export async function payInFailed ({ data, models, lnd, boss, ...args }) {
-  const { payInId, payInFailureReason } = data
-  const transitionedPayIn = await transitionPayIn('payInFailed', data, {
-    payInId,
-    // any of these states can transition to FAILED
-    fromStates: ['PENDING', 'PENDING_HELD', 'HELD', 'FAILED_FORWARD', 'CANCELLED', 'PENDING_INVOICE_CREATION', 'PENDING_INVOICE_WRAP'],
-    toState: 'FAILED',
-    transitionFunc: async ({ tx, payIn, lndPayInBolt11 }) => {
-      let payInBolt11
-      if (lndPayInBolt11) {
-        if (!lndPayInBolt11.is_canceled) {
-          throw new Error('invoice is not cancelled')
-        }
-        payInBolt11 = {
-          update: {
-            cancelledAt: new Date()
-          }
-        }
-      }
-
-      await onFail(tx, payIn.id)
-
-      return {
-        payInFailureReason: deducePayInFailureReason({ payInFailureReason, payIn, lndPayInBolt11 }),
-        payInBolt11
-      }
-    }
-  }, { models, lnd, boss, ...args })
-
-  if (transitionedPayIn) {
-    logPayInWalletFailure(transitionedPayIn, payInId, models, {
-      context: {
-        updateStatus: true
-      }
-    })
-  }
-
-  return transitionedPayIn
+  throw new Error('Monero payments not implemented')
 }
 
-function deducePayInFailureReason ({ payInFailureReason, payIn, lndPayInBolt11 }) {
+function deducePayInFailureReason ({ payInFailureReason, payIn }) {
   if (payInFailureReason) {
     return payInFailureReason
   }
@@ -707,14 +201,6 @@ function deducePayInFailureReason ({ payInFailureReason, payIn, lndPayInBolt11 }
   }
   if (payIn.payInState === 'PENDING_WITHDRAWAL') {
     return 'WITHDRAWAL_FAILED'
-  }
-  if (lndPayInBolt11) {
-    if (lndPayInBolt11.is_canceled) {
-      if (payIn.payInBolt11?.expiresAt < new Date()) {
-        return 'INVOICE_EXPIRED'
-      }
-      return 'SYSTEM_CANCELLED'
-    }
   }
   return 'UNKNOWN_FAILURE'
 }
