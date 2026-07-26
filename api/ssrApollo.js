@@ -6,7 +6,6 @@ import resolvers from './resolvers'
 import typeDefs from './typeDefs'
 import models from './models'
 import { print } from 'graphql'
-import lnd from './lnd'
 import search from './search'
 import { ME } from '@/fragments/users'
 import { PRICE } from '@/fragments/price'
@@ -43,7 +42,6 @@ export default async function getSSRApolloClient ({ req, res, me = null }) {
         return {
           models,
           me: viewer,
-          lnd,
           search,
           userLoader,
           subLoader,
