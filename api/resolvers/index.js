@@ -1,9 +1,6 @@
 import user from './user'
 import message from './message'
 import item from './item'
-import walletV1 from './wallet'
-import walletV2 from '@/wallets/server/resolvers'
-import lnurl from './lnurl'
 import notifications from './notifications'
 import invite from './invite'
 import sub from './sub'
@@ -100,6 +97,6 @@ const limit = createIntScalar({
   maximum: 1000
 })
 
-export default [user, item, message, walletV1, walletV2, lnurl, notifications, invite, sub,
+export default [user, item, message, notifications, invite, sub,
   upload, search, growth, rewards, referrals, price, admin, blockHeight, chainFee,
   domain, { JSONObject }, { Date: date }, { Limit: limit }, { BigInt: bigint }, payIn]
