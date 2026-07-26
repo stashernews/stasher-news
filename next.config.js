@@ -143,7 +143,7 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
         headers: [noCacheHeader]
       },
 
-      // Only cache image files in public/wallets; /wallets app routes must stay uncached.
+      // Only cache image files in public/wallets
       ...['jpg', 'png', 'svg', 'webp'].map(ext => ({
         source: `/wallets/:file([^/]+\\.${ext})`,
         headers: [walletImageCacheHeader]
@@ -208,16 +208,6 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
       {
         source: '/statistics',
         destination: '/satistics',
-        permanent: true
-      },
-      {
-        source: '/credits',
-        destination: '/wallets/cowboy-credits',
-        permanent: true
-      },
-      {
-        source: '/withdraw',
-        destination: '/wallets/reward-sats/send',
         permanent: true
       },
       {

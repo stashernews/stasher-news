@@ -1,6 +1,5 @@
 import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_MAX_RETRIES, WALLET_RETRY_BEFORE_MS } from '@/lib/constants'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
-import { verifyHmac } from './wallet'
 import { payInCancel, payInFailed } from '../payIn/transitions'
 import { retry } from '../payIn'
 import { payInTypesSql } from '../payIn/lib/sql'
@@ -9,6 +8,10 @@ import { getItem, getItemsById } from './item'
 import { getSub } from './sub'
 import { parseWalletId } from '@/wallets/server/resolvers/util'
 import { Prisma } from '@prisma/client'
+
+function verifyHmac (hash, hmac) {
+  return false
+}
 
 function payInResultType (payInType) {
   switch (payInType) {
