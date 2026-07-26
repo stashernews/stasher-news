@@ -1,7 +1,3 @@
-import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
-import { toPositiveBigInt } from '@/lib/format'
-import { notifyDeposit } from '@/lib/webPush'
-
 export const anonable = false
 
 // P2P payments removed - Monero integration pending

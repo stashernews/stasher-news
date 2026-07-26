@@ -8,7 +8,6 @@ import { useMutation, useQuery } from '@apollo/client/react'
 import { getGetServerSideProps } from '@/api/ssrApollo'
 import LoginButton from '@/components/login-button'
 import { signIn } from 'next-auth/react'
-import { LightningAuthWithExplainer } from '@/components/lightning-auth'
 import { SETTINGS } from '@/fragments/users'
 import { useRouter } from 'next/router'
 import Info from '@/components/info'
@@ -50,24 +49,6 @@ export default function Logins ({ ssrData }) {
         )}
       </div>
     </Layout>
-  )
-}
-
-function QRLinkButton ({ provider, unlink, status }) {
-  const showModal = useShowModal()
-  const text = status ? 'Unlink' : 'Link'
-  const onClick = status
-    ? unlink
-    : () => showModal(onClose =>
-      <div className='d-flex flex-column align-items-center'>
-        <LightningAuthWithExplainer callbackUrl='/settings/logins' backButton={false} md={12} lg={12} />
-      </div>)
-
-  return (
-    <LoginButton
-      key={provider}
-      className='d-block mt-2' type={provider} text={text} onClick={onClick}
-    />
   )
 }
 
@@ -214,13 +195,6 @@ function AuthMethods ({ methods, apiKeyEnabled }) {
               </div>
               )
             : <div key={provider} className='mt-2'><EmailLinkForm callbackUrl='/settings/logins' /></div>
-        } else if (provider === 'lightning') {
-          return (
-            <QRLinkButton
-              key={provider} provider={provider}
-              status={methods[provider]} unlink={async () => await unlink(provider)}
-            />
-          )
         } else if (provider === 'nostr') {
           return <NostrLinkButton key='nostr' status={methods[provider]} unlink={async () => await unlink(provider)} />
         } else {

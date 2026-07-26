@@ -27,6 +27,7 @@ import assertApiKeyNotPermitted from './apiKey'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 import { parse } from 'tldts'
 import { shuffleArray } from '@/lib/rand'
+import pay from '../payIn'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { resolveItemComments } from './comment-tree'
 
@@ -1378,11 +1379,12 @@ export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, 
   // admins can edit special items
   const adminEdit = ADMIN_ITEMS.includes(old.id) && SN_ADMIN_IDS.includes(meId)
   // anybody can edit with valid hash+hmac
-  let hmacEdit = false
+  const hmacEdit = false
   const payIn = old.itemPayIns[0]?.payIn
-  if (payIn?.payInBolt11?.hash && hash && hmac) {
-    hmacEdit = payIn.payInBolt11.hash === hash && verifyHmac(hash, hmac)
-  }
+  // Lightning HMAC verification disabled - Monero payments not yet implemented
+  // if (payIn?.payInBolt11?.hash && hash && hmac) {
+  //   hmacEdit = payIn.payInBolt11.hash === hash && verifyHmac(hash, hmac)
+  // }
   // ownership permission check
   const ownerEdit = authorEdit || adminEdit || hmacEdit
   if (!ownerEdit) {
