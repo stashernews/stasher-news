@@ -677,6 +677,121 @@ USAGE
   echo "$help"
 }
 
+__sndev_monero_ensure_up() {
+  docker__compose --profile monero up -d monerod monero-lws >/dev/null 2>&1
+}
+
+sndev__monero__status() {
+  __sndev_monero_ensure_up
+  echo "== monerod (get_height) =="
+  docker__compose --profile monero exec -T monerod curl -sf http://127.0.0.1:38081/get_height 2>/dev/null \
+    || echo "  unreachable"
+  echo
+  echo "== monero-lws (admin /list_accounts) =="
+  docker__compose --profile monero exec -T monero-lws curl -sk -X POST \
+    -H 'Content-Type: application/json' \
+    -d '{"params":{}}' \
+    https://127.0.0.1:8081/admin/list_accounts 2>/dev/null \
+    || echo "  unreachable"
+}
+
+sndev__monero__accounts() {
+  __sndev_monero_ensure_up
+  docker__compose --profile monero exec -T monero-lws curl -sk -X POST \
+    -H 'Content-Type: application/json' \
+    -d '{"params":{}}' \
+    https://127.0.0.1:8081/admin/list_accounts
+}
+
+sndev__monero__add_account() {
+  if [ $# -lt 2 ]; then
+    echo "Usage: sndev monero add_account <address> <viewkey>" >&2
+    echo "  <address> = base58 stagenet primary address (95 chars)" >&2
+    echo "  <viewkey> = private view key (64 hex chars)" >&2
+    return 1
+  fi
+  __sndev_monero_ensure_up
+  address="$1" viewkey="$2"
+  echo "Registering $address with monero-lws (active state)..."
+  docker__compose --profile monero exec -T monero-lws curl -sk -X POST \
+    -H 'Content-Type: application/json' \
+    -d "{\"params\":{\"address\":\"$address\",\"key\":\"$viewkey\"}}" \
+    https://127.0.0.1:8081/admin/add_account
+  echo
+}
+
+sndev__monero__faucet() {
+  if [ $# -lt 1 ]; then
+    echo "Usage: sndev monero faucet <address>" >&2
+    return 1
+  fi
+  address="$1"
+  cat <<EOF
+Stagenet XMR is worthless and freely faucet-able. Send some to:
+
+  $address
+
+Community stagenet faucets (community-run, may change):
+  https://stagenet-faucet.xmr-tw.org/?address=$address
+  https://melo.tools/faucet/stagenet/$address
+
+Stagenet explorer (verify transactions landed):
+  https://stagenet.xmrchain.net/
+
+After sending, wait 1-2 blocks (~2 min each), then poll: sndev monero status
+EOF
+}
+
+sndev__monero__rescan() {
+  if [ $# -lt 2 ]; then
+    echo "Usage: sndev monero rescan <address> <height>" >&2
+    echo "  <height> = block height to rescan from (0 = genesis)" >&2
+    return 1
+  fi
+  __sndev_monero_ensure_up
+  address="$1" height="$2"
+  echo "Rescanning $address from height $height..."
+  docker__compose --profile monero exec -T monero-lws curl -sk -X POST \
+    -H 'Content-Type: application/json' \
+    -d "{\"params\":{\"height\":$height,\"addresses\":[\"$address\"]}}" \
+    https://127.0.0.1:8081/admin/rescan
+  echo
+}
+
+sndev__monero() {
+  shift
+  if [ $# -eq 0 ]; then
+    echo "Usage: sndev monero {status|accounts|add_account|faucet|rescan}" >&2
+    return 1
+  fi
+  sub="$1"; shift
+  case "$sub" in
+    status)      sndev__monero__status "$@" ;;
+    accounts)    sndev__monero__accounts "$@" ;;
+    add_account) sndev__monero__add_account "$@" ;;
+    faucet)      sndev__monero__faucet "$@" ;;
+    rescan)      sndev__monero__rescan "$@" ;;
+    *) echo "Unknown subcommand: monero $sub" >&2; return 1 ;;
+  esac
+}
+
+sndev__help_monero() {
+  help="
+manage the stagenet monerod + monero-lws stack
+
+USAGE
+  $ sndev monero COMMAND [ARGS]
+
+COMMANDS
+  status                         monerod + lws health
+  accounts                       list lws-watched accounts
+  add_account <addr> <viewkey>   register an account with lws
+  faucet <addr>                  print stagenet faucet URLs for <addr>
+  rescan <addr> <height>         rescan an account from <height>
+"
+  echo "$help"
+}
+
 sndev__help() {
     if [ $# -eq 3 ]; then
       call "sndev__$1_$2_$3" "$@"
@@ -726,6 +841,9 @@ COMMANDS
 
   domains:
     domains                custom domains dev management
+
+  monero:
+    monero                 stagenet monerod + monero-lws management
 
   dev:
     pr                     fetch and checkout a pr
