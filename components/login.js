@@ -4,7 +4,6 @@ import { Form, Input, SubmitButton } from '@/components/form'
 import { useState, useEffect, useMemo } from 'react'
 import Alert from 'react-bootstrap/Alert'
 import { useRouter } from 'next/router'
-import { LightningAuthWithExplainer } from './lightning-auth'
 import { NostrAuthWithExplainer } from './nostr-auth'
 import LoginButton, { LoginWithNymButton } from './login-button'
 import { emailSchema } from '@/lib/validate'
@@ -71,7 +70,7 @@ export function authErrorMessage (error, signin) {
   return message
 }
 
-const multiAuthProviders = ['Lightning', 'Nostr']
+const multiAuthProviders = ['Nostr']
 
 export default function Login ({ providers, callbackUrl, multiAuth, error, text, Header, Footer, signin, domainData }) {
   const [errorMessage, setErrorMessage] = useState(authErrorMessage(error, signin))
@@ -97,15 +96,11 @@ export default function Login ({ providers, callbackUrl, multiAuth, error, text,
   }, [signin])
 
   const sortedProviders = useMemo(() =>
-    // email first, remove lightning if signing up
+    // email first
     Object.values(providers || {})
       .sort((a, b) => a.name === 'Email' ? -1 : b.name === 'Email' ? 1 : 0)
-      .filter(provider => multiAuth ? multiAuthProviders.includes(provider.name) : signin || provider.name !== 'Lightning'),
-  [providers, signin, multiAuth])
-
-  if (router.query.type === 'lightning') {
-    return <LightningAuthWithExplainer callbackUrl={callbackUrl} text={text} multiAuth={multiAuth} />
-  }
+      .filter(provider => multiAuth ? multiAuthProviders.includes(provider.name) : true),
+  [providers, multiAuth])
 
   if (router.query.type === 'nostr') {
     return <NostrAuthWithExplainer callbackUrl={callbackUrl} text={text} multiAuth={multiAuth} />
@@ -144,7 +139,6 @@ export default function Login ({ providers, callbackUrl, multiAuth, error, text,
                 </div>
               </OverlayTrigger>
             )
-          case 'Lightning':
           case 'Slashtags':
           case 'Nostr':
             return (
