@@ -1,10 +1,6 @@
 // Wallet functionality stubs - Monero integration pending (Phase 3+)
 // These hooks are placeholders until Monero wallet implementation
 
-import { createContext, useContext } from 'react'
-
-const WalletsContext = createContext(null)
-
 export function WalletsProvider ({ children }) {
   return children
 }

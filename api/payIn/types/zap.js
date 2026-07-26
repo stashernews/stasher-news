@@ -82,7 +82,7 @@ export async function onPaid (tx, payInId) {
   const item = payIn.itemPayIn.item
   // P2P removed - Monero integration pending
   const p2pMsats = 0n
-  // actual recipient msats = p2p bolt11 + custodial ZAP payouts
+  // actual recipient msats = p2p invoice + custodial ZAP payouts
   // (ineligible authors have their share redistributed, so this can be less than 70%)
   const recipientMsats = p2pMsats + payIn.payOutCustodialTokens
     .filter(t => t.payOutType === 'ZAP')

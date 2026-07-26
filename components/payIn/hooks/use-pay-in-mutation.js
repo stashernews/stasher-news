@@ -94,7 +94,7 @@ export default function usePayInMutation (mutation, { onCompleted, ...options } 
     if (isInvoiceSetupPending(payIn)) {
       if (failOnInvoiceSetupPending) {
         // a manual retry whose fresh invoice creation/wrap failed is terminal: the successor is
-        // bolt11-less and the server has already enqueued its failure, so surface it instead of
+        // invoice-less and the server has already enqueued its failure, so surface it instead of
         // keeping it optimistic. onPayError reverts the optimistic bump and flips the notification to
         // FAILED — matching how the retry already renders this successor. onMutationResult reconciled
         // credits first, so onPayError's response-keyed revert is exact.

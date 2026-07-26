@@ -124,7 +124,7 @@ async function retryFailedPayIn (payIn, {
     return
   }
 
-  // if the payIn has no bolt11, there's nothing to retry
+  // if the payIn has no invoice, there's nothing to retry
   if (!hasBolt11) {
     return
   }

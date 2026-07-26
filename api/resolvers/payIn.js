@@ -210,11 +210,11 @@ export default {
     }
   },
   Mutation: {
-    cancelPayInBolt11: async (parent, { hash, hmac, userCancel }, { models, me, boss, lnd }) => {
+    cancelPayInBolt11: async (parent, { hash, hmac, userCancel }, { models, me, boss }) => {
       const payInBolt11 = await models.PayInBolt11.findUnique({ where: { hash } })
       if (me && !hmac) {
-        if (!payInBolt11) throw new GqlInputError('bolt11 not found')
-        if (payInBolt11.userId !== me.id) throw new GqlInputError('not ur bolt11')
+        if (!payInBolt11) throw new GqlInputError('invoice not found')
+        if (payInBolt11.userId !== me.id) throw new GqlInputError('not ur invoice')
       } else {
         verifyHmac(hash, hmac)
       }
@@ -225,8 +225,7 @@ export default {
         },
         models,
         me,
-        boss,
-        lnd
+        boss
       })
       return await payInFailed({
         data: {
@@ -234,8 +233,7 @@ export default {
         },
         models,
         me,
-        boss,
-        lnd
+        boss
       })
     },
     retryPayIn: async (parent, { payInId, sendProtocolId }, { models, me }) => {

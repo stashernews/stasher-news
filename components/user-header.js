@@ -12,20 +12,14 @@ import styles from './user-header.module.css'
 import navStyles from '@/styles/nav.module.css'
 import { useMe } from './me'
 import { NAME_MUTATION } from '@/fragments/users'
-import { QRCodeSVG } from 'qrcode.react'
-import LightningIcon from '@/svgs/bolt.svg'
-import { encodeLnurl, lnurlpUrl } from '@/lib/lnurl'
 import Avatar from './avatar'
 import { userSchema } from '@/lib/validate'
-import { useShowModal } from './modal'
 import { numWithUnits } from '@/lib/format'
 import Badges from './badge'
 import SubscribeUserDropdownItem from './subscribeUser'
 import ActionDropdown from './action-dropdown'
 import CodeIcon from '@/svgs/terminal-box-fill.svg'
 import MuteDropdownItem from './mute'
-import copy from 'clipboard-copy'
-import { useToast } from './toast'
 import { hexToBech32 } from '@/lib/nostr'
 import NostrIcon from '@/svgs/nostr.svg'
 import GithubIcon from '@/svgs/github-fill.svg'
@@ -242,9 +236,6 @@ function SocialLink ({ name, id }) {
 function HeaderHeader ({ user }) {
   const { me } = useMe()
 
-  const showModal = useShowModal()
-  const toaster = useToast()
-
   const isMe = me?.name === user.name
   const Satistics = () => (
     user.optional.stacked !== null &&
@@ -253,37 +244,12 @@ function HeaderHeader ({ user }) {
       </div>
   )
 
-  const lnurlp = encodeLnurl(lnurlpUrl(user.name))
   return (
     <div className='d-flex mt-2 flex-wrap flex-column flex-sm-row'>
       <HeaderPhoto user={user} isMe={isMe} />
       <div className='ms-0 ms-sm-3 mt-3 mt-sm-0 justify-content-center align-self-sm-center'>
         <HeaderNym user={user} isMe={isMe} />
         <Satistics user={user} />
-        <Button
-          className='fw-bold ms-0' onClick={() => {
-            copy(`${user.name}@stacker.news`)
-              .then(() => {
-                toaster.success(`copied ${user.name}@stacker.news to clipboard`)
-              }).catch(() => {
-                toaster.error(`failed to copy ${user.name}@stacker.news to clipboard`)
-              })
-            showModal(({ onClose }) => (
-              <>
-                <a className='d-flex m-auto p-3' style={{ background: 'white', maxWidth: 'fit-content' }} href={`lightning:${lnurlp}`}>
-                  <QRCodeSVG className='d-flex m-auto' value={lnurlp} size={300} />
-                </a>
-                <div className='text-center fw-bold text-muted mt-3'>click or scan</div>
-              </>
-            ))
-          }}
-        >
-          <LightningIcon
-            width={20}
-            height={20}
-            className='me-1'
-          />{user.name}@stacker.news
-        </Button>
         <div className='d-flex flex-column mt-1 ms-0'>
           <small className='text-muted d-flex-inline'>stacking since: {user.since
             ? (

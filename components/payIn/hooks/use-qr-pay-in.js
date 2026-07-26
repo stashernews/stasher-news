@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { AnonWalletError, InvoiceCanceledError } from '@/wallets/client/errors'
+import { InvoiceCanceledError } from '@/wallets/client/errors'
 import { useShowModal } from '@/components/modal'
 import usePayInHelper from '@/components/payIn/hooks/use-pay-in-helper'
 import useWatchPayIn from './use-watch-pay-in'
@@ -89,20 +89,19 @@ function QrPayIn ({
     return <div>{error.message}</div>
   }
 
-  // a creation-/wrap-failed payIn has no bolt11 to render (see isInvoiceSetupPending),
+  // a creation-/wrap-failed payIn has no invoice to render (see isInvoiceSetupPending),
   // and item-info's 'pending' link can open this modal with one
   if (!payIn || !payIn.payerPrivates?.payInBolt11) {
     return <QrSkeleton description />
   }
 
-  const { bolt11 } = payIn.payerPrivates.payInBolt11
+  const invoice = payIn.payerPrivates.payInBolt11.invoice
 
   return (
     <>
       <PayInError error={walletError} />
       <Qr
-        value={bolt11}
-        qrTransform={value => 'lightning:' + value.toUpperCase()}
+        value={invoice}
         description={numWithUnits(msatsToSats(payIn.payerPrivates.payInBolt11.msatsRequested), { abbreviate: false })}
       />
       <div className='d-flex justify-content-center'>
