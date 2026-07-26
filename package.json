@@ -1,7 +1,12 @@
 {
-  "name": "stackernews",
+  "name": "stealthnews",
   "version": "0.1.0",
   "private": true,
+  "description": "Non-custodial Monero link aggregator (fork of Stacker.news)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stackernews/stacker.news.git"
+  },
   "scripts": {
     "audit:blast-radius": "node scripts/audit-blast-radius.js",
     "dev": "NODE_OPTIONS='--trace-warnings --enable-source-maps' next dev --webpack",
