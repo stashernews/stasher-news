@@ -105,7 +105,7 @@ function getCallbacks (req, res) {
         token.id = Number(user.id)
 
         // if referrer exists, set on user
-        // isNewUser doesn't work for nostr/lightning auth because we create the user before nextauth can
+        // isNewUser doesn't work for nostr auth because we create the user before nextauth can
         // this means users can update their referrer if they don't have one, which is fine
         if (req.cookies.sn_referrer && user?.id) {
           const referrerData = await getReferrerData(req.cookies.sn_referrer, req.cookies.sn_referee_landing)
@@ -270,17 +270,6 @@ async function nostrEventAuth (event) {
 
 /** @type {import('next-auth/providers').Provider[]} */
 const getProviders = (req, res) => [
-  CredentialsProvider({
-    id: 'lightning',
-    name: 'Lightning',
-    credentials: {
-      pubkey: { label: 'publickey', type: 'text' },
-      k1: { label: 'k1', type: 'text' }
-    },
-    authorize: async (credentials, req) => {
-      return await pubkeyAuth(credentials, req, res, 'pubkey')
-    }
-  }),
   CredentialsProvider({
     id: 'nostr',
     name: 'Nostr',
