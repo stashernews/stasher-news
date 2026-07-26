@@ -8,7 +8,7 @@ import styles from './index.module.css'
 export function PayInMoney ({ payIn }) {
   const { me } = useMe()
   const { SATS, CREDITS } = useMemo(() => reduceCustodialTokenCosts(payIn, me.id), [payIn, me.id])
-  const bolt11Cost = useMemo(() => reduceBolt11Cost(payIn, me.id), [payIn, me.id])
+  const invoiceCost = useMemo(() => reduceInvoiceCost(payIn, me.id), [payIn, me.id])
 
   if (payIn.mcost === 0 || (!payIn.payerPrivates && payIn.payInState !== 'PAID')) {
     return <>N/A</>
@@ -18,11 +18,11 @@ export function PayInMoney ({ payIn }) {
     <>
       {isNumber(SATS?.mtokens) && SATS.mtokens !== 0 && <Money mtokens={SATS.mtokens} mtokensAfter={SATS.mtokensAfter} singular='sat' plural='sats' />}
       {isNumber(CREDITS?.mtokens) && CREDITS.mtokens !== 0 && <Money mtokens={CREDITS.mtokens} mtokensAfter={CREDITS.mtokensAfter} singular='CC' plural='CCs' />}
-      {isNumber(bolt11Cost) && (payIn.payInType === 'PROXY_PAYMENT' || (payIn.isSend && bolt11Cost < 0) || (!payIn.isSend && bolt11Cost > 0)) &&
+      {isNumber(invoiceCost) && (payIn.payInType === 'PROXY_PAYMENT' || (payIn.isSend && invoiceCost < 0) || (!payIn.isSend && invoiceCost > 0)) &&
         <div
           className={classNames('d-flex align-items-center gap-1 justify-content-end',
             { [styles.strikethrough]: payIn.payInState === 'FAILED' })}
-        >{formatCost(bolt11Cost, 'sat', 'sats')}<Plug className='fill-muted' width={10} height={10} />
+        >{formatCost(invoiceCost, 'sat', 'sats')}<Plug className='fill-muted' width={10} height={10} />
         </div>}
     </>
   )
@@ -46,7 +46,7 @@ function formatCost (mtokens, unitSingular, unitPlural) {
   return `${sign}${numWithUnits(msatsToSatsDecimal(mtokens), { unitSingular, unitPlural, abbreviate: false })}`
 }
 
-function reduceBolt11Cost (payIn, userId) {
+function reduceInvoiceCost (payIn, userId) {
   let cost = 0
   if (payIn.payerPrivates && payIn.payerPrivates.payInBolt11 && payIn.payInType !== 'PROXY_PAYMENT') {
     cost -= payIn.payerPrivates.payInBolt11.msatsReceived || payIn.payerPrivates.payInBolt11.msatsRequested

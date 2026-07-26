@@ -291,7 +291,7 @@ export default function Settings ({ ssrData }) {
                 <Info>
                   <ul>
                     <li>Use this if you don't want funding sources to know you're using stacker.news.</li>
-                    <li>It makes your bolt11 descriptions blank.</li>
+                    <li>It makes your invoice descriptions blank.</li>
                     <li>Note: lnurl-pay and lightning addresses still reference SN and your nym</li>
                   </ul>
                 </Info>

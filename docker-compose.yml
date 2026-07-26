@@ -44,20 +44,6 @@ services:
       - log_min_messages=notice
       - -c
       - log_error_verbosity=terse
-  tor:
-    build:
-      context: ./docker/tor
-    container_name: tor
-    profiles:
-      - tor
-    restart: unless-stopped
-    volumes:
-      - tordata:/tordata/
-    cpu_shares: "${CPU_SHARES_LOW}"
-    env_file: *env_file
-    healthcheck:
-      <<: *healthcheck
-      test: ["CMD-SHELL", "bash /tor.sh check"]
   app:
     container_name: app
     stdin_open: true
@@ -290,7 +276,7 @@ volumes:
   db:
   os:
   aws:
-  tordata:
+
   dnsmasq:
   caddy_data:
   caddy_config:

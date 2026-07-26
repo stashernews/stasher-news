@@ -4,8 +4,6 @@ import user from './user'
 import message from './message'
 import item from './item'
 import itemForward from './itemForward'
-import wallet from './wallet'
-import lnurl from './lnurl'
 import notifications from './notifications'
 import invite from './invite'
 import sub from './sub'
@@ -39,5 +37,5 @@ const common = gql`
   scalar BigInt
 `
 
-export default [common, user, item, itemForward, message, wallet, lnurl, notifications, invite,
+export default [common, user, item, itemForward, message, notifications, invite,
   sub, upload, growth, rewards, referrals, price, admin, blockHeight, chainFee, domain, payIn]

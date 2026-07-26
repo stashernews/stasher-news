@@ -217,7 +217,7 @@ export default {
     }
   },
   Mutation: {
-    upsertSub: async (parent, { ...data }, { me, models, lnd }) => {
+    upsertSub: async (parent, { ...data }, { me, models }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
@@ -227,12 +227,12 @@ export default {
       data.uploadIds = uploadIdsFromText(data.desc)
 
       if (data.oldName) {
-        return await updateSub(parent, data, { me, models, lnd })
+        return await updateSub(parent, data, { me, models })
       } else {
-        return await createSub(parent, data, { me, models, lnd })
+        return await createSub(parent, data, { me, models })
       }
     },
-    paySub: async (parent, { name, sendProtocolId }, { me, models, lnd }) => {
+    paySub: async (parent, { name, sendProtocolId }, { me, models }) => {
       // check that they own the sub
       const sub = await models.sub.findUnique({
         where: {
@@ -252,7 +252,7 @@ export default {
         return sub
       }
 
-      return await pay('TERRITORY_BILLING', { name }, { me, models, lnd, sendProtocolId })
+      return await pay('TERRITORY_BILLING', { name }, { me, models, sendProtocolId })
     },
     toggleMuteSub: async (parent, { name }, { me, models }) => {
       if (!me) {
@@ -320,7 +320,7 @@ export default {
 
       return updatedSub
     },
-    unarchiveTerritory: async (parent, { sendProtocolId, ...data }, { me, models, lnd }) => {
+    unarchiveTerritory: async (parent, { sendProtocolId, ...data }, { me, models }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
@@ -345,7 +345,7 @@ export default {
 
       data.uploadIds = uploadIdsFromText(data.desc)
 
-      return await pay('TERRITORY_UNARCHIVE', data, { me, models, lnd, sendProtocolId })
+      return await pay('TERRITORY_UNARCHIVE', data, { me, models, sendProtocolId })
     },
     upsertSubBranding: async (parent, { subName, branding }, { me, models }) => {
       if (!me) {
@@ -447,9 +447,9 @@ function canAccessDomainSettings ({ sub, me }) {
   return true
 }
 
-async function createSub (parent, { sendProtocolId, ...data }, { me, models, lnd }) {
+async function createSub (parent, { sendProtocolId, ...data }, { me, models }) {
   try {
-    return await pay('TERRITORY_CREATE', data, { me, models, lnd, sendProtocolId })
+    return await pay('TERRITORY_CREATE', data, { me, models, sendProtocolId })
   } catch (error) {
     if (error.code === 'P2002') {
       throw new GqlInputError('name taken')
@@ -458,7 +458,7 @@ async function createSub (parent, { sendProtocolId, ...data }, { me, models, lnd
   }
 }
 
-async function updateSub (parent, { oldName, sendProtocolId, ...data }, { me, models, lnd }) {
+async function updateSub (parent, { oldName, sendProtocolId, ...data }, { me, models }) {
   const oldSub = await models.sub.findUnique({
     where: {
       name: oldName,
@@ -476,7 +476,7 @@ async function updateSub (parent, { oldName, sendProtocolId, ...data }, { me, mo
   }
 
   try {
-    return await pay('TERRITORY_UPDATE', { oldName, ...data }, { me, models, lnd, sendProtocolId })
+    return await pay('TERRITORY_UPDATE', { oldName, ...data }, { me, models, sendProtocolId })
   } catch (error) {
     if (error.code === 'P2002') {
       throw new GqlInputError('name taken')

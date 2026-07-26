@@ -25,7 +25,7 @@ export const PAY_IN_BOLT11_FIELDS = gql`
   fragment PayInBolt11Fields on PayInBolt11 {
     id
     payInId
-    bolt11
+    invoice
     hash
     hmac
     msatsRequested
@@ -179,7 +179,7 @@ export const PAY_IN_STATISTICS_FIELDS = gql`
       payOutBolt11 {
         msats
         hash
-        bolt11
+        invoice
         preimage
         status
       }

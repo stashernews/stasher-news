@@ -759,34 +759,34 @@ export default {
 
       return await deleteItemByAuthor({ models, id, item: old })
     },
-    upsertLink: async (parent, { id, ...item }, { me, models, lnd }) => {
+    upsertLink: async (parent, { id, ...item }, { me, models }) => {
       await validateSchema(linkSchema, item, { models, me })
 
       if (id) {
-        return await updateItem(parent, { id, ...item }, { me, models, lnd })
+        return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models, lnd })
+        return await createItem(parent, item, { me, models })
       }
     },
-    upsertDiscussion: async (parent, { id, ...item }, { me, models, lnd }) => {
+    upsertDiscussion: async (parent, { id, ...item }, { me, models }) => {
       await validateSchema(discussionSchema, item, { models, me })
 
       if (id) {
-        return await updateItem(parent, { id, ...item }, { me, models, lnd })
+        return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models, lnd })
+        return await createItem(parent, item, { me, models })
       }
     },
-    upsertBounty: async (parent, { id, ...item }, { me, models, lnd }) => {
+    upsertBounty: async (parent, { id, ...item }, { me, models }) => {
       await validateSchema(bountySchema, item, { models, me })
 
       if (id) {
-        return await updateItem(parent, { id, ...item }, { me, models, lnd })
+        return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models, lnd })
+        return await createItem(parent, item, { me, models })
       }
     },
-    upsertPoll: async (parent, { id, ...item }, { me, models, lnd }) => {
+    upsertPoll: async (parent, { id, ...item }, { me, models }) => {
       const numExistingChoices = id
         ? await models.pollOption.count({
           where: {
@@ -798,13 +798,13 @@ export default {
       await validateSchema(pollSchema, item, { models, me, numExistingChoices })
 
       if (id) {
-        return await updateItem(parent, { id, ...item }, { me, models, lnd })
+        return await updateItem(parent, { id, ...item }, { me, models })
       } else {
         item.pollCost = item.pollCost || POLL_COST
-        return await createItem(parent, item, { me, models, lnd })
+        return await createItem(parent, item, { me, models })
       }
     },
-    upsertJob: async (parent, { id, ...item }, { me, models, lnd }) => {
+    upsertJob: async (parent, { id, ...item }, { me, models }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
@@ -817,18 +817,18 @@ export default {
       }
 
       if (id) {
-        return await updateItem(parent, { id, ...item }, { me, models, lnd })
+        return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models, lnd })
+        return await createItem(parent, item, { me, models })
       }
     },
-    upsertComment: async (parent, { id, ...item }, { me, models, lnd }) => {
+    upsertComment: async (parent, { id, ...item }, { me, models }) => {
       await validateSchema(commentSchema, item)
 
       if (id) {
-        return await updateItem(parent, { id, ...item }, { me, models, lnd })
+        return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models, lnd })
+        return await createItem(parent, item, { me, models })
       }
     },
     updateNoteId: async (parent, { id, noteId }, { me, models }) => {
@@ -843,7 +843,7 @@ export default {
 
       return { id, noteId }
     },
-    pollVote: async (parent, { id, sendProtocolId }, { me, models, lnd }) => {
+    pollVote: async (parent, { id, sendProtocolId }, { me, models }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
@@ -1345,7 +1345,7 @@ export default {
   }
 }
 
-export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, ...item }, { me, models, lnd }) => {
+export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, ...item }, { me, models }) => {
   // update iff this item belongs to me
   const old = await models.item.findUnique({
     where: { id: Number(item.id) },
@@ -1422,10 +1422,10 @@ export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, 
   // never change author of item
   item.userId = old.userId
 
-  return await pay('ITEM_UPDATE', item, { models, me, lnd, sendProtocolId })
+  return await pay('ITEM_UPDATE', item, { models, me, sendProtocolId })
 }
 
-export const createItem = async (parent, { forward, sendProtocolId, ...item }, { me, models, lnd }) => {
+export const createItem = async (parent, { forward, sendProtocolId, ...item }, { me, models }) => {
   item.userId = me ? Number(me.id) : USER_ID.anon
 
   item.forwardUsers = await getForwardUsers(models, forward)
@@ -1446,7 +1446,7 @@ export const createItem = async (parent, { forward, sendProtocolId, ...item }, {
   // mark item as created with API key
   item.apiKey = me?.apiKey
 
-  return await pay('ITEM_CREATE', item, { models, me, lnd, sendProtocolId })
+  return await pay('ITEM_CREATE', item, { models, me, sendProtocolId })
 }
 
 export const getForwardUsers = async (models, forward) => {

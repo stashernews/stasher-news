@@ -68,12 +68,12 @@ export function toastPayError (toaster, error) {
   toaster?.danger?.(error?.message || 'Payment error')
 }
 
-export function isTransientNetworkError (error) {
+export function isTransientNetworkError (e) {
   return false
 }
 
 export function throwUnlessUserCancel (error) {
   // User cancellation is handled gracefully
   if (error?.name === 'UserCanceledError') return
-  throw error
+  if (error) throw error
 }

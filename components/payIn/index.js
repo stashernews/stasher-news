@@ -1,26 +1,17 @@
 import { msatsToSats, numWithUnits } from '@/lib/format'
-import { bolt11QrTransform } from '@/lib/bolt11'
-import { NORMAL_POLL_INTERVAL_MS } from '@/lib/constants'
 import { FAILED_PAY_IN_STATES, getPayInFailurePresentation, describePayInType } from '@/lib/pay-in'
 import Qr from '../qr'
-import Bolt11Info, { toBolt11InfoProps } from './bolt11-info'
 import useWatchPayIn from './hooks/use-watch-pay-in'
 import { PayInStatus, PayInStatusSkeleton } from './status'
 import { PayInContext } from './context'
 import { GET_PAY_IN_FULL_WITHOUT_WALLET_INFO } from '@/fragments/payIn'
 import { PayInSankey, PayInSankeySkeleton } from './sankey'
 import { useMe } from '@/components/me'
-import { WalletLogs } from '@/wallets/client/components'
-import Link from 'next/link'
-import AccordianItem from '../accordian-item'
-
-const TERMINAL_PAY_IN_STATES = new Set(['PAID', 'FAILED'])
 
 export default function PayIn ({ id, ssrData }) {
   const { me } = useMe()
   const { data, error } = useWatchPayIn({ id, query: GET_PAY_IN_FULL_WITHOUT_WALLET_INFO })
 
-  // Keep the SSR walletInfo instead of re-resolving it on every poll.
   const payIn = data?.payIn
     ? {
         ...data.payIn,
@@ -36,9 +27,8 @@ export default function PayIn ({ id, ssrData }) {
     return <PayInSkeleton />
   }
 
-  const payerBolt11 = payIn.payerPrivates?.payInBolt11
-  const payerBolt11Pending = payerBolt11 && ['PENDING', 'PENDING_HELD'].includes(payIn.payInState)
-  const showPayerBolt11Accordion = payerBolt11 && !payerBolt11Pending && payIn.payInType !== 'PROXY_PAYMENT'
+  const payerInvoice = payIn.payerPrivates?.payInBolt11
+  const payerInvoicePending = payerInvoice && ['PENDING', 'PENDING_HELD'].includes(payIn.payInState)
 
   return (
     <div className='py-5'>
@@ -52,25 +42,14 @@ export default function PayIn ({ id, ssrData }) {
         </div>
       </div>
       <PayInFailureMessage payIn={payIn} />
-      {payerBolt11Pending && (
+      {payerInvoicePending && (
         <div className='mt-3 d-flex justify-content-center'>
           <div style={{ maxWidth: '300px' }}>
             <Qr
-              value={payerBolt11.bolt11}
-              qrTransform={bolt11QrTransform}
-              description={numWithUnits(msatsToSats(payerBolt11.msatsRequested), { abbreviate: false })}
+              value={payerInvoice?.invoice}
+              description={numWithUnits(msatsToSats(payerInvoice?.msatsRequested), { abbreviate: false })}
             />
           </div>
-        </div>
-      )}
-      {showPayerBolt11Accordion && (
-        <div className='mt-3'>
-          <AccordianItem
-            header='lightning invoice'
-            body={(
-              <Bolt11Info {...toBolt11InfoProps(payerBolt11)} />
-            )}
-          />
         </div>
       )}
       <div className='mt-3'>
@@ -83,7 +62,6 @@ export default function PayIn ({ id, ssrData }) {
             <PayInSankey payIn={payIn} />
           </div>
         </div>}
-      <PayInWalletSection payIn={payIn} />
     </div>
   )
 }
@@ -104,30 +82,6 @@ function PayInFailureMessage ({ payIn }) {
     <div className='mt-1 text-muted'>
       <small className='d-block'>{failure.summary}</small>
       {showDetail && <small className='d-block'>{failure.detail}</small>}
-    </div>
-  )
-}
-
-function PayInWalletSection ({ payIn }) {
-  const walletInfo = payIn.walletInfo
-  if (!walletInfo) {
-    return null
-  }
-
-  const roleLabels = {
-    SEND: 'send wallet',
-    RECEIVE: 'receive wallet'
-  }
-  const shouldPoll = !TERMINAL_PAY_IN_STATES.has(payIn.payInState)
-
-  return (
-    <div className='mt-3'>
-      <div className='mb-3 text-break'>
-        <span className='text-muted'>{roleLabels[walletInfo.role] ?? walletInfo.role.toLowerCase()}:</span>{' '}
-        <Link href={`/wallets/${walletInfo.walletId}`}>{walletInfo.walletName}</Link>{' '}
-        <span className='text-muted'>via {walletInfo.protocolName}</span>
-      </div>
-      <WalletLogs payInId={Number(payIn.id)} poll={shouldPoll} pollInterval={NORMAL_POLL_INTERVAL_MS} />
     </div>
   )
 }

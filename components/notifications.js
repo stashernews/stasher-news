@@ -425,7 +425,7 @@ function PayInFailed ({ n }) {
   const client = useApolloClient()
   const { payIn, payInItem: item } = n
   const updatePayIn = useCallback((cache, { data }) => {
-    // a wrap-/creation-failed retry returns a bolt11-less successor in a transient
+    // a wrap-/creation-failed retry returns an invoice-less successor in a transient
     // PENDING_INVOICE_* state. It's a guaranteed failure (queuePayInFailed is already enqueued
     // server-side), so show it as FAILED now
     const retryPayIn = isInvoiceSetupPending(data.retryPayIn)

@@ -4,7 +4,6 @@ import { CommentFlat } from '@/components/comment'
 import { TerritoryDetails } from '../territory-header'
 import { truncateString } from '@/lib/format'
 import Invite from '../invite'
-import Bolt11Info, { toBolt11InfoProps } from './bolt11-info'
 
 export function PayInContext ({ payIn }) {
   switch (payIn.payInType) {
@@ -31,7 +30,6 @@ export function PayInContext ({ payIn }) {
     case 'TERRITORY_BILLING':
     case 'TERRITORY_UNARCHIVE':
       if (!payIn.payerPrivates?.sub) return <small className='text-muted d-flex justify-content-center w-100'>N/A</small>
-      // note: we're drilling truncated down to the TerritoryInfo component, TODO: revise
       return <TerritoryDetails truncated sub={{ ...payIn.payerPrivates.sub, desc: truncateString(payIn.payerPrivates.sub.desc, 280) }} className='w-100' show={false} />
     case 'INVITE_GIFT':
       if (!payIn.payerPrivates?.invite) return <small className='text-muted d-flex justify-content-center w-100'>N/A</small>
@@ -42,14 +40,10 @@ export function PayInContext ({ payIn }) {
         />
       )
     case 'PROXY_PAYMENT':
-      return (
-        <Bolt11Info {...toBolt11InfoProps(payIn.payerPrivates?.payInBolt11)} />
-      )
+      return <small className='text-muted d-flex justify-content-center w-100'>Proxy payment details unavailable (Monero pending)</small>
     case 'WITHDRAWAL':
     case 'AUTO_WITHDRAWAL':
-      return (
-        <Bolt11Info {...toBolt11InfoProps(payIn.payeePrivates?.payOutBolt11)} />
-      )
+      return <small className='text-muted d-flex justify-content-center w-100'>Withdrawal details unavailable (Monero pending)</small>
     case 'DONATE':
       return <small className='text-muted d-flex justify-content-center w-100'>Praise be, you donated to the rewards pool.</small>
     case 'BUY_CREDITS':

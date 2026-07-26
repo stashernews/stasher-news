@@ -104,7 +104,7 @@ type PayInBolt11 {
   hash: String!
   preimage: String
   hmac: String
-  bolt11: String!
+  invoice: String!
   description: String @deprecated(reason: "Compatibility shim; always null")
   expiresAt: Date!
   confirmedAt: Date
@@ -236,7 +236,7 @@ type PayOutBolt11 {
   payInId: Int!
   hash: String
   preimage: String
-  bolt11: String
+  invoice: String
   description: String @deprecated(reason: "Compatibility shim; always null")
   expiresAt: Date!
 }
