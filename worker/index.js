@@ -2,15 +2,6 @@
 import './loadenv'
 import PgBoss from 'pg-boss'
 import createPrisma from '@/lib/create-prisma'
-import {
-  subscribeToBolt11s,
-  checkPendingPayInBolt11s,
-  checkPendingPayOutBolt11s,
-  checkPayInBolt11,
-  checkPayOutBolt11,
-  checkPayInInvoiceCreation,
-  checkPendingPayInInvoiceCreations
-} from './payIn'
 import { repin } from './repin'
 import { trust } from './trust'
 import { earn, earnRefill } from './earn'
@@ -20,24 +11,17 @@ import { timestampItem } from './ots'
 import { computeStreaks, checkStreak } from './streak'
 import { nip57 } from './nostr'
 import fetch from 'cross-fetch'
-import { authenticatedLndGrpc } from '@/lib/lnd'
 import { views, rankViews } from './views'
 import { imgproxy } from './imgproxy'
 import { deleteItem } from './ephemeralItems'
 import { deleteUnusedImages } from './deleteUnusedImages'
 import { territoryBilling } from './territory'
 import { ofac } from './ofac'
-import { autoWithdraw } from './autowithdraw'
 import { saltAndHashEmails } from './saltAndHashEmails'
 import { remindUser } from './reminder'
-import {
-  payInFailedForward, payInForwarded, payInForwarding,
-  payInHeld, payInCancel, payInFailed, payInPaid, payInWithdrawalPaid, payInWithdrawalFailed
-} from '@/api/payIn/transitions'
 import { thisDay } from './thisDay'
 import { isServiceEnabled } from '@/lib/sndev'
 import { payWeeklyPostBounty, weeklyPost } from './weeklyPosts'
-import { autoDropBolt11s } from './autoDropBolt11'
 import { postToSocial } from './socialPoster'
 import {
   domainVerification,
@@ -78,13 +62,7 @@ async function work () {
     }
   })
 
-  const { lnd } = authenticatedLndGrpc({
-    cert: process.env.LND_CERT,
-    macaroon: process.env.LND_MACAROON,
-    socket: process.env.LND_SOCKET
-  })
-
-  const args = { boss, models, apollo, lnd }
+  const args = { boss, models, apollo }
 
   boss.on('error', error => console.error(error))
 
@@ -106,29 +84,6 @@ async function work () {
 
   await boss.start()
 
-  await boss.work('checkPayInInvoiceCreation', jobWrapper(checkPayInInvoiceCreation))
-  await boss.work('payInForwarding', jobWrapper(payInForwarding))
-  await boss.work('payInForwarded', jobWrapper(payInForwarded))
-  await boss.work('payInFailedForward', jobWrapper(payInFailedForward))
-  await boss.work('payInHeld', jobWrapper(payInHeld))
-  await boss.work('payInFailed', jobWrapper(payInFailed))
-  await boss.work('payInPaid', jobWrapper(payInPaid))
-  await boss.work('payInCancel', jobWrapper(payInCancel))
-  await boss.work('payInWithdrawalPaid', jobWrapper(payInWithdrawalPaid))
-  await boss.work('payInWithdrawalFailed', jobWrapper(payInWithdrawalFailed))
-
-  if (isServiceEnabled('payments')) {
-    await boss.work('autoDropBolt11s', jobWrapper(autoDropBolt11s))
-    await boss.work('autoWithdraw', jobWrapper(autoWithdraw))
-
-    // payIn jobs
-    await subscribeToBolt11s(args)
-    await boss.work('checkPendingPayInInvoiceCreations', jobWrapper(checkPendingPayInInvoiceCreations))
-    await boss.work('checkPendingPayInBolt11s', jobWrapper(checkPendingPayInBolt11s))
-    await boss.work('checkPendingPayOutBolt11s', jobWrapper(checkPendingPayOutBolt11s))
-    await boss.work('checkPayInBolt11', jobWrapper(checkPayInBolt11))
-    await boss.work('checkPayOutBolt11', jobWrapper(checkPayOutBolt11))
-  }
   if (isServiceEnabled('search')) {
     await boss.work('indexItem', jobWrapper(indexItem))
     await boss.work('indexAllItems', jobWrapper(indexAllItems))

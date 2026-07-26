@@ -2,43 +2,29 @@ import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { numWithUnits, msatsToSats, satsToMsats } from '@/lib/format'
 import { notifyZapped } from '@/lib/webPush'
 import { Prisma } from '@prisma/client'
-import { payOutBolt11Prospect } from '../lib/payOutBolt11'
 import { getItemResult, getSubs } from '../lib/item'
 import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
-import { canWrapBolt11 } from '@/wallets/server'
 
 export const anonable = true
 
 export const paymentMethods = [
-  PAID_ACTION_PAYMENT_METHODS.P2P,
   PAID_ACTION_PAYMENT_METHODS.FEE_CREDIT,
   PAID_ACTION_PAYMENT_METHODS.REWARD_SATS,
   PAID_ACTION_PAYMENT_METHODS.OPTIMISTIC,
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
+// P2P removed - Monero integration pending
 async function tryP2P (models, { sats }, { me, hasSendWallet }, item) {
-  if (me.id !== USER_ID.anon) {
-    const zapper = await models.user.findUnique({ where: { id: me.id } })
-    if (sats < zapper?.sendCreditsBelowSats ||
-      (!hasSendWallet && (zapper.mcredits + zapper.msats >= satsToMsats(sats)))) {
-      return false
-    }
-  }
-
-  if (item.bio || item.freebie) {
-    return false
-  }
-
-  return true
+  return false
 }
 
 // 70% to the receiver(s)
 // if sub, 21% to the territory founder
-//    if p2p, 6% to rewards pool, 3% to routing fee
+//    if p2p, 6% to rewards pool, 3% to routing fee (P2P removed - Monero integration pending)
 //    if not p2p, all 9% to rewards pool
 // if not sub
-//    if p2p, 27% to rewards pool, 3% to routing fee
+//    if p2p, 27% to rewards pool, 3% to routing fee (P2P removed - Monero integration pending)
 //    if not p2p, all 30% to rewards pool
 export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   const item = await models.item.findUnique({ where: { id: parseInt(payInArgs.id) }, include: { itemForwards: { include: { user: true } }, user: true } })
@@ -48,7 +34,6 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   const hasSendWallet = sendProtocolId === undefined
     ? Boolean(payInArgs.hasSendWallet)
     : Boolean(sendProtocolId)
-  let payOutBolt11
 
   const zapMtokens = mcost * 70n / 100n
   const payOutCustodialTokensProspects = []
@@ -61,48 +46,21 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   ].filter(c => c.userId !== USER_ID.anon && c.userId !== USER_ID.rewards && c.userId !== USER_ID.saloon)
     .sort((a, b) => b.pct - a.pct)
 
-  let p2pCandidateUserId = null
-  const p2p = await tryP2P(models, payInArgs, { me, hasSendWallet }, item)
-  if (p2p) {
-    for (const c of candidates) {
-      const candidateMtokens = zapMtokens * BigInt(c.pct) / 100n
-      if (msatsToSats(candidateMtokens) < c.receiveCreditsBelowSats) continue
-
-      const routingFeeMtokens = candidateMtokens * 3n / 70n
-      try {
-        let testBolt11Func
-        // anon and users without a send wallet can't auto-retry, so we test the invoice before proceeding with p2p
-        if (me.id === USER_ID.anon || !hasSendWallet) {
-          testBolt11Func = async (bolt11) => await canWrapBolt11({ msats: candidateMtokens, bolt11, maxRoutingFeeMsats: routingFeeMtokens })
-        }
-
-        payOutBolt11 = await payOutBolt11Prospect(models, { msats: candidateMtokens, description: 'SN: zap to item #' + parseInt(payInArgs.id) }, { userId: c.userId, payOutType: 'ZAP' }, testBolt11Func)
-        p2pCandidateUserId = c.userId
-        // some wallets truncate msats to sats, so base the routing fee on the actual bolt11 amount
-        payOutCustodialTokensProspects.push({ payOutType: 'ROUTING_FEE', userId: null, mtokens: payOutBolt11.msats * 3n / 70n, custodialTokenType: 'SATS' })
-        break
-      } catch (err) {
-        console.error('failed to create invoice for candidate:', err)
-      }
-    }
-  }
-
-  // distribute CCs to all candidates who didn't get P2P
+  // P2P removed - Monero integration pending
+  // distribute CCs to all candidates
   for (const c of candidates) {
-    if (c.userId === p2pCandidateUserId) continue
     payOutCustodialTokensProspects.push({ payOutType: 'ZAP', userId: c.userId, mtokens: zapMtokens * BigInt(c.pct) / 100n, custodialTokenType: 'CREDITS' })
   }
 
   // what's left goes to the rewards pool
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, mcost, payOutCustodialTokens: payOutCustodialTokensProspects, payOutBolt11 })
+  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, mcost, payOutCustodialTokens: payOutCustodialTokensProspects, payOutBolt11: null })
 
   return {
     payInType: 'ZAP',
     userId: me.id,
     mcost,
     itemPayIn: { itemId: parseInt(payInArgs.id) },
-    payOutCustodialTokens,
-    payOutBolt11
+    payOutCustodialTokens
   }
 }
 
@@ -122,7 +80,6 @@ export async function onPaid (tx, payInId) {
     where: { id: payInId },
     include: {
       itemPayIn: { include: { item: true } },
-      payOutBolt11: true,
       payOutCustodialTokens: true
     }
   })
@@ -131,7 +88,8 @@ export async function onPaid (tx, payInId) {
   const sats = msatsToSats(msats)
   const userId = payIn.userId
   const item = payIn.itemPayIn.item
-  const p2pMsats = payIn.payOutBolt11?.msats ?? 0n
+  // P2P removed - Monero integration pending
+  const p2pMsats = 0n
   // actual recipient msats = p2p bolt11 + custodial ZAP payouts
   // (ineligible authors have their share redistributed, so this can be less than 70%)
   const recipientMsats = p2pMsats + payIn.payOutCustodialTokens

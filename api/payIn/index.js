@@ -1,14 +1,9 @@
-import { LND_PATHFINDING_TIME_PREF_PPM, LND_PATHFINDING_TIMEOUT_MS, USER_ID } from '@/lib/constants'
+import { USER_ID } from '@/lib/constants'
 import { Prisma } from '@prisma/client'
-import { payViaPaymentRequest } from 'ln-service'
-import lnd from '../lnd'
 import payInTypeModules from './types'
-import { msatsToSats } from '@/lib/format'
-import { payInBolt11Prospect, payInBolt11WrapProspect } from './lib/payInBolt11'
 import { isPessimistic, isProxyPayment, isWithdrawal } from './lib/is'
 import { PAY_IN_INCLUDE, payInCreate } from './lib/payInCreate'
 import { payInClone } from './lib/payInPrisma'
-import { createHmac } from '../resolvers/wallet'
 
 // grab a greedy connection for the payIn system on any server
 // if we have lock contention of payIns, we don't want to block other queries
@@ -147,105 +142,20 @@ export async function onBegin (tx, payInId, payInArgs, benefactorResult) {
 }
 
 async function afterBegin (models, { payIn, result, mCostRemaining }, { me, sendProtocolId, payInArgs }) {
-  async function afterInvoiceCreation ({ payInState, payInBolt11 }) {
-    try {
-      const inStates = ['PENDING_INVOICE_CREATION', 'PENDING_INVOICE_WRAP']
-      const updatedPayIn = await models.payIn.update({
-        where: {
-          id: payIn.id,
-          payInState: { in: inStates }
-        },
-        data: {
-          payInState,
-          payInBolt11: {
-            create: {
-              ...payInBolt11,
-              protocolId: payInBolt11.protocolId ?? sendProtocolId
-            }
-          },
-          beneficiaries: {
-            updateMany: {
-              data: {
-                payInState
-              },
-              where: {
-                benefactorId: payIn.id
-              }
-            }
-          }
-        },
-        include: PAY_IN_INCLUDE
-      })
-      // the HMAC is only returned during invoice creation
-      // this makes sure that only the person who created this invoice
-      // has access to the HMAC
-      updatedPayIn.payInBolt11.hmac = createHmac(updatedPayIn.payInBolt11.hash)
-      // NOTE: this circular reference is intentional, as it allows us to modify the payIn from the result
-      // (e.g. item) in the clientside cache
-      return { ...updatedPayIn, result: result ? { ...result, payIn: updatedPayIn } : undefined }
-    } catch (e) {
-      console.error('error transitioning to ' + payInState + ' after invoice creation', e)
-      throw new PayInFailureReasonError('transitioning to ' + payInState + ' failed', 'INVOICE_CREATION_FAILED')
+  if (payIn.payInState === 'PAID') {
+    onPaidSideEffects(models, payIn.id).catch(console.error)
+    return {
+      ...payIn,
+      result: result ? { ...result, payIn } : undefined
     }
-  }
-
-  try {
-    if (payIn.payInState === 'PAID') {
-      onPaidSideEffects(models, payIn.id).catch(console.error)
-    } else if (payIn.payInState === 'PENDING_INVOICE_CREATION') {
-      const payInBolt11 = await payInBolt11Prospect(models, payIn,
-        { msats: mCostRemaining, description: await payInTypeModules[payIn.payInType].describe(models, payIn.id) })
-      return await afterInvoiceCreation({
-        payInState: payIn.pessimisticEnv ? 'PENDING_HELD' : 'PENDING',
-        payInBolt11
-      })
-    } else if (payIn.payInState === 'PENDING_INVOICE_WRAP') {
-      const payInBolt11 = await payInBolt11WrapProspect(models, payIn,
-        {
-          msats: mCostRemaining,
-          description: await payInTypeModules[payIn.payInType].describe(models, payIn.id),
-          descriptionHash: payInArgs?.descriptionHash
-        })
-      return await afterInvoiceCreation({
-        payInState: 'PENDING_HELD',
-        payInBolt11
-      })
-    } else if (payIn.payInState === 'PENDING_WITHDRAWAL') {
-      const { mtokens } = payIn.payOutCustodialTokens.find(t => t.payOutType === 'ROUTING_FEE')
-      payViaPaymentRequest({
-        lnd,
-        request: payIn.payOutBolt11.bolt11,
-        max_fee: msatsToSats(mtokens),
-        pathfinding_timeout: LND_PATHFINDING_TIMEOUT_MS,
-        confidence: LND_PATHFINDING_TIME_PREF_PPM
-      }).catch(e => {
-        console.error('failed to withdraw', e)
-        queuePayInWithdrawalFailed(models, payIn.id).catch(console.error)
-      })
-    } else {
-      throw new Error('Invalid payIn begin state')
-    }
-  } catch (e) {
-    queuePayInFailed(models, payIn.id, e.payInFailureReason).catch(console.error)
-    // if invoice creation or wrapping failed, we want to return the (bolt11-less) payIn to the
-    // client so that their view stays optimistic while we retry in the background.
-    // Pessimistic payIns still throw — they have no optimistic view and the user is waiting
-    // on the (now-impossible) invoice.
-    if (!(e instanceof PayInFailureReasonError) || payIn.pessimisticEnv) {
-      throw e
-    }
-  }
-
-  return {
-    ...payIn,
-    result: result
-      ? {
-          ...result,
-          // XXX this weirdness is for ITEM_UPDATE payIns, which we want to return
-          // the ITEM_CREATE payIn which can be unpaid while the (free) ITEM_UPDATE payIn is paid
-          payIn: payIn.payInType === 'ITEM_UPDATE' ? result.payIn : payIn
-        }
-      : undefined
+  } else if (payIn.payInState === 'PENDING_INVOICE_CREATION') {
+    throw new Error('Monero payments not implemented')
+  } else if (payIn.payInState === 'PENDING_INVOICE_WRAP') {
+    throw new Error('Monero payments not implemented')
+  } else if (payIn.payInState === 'PENDING_WITHDRAWAL') {
+    throw new Error('Monero payments not implemented')
+  } else {
+    throw new Error('Invalid payIn begin state')
   }
 }
 

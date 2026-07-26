@@ -1,6 +1,5 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
 import { numWithUnits, msatsToSats, msatsSatsFloor, satsToMsats } from '@/lib/format'
-import { payOutBolt11Prospect } from '../lib/payOutBolt11'
 
 export const anonable = false
 
@@ -43,69 +42,15 @@ export function computeAutoWithdrawAmount (user) {
   return { threshold, excess: BigInt(excess), maxFeeMsats, msats }
 }
 
+// Monero integration pending - autowithdraw disabled
 export async function getInitial (models, args, { me }) {
-  const user = await models.user.findUnique({ where: { id: me?.id } })
-  const amount = computeAutoWithdrawAmount(user)
-  if (!amount) {
-    throw new AutoWithdrawIneligibleError('autowithdraw no longer eligible')
-  }
-  const { msats, maxFeeMsats } = amount
-
-  // TODO: description, expiry?
-  const payOutBolt11 = await payOutBolt11Prospect(models, { msats, description: 'SN: auto-withdrawal' }, { userId: me?.id, payOutType: 'WITHDRAWAL' })
-  return {
-    payInType: 'AUTO_WITHDRAWAL',
-    userId: me?.id,
-    // some wallets truncate msats, so we need to update mcost to the actual amount received
-    mcost: payOutBolt11.msats + maxFeeMsats,
-    payOutBolt11,
-    payOutCustodialTokens: [
-      {
-        payOutType: 'ROUTING_FEE',
-        userId: null,
-        mtokens: maxFeeMsats,
-        custodialTokenType: 'SATS'
-      }
-    ]
-  }
+  throw new Error('Monero payments not implemented')
 }
 
-// Authoritative, transactional eligibility re-check. Runs inside begin()'s transaction with
-// the user row locked FOR NO KEY UPDATE (obtainRowLevelLocks) and before the debit, so two
-// concurrent autowithdraws serialize on the user row
 export async function validateBeforeCreate (tx, payInProspect, args, { me }) {
-  const user = await tx.user.findUnique({ where: { id: me.id } })
-  const amount = computeAutoWithdrawAmount(user)
-  if (!amount) {
-    throw new AutoWithdrawIneligibleError('autowithdraw no longer eligible')
-  }
-
-  // the already-minted amount (+ routing fee) must still fit under the current excess
-  const routingFeeMsats = payInProspect.payOutCustodialTokens
-    .find(t => t.payOutType === 'ROUTING_FEE')?.mtokens ?? 0n
-  const mintedMsats = payInProspect.payOutBolt11.msats + routingFeeMsats
-  if (mintedMsats > amount.excess) {
-    throw new AutoWithdrawIneligibleError('autowithdraw amount exceeds current excess')
-  }
-
-  // once-per-hour pending/failed-withdrawal guard, now read transactionally under the lock.
-  // keyed on the actually-minted payOutBolt11.msats (post truncation), matching what gets persisted.
-  const [pendingOrFailed] = await tx.$queryRaw`
-    SELECT EXISTS(
-      SELECT *
-      FROM "PayOutBolt11"
-      WHERE "userId" = ${me.id}
-      AND status IS DISTINCT FROM 'CONFIRMED'
-      AND "payOutType" = 'WITHDRAWAL'
-      AND created_at > now() - interval '1 hour'
-      AND "msats" >= ${satsToMsats(msatsToSats(payInProspect.payOutBolt11.msats))}
-    )`
-  if (pendingOrFailed.exists) {
-    throw new AutoWithdrawIneligibleError('autowithdraw pending or recently attempted')
-  }
+  throw new Error('Monero payments not implemented')
 }
 
 export async function describe (models, payInId) {
-  const payIn = await models.payIn.findUnique({ where: { id: payInId }, include: { payOutBolt11: true } })
-  return `SN: auto-withdraw ${numWithUnits(msatsToSats(payIn.payOutBolt11.msats))}`
+  throw new Error('Monero payments not implemented')
 }

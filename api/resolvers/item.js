@@ -25,11 +25,8 @@ import { uploadIdsFromText } from './upload'
 import assertGofacYourself from './ofac'
 import assertApiKeyNotPermitted from './apiKey'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
-import { verifyHmac } from './wallet'
 import { parse } from 'tldts'
 import { shuffleArray } from '@/lib/rand'
-import pay, { retry as retryPayIn } from '../payIn'
-import { BOUNTY_ALREADY_PAID_ERROR, BOUNTY_IN_PROGRESS_ERROR, getBountyPaymentTail } from '../payIn/lib/bountyPayment'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { resolveItemComments } from './comment-tree'
 
@@ -852,7 +849,7 @@ export default {
 
       return await pay('POLL_VOTE', { id }, { me, models, sendProtocolId })
     },
-    act: async (parent, { id, sats, act = 'TIP', hasSendWallet, sendProtocolId }, { me, models, lnd, headers }) => {
+    act: async (parent, { id, sats, act = 'TIP', hasSendWallet, sendProtocolId }, { me, models, headers }) => {
       assertApiKeyNotPermitted({ me })
       await validateSchema(actSchema, { sats, act })
       await assertGofacYourself({ models, headers })
@@ -879,30 +876,7 @@ export default {
         throw new GqlInputError('item is deleted')
       }
 
-      // disallow self tips except anons
-      if (me && ['TIP', 'DONT_LIKE_THIS'].includes(act)) {
-        if (Number(item.userId) === Number(me.id)) {
-          throw new GqlInputError('cannot zap yourself')
-        }
-
-        // Disallow tips if me is one of the forward user recipients
-        if (act === 'TIP') {
-          const existingForwards = await models.itemForward.findMany({ where: { itemId: Number(id) } })
-          if (existingForwards.some(fwd => Number(fwd.userId) === Number(me.id))) {
-            throw new GqlInputError('cannot zap a post for which you are forwarded zaps')
-          }
-        }
-      }
-
-      if (act === 'TIP') {
-        return await pay('ZAP', { id, sats, hasSendWallet }, { me, models, sendProtocolId })
-      } else if (act === 'DONT_LIKE_THIS') {
-        return await pay('DOWN_ZAP', { id, sats }, { me, models, sendProtocolId })
-      } else if (act === 'BOOST') {
-        return await pay('BOOST', { id, sats }, { me, models, sendProtocolId })
-      } else {
-        throw new GqlInputError('unknown act')
-      }
+      throw new Error('Monero payments are not implemented until Phase 2')
     },
     payBounty: async (parent, { id, sendProtocolId }, { me, models }) => {
       if (!me) {
@@ -910,47 +884,7 @@ export default {
       }
       assertApiKeyNotPermitted({ me })
 
-      const item = await models.item.findUnique({
-        where: { id: Number(id) },
-        include: {
-          itemPayIns: {
-            where: {
-              payIn: {
-                payInType: 'ITEM_CREATE',
-                payInState: 'PAID'
-              }
-            }
-          }
-        }
-      })
-
-      if (!item) {
-        throw new GqlInputError('item not found')
-      }
-
-      if (item.itemPayIns.length === 0) {
-        throw new GqlInputError('cannot pay bounty on unpaid item')
-      }
-
-      if (item.deletedAt) {
-        throw new GqlInputError('item is deleted')
-      }
-
-      if (Number(item.userId) === Number(me.id)) {
-        throw new GqlInputError('cannot pay bounty to yourself')
-      }
-
-      const tail = await getBountyPaymentTail(models, Number(id), { userId: Number(me.id) })
-      if (!tail) {
-        return await pay('BOUNTY_PAYMENT', { id }, { me, models, sendProtocolId })
-      }
-      if (tail.payInState === 'FAILED') {
-        return await retryPayIn(tail.id, { me, sendProtocolId })
-      }
-      if (tail.payInState === 'PAID') {
-        throw new GqlInputError(BOUNTY_ALREADY_PAID_ERROR)
-      }
-      throw new GqlInputError(BOUNTY_IN_PROGRESS_ERROR)
+      throw new Error('Monero payments are not implemented until Phase 2')
     },
     updateCommentsViewAt: async (parent, { id, meCommentsViewedAt }, { me, models }) => {
       if (!me) {

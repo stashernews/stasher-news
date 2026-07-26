@@ -5,7 +5,7 @@ import { USER_ID } from '@/lib/constants'
 import { getForwardUsers } from '@/api/resolvers/item'
 import { autoPost } from './weeklyPosts'
 
-export async function thisDay ({ models, apollo, lnd, boss }) {
+export async function thisDay ({ models, apollo, boss }) {
   const days = []
   let yearsAgo = 1
   while (datePivot(new Date(), { years: -yearsAgo }) > new Date('2021-06-10')) {
@@ -47,7 +47,6 @@ ${topSubs(days)}`
     },
     models,
     apollo,
-    lnd,
     boss
   })
 }
