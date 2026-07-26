@@ -212,95 +212,6 @@ USAGE
   echo "$help"
 }
 
-sndev__set_balance() {
-  shift
-
-  if [ -z "$1" ]; then
-    echo "NYM argument required"
-    sndev__help_set_balance
-    exit 1
-  fi
-
-  if [ -z "$2" ]; then
-    echo "MSATS argument required"
-    sndev__help_set_balance
-    exit 2
-  fi
-
-  if ! echo "$2" | grep -qE "^[0-9]+$"; then
-   echo "MSATS argument is not a positive integer"
-   sndev__help_set_balance
-   exit 3
-  fi
-
-  docker__exec db psql -U sn -d stackernews -q <<EOF
-    UPDATE users set msats = $2 where name = '$1';
-EOF
-}
-
-sndev__help_set_balance() {
-  help="
-set the balance of a nym
-
-USAGE
-  $ sndev set_balance NYM MSATS
-
-  NYM - the name of the user you want to set the balance of
-  MSATS - the amount of millisatoshis to set the account to. Must be >= 0
-"
-
-  echo "$help"
-}
-
-sndev__fund() {
-  shift
-  if [ "$1" = "--cln" ]; then
-    shift
-    sndev__cli -t cln pay "$@"
-  else
-    sndev__cli -t lnd payinvoice "$@"
-  fi
-}
-
-sndev__help_fund() {
-help="
-pay a bolt11 for funding
-
-USAGE
-  $ sndev fund BOLT11 [OPTIONS]
-  $ sndev fund --cln BOLT11
-
-OPTIONS"
-
-  echo "$help"
-  sndev__cli lnd payinvoice -h | awk '/OPTIONS:/{y=1;next}y' | awk '!/^[\t ]+--pay_req value/'
-}
-
-sndev__withdraw() {
-  shift
-  if [ "$1" = "--cln" ]; then
-    shift
-    label=$(date +%s)
-    sndev__cli -t cln invoice "$1"sats "$label" sndev | jq -j '.bolt11'; echo
-  else
-    sndev__cli lnd addinvoice --amt "$@" | jq -j '.payment_request'; echo
-  fi
-}
-
-sndev__help_withdraw() {
-  help="
-create a bolt11 for withdrawal
-
-USAGE
-  $ sndev withdraw SATS [OPTIONS]
-  $ sndev withdraw --cln SATS
-
-OPTIONS"
-
-  echo "$help"
-  sndev__cli lnd addinvoice -h | awk '/OPTIONS:/{y=1;next}y' | awk '!/^[\t ]+(--amt|--amt_msat) value/'
-}
-
 sndev__psql() {
   shift
   docker__exec -t db psql "$@" -U sn -d stackernews
@@ -805,14 +716,9 @@ COMMANDS
 
   sn:
     login                 login as a nym
-    set_balance           set the balance of a nym
 
   codespaces:
     setup_codespaces      setup environment for GitHub Codespaces
-
-  lightning:
-    fund                   pay a bolt11 for funding
-    withdraw               create a bolt11 for withdrawal
 
   db:
     psql                   open psql on db
