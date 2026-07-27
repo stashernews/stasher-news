@@ -80,6 +80,28 @@ test('Item has the new StealthNews subaddress columns', () => {
   }
 })
 
+// Regression guard: the scalar `moneroAccountId` must be backed by a real
+// relation (and thus a DB-level FOREIGN KEY), not left as a bare Int?.
+// Spec §4.2 annotates it as "moneroAccountId Int? (FK to MoneroAccount)".
+// Asserts the back-relations exist as relation fields via DMMF `kind`, so a
+// dropped/renamed relation is caught going forward.
+const relationFieldsOf = (modelName) => {
+  const model = allModels.find(m => m.name === modelName)
+  return new Set(model ? model.fields.filter(f => f.kind === 'object').map(f => f.name) : [])
+}
+
+test('Item exposes its Monero back-relations as relation fields', () => {
+  const rels = relationFieldsOf('Item')
+  for (const r of ['moneroAccount', 'subaddresses', 'observedTips', 'observedBurns']) {
+    expect(rels).toContain(r)
+  }
+})
+
+test('MoneroAccount has the inverse relation for Item.moneroAccountId', () => {
+  const rels = relationFieldsOf('MoneroAccount')
+  expect(rels).toContain('posts')
+})
+
 test('User has the StealthNews Monero fields and no custodial balance fields', () => {
   const fields = fieldsOf('User')
   for (const c of ['moneroAddress', 'privacyMode', 'stackedPiconeros', 'downvotePiconeros', 'tipDefaultPiconeros', 'moneroAccounts', 'rewardPayouts']) {

@@ -414,6 +414,7 @@ model Item {
   subaddressIndexMinor Int?
   subaddress           String?
   moneroAccountId      Int?
+  moneroAccount        MoneroAccount? @relation(fields: [moneroAccountId], references: [id])
 
   // back-relation to the pre-registered subaddress pool
   subaddresses  SubaddressIndex[] @relation("PostSubaddress")
@@ -1352,6 +1353,7 @@ model MoneroAccount {
   viewKey      MoneroViewKey?
   subaddresses SubaddressIndex[]
   observedTips ObservedTip[]
+  posts        Item[]
 
   @@unique([address, network])
   @@index([ownerUserId])

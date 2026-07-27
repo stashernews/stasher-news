@@ -1665,6 +1665,9 @@ ALTER TABLE "Earn" ADD CONSTRAINT "Earn_userId_fkey" FOREIGN KEY ("userId") REFE
 ALTER TABLE "Invite" ADD CONSTRAINT "Invite_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Item" ADD CONSTRAINT "Item_moneroAccountId_fkey" FOREIGN KEY ("moneroAccountId") REFERENCES "MoneroAccount"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Item" ADD CONSTRAINT "Item_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "Item"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
