@@ -30,6 +30,7 @@ import {
   clearLongHeldDomains
 } from './domainVerification.js'
 import { untrackOldItems } from './untrackOldItems'
+import { moneroIndexer } from './moneroIndexer'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -118,6 +119,15 @@ async function work () {
   await boss.work('thisDay', jobWrapper(thisDay))
   await boss.work('socialPoster', jobWrapper(postToSocial))
   await boss.work('untrackOldItems', jobWrapper(untrackOldItems))
+  await boss.work('moneroIndexer', jobWrapper(moneroIndexer))
+
+  // Seed the self-requeuing moneroIndexer loop only if no job is pending, so a
+  // worker restart never spawns a duplicate polling loop (the previous run's
+  // requeued job survives in the queue). runIndexerOnce is idempotent so a
+  // stray duplicate would be non-corrupting, but this keeps poll load at 1x.
+  if (await boss.getQueueSize('moneroIndexer') === 0) {
+    await boss.send('moneroIndexer', {})
+  }
 
   console.log('working jobs')
 }
