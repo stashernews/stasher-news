@@ -153,12 +153,24 @@ export default {
     async addSubaddresses (parent, { accountId, subaddresses }, { me, models, monero }) {
       if (!me) throw new GqlAuthenticationError()
       const id = Number(accountId)
+      if (!Number.isInteger(id) || id <= 0) throw new GqlInputError('invalid accountId')
       const account = await models.moneroAccount.findUnique({
         where: { id },
         include: { viewKey: true }
       })
       if (!account) throw new GqlInputError('account not found')
       if (account.ownerUserId !== me.id) throw new GqlAuthorizationError('not your account')
+
+      // Empty-list short-circuit: subaddrsToRanges([]) -> null, and
+      // lwsClient.upsertSubaddrs(account, null) defaults to { 0: [[0, 499]] }
+      // (api/monero/lwsClient.js), silently registering 500 default
+      // subaddresses. Mirrors registerMoneroAccount's empty-list guard.
+      if (!subaddresses || subaddresses.length === 0) {
+        return models.moneroAccount.findUnique({
+          where: { id },
+          include: { user: true }
+        })
+      }
 
       // Local persist first (idempotent on (accountId, majorIndex, minorIndex)
       // via @@unique), then lws registration. createMany skips duplicates so a
