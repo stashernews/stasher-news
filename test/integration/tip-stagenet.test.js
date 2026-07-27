@@ -78,6 +78,7 @@
 import { PrismaClient } from '@prisma/client'
 import resolvers from '@/api/resolvers/monero'
 import { lwsClient } from '@/api/monero/lwsClient'
+import { daemonClient } from '@/api/monero/daemonClient'
 import {
   MONERO_POLL_INTERVAL_MS,
   CONFIRM_POLL_INTERVAL_MS,
@@ -151,7 +152,7 @@ async function dumpDiagnostics (postId, accountId, recipientAddress) {
 
 // Read the current chain tip once (for progress logging during confirmation).
 async function chainHeight () {
-  try { return await lwsClient.getBlockchainHeight() } catch { return 0 }
+  try { return await daemonClient.getHeight() } catch { return 0 }
 }
 
 // Race-safe cursor seed (only advances lastTxId if it is still 0). Prevents the

@@ -94,9 +94,11 @@ function makeTransport ({ insecureTls }) {
   return function transport (url, { method = 'POST', headers = {}, body, signal } = {}) {
     return new Promise((resolve, reject) => {
       const lib = url.startsWith('https://') ? https : http
+      const reqHeaders = { 'content-type': 'application/json', accept: 'application/json', ...headers }
+      if (body !== undefined && body !== null) reqHeaders['content-length'] = Buffer.byteLength(body)
       const req = lib.request(url, {
         method,
-        headers: { 'content-type': 'application/json', accept: 'application/json', ...headers },
+        headers: reqHeaders,
         agent
       }, (res) => {
         const chunks = []
@@ -226,7 +228,7 @@ export function createLwsClient (options = {}) {
   // serialized and the transport does not write one.
   async function request (url, bodyObj, { admin = false, method = 'POST' } = {}) {
     const hasBody = bodyObj != null
-    const wrapped = admin ? { auth: adminAuth, params: bodyObj } : bodyObj
+    const wrapped = admin ? { ...(adminAuth ? { auth: adminAuth } : {}), params: bodyObj } : bodyObj
     const body = hasBody ? JSON.stringify(stripUndefined(wrapped)) : undefined
     let lastNetworkCause = null
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -298,9 +300,33 @@ export function createLwsClient (options = {}) {
     return request(`${walletUrl}/upsert_subaddrs`, body)
   }
 
-  /** Admin: register an account directly in ACTIVE state (registration-time plaintext). */
+  async function listAccounts () {
+    const res = await request(`${adminUrl}/list_accounts`, {}, { admin: true })
+    const active = (res && res.active) || []
+    const inactive = (res && res.inactive) || []
+    return [
+      ...active.map(a => ({ ...a, status: 'active' })),
+      ...inactive.map(a => ({ ...a, status: 'inactive' }))
+    ]
+  }
+
+  /** Admin: register an account in ACTIVE state. Idempotent on lws 0.3 —
+   *  add_account 500s (empty body) on an already-registered address, so a 500 is
+   *  followed by a list_accounts check: if the address is present it's treated as
+   *  success (re-activated if inactive); otherwise the 500 is re-thrown. */
   async function addAccount (address, viewKey) {
-    return request(`${adminUrl}/add_account`, { address, key: viewKey }, { admin: true })
+    try {
+      return await request(`${adminUrl}/add_account`, { address, key: viewKey }, { admin: true })
+    } catch (err) {
+      if (err instanceof LwsHttpError && err.status === 500) {
+        const existing = (await listAccounts()).find(a => a.address === address)
+        if (existing) {
+          if (existing.status !== 'active') await modifyAccountStatus([address], 'active')
+          return
+        }
+      }
+      throw err
+    }
   }
 
   /** Admin: set status ('active'|'inactive'|'hidden') for a set of addresses. */
@@ -330,6 +356,7 @@ export function createLwsClient (options = {}) {
     getAddressTxs,
     getAddressInfo,
     upsertSubaddrs,
+    listAccounts,
     addAccount,
     modifyAccountStatus,
     getDaemonStatus,

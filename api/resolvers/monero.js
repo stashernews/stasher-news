@@ -136,7 +136,11 @@ export default {
           where: { id: created.id },
           include: { viewKey: true }
         })
-        await monero.upsertSubaddrs(fresh, subaddrsToRanges(subaddresses))
+        try {
+          await monero.upsertSubaddrs(fresh, subaddrsToRanges(subaddresses))
+        } catch (err) {
+          console.warn(`registerMoneroAccount: lws upsertSubaddrs failed (best-effort; local DB is source of truth): ${err && err.message}`)
+        }
       }
 
       // 5. Return with the owner User eager-loaded so the privacyMode field
@@ -185,7 +189,11 @@ export default {
         })),
         skipDuplicates: true
       })
-      await monero.upsertSubaddrs(account, subaddrsToRanges(subaddresses))
+      try {
+        await monero.upsertSubaddrs(account, subaddrsToRanges(subaddresses))
+      } catch (err) {
+        console.warn(`addSubaddresses: lws upsertSubaddrs failed (best-effort; local DB is source of truth): ${err && err.message}`)
+      }
       return models.moneroAccount.findUnique({
         where: { id },
         include: { user: true }

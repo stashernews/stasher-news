@@ -55,9 +55,11 @@ function makeTransport () {
   return function transport (url, { method = 'POST', headers = {}, body, signal } = {}) {
     return new Promise((resolve, reject) => {
       const lib = url.startsWith('https://') ? https : http
+      const reqHeaders = { 'content-type': 'application/json', accept: 'application/json', ...headers }
+      if (body !== undefined && body !== null) reqHeaders['content-length'] = Buffer.byteLength(body)
       const req = lib.request(url, {
         method,
-        headers: { 'content-type': 'application/json', accept: 'application/json', ...headers }
+        headers: reqHeaders
       }, (res) => {
         const chunks = []
         res.on('data', (c) => chunks.push(c))
@@ -142,7 +144,14 @@ export function createDaemonClient (options = {}) {
     return hash
   }
 
-  return { getBlockHashByHeight, rpc }
+  async function getHeight () {
+    const result = await rpc('get_info', {})
+    const height = result && result.height
+    if (typeof height !== 'number') throw new Error('monerod get_info returned no height')
+    return height
+  }
+
+  return { getBlockHashByHeight, getHeight, rpc }
 }
 
 // Singleton: constructed once at module load from MONEROD_URL. The worker

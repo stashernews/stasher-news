@@ -3,7 +3,7 @@
 // Integration test for the confirmFinalizer job (Task 7 / spec §5.5, Q5).
 //
 // runConfirmFinalizerOnce is the testable core of the pg-boss confirmFinalizer
-// job: it reads the current chain height from lws /daemon_status once per run,
+// job: it reads the current chain height from monerod (get_info) once per run,
 // scans DETECTED ObservedTips whose height is set (mempool tips with height
 // null cannot be confirmed yet), and flips the mature ones (confirmations =
 // chainHeight - tip.height + 1 >= REQUIRED_CONFIRMATIONS) to CONFIRMED. The
@@ -12,7 +12,7 @@
 // DETECTED tip's ranking delta is already applied at detection time; the
 // CONFIRMED flip only finalizes the lifetime-received denorm, Q5).
 //
-// The lwsClient is the only mock — it is the network boundary (DI seam on
+// The daemonClient is the only mock — it is the network boundary (DI seam on
 // runConfirmFinalizerOnce). Everything else is real DB behaviour against a
 // live, migrated database, mirroring test/worker/moneroIndexer.test.js.
 //
@@ -100,9 +100,9 @@ async function seedTip ({ postId, piconeros, height, recipientAccountId }) {
   return tip
 }
 
-// The lwsClient DI mock: only getBlockchainHeight is consulted per run.
+// The daemonClient DI mock: only getHeight is consulted per run.
 function mockClient (height) {
-  return { getBlockchainHeight: jest.fn().mockResolvedValue(height) }
+  return { getHeight: jest.fn().mockResolvedValue(height) }
 }
 
 function readTip (id) {
@@ -121,7 +121,7 @@ test('a DETECTED tip at height 200 becomes CONFIRMED at chain height 209 (10 con
 
   expect((await readUser(authorId)).stackedPiconeros).toBe(0n)
 
-  await runConfirmFinalizerOnce({ models: prisma, lwsClient: mockClient(209) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(209) })
 
   const after = await readTip(tip.id)
   expect(after.state).toBe('CONFIRMED')
@@ -136,7 +136,7 @@ test('a DETECTED tip stays DETECTED at 9 confirmations (chain 208) and does not 
   const account = await seedAccount()
   const tip = await seedTip({ postId, piconeros: 5_000_000n, height: 200, recipientAccountId: account.id })
 
-  await runConfirmFinalizerOnce({ models: prisma, lwsClient: mockClient(208) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(208) })
 
   const after = await readTip(tip.id)
   expect(after.state).toBe('DETECTED')
@@ -150,7 +150,7 @@ test('a mempool tip (height null) is skipped even at high chain height', async (
   const account = await seedAccount()
   const tip = await seedTip({ postId, piconeros: 5_000_000n, height: null, recipientAccountId: account.id })
 
-  await runConfirmFinalizerOnce({ models: prisma, lwsClient: mockClient(9999) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(9999) })
 
   const after = await readTip(tip.id)
   expect(after.state).toBe('DETECTED')
@@ -164,8 +164,8 @@ test('idempotent: running twice does not double-bump the author denorm', async (
   const tip = await seedTip({ postId, piconeros: 7_000_000n, height: 200, recipientAccountId: account.id })
 
   const client = mockClient(209)
-  await runConfirmFinalizerOnce({ models: prisma, lwsClient: client })
-  await runConfirmFinalizerOnce({ models: prisma, lwsClient: client })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: client })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: client })
 
   const after = await readTip(tip.id)
   expect(after.state).toBe('CONFIRMED')

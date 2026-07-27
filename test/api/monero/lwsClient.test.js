@@ -259,6 +259,51 @@ describe('addAccount', () => {
     })
     expect(out).toEqual({ updated: [ADDR] })
   })
+
+  test('admin requests OMIT the auth field when adminAuth is empty (lws --disable-admin-auth rejects auth)', async () => {
+    const t = recordingTransport(() => jsonRes(200, { active: [], inactive: [] }))
+    const client = makeClient(t, { adminAuth: '' })
+    await client.listAccounts()
+    expect(t.calls[0].url).toBe(ADMIN_URL + '/list_accounts')
+    expect(JSON.parse(t.calls[0].opts.body)).toEqual({ params: {} })
+  })
+
+  test('idempotent: a 500 from add_account for an already-registered address is verified via list_accounts and treated as success', async () => {
+    const t = recordingTransport(({ url }) => {
+      if (url.endsWith('/add_account')) return jsonRes(500, {})
+      if (url.endsWith('/list_accounts')) return jsonRes(200, { active: [{ address: ADDR, scan_height: 100 }], inactive: [] })
+      return jsonRes(200, {})
+    })
+    const client = makeClient(t)
+    const out = await client.addAccount(ADDR, VIEWKEY_HEX)
+    expect(out).toBeUndefined()
+    expect(t.calls.some(c => c.url === ADMIN_URL + '/add_account')).toBe(true)
+    expect(t.calls.some(c => c.url === ADMIN_URL + '/list_accounts')).toBe(true)
+  })
+
+  test('a 500 from add_account for an address NOT in list_accounts is re-thrown (real error, not idempotent)', async () => {
+    const t = recordingTransport(({ url }) => {
+      if (url.endsWith('/add_account')) return jsonRes(500, {})
+      if (url.endsWith('/list_accounts')) return jsonRes(200, { active: [], inactive: [] })
+      return jsonRes(200, {})
+    })
+    const client = makeClient(t)
+    await expect(client.addAccount(ADDR, VIEWKEY_HEX)).rejects.toThrow(/returned HTTP 500/)
+  })
+
+  test('idempotent: an existing INACTIVE account is re-activated via modify_account_status', async () => {
+    const t = recordingTransport(({ url }) => {
+      if (url.endsWith('/add_account')) return jsonRes(500, {})
+      if (url.endsWith('/list_accounts')) return jsonRes(200, { active: [], inactive: [{ address: ADDR }] })
+      if (url.endsWith('/modify_account_status')) return jsonRes(200, { updated: [ADDR] })
+      return jsonRes(200, {})
+    })
+    const client = makeClient(t)
+    await client.addAccount(ADDR, VIEWKEY_HEX)
+    const modifyCall = t.calls.find(c => c.url === ADMIN_URL + '/modify_account_status')
+    expect(modifyCall).toBeDefined()
+    expect(JSON.parse(modifyCall.opts.body).params.status).toBe('active')
+  })
 })
 
 describe('modifyAccountStatus', () => {

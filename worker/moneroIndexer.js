@@ -121,6 +121,11 @@ export async function runIndexerOnce ({ models, lwsClient: client = lwsClient, d
     }
 
     for (const tx of txs) {
+      // lws 0.3 returns the FULL transaction history when since_tx_block_hash
+      // is unset (bootstrapping / first poll); since_tx_id alone is ignored.
+      // Filter client-side: skip confirmed txs already behind the cursor.
+      // Mempool txs (height null) are always processed — they are new.
+      if (tx.height != null && typeof tx.id === 'number' && BigInt(tx.id) <= account.lastTxId) continue
       // Map the receiving subaddress -> the Post it is assigned to. A missing
       // row or an unassigned subaddress means this output is not a tip to a
       // known post (payment-id mode, or a subaddress not yet bound) -> skip.
