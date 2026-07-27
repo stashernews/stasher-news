@@ -1,4 +1,4 @@
-import { lwsClient } from '@/api/monero/lwsClient'
+import { daemonClient } from '@/api/monero/daemonClient'
 import { CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 
 // confirmFinalizer — matures provisional tips (Task 7 / spec §5.5, Q5).
@@ -10,8 +10,8 @@ import { CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constant
 // (spec Q7: Monero reorgs are shallow, so 10 confs is effectively final).
 //
 // This job is the counterpart that flips the mature ones DETECTED -> CONFIRMED.
-// It reads the current chain height from lws /daemon_status ONCE per run (one
-// daemon-status call per run — never per tip), scans DETECTED ObservedTips
+// It reads the current chain height from monerod (get_info) ONCE per run (one
+// daemon call per run — never per tip), scans DETECTED ObservedTips
 // whose height is set (mempool tips have height == null and cannot be
 // confirmed yet), and for each mature tip flips state and bumps the author's
 // stackedPiconeros lifetime-received denorm (spec Q5: stackedPiconeros = sum
@@ -28,7 +28,7 @@ import { CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constant
 //
 // This module exports TWO things (mirrors worker/moneroIndexer.js):
 //   - runConfirmFinalizerOnce: the testable per-run core (no pg-boss). Takes
-//     an injectable lwsClient so tests never touch the network.
+//     an injectable daemonClient so tests never touch the network.
 //   - confirmFinalizer: the pg-boss handler. Calls the core then self-requeues
 //     with startAfter = CONFIRM_POLL_INTERVAL_MS.
 
@@ -41,8 +41,8 @@ const SCAN_BATCH_SIZE = 500
 
 // One run of the confirmFinalizer. Returns the count of tips flipped to
 // CONFIRMED (useful for logs/metrics; not asserted by tests).
-export async function runConfirmFinalizerOnce ({ models, lwsClient: client = lwsClient }) {
-  const chainHeight = await client.getBlockchainHeight()
+export async function runConfirmFinalizerOnce ({ models, daemonClient: client = daemonClient }) {
+  const chainHeight = await client.getHeight()
 
   // Mempool tips (height == null) carry no block height to confirm against, so
   // they are excluded here — they become eligible the moment lws reports them
