@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { daemonClient } from '@/api/monero/daemonClient'
 import { applyTipDetected, reverseTip } from '@/api/monero/ranking'
@@ -125,27 +126,35 @@ export async function runIndexerOnce ({ models, lwsClient: client = lwsClient, d
       if (!sub || sub.assignedPostId == null) continue
 
       // Idempotent insert keyed by @@unique([txHash, recipientAccountId,
-      // recipientMajor, recipientMinor]). A NEW insert fires the ranking hook.
+      // recipientMajor, recipientMinor]). The ObservedTip.create and the
+      // applyTipDetected ranking delta run in ONE serializable $transaction so
+      // they commit or roll back TOGETHER — a partial failure (apply throws
+      // after the create) can never leave an orphan DETECTED row with unbumped
+      // msats, which would otherwise be skipped forever by the P2002 idempotency
+      // check below (and a later reorg reversal could over-subtract). The
+      // callback param is `txn` (not `tx`) because `tx` is the lws tx in scope.
       // A P2002 on a REORGED row means the tip reappeared after a reorg: revive
       // it to DETECTED and re-apply the delta (reverseTip already subtracted
       // it). A P2002 on a DETECTED/CONFIRMED row is a true duplicate -> skip.
       try {
-        await models.observedTip.create({
-          data: {
-            txHash: tx.hash,
-            postId: sub.assignedPostId,
-            tipperId: null,
-            recipientAccountId: account.id,
-            recipientMajor: tx.recipient.maj_i,
-            recipientMinor: tx.recipient.min_i,
-            paymentId: tx.payment_id ?? null,
-            piconeros: tx.piconeros,
-            height: tx.height ?? null,
-            state: 'DETECTED',
-            proofType: 'INDEXED'
-          }
-        })
-        await applyTipDetected(sub.assignedPostId, null, tx.piconeros)
+        await models.$transaction(async (txn) => {
+          await txn.observedTip.create({
+            data: {
+              txHash: tx.hash,
+              postId: sub.assignedPostId,
+              tipperId: null,
+              recipientAccountId: account.id,
+              recipientMajor: tx.recipient.maj_i,
+              recipientMinor: tx.recipient.min_i,
+              paymentId: tx.payment_id ?? null,
+              piconeros: tx.piconeros,
+              height: tx.height ?? null,
+              state: 'DETECTED',
+              proofType: 'INDEXED'
+            }
+          })
+          await applyTipDetected(sub.assignedPostId, null, tx.piconeros, txn)
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
       } catch (err) {
         if (err && err.code === PRISMA_UNIQUE_VIOLATION) {
           await reviveIfReorged({ models, account, tx, postId: sub.assignedPostId })

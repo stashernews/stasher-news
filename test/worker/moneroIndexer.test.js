@@ -18,6 +18,23 @@
 import { PrismaClient } from '@prisma/client'
 import { encryptViewKey } from '@/api/monero/viewkey'
 import { runIndexerOnce } from '@/worker/moneroIndexer'
+import { applyTipDetected } from '@/api/monero/ranking'
+
+// applyTipDetected is wrapped in a jest.fn so the atomicity regression test
+// (last test) can make it throw mid-transaction. By default the mock delegates
+// to the real implementation, so every other test exercises real ranking
+// behaviour and the existing Task 4 tests are unaffected. jest.mock is
+// auto-hoisted above the imports by the transform (the pattern used in
+// test/worker/moneroIndexer.reorg.test.js and lib/ssrf.spec.js), so
+// worker/moneroIndexer.js — loaded via the import above — also receives the
+// mocked applyTipDetected. reverseTip passes through untouched (real).
+jest.mock('../../api/monero/ranking', () => {
+  const actual = jest.requireActual('../../api/monero/ranking')
+  return {
+    ...actual,
+    applyTipDetected: jest.fn((...args) => actual.applyTipDetected(...args))
+  }
+})
 
 // Envelope encryption needs a master key in the env (Task 2). Set before any
 // encryptViewKey call; getMasterKey() lazily caches it.
@@ -33,6 +50,16 @@ const SUB_ADDR = '5' + '2'.repeat(94) // a subaddress on that account
 // FK-safe order: ObservedTip -> SubaddressIndex -> Item -> MoneroViewKey ->
 // MoneroAccount -> users.
 const created = { users: [], items: [], accounts: [], subs: [] }
+
+// Capture the real applyTipDetected so afterEach can restore the delegating
+// implementation after any per-test override (atomicity regression test).
+let realApplyTipDetected
+beforeAll(() => {
+  realApplyTipDetected = jest.requireActual('../../api/monero/ranking').applyTipDetected
+})
+afterEach(() => {
+  applyTipDetected.mockImplementation((...args) => realApplyTipDetected(...args))
+})
 
 afterAll(async () => {
   // FK order: ObservedTip -> SubaddressIndex -> Item -> MoneroViewKey -> MoneroAccount -> users
@@ -113,6 +140,22 @@ function tipTx ({ hash = 'ab12cd', id = 5, majI = 0, minI = 3, piconeros = 5_000
   return { id, hash, piconeros, recipient: { maj_i: majI, min_i: minI }, height, payment_id: null }
 }
 
+// A mock lwsClient that returns the supplied transactions ONLY for the account
+// under test (empty for all other ACTIVE accounts). runIndexerOnce polls every
+// ACTIVE account, and the per-test teardown is in afterAll — so during any given
+// test the accounts seeded by earlier tests still exist. An account-agnostic
+// mock would feed THIS test's tx into those leaked accounts too, processing a
+// different account first and making assertions about the wrong one (a real
+// false-green trap — this mirrors mockLwsFor in moneroIndexer.reorg.test.js).
+function mockLwsFor (targetAccount, transactions, blockchainHeight = 210) {
+  return {
+    getAddressTxs: jest.fn(async (acc) =>
+      acc.id === targetAccount.id
+        ? { transactions, blockchain_height: blockchainHeight }
+        : { transactions: [], blockchain_height: blockchainHeight })
+  }
+}
+
 function readItem (id) {
   return prisma.item.findUnique({ where: { id }, select: { msats: true } })
 }
@@ -176,4 +219,57 @@ test('runIndexerOnce skips a tx whose (maj_i,min_i) has no SubaddressIndex', asy
 
   expect(await prisma.observedTip.count({ where: { postId } })).toBe(0)
   expect(after.msats - before.msats).toBe(0n)
+})
+
+// ---- atomicity regression (partial-failure hazard fix) ---------------------
+
+// This is the load-bearing test for the money-correctness fix: ObservedTip.create
+// and applyTipDetected must commit or roll back TOGETHER in one serializable
+// transaction. Under the OLD (non-atomic) code, if the create committed but
+// applyTipDetected threw, the next poll's idempotency check (P2002 on the
+// @@unique key) skipped the ranking bump FOREVER — a stuck DETECTED row with
+// unbumped Item.msats (and a later reorg reversal could over-subtract to
+// negative). Here we simulate the apply throw, assert the create rolls back too
+// (no orphan DETECTED), then restore apply and prove a clean retry.
+test('atomicity: if applyTipDetected throws, the ObservedTip create rolls back too (no orphan DETECTED) and a retry succeeds cleanly', async () => {
+  const userId = await createUser(); created.users.push(userId)
+  const postId = await createRoot(userId, 'atomicity-target'); created.items.push(postId)
+  const account = await seedAccount({ postId })
+
+  const before = await readItem(postId)
+
+  // Make applyTipDetected reject on its next invocation. Under the OLD code the
+  // ObservedTip.create had ALREADY committed before this throw, leaving an
+  // orphan DETECTED row; under the fix they share ONE serializable $transaction
+  // so the failed apply rolls the create back too.
+  applyTipDetected.mockImplementation(async () => { throw new Error('simulated applyTipDetected failure') })
+  await expect(runIndexerOnce({
+    models: prisma,
+    lwsClient: mockLwsFor(account, [tipTx({ hash: 'atomic1' })]),
+    daemonClient: mockDaemon()
+  })).rejects.toThrow('simulated applyTipDetected failure')
+
+  // No orphan DETECTED row and msats untouched — the partial-failure hazard is
+  // gone (this is the assertion that FAILS on the pre-fix code).
+  expect(await prisma.observedTip.count({
+    where: { txHash: 'atomic1', recipientAccountId: account.id }
+  })).toBe(0)
+  expect((await readItem(postId)).msats - before.msats).toBe(0n)
+
+  // Restore the real applyTipDetected and re-run the SAME tx. Now it succeeds:
+  // ObservedTip created DETECTED and msats bumped EXACTLY ONCE. This proves the
+  // retry-after-failure is clean — no P2002-skipped-forever, no double-bump.
+  applyTipDetected.mockImplementation((...args) => realApplyTipDetected(...args))
+  await runIndexerOnce({
+    models: prisma,
+    lwsClient: mockLwsFor(account, [tipTx({ hash: 'atomic1' })]),
+    daemonClient: mockDaemon()
+  })
+
+  const tip = await prisma.observedTip.findFirst({
+    where: { txHash: 'atomic1', recipientAccountId: account.id }
+  })
+  expect(tip).toBeTruthy()
+  expect(tip.state).toBe('DETECTED')
+  expect((await readItem(postId)).msats - before.msats).toBe(5_000_000n) // bumped exactly once
 })

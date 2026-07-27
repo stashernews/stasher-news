@@ -65,9 +65,23 @@ function tipDeltaSql (postId, tipperId, piconeros, sign) {
     WHERE "Item".id = ancestors.id`
 }
 
-export async function applyTipDetected (postId, tipperId, piconeros) {
+export async function applyTipDetected (postId, tipperId, piconeros, tx) {
+  // Transaction propagation. When `tx` is supplied the caller OWNS the
+  // transaction — run the ranking SQL directly on it and do NOT open an inner
+  // $transaction. This lets the moneroIndexer wrap ObservedTip.create and this
+  // ranking delta in ONE serializable $transaction so they commit or roll back
+  // together: a partial failure (apply throws) can never leave an orphan
+  // DETECTED row with unbumped msats, which the next poll's P2002 idempotency
+  // check would otherwise skip forever. Without `tx` the original standalone
+  // behaviour is preserved so every other caller — the Task 5 unit tests, the
+  // seedTip test helper, reviveIfReorged — is unchanged.
+  const sql = tipDeltaSql(postId, tipperId, piconeros, ADD)
+  if (tx) {
+    await tx.$executeRaw(sql)
+    return
+  }
   await prisma.$transaction(
-    tx => tx.$executeRaw(tipDeltaSql(postId, tipperId, piconeros, ADD)),
+    t => t.$executeRaw(sql),
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 10000 }
   )
 }
