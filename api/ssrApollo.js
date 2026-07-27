@@ -19,6 +19,7 @@ import { MULTI_AUTH_ANON, MULTI_AUTH_LIST, MULTI_AUTH_POINTER, multiAuthMiddlewa
 import { lexicalStateLoader } from '@/lib/lexical/server/loader'
 import { createUserLoader, createSubLoader } from '@/api/loaders'
 import { getDomainBranding, SN_MAIN_DOMAIN } from '@/lib/domains'
+import { lwsClient } from './monero/lwsClient'
 
 export default async function getSSRApolloClient ({ req, res, me = null }) {
   // switch session cookie before getting session on SSR
@@ -45,6 +46,7 @@ export default async function getSSRApolloClient ({ req, res, me = null }) {
           search,
           userLoader,
           subLoader,
+          monero: lwsClient,
           lexicalStateLoader: lexicalStateLoader({ me: viewer, userLoader })
         }
       })()
