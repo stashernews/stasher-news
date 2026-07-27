@@ -162,9 +162,15 @@ function parseAmounts (obj) {
 
 // Normalise one /get_address_txs transaction object: BigInt amounts, and
 // omitted mempool fields (height, timestamp) / optional payment_id -> null.
+//
+// The per-tx amount is exposed as `piconeros` (the domain column on
+// ObservedTip and what the Task 4 indexer / brief's test sketch read), NOT
+// lws's wire name `total_received`. Only this per-tx amount is renamed; the
+// account-level lifetime `total_received` returned by /get_address_info and
+// the top-level balance in parseAddressTxs is a different value and stays.
 function parseTx (tx) {
   const parsed = parseAmounts(tx)
-  return {
+  const out = {
     ...parsed,
     height: parsed.height ?? null,
     timestamp: parsed.timestamp ?? null,
@@ -172,6 +178,14 @@ function parseTx (tx) {
     recipient: parsed.recipient ? { maj_i: parsed.recipient.maj_i, min_i: parsed.recipient.min_i } : null,
     spent_outputs: parsed.spent_outputs ?? []
   }
+  // Rename the per-tx amount from lws's wire name to the domain column, dropping
+  // the wire name so the value isn't present under two keys. parseAmounts
+  // already promoted the JSON string to BigInt.
+  if ('total_received' in out) {
+    out.piconeros = out.total_received
+    delete out.total_received
+  }
+  return out
 }
 
 function parseAddressTxs (raw) {
