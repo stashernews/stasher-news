@@ -18,6 +18,7 @@ import { GraphQLScalarType, Kind } from 'graphql'
 import { createIntScalar } from 'graphql-scalar'
 import domain from './domain'
 import payIn from './payIn'
+import monero from './monero'
 
 const date = new GraphQLScalarType({
   name: 'Date',
@@ -99,4 +100,4 @@ const limit = createIntScalar({
 
 export default [user, item, message, notifications, invite, sub,
   upload, search, growth, rewards, referrals, price, admin, blockHeight, chainFee,
-  domain, { JSONObject }, { Date: date }, { Limit: limit }, { BigInt: bigint }, payIn]
+  domain, { JSONObject }, { Date: date }, { Limit: limit }, { BigInt: bigint }, payIn, monero]
