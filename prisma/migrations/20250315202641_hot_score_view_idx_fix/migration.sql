@@ -1,2 +1,0 @@
-CREATE INDEX IF NOT EXISTS hot_score_view_hot_score_no_nulls_idx ON hot_score_view(hot_score DESC);
-CREATE INDEX IF NOT EXISTS hot_score_view_sub_hot_score_no_nulls_idx ON hot_score_view(sub_hot_score DESC);

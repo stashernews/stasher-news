@@ -1,9 +1,0 @@
--- AlterTable
-ALTER TABLE "Item"
-ADD COLUMN     "bio" BOOLEAN NOT NULL DEFAULT false,
-ADD COLUMN     "freebie" BOOLEAN NOT NULL DEFAULT false;
-
--- AlterTable
-ALTER TABLE "users" ADD COLUMN     "greeterMode" BOOLEAN NOT NULL DEFAULT false,
-ALTER COLUMN "freeComments" SET DEFAULT 5,
-ALTER COLUMN "freePosts" SET DEFAULT 2;
