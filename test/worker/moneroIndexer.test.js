@@ -98,6 +98,13 @@ function mockClient (transactions, blockchainHeight = 210) {
   }
 }
 
+// A mock daemonClient (Task 6) so cursor-advance block-hash sourcing stays
+// offline. These Task 4 tests don't assert lastBlockHash, but runIndexerOnce
+// now consults the daemon on every non-empty batch.
+function mockDaemon (hash = 'hash200') {
+  return { getBlockHashByHeight: jest.fn().mockResolvedValue(hash) }
+}
+
 // Convenience: one canonical tip output to (maj_i:0, min_i:3) worth 5 XMR
 // (5,000,000,000 piconero? No — 5 XMR = 5e12 piconero. We use 5_000_000
 // piconero here = 0.000005 XMR; the absolute value is irrelevant to the test).
@@ -117,7 +124,7 @@ test('runIndexerOnce inserts ObservedTip DETECTED, bumps Item.msats, advances la
 
   const before = await readItem(postId)
   const client = mockClient([tipTx()])
-  await runIndexerOnce({ models: prisma, lwsClient: client })
+  await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
 
   const tip = await prisma.observedTip.findFirst({ where: { postId } })
   expect(tip).toBeTruthy()
@@ -143,13 +150,13 @@ test('runIndexerOnce is idempotent: a replayed tx does not double-insert or re-b
   await seedAccount({ postId })
 
   const client = mockClient([tipTx()]) // same tx every call
-  await runIndexerOnce({ models: prisma, lwsClient: client })
+  await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
   const afterFirst = await readItem(postId)
   const countAfterFirst = await prisma.observedTip.count({ where: { postId } })
   expect(countAfterFirst).toBe(1)
 
   // second poll: lws replays the SAME tx (cursor ignored by the mock)
-  await runIndexerOnce({ models: prisma, lwsClient: client })
+  await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
   const afterSecond = await readItem(postId)
 
   expect(await prisma.observedTip.count({ where: { postId } })).toBe(1)
@@ -164,7 +171,7 @@ test('runIndexerOnce skips a tx whose (maj_i,min_i) has no SubaddressIndex', asy
   // recipient (0, 999) has no SubaddressIndex row → not a mapped post tip
   const client = mockClient([tipTx({ minI: 999 })])
   const before = await readItem(postId)
-  await runIndexerOnce({ models: prisma, lwsClient: client })
+  await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
   const after = await readItem(postId)
 
   expect(await prisma.observedTip.count({ where: { postId } })).toBe(0)
