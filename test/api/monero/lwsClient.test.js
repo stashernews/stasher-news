@@ -152,7 +152,8 @@ describe('getAddressTxs', () => {
     expect(out.scanned_height).toBe(1)
 
     const confirmed = out.transactions[0]
-    expect(confirmed.total_received).toBe(1000000n)
+    expect(confirmed.piconeros).toBe(1000000n)
+    expect(confirmed.total_received).toBeUndefined() // per-tx amount renamed, not duplicated
     expect(confirmed.total_sent).toBe(0n)
     expect(confirmed.fee).toBe(870000n)
     expect(confirmed.id).toBe(1234567) // number, not BigInt
@@ -161,7 +162,8 @@ describe('getAddressTxs', () => {
     expect(confirmed.recipient).toEqual({ maj_i: 0, min_i: 3 })
 
     const mempool = out.transactions[1]
-    expect(mempool.total_received).toBe(5000n)
+    expect(mempool.piconeros).toBe(5000n)
+    expect(mempool.total_received).toBeUndefined() // per-tx amount renamed, not duplicated
     expect(mempool.height).toBeNull() // mempool omits height
     expect(mempool.timestamp).toBeNull() // mempool omits timestamp
     expect(mempool.payment_id).toBeNull() // optional, absent -> null
