@@ -61,6 +61,9 @@ export function SettingsHeader () {
         <Nav.Item>
           <Nav.Link as={Link} href='/settings/mutes' eventKey='mutes'>mutes</Nav.Link>
         </Nav.Item>
+        <Nav.Item>
+          <Nav.Link as={Link} href='/settings/wallet' eventKey='wallet'>wallet</Nav.Link>
+        </Nav.Item>
       </Nav>
     </>
   )
