@@ -92,9 +92,24 @@ export async function applyTipDetected (postId, tipperId, piconeros, tx) {
 // ItemUserAgg.zapSats because the signature carries no tipperId — see
 // task-5-report.md for the design decision; Task 6 can pass the tipperId if it
 // needs precise per-user reversal.
-export async function reverseTip (postId, piconeros) {
+export async function reverseTip (postId, piconeros, tx) {
+  // Transaction propagation mirrors applyTipDetected (above). When `tx` is
+  // supplied the caller OWNS the transaction — run the ranking SQL directly on
+  // it and do NOT open an inner $transaction. This lets reconcileReorg wrap the
+  // ObservedTip.update (state=REORGED) and this reversal in ONE serializable
+  // $transaction so they commit or roll back together: a partial failure
+  // (reverseTip throws after the state flip committed) can never leave a REORGED
+  // row with msats still bumped — the over-credit window the Task 6 review
+  // flagged. Without `tx` the original standalone behaviour is preserved so
+  // every other caller — the Task 5 unit tests, the seedTip test helper — is
+  // unchanged. The SQL/tipDeltaSql helper is untouched.
+  const sql = tipDeltaSql(postId, null, piconeros, SUB)
+  if (tx) {
+    await tx.$executeRaw(sql)
+    return
+  }
   await prisma.$transaction(
-    tx => tx.$executeRaw(tipDeltaSql(postId, null, piconeros, SUB)),
+    t => t.$executeRaw(sql),
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 10000 }
   )
 }

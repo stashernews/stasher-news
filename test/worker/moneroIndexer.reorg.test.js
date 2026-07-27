@@ -25,18 +25,20 @@ import { encryptViewKey } from '@/api/monero/viewkey'
 import { applyTipDetected, reverseTip } from '@/api/monero/ranking'
 import { runIndexerOnce } from '@/worker/moneroIndexer'
 
-// reverseTip is wrapped in a jest.fn so the over-credit characterization test
-// (last test) can make it throw mid-reconcile. By default the mock delegates to
-// the real implementation, so seedTip and the other tests exercise real ranking
+// reverseTip AND applyTipDetected are each wrapped in a jest.fn so the
+// atomicity regression tests (revive + reconcile, last two tests) can make
+// either throw mid-transaction. By default both mocks delegate to the real
+// implementation, so seedTip and the other tests exercise real ranking
 // behaviour. jest.mock is auto-hoisted above the imports by the transform (the
-// pattern used in lib/ssrf.spec.js), so worker/moneroIndexer.js — loaded via the
-// import above — also receives the mocked reverseTip. The synchronous jest.mock
-// (not jest.unstable_mockModule) is the form next/jest's transform honours.
-// applyTipDetected passes through untouched (real).
+// pattern used in moneroIndexer.test.js and lib/ssrf.spec.js), so
+// worker/moneroIndexer.js — loaded via the import above — also receives the
+// mocked functions. The synchronous jest.mock (not jest.unstable_mockModule) is
+// the form next/jest's transform honours.
 jest.mock('../../api/monero/ranking', () => {
   const actual = jest.requireActual('../../api/monero/ranking')
   return {
     ...actual,
+    applyTipDetected: jest.fn((...args) => actual.applyTipDetected(...args)),
     reverseTip: jest.fn((...args) => actual.reverseTip(...args))
   }
 })
@@ -46,13 +48,16 @@ process.env.VIEWKEY_MASTER_KEY = Buffer.from('a'.repeat(32)).toString('base64')
 
 const prisma = new PrismaClient()
 
-// Capture the real reverseTip so afterEach can restore the delegating
-// implementation after any per-test override (characterization test).
+// Capture the real applyTipDetected + reverseTip so afterEach can restore the
+// delegating implementation after any per-test override (atomicity tests).
+let realApplyTipDetected
 let realReverseTip
 beforeAll(() => {
+  realApplyTipDetected = jest.requireActual('../../api/monero/ranking').applyTipDetected
   realReverseTip = jest.requireActual('../../api/monero/ranking').reverseTip
 })
 afterEach(() => {
+  applyTipDetected.mockImplementation((...args) => realApplyTipDetected(...args))
   reverseTip.mockImplementation((...args) => realReverseTip(...args))
 })
 
@@ -265,19 +270,68 @@ test('an empty response with no replay signal leaves DETECTED tips untouched (no
   expect((await readItemMsats(postId)).msats).toBe(3_000_000n) // delta untouched
 })
 
-// ---- non-atomic reconcile characterization (Task 4/5 partial-failure) ------
+// ---- atomicity regression (partial-failure hazard fix) ---------------------
 
-// CHARACTERIZATION (locks current behaviour; NOT a correctness spec).
-// reconcileReorg does `update(state=REORGED)` then `await reverseTip(...)`. If
-// reverseTip throws between them, the state flip is already committed while
-// Item.msats is still bumped — an OVER-CREDIT. This is the accepted fail
-// direction (over-credit beats the negative-msats under-credit of the reverse
-// ordering). The proper fix — an atomic create+reverse in one transaction — is
-// tracked separately as the Task 4/5 partial-failure hazard; this test only
-// documents the behaviour so it cannot silently change.
-test('CHARACTERIZATION: a reverseTip failure mid-reconcile leaves the tip REORGED with msats still bumped (over-credit fail direction)', async () => {
+// Symmetric to the forward-path atomicity test in moneroIndexer.test.js. The
+// P2002 -> reviveIfReorged path must also be atomic. Under the OLD code
+// reviveIfReorged did `update(state=DETECTED, ...)` then `applyTipDetected(...)`
+// WITHOUT a shared transaction: if apply threw after the update committed, the
+// row was DETECTED with msats unbumped, and the next poll's P2002 skipped it
+// forever (state was now DETECTED, not REORGED) — a permanent orphan with a
+// silent ranking under-count. Under the fix they share ONE serializable
+// $transaction so a failed apply rolls the state flip back too (the row stays
+// REORGED -> the next poll retries the revive cleanly).
+test('revive atomicity: if applyTipDetected throws during revive, the state flip rolls back too (row stays REORGED) and a retry succeeds', async () => {
   const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'over-credit'); created.items.push(postId)
+  const postId = await createRoot(userId, 'revive-atomic'); created.items.push(postId)
+  const account = await seedAccount({ postId })
+
+  // Pre-existing REORGED tip 'rv99' — msats already reversed to 0 by seedTip.
+  await seedTip({ account, postId, txHash: 'rv99', height: 200, piconeros: 5_000_000n, state: 'REORGED' })
+  expect((await readItemMsats(postId)).msats).toBe(0n)
+
+  // The new chain re-included 'rv99'; lws returns it again (forward of cursor).
+  const lws = mockLwsFor(account, [tx({ id: 1002, hash: 'rv99', height: 200, piconeros: 5_000_000n })], 205)
+
+  // Make applyTipDetected reject on its next invocation. Under the OLD code the
+  // observedTip.update (state=DETECTED) had ALREADY committed before this throw,
+  // leaving an orphan DETECTED row with unbumped msats; under the fix they share
+  // ONE serializable $transaction so the failed apply rolls the update back too.
+  applyTipDetected.mockImplementation(async () => { throw new Error('simulated applyTipDetected failure') })
+  await expect(runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash200') }))
+    .rejects.toThrow('simulated applyTipDetected failure')
+
+  // No orphan DETECTED: the revive rolled back, so the row is still REORGED and
+  // msats is still 0 (applyTipDetected never completed). This is the assertion
+  // that FAILS on the pre-fix code.
+  const tip = await prisma.observedTip.findFirst({ where: { txHash: 'rv99', recipientAccountId: account.id } })
+  expect(tip.state).toBe('REORGED') // the state flip rolled back
+  expect((await readItemMsats(postId)).msats).toBe(0n) // applyTipDetected rolled back
+
+  // Restore the real applyTipDetected and re-run the SAME tx. Now the revive
+  // succeeds: state -> DETECTED and msats bumped EXACTLY ONCE. This proves the
+  // retry-after-failure is clean — no orphan-DETECTED-skipped-forever, no
+  // double-bump.
+  applyTipDetected.mockImplementation((...args) => realApplyTipDetected(...args))
+  await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash200') })
+
+  const tipAfter = await prisma.observedTip.findFirst({ where: { txHash: 'rv99', recipientAccountId: account.id } })
+  expect(tipAfter.state).toBe('DETECTED') // revived
+  expect((await readItemMsats(postId)).msats).toBe(5_000_000n) // bumped exactly once
+  expect(await prisma.observedTip.count({ where: { txHash: 'rv99', recipientAccountId: account.id } })).toBe(1)
+})
+
+// ATOMIC CORRECTNESS SPEC. reconcileReorg wraps `update(state=REORGED)` +
+// `reverseTip(...)` in ONE serializable $transaction so they commit or roll
+// back together. If reverseTip throws between them, the whole txn rolls back ->
+// the tip stays DETECTED (NOT REORGED) and Item.msats is unchanged (reverseTip
+// never completed). This closes the over-credit window the OLD non-atomic shape
+// left: a committed REORGED flip while msats stayed bumped. (This test was a
+// CHARACTERIZATION of the old non-atomic over-credit behaviour; it is rewritten
+// here to lock the fix. Mirrors the forward-path + revive atomicity tests.)
+test('atomic reconcile: a reverseTip failure mid-reconcile rolls back the state flip too (tip stays DETECTED, msats unchanged)', async () => {
+  const userId = await createUser(); created.users.push(userId)
+  const postId = await createRoot(userId, 'atomic-reconcile'); created.items.push(postId)
   const account = await seedAccount({ postId })
 
   // DETECTED tip 'cd78' at height 200 (6 conf at chain 205 < 10 final, and
@@ -289,16 +343,18 @@ test('CHARACTERIZATION: a reverseTip failure mid-reconcile leaves the tip REORGE
   // 1001), 'cd78' absent. This triggers reconcileReorg for the DETECTED tip.
   const lws = mockLwsFor(account, [tx({ id: 990, hash: 'survivor', height: 195, piconeros: 1000n, minI: 999 })], 205)
 
-  // Override the reverseTip mock to reject on the next call. reconcileReorg
-  // commits the state flip (REORGED) then awaits reverseTip, which throws — the
-  // error propagates out of runIndexerOnce. afterEach restores the delegate.
+  // Override reverseTip to reject on the next call. reconcileReorg begins the
+  // serializable $transaction, runs the state flip, then awaits reverseTip —
+  // which throws. The throw rolls the whole txn back, and the error propagates
+  // out of runIndexerOnce. afterEach restores the delegate.
   reverseTip.mockImplementation(async () => { throw new Error('simulated reverseTip failure') })
   await expect(runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash195') }))
     .rejects.toThrow('simulated reverseTip failure')
 
-  // Over-credit: the state flip committed (REORGED) before reverseTip threw, so
-  // the ranking delta was never reversed — Item.msats is STILL bumped.
+  // Atomic: the state flip rolled back (stays DETECTED, NOT REORGED) and msats is
+  // unchanged (reverseTip never completed). Under the OLD non-atomic code the
+  // state flip would have committed (REORGED) leaving the over-credit window.
   const tip = await prisma.observedTip.findFirst({ where: { txHash: 'cd78', recipientAccountId: account.id } })
-  expect(tip.state).toBe('REORGED') // the update committed before reverseTip threw
-  expect((await readItemMsats(postId)).msats).toBe(5_000_000n) // still bumped — over-credit
+  expect(tip.state).toBe('DETECTED') // the update rolled back too
+  expect((await readItemMsats(postId)).msats).toBe(5_000_000n) // reverseTip rolled back
 })

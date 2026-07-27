@@ -71,8 +71,19 @@ async function reconcileReorg ({ models, account, txs, chainHeight }) {
     const confirmations = chainHeight - tip.height + 1
     if (confirmations >= REQUIRED_CONFIRMATIONS) continue
     if (tip.height < chainHeight - REORG_GRACE_BLOCKS) {
-      await models.observedTip.update({ where: { id: tip.id }, data: { state: 'REORGED' } })
-      await reverseTip(tip.postId, tip.piconeros)
+      // Atomic state flip + ranking reversal (closes the over-credit window the
+      // Task 6 review flagged): the ObservedTip.update (state=REORGED) and the
+      // reverseTip ranking delta run in ONE serializable $transaction so they
+      // commit or roll back together. A partial failure (reverseTip throws
+      // after the state flip) can never leave a REORGED row with msats still
+      // bumped — on throw both roll back, so the tip stays DETECTED + msats
+      // unchanged and the next poll retries cleanly. The callback param is
+      // `txn` for consistency with the forward/revive paths; `tip` is the
+      // closure variable.
+      await models.$transaction(async (txn) => {
+        await txn.observedTip.update({ where: { id: tip.id }, data: { state: 'REORGED' } })
+        await reverseTip(tip.postId, tip.piconeros, txn)
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     }
   }
 }
@@ -210,11 +221,22 @@ async function reviveIfReorged ({ models, account, tx, postId }) {
     }
   })
   if (!existing || existing.state !== 'REORGED') return
-  await models.observedTip.update({
-    where: { id: existing.id },
-    data: { state: 'DETECTED', height: tx.height ?? null, piconeros: tx.piconeros }
-  })
-  await applyTipDetected(postId, null, tx.piconeros)
+  // Atomic revive — mirrors the forward-path Option A fix (commit ad61051c):
+  // the ObservedTip.update (state=DETECTED) and the applyTipDetected ranking
+  // delta run in ONE serializable $transaction so they commit or roll back
+  // together. A partial failure (apply throws after the update) can never leave
+  // a DETECTED row with unbumped msats — which the next poll's P2002 would skip
+  // forever (state is now DETECTED, not REORGED), silently under-counting
+  // ranking forever. On throw both roll back, so the row stays REORGED and the
+  // next poll retries the revive cleanly. The callback param is `txn` (not
+  // `tx`) because `tx` is the lws tx in scope here.
+  await models.$transaction(async (txn) => {
+    await txn.observedTip.update({
+      where: { id: existing.id },
+      data: { state: 'DETECTED', height: tx.height ?? null, piconeros: tx.piconeros }
+    })
+    await applyTipDetected(postId, null, tx.piconeros, txn)
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
 
 // pg-boss handler. Runs one forward poll then self-requeues. The requeue uses

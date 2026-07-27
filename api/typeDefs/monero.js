@@ -42,7 +42,12 @@ export default gql`
     id: ID!
     address: String!
     label: String!
-    privacyMode: PrivacyMode!
+    # Nullable (M23): privacyMode lives on the owner User (User.privacyMode is
+    # PrivacyMode? in the Prisma schema), and the resolver returns
+    # parent.user?.privacyMode ?? null. A non-null contract here would break the
+    # whole selection for any account whose owner has a null privacyMode
+    # (GraphQL non-null violation), so the contract must match reality.
+    privacyMode: PrivacyMode
     subaddressPoolRemaining: Int!
   }
 
