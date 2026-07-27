@@ -273,6 +273,44 @@ describe('modifyAccountStatus', () => {
   })
 })
 
+// ---- daemon_status (chain height) -----------------------------------------
+
+describe('getDaemonStatus / getBlockchainHeight', () => {
+  test('GETs /daemon_status with no body and returns the parsed status (height field, not blockchain_height)', async () => {
+    const t = recordingTransport(() => jsonRes(200, {
+      outgoing_connections_count: 8,
+      incoming_connections_count: 2,
+      height: 2265961,
+      target_height: 2265961,
+      network: 'main',
+      state: 'ok'
+    }))
+    const client = makeClient(t)
+    const out = await client.getDaemonStatus()
+    expect(t.calls[0].url).toBe(LWS_URL + '/daemon_status')
+    expect(t.calls[0].opts.method).toBe('GET')
+    // no body written for a GET
+    expect(t.calls[0].opts.body).toBeUndefined()
+    expect(out.height).toBe(2265961)
+    expect(out.state).toBe('ok')
+    expect(out.network).toBe('main')
+  })
+
+  test('getBlockchainHeight reads the `height` field and returns a plain number', async () => {
+    const t = recordingTransport(() => jsonRes(200, { height: 309, state: 'ok' }))
+    const client = makeClient(t)
+    const h = await client.getBlockchainHeight()
+    expect(h).toBe(309)
+    expect(typeof h).toBe('number')
+  })
+
+  test('getBlockchainHeight falls back to 0 when height is missing/invalid', async () => {
+    const t = recordingTransport(() => jsonRes(200, { state: 'synchronizing' }))
+    const client = makeClient(t)
+    expect(await client.getBlockchainHeight()).toBe(0)
+  })
+})
+
 // ---- backoff + timeout -----------------------------------------------------
 
 describe('retry policy', () => {
@@ -329,6 +367,8 @@ describe('module surface', () => {
     expect(typeof lws.lwsClient.upsertSubaddrs).toBe('function')
     expect(typeof lws.lwsClient.addAccount).toBe('function')
     expect(typeof lws.lwsClient.modifyAccountStatus).toBe('function')
+    expect(typeof lws.lwsClient.getDaemonStatus).toBe('function')
+    expect(typeof lws.lwsClient.getBlockchainHeight).toBe('function')
   })
 
   test('createLwsClient builds a real transport when none is injected (no throw, insecure flag honoured)', () => {

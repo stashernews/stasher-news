@@ -208,7 +208,7 @@ function parseAddressTxs (raw) {
  * @param {number} [options.maxRetries]  MONERO_LWS_MAX_RETRIES (transient retries; default 3).
  * @param {number} [options.backoffBaseMs] Base for exponential backoff (default 500).
  * @param {function} [options.transport] Injected transport (DI for tests).
- * @returns {object} `{ getAddressTxs, getAddressInfo, upsertSubaddrs, addAccount, modifyAccountStatus }`
+ * @returns {object} `{ getAddressTxs, getAddressInfo, upsertSubaddrs, addAccount, modifyAccountStatus, getDaemonStatus, getBlockchainHeight }`
  */
 export function createLwsClient (options = {}) {
   const walletUrl = (options.walletUrl ?? readEnv('MONERO_LWS_URL', DEFAULT_WALLET_URL)).replace(/\/$/, '')
@@ -220,11 +220,14 @@ export function createLwsClient (options = {}) {
   const backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS
   const transport = options.transport ?? makeTransport({ insecureTls })
 
-  // One POST with timeout + backoff. Wallet bodies are the login/params
-  // object directly; admin bodies are wrapped {auth, params}.
-  async function request (url, bodyObj, { admin = false } = {}) {
+  // One request with timeout + backoff. Wallet bodies are the login/params
+  // object directly; admin bodies are wrapped {auth, params}. GET endpoints
+  // (e.g. /daemon_status) pass bodyObj = null and method = 'GET' — no body is
+  // serialized and the transport does not write one.
+  async function request (url, bodyObj, { admin = false, method = 'POST' } = {}) {
+    const hasBody = bodyObj != null
     const wrapped = admin ? { auth: adminAuth, params: bodyObj } : bodyObj
-    const body = JSON.stringify(stripUndefined(wrapped))
+    const body = hasBody ? JSON.stringify(stripUndefined(wrapped)) : undefined
     let lastNetworkCause = null
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) await sleep(backoffDelay(attempt - 1, backoffBaseMs))
@@ -232,7 +235,7 @@ export function createLwsClient (options = {}) {
       const timer = setTimeout(() => ac.abort(), timeoutMs)
       let res
       try {
-        res = await transport(url, { method: 'POST', body, signal: ac.signal })
+        res = await transport(url, { method, body, signal: ac.signal })
       } catch (err) {
         clearTimeout(timer)
         // Our own timeout fired -> transient; retry, else surface a timeout error.
@@ -305,12 +308,32 @@ export function createLwsClient (options = {}) {
     return request(`${adminUrl}/modify_account_status`, { status, addresses }, { admin: true })
   }
 
+  // GET /daemon_status — monerod health proxied by lws (research §3.3). No
+  // auth, no body. Returns { height, target_height, state, network,
+  // incoming_connections_count, outgoing_connections_count }. Cached 5s by
+  // lws. NOTE the height field is `height` here (NOT `blockchain_height` as
+  // on /get_address_txs and /get_address_info). confirmFinalizer reads this
+  // once per run to maturity-check DETECTED tips — one call regardless of how
+  // many tips are scanned.
+  async function getDaemonStatus () {
+    return request(`${walletUrl}/daemon_status`, null, { method: 'GET' })
+  }
+
+  /** Convenience: current chain tip height via /daemon_status. */
+  async function getBlockchainHeight () {
+    const status = await getDaemonStatus()
+    const h = status?.height
+    return typeof h === 'number' ? h : 0
+  }
+
   return {
     getAddressTxs,
     getAddressInfo,
     upsertSubaddrs,
     addAccount,
-    modifyAccountStatus
+    modifyAccountStatus,
+    getDaemonStatus,
+    getBlockchainHeight
   }
 }
 

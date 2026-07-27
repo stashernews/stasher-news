@@ -31,6 +31,7 @@ import {
 } from './domainVerification.js'
 import { untrackOldItems } from './untrackOldItems'
 import { moneroIndexer } from './moneroIndexer'
+import { confirmFinalizer } from './confirmFinalizer'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -127,6 +128,16 @@ async function work () {
   // stray duplicate would be non-corrupting, but this keeps poll load at 1x.
   if (await boss.getQueueSize('moneroIndexer') === 0) {
     await boss.send('moneroIndexer', {})
+  }
+
+  await boss.work('confirmFinalizer', jobWrapper(confirmFinalizer))
+
+  // Seed the self-requeuing confirmFinalizer loop the same way as moneroIndexer
+  // (singleton guard on the seed only). Confirmation is low-frequency
+  // (CONFIRM_POLL_INTERVAL_MS, default 60s) so it gets its own loop rather
+  // than being piggybacked on the indexer's 20s cadence.
+  if (await boss.getQueueSize('confirmFinalizer') === 0) {
+    await boss.send('confirmFinalizer', {})
   }
 
   console.log('working jobs')
