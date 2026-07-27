@@ -23,6 +23,11 @@ import resolvers from '@/api/resolvers/monero'
 // encryptViewKey call; getMasterKey() lazily caches it.
 process.env.VIEWKEY_MASTER_KEY = Buffer.from('a'.repeat(32)).toString('base64')
 
+// The fixture address is a stagenet vector; under mainnet/testnet monero-ts
+// validation rejects it. Pin the network explicitly so a CI env exporting a
+// different MONERO_NETWORK can't flip the resolver's validation target.
+process.env.MONERO_NETWORK = 'stagenet'
+
 const prisma = new PrismaClient()
 
 // Real valid stagenet test vectors. Derived OFFLINE from monero-ts
@@ -220,6 +225,26 @@ describe('Mutation.addSubaddresses', () => {
       accountId: String(seed.id),
       subaddresses: [{ majorIndex: 0, minorIndex: 1, address: STAGENET_SUBADDR_0_0 }]
     }, { me: { id: intruderId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/not your account/i)
+  })
+
+  test('empty subaddresses list: does NOT call upsertSubaddrs and creates no SubaddressIndex rows (regression: lwsClient defaults null ranges to {0:[[0,499]]})', async () => {
+    const userId = await createUser()
+    const { acct: seed } = await registerFor(userId)
+
+    const lws = makeMockLws()
+    const acct = await resolvers.Mutation.addSubaddresses(null, {
+      accountId: String(seed.id),
+      subaddresses: []
+    }, { me: { id: userId }, models: prisma, monero: lws })
+
+    expect(acct.id).toBe(seed.id)
+    // Regression guard: subaddrsToRanges([]) -> null, and lwsClient.upsertSubaddrs
+    // defaults null ranges to { 0: [[0, 499]] } — silently registering 500
+    // default subaddresses with lws. The resolver must short-circuit before that.
+    expect(lws.upsertSubaddrs).not.toHaveBeenCalled()
+    // No new SubaddressIndex rows created (createMany must not run either).
+    const subs = await prisma.subaddressIndex.findMany({ where: { accountId: seed.id } })
+    expect(subs).toHaveLength(0)
   })
 
   test('rejects if no me', async () => {
