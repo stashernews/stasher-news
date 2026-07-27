@@ -75,3 +75,6 @@ scripts/pay-awards.config.json
 
 # dnsmasq
 docker/dnsmasq/dnsmasq.d/*
+
+# git worktrees (local isolation for parallel/feature work)
+.worktrees/
