@@ -211,6 +211,23 @@ describe('Mutation.initiateTip', () => {
     }, { me: { id: tipperId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/no monero account/i)
   })
 
+  test('rejects an amount below PlatformFeeConfig.minTipPiconeros', async () => {
+    // minTipPiconeros = 100_000_000 (0.0001 XMR). The floor is enforced before any
+    // webhook is registered or ObservedTip created, so a sub-min tip is rejected
+    // without lws side effects.
+    const authorId = await createUser()
+    await registerFor(authorId)
+    const post = await createPost(authorId)
+    const tipperId = await createUser()
+    const lws = makeMockLws()
+
+    await expect(resolvers.Mutation.initiateTip(null, {
+      postId: String(post.id),
+      amount: '99999999' // 1 piconero below the floor
+    }, { me: { id: tipperId }, models: prisma, monero: lws })).rejects.toThrow(/min tip/i)
+    expect(lws.addWebhook).not.toHaveBeenCalled()
+  })
+
   test('emits tx_amount as DECIMAL XMR, not raw piconeros (Cake Wallet compatibility)', async () => {
     // Regression: initiateTip used to build the URI with BigInt(amount).toString(),
     // emitting raw piconeros as tx_amount. Cake/Monerujo parse tx_amount as decimal
