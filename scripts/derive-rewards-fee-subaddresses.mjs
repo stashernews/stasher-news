@@ -52,7 +52,6 @@ async function main () {
   for (const { major, count } of plans) {
     for (let minor = 1; minor <= count; minor++) {
       const subAddress = await wallet.getSubaddress(major, minor)
-      const index = await wallet.getAddressIndex(subAddress)
       await prisma.subaddressIndex.upsert({
         where: { accountId_majorIndex_minorIndex: { accountId: account.id, majorIndex: major, minorIndex: minor } },
         create: { accountId: account.id, majorIndex: major, minorIndex: minor, address: subAddress, state: 'AVAILABLE' },
