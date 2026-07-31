@@ -118,5 +118,7 @@ test('PayInType and PayInState enums are reduced to the StealthNews set', () => 
     'MEDIA_UPLOAD', 'POLL_VOTE', 'TERRITORY_BILLING', 'TERRITORY_CREATE',
     'TERRITORY_UNARCHIVE', 'ZAP'
   ])
-  expect(valuesOf('PayInState').sort()).toEqual(['CONFIRMED', 'DETECTED', 'FAILED', 'PENDING_PAYMENT'])
+  // PAID is restored for the SN payIn engine (mcost=0 / completed actions use
+  // payInState='PAID'); it was a Phase 0 reconciliation gap to drop it.
+  expect(valuesOf('PayInState').sort()).toEqual(['CONFIRMED', 'DETECTED', 'FAILED', 'PAID', 'PENDING_PAYMENT'])
 })
