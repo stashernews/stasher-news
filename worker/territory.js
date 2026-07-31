@@ -34,6 +34,21 @@ export async function territoryBilling ({ data: { subName }, boss, models }) {
     await boss.send('territoryBilling', { subName }, { startAfter: datePivot(new Date(), { days: 1 }) })
   }
 
+  // StealthNews: if a renewal fee is still PENDING_FEE past the grace window the
+  // penaltyIndexer never observed it — lapse the territory. (A fresh renewal that
+  // sets PENDING_FEE and then gets paid is flipped to PAID by the penaltyIndexer,
+  // so this only fires on genuinely unpaid fees.)
+  if (sub.billingStatus === 'PENDING_FEE' && nextBillingWithGrace(sub) < new Date()) {
+    sub = await models.sub.update({
+      where: { name: subName },
+      data: { billingStatus: 'LAPSED', status: 'STOPPED', statusUpdatedAt: new Date() },
+      include: { user: true }
+    })
+    await notifyTerritoryStatusChange({ sub })
+    await boss.send('territoryBilling', { subName }, { startAfter: datePivot(new Date(), { days: 1 }) })
+    return
+  }
+
   if (!sub.billingAutoRenew) {
     await territoryStatusUpdate()
     return
