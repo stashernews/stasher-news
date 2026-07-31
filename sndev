@@ -693,6 +693,16 @@ sndev__monero__status() {
     -d '{"params":{}}' \
     https://127.0.0.1:8081/admin/list_accounts 2>/dev/null \
     || echo "  unreachable"
+  echo
+  echo "== rewards-wallet fee pool (SubaddressIndex by major / state) =="
+  docker__compose exec -T db psql -U sn -d stackernews -t -c "
+    SELECT ma.label, si.\"majorIndex\", si.state, count(*)
+    FROM \"SubaddressIndex\" si
+    JOIN \"MoneroAccount\" ma ON ma.id = si.\"accountId\"
+    WHERE ma.label = 'platform_rewards'
+    GROUP BY ma.label, si.\"majorIndex\", si.state
+    ORDER BY si.\"majorIndex\", si.state;" 2>/dev/null \
+    || echo "  (rewards wallet not registered or no pool derived yet)"
 }
 
 sndev__monero__accounts() {
@@ -742,6 +752,26 @@ After sending, wait 1-2 blocks (~2 min each), then poll: sndev monero status
 EOF
 }
 
+sndev__monero__register_rewards_wallet() {
+  __sndev_monero_ensure_up
+  if [ -z "$PLATFORM_REWARDS_ADDRESS" ] || [ -z "$PLATFORM_REWARDS_VIEW_KEY" ]; then
+    echo "PLATFORM_REWARDS_ADDRESS and PLATFORM_REWARDS_VIEW_KEY must be set (use .env.local)" >&2
+    return 1
+  fi
+  echo "Registering platform rewards wallet with lws + DB..."
+  docker__compose exec -T -u apprunner app node scripts/register-rewards-wallet.mjs
+}
+
+sndev__monero__derive_fee_pool() {
+  __sndev_monero_ensure_up
+  if [ -z "$PLATFORM_REWARDS_SPEND_KEY" ]; then
+    echo "PLATFORM_REWARDS_SPEND_KEY must be set (use .env.local) — this is the only place the spend key is used" >&2
+    return 1
+  fi
+  echo "Deriving fee subaddresses offline + registering index ranges with lws..."
+  docker__compose exec -T -u apprunner app node scripts/derive-rewards-fee-subaddresses.mjs
+}
+
 sndev__monero__rescan() {
   if [ $# -lt 2 ]; then
     echo "Usage: sndev monero rescan <address> <height>" >&2
@@ -761,7 +791,7 @@ sndev__monero__rescan() {
 sndev__monero() {
   shift
   if [ $# -eq 0 ]; then
-    echo "Usage: sndev monero {status|accounts|add_account|faucet|rescan}" >&2
+    echo "Usage: sndev monero {status|accounts|add_account|faucet|rescan|register-rewards-wallet|derive-fee-pool}" >&2
     return 1
   fi
   sub="$1"; shift
@@ -771,6 +801,8 @@ sndev__monero() {
     add_account) sndev__monero__add_account "$@" ;;
     faucet)      sndev__monero__faucet "$@" ;;
     rescan)      sndev__monero__rescan "$@" ;;
+    register-rewards-wallet) sndev__monero__register_rewards_wallet "$@" ;;
+    derive-fee-pool)         sndev__monero__derive_fee_pool "$@" ;;
     *) echo "Unknown subcommand: monero $sub" >&2; return 1 ;;
   esac
 }
