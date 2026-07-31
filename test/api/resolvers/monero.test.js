@@ -155,7 +155,10 @@ describe('Mutation.initiateTip', () => {
     expect(result.integratedAddress).toHaveLength(106)
     expect(result.paymentId).toMatch(/^[0-9a-f]{16}$/)
     expect(result.uri).toContain(`monero:${result.integratedAddress}`)
-    expect(result.uri).toContain('tx_amount=1000000000')
+    // tx_amount is DECIMAL XMR (Cake Wallet convention), not raw piconeros:
+    // 1e9 piconeros == 0.001 XMR. Emitting raw piconeros here is the load-bearing bug.
+    expect(result.uri).toContain('tx_amount=0.001')
+    expect(result.uri).not.toMatch(/tx_amount=1000000000/)
 
     // lws webhook registered with the author's address + payment ID
     expect(lws.addWebhook).toHaveBeenCalledTimes(1)
@@ -206,6 +209,24 @@ describe('Mutation.initiateTip', () => {
       postId: String(post.id),
       amount: '1000000000'
     }, { me: { id: tipperId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/no monero account/i)
+  })
+
+  test('emits tx_amount as DECIMAL XMR, not raw piconeros (Cake Wallet compatibility)', async () => {
+    // Regression: initiateTip used to build the URI with BigInt(amount).toString(),
+    // emitting raw piconeros as tx_amount. Cake/Monerujo parse tx_amount as decimal
+    // XMR, so a 1e8-piconero (0.0001 XMR) tip was misread as 1e8 XMR. Pin the fix.
+    const authorId = await createUser()
+    await registerFor(authorId)
+    const post = await createPost(authorId)
+    const tipperId = await createUser()
+
+    const result = await resolvers.Mutation.initiateTip(null, {
+      postId: String(post.id),
+      amount: '100000000' // 1e8 piconeros == 0.0001 XMR (the min tip)
+    }, { me: { id: tipperId }, models: prisma, monero: makeMockLws() })
+
+    expect(result.uri).toContain('tx_amount=0.0001')
+    expect(result.uri).not.toMatch(/tx_amount=100000000/)
   })
 })
 
