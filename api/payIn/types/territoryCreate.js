@@ -1,9 +1,15 @@
-import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST, USER_ID } from '@/lib/constants'
-import { satsToMsats } from '@/lib/format'
+import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST } from '@/lib/constants'
 import { nextBilling } from '@/lib/territory'
 import { initialTrust } from '../lib/territory'
-import * as MEDIA_UPLOAD from './mediaUpload'
-import { getBeneficiariesMcost } from '../lib/beneficiaries'
+import { territoryFeePiconeros } from '@/api/monero/territoryFee'
+import { reserveFeeSubaddress } from '@/api/monero/feePool'
+import { buildMoneroUri } from '@/api/monero/uri'
+
+// StealthNews territory creation (spec §6.2). The founder pays a territory fee to
+// the platform rewards wallet via a dedicated major-2 subaddress; the territory is
+// created billingStatus=PENDING_FEE (invisible/inactive) until the penaltyIndexer
+// observes the fee and flips it to PAID. mcost=0 (no custodial sats) so the SN
+// payIn engine yields payInState=PAID; the fee itself is on-chain.
 
 export const anonable = false
 
@@ -13,27 +19,26 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-export async function getInitial (models, { billingType, uploadIds }, { me }) {
-  const beneficiaries = []
-  if (uploadIds.length > 0) {
-    beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
-  }
-
-  const mcost = satsToMsats(TERRITORY_PERIOD_COST(billingType))
+export async function getInitial (models, { billingType, name }, { me }) {
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const fee = territoryFeePiconeros(billingType, config)
+  const sub = await reserveFeeSubaddress(models, 'TERRITORY_CREATE') // major 2
+  const moneroUri = buildMoneroUri(
+    [{ address: sub.address, amount: fee }],
+    { description: `StealthNews territory ${name} (${billingType})` }
+  )
   return {
     payInType: 'TERRITORY_CREATE',
     userId: me?.id,
-    mcost: mcost + getBeneficiariesMcost(beneficiaries),
-    payOutCustodialTokens: [
-      { payOutType: 'SYSTEM_REVENUE', userId: USER_ID.sn, mtokens: mcost, custodialTokenType: 'SATS' }
-    ],
-    beneficiaries
+    mcost: 0n,
+    moneroUri,
+    moneroSubaddressMajor: sub.major,
+    moneroSubaddressMinor: sub.minor
   }
 }
 
 export async function onBegin (tx, payInId, { billingType, uploadIds, ...data }) {
   const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
-  const billingCost = TERRITORY_PERIOD_COST(billingType)
   const billedLastAt = new Date()
   const billPaidUntil = nextBilling(billedLastAt, billingType)
 
@@ -42,8 +47,10 @@ export async function onBegin (tx, payInId, { billingType, uploadIds, ...data })
       ...data,
       billedLastAt,
       billPaidUntil,
-      billingCost,
+      billingCost: TERRITORY_PERIOD_COST(billingType), // vestigial SN sats field
       billingType,
+      billingStatus: 'PENDING_FEE',
+      billingPayInId: payInId,
       rankingType: 'WOT',
       userId: payIn.userId,
       subPayIn: {
