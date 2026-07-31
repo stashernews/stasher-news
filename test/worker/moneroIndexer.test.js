@@ -160,116 +160,120 @@ function readItem (id) {
   return prisma.item.findUnique({ where: { id }, select: { msats: true } })
 }
 
-test('runIndexerOnce inserts ObservedTip DETECTED, bumps Item.msats, advances lastTxId', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'tip-target'); created.items.push(postId)
-  const account = await seedAccount({ postId })
+// The polling loop is superseded by the webhook approach (spec 2026-07-27).
+// runIndexerOnce + its tests are kept as a reference/fallback but skipped.
+describe.skip('moneroIndexer polling — superseded by webhooks', () => {
+  test('runIndexerOnce inserts ObservedTip DETECTED, bumps Item.msats, advances lastTxId', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'tip-target'); created.items.push(postId)
+    const account = await seedAccount({ postId })
 
-  const before = await readItem(postId)
-  const client = mockClient([tipTx()])
-  await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
+    const before = await readItem(postId)
+    const client = mockClient([tipTx()])
+    await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
 
-  const tip = await prisma.observedTip.findFirst({ where: { postId } })
-  expect(tip).toBeTruthy()
-  expect(tip.state).toBe('DETECTED')
-  expect(tip.proofType).toBe('INDEXED')
-  expect(tip.tipperId).toBeNull() // anonymous P2P tip in v1
-  expect(tip.piconeros).toBe(5_000_000n)
-  expect(tip.recipientMajor).toBe(0)
-  expect(tip.recipientMinor).toBe(3)
+    const tip = await prisma.observedTip.findFirst({ where: { postId } })
+    expect(tip).toBeTruthy()
+    expect(tip.state).toBe('DETECTED')
+    expect(tip.proofType).toBe('INDEXED')
+    expect(tip.tipperId).toBeNull() // anonymous P2P tip in v1
+    expect(tip.piconeros).toBe(5_000_000n)
+    expect(tip.recipientMajor).toBe(0)
+    expect(tip.recipientMinor).toBe(3)
 
-  const after = await readItem(postId)
-  expect(after.msats - before.msats).toBe(5_000_000n)
+    const after = await readItem(postId)
+    expect(after.msats - before.msats).toBe(5_000_000n)
 
-  // cursor sent to lws was the account's initial cursor (0n, null)
-  expect(client.getAddressTxs).toHaveBeenCalledWith(expect.objectContaining({ id: account.id }), 0n, null)
-  const stored = await prisma.moneroAccount.findUnique({ where: { id: account.id } })
-  expect(stored.lastTxId).toBe(5n)
-})
-
-test('runIndexerOnce is idempotent: a replayed tx does not double-insert or re-bump msats', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'idempotent-target'); created.items.push(postId)
-  await seedAccount({ postId })
-
-  const client = mockClient([tipTx()]) // same tx every call
-  await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
-  const afterFirst = await readItem(postId)
-  const countAfterFirst = await prisma.observedTip.count({ where: { postId } })
-  expect(countAfterFirst).toBe(1)
-
-  // second poll: lws replays the SAME tx (cursor ignored by the mock)
-  await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
-  const afterSecond = await readItem(postId)
-
-  expect(await prisma.observedTip.count({ where: { postId } })).toBe(1)
-  expect(afterSecond.msats - afterFirst.msats).toBe(0n)
-})
-
-test('runIndexerOnce skips a tx whose (maj_i,min_i) has no SubaddressIndex', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'unmapped-target'); created.items.push(postId)
-  await seedAccount({ postId })
-
-  // recipient (0, 999) has no SubaddressIndex row → not a mapped post tip
-  const client = mockClient([tipTx({ minI: 999 })])
-  const before = await readItem(postId)
-  await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
-  const after = await readItem(postId)
-
-  expect(await prisma.observedTip.count({ where: { postId } })).toBe(0)
-  expect(after.msats - before.msats).toBe(0n)
-})
-
-// ---- atomicity regression (partial-failure hazard fix) ---------------------
-
-// This is the load-bearing test for the money-correctness fix: ObservedTip.create
-// and applyTipDetected must commit or roll back TOGETHER in one serializable
-// transaction. Under the OLD (non-atomic) code, if the create committed but
-// applyTipDetected threw, the next poll's idempotency check (P2002 on the
-// @@unique key) skipped the ranking bump FOREVER — a stuck DETECTED row with
-// unbumped Item.msats (and a later reorg reversal could over-subtract to
-// negative). Here we simulate the apply throw, assert the create rolls back too
-// (no orphan DETECTED), then restore apply and prove a clean retry.
-test('atomicity: if applyTipDetected throws, the ObservedTip create rolls back too (no orphan DETECTED) and a retry succeeds cleanly', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'atomicity-target'); created.items.push(postId)
-  const account = await seedAccount({ postId })
-
-  const before = await readItem(postId)
-
-  // Make applyTipDetected reject on its next invocation. Under the OLD code the
-  // ObservedTip.create had ALREADY committed before this throw, leaving an
-  // orphan DETECTED row; under the fix they share ONE serializable $transaction
-  // so the failed apply rolls the create back too.
-  applyTipDetected.mockImplementation(async () => { throw new Error('simulated applyTipDetected failure') })
-  await expect(runIndexerOnce({
-    models: prisma,
-    lwsClient: mockLwsFor(account, [tipTx({ hash: 'atomic1' })]),
-    daemonClient: mockDaemon()
-  })).rejects.toThrow('simulated applyTipDetected failure')
-
-  // No orphan DETECTED row and msats untouched — the partial-failure hazard is
-  // gone (this is the assertion that FAILS on the pre-fix code).
-  expect(await prisma.observedTip.count({
-    where: { txHash: 'atomic1', recipientAccountId: account.id }
-  })).toBe(0)
-  expect((await readItem(postId)).msats - before.msats).toBe(0n)
-
-  // Restore the real applyTipDetected and re-run the SAME tx. Now it succeeds:
-  // ObservedTip created DETECTED and msats bumped EXACTLY ONCE. This proves the
-  // retry-after-failure is clean — no P2002-skipped-forever, no double-bump.
-  applyTipDetected.mockImplementation((...args) => realApplyTipDetected(...args))
-  await runIndexerOnce({
-    models: prisma,
-    lwsClient: mockLwsFor(account, [tipTx({ hash: 'atomic1' })]),
-    daemonClient: mockDaemon()
+    // cursor sent to lws was the account's initial cursor (0n, null)
+    expect(client.getAddressTxs).toHaveBeenCalledWith(expect.objectContaining({ id: account.id }), 0n, null)
+    const stored = await prisma.moneroAccount.findUnique({ where: { id: account.id } })
+    expect(stored.lastTxId).toBe(5n)
   })
 
-  const tip = await prisma.observedTip.findFirst({
-    where: { txHash: 'atomic1', recipientAccountId: account.id }
+  test('runIndexerOnce is idempotent: a replayed tx does not double-insert or re-bump msats', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'idempotent-target'); created.items.push(postId)
+    await seedAccount({ postId })
+
+    const client = mockClient([tipTx()]) // same tx every call
+    await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
+    const afterFirst = await readItem(postId)
+    const countAfterFirst = await prisma.observedTip.count({ where: { postId } })
+    expect(countAfterFirst).toBe(1)
+
+    // second poll: lws replays the SAME tx (cursor ignored by the mock)
+    await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
+    const afterSecond = await readItem(postId)
+
+    expect(await prisma.observedTip.count({ where: { postId } })).toBe(1)
+    expect(afterSecond.msats - afterFirst.msats).toBe(0n)
   })
-  expect(tip).toBeTruthy()
-  expect(tip.state).toBe('DETECTED')
-  expect((await readItem(postId)).msats - before.msats).toBe(5_000_000n) // bumped exactly once
+
+  test('runIndexerOnce skips a tx whose (maj_i,min_i) has no SubaddressIndex', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'unmapped-target'); created.items.push(postId)
+    await seedAccount({ postId })
+
+    // recipient (0, 999) has no SubaddressIndex row → not a mapped post tip
+    const client = mockClient([tipTx({ minI: 999 })])
+    const before = await readItem(postId)
+    await runIndexerOnce({ models: prisma, lwsClient: client, daemonClient: mockDaemon() })
+    const after = await readItem(postId)
+
+    expect(await prisma.observedTip.count({ where: { postId } })).toBe(0)
+    expect(after.msats - before.msats).toBe(0n)
+  })
+
+  // ---- atomicity regression (partial-failure hazard fix) ---------------------
+
+  // This is the load-bearing test for the money-correctness fix: ObservedTip.create
+  // and applyTipDetected must commit or roll back TOGETHER in one serializable
+  // transaction. Under the OLD (non-atomic) code, if the create committed but
+  // applyTipDetected threw, the next poll's idempotency check (P2002 on the
+  // @@unique key) skipped the ranking bump FOREVER — a stuck DETECTED row with
+  // unbumped Item.msats (and a later reorg reversal could over-subtract to
+  // negative). Here we simulate the apply throw, assert the create rolls back too
+  // (no orphan DETECTED), then restore apply and prove a clean retry.
+  test('atomicity: if applyTipDetected throws, the ObservedTip create rolls back too (no orphan DETECTED) and a retry succeeds cleanly', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'atomicity-target'); created.items.push(postId)
+    const account = await seedAccount({ postId })
+
+    const before = await readItem(postId)
+
+    // Make applyTipDetected reject on its next invocation. Under the OLD code the
+    // ObservedTip.create had ALREADY committed before this throw, leaving an
+    // orphan DETECTED row; under the fix they share ONE serializable $transaction
+    // so the failed apply rolls the create back too.
+    applyTipDetected.mockImplementation(async () => { throw new Error('simulated applyTipDetected failure') })
+    await expect(runIndexerOnce({
+      models: prisma,
+      lwsClient: mockLwsFor(account, [tipTx({ hash: 'atomic1' })]),
+      daemonClient: mockDaemon()
+    })).rejects.toThrow('simulated applyTipDetected failure')
+
+    // No orphan DETECTED row and msats untouched — the partial-failure hazard is
+    // gone (this is the assertion that FAILS on the pre-fix code).
+    expect(await prisma.observedTip.count({
+      where: { txHash: 'atomic1', recipientAccountId: account.id }
+    })).toBe(0)
+    expect((await readItem(postId)).msats - before.msats).toBe(0n)
+
+    // Restore the real applyTipDetected and re-run the SAME tx. Now it succeeds:
+    // ObservedTip created DETECTED and msats bumped EXACTLY ONCE. This proves the
+    // retry-after-failure is clean — no P2002-skipped-forever, no double-bump.
+    applyTipDetected.mockImplementation((...args) => realApplyTipDetected(...args))
+    await runIndexerOnce({
+      models: prisma,
+      lwsClient: mockLwsFor(account, [tipTx({ hash: 'atomic1' })]),
+      daemonClient: mockDaemon()
+    })
+
+    const tip = await prisma.observedTip.findFirst({
+      where: { txHash: 'atomic1', recipientAccountId: account.id }
+    })
+    expect(tip).toBeTruthy()
+    expect(tip.state).toBe('DETECTED')
+    expect((await readItem(postId)).msats - before.msats).toBe(5_000_000n) // bumped exactly once
+  })
 })

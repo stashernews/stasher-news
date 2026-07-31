@@ -352,6 +352,36 @@ export function createLwsClient (options = {}) {
     return typeof h === 'number' ? h : 0
   }
 
+  // ---- webhook management (spec §4.3) --------------------------------------
+  // lws pushes tx-confirmation callbacks at 0-conf (detection) and at each
+  // confirmation up to the requested ceiling. Registration + cleanup are admin
+  // REST calls that reuse the existing request() (Content-Length + auth-omission
+  // fixes already applied via the admin wrapping in request()).
+
+  /** Admin: register a tx-confirmation webhook for an address+payment-id pair. */
+  async function addWebhook ({ type, url, address, paymentId, token, confirmations }) {
+    return request(`${adminUrl}/webhook_add`, {
+      type, url, address, payment_id: paymentId, token, confirmations
+    }, { admin: true })
+  }
+
+  /** Admin: delete one or more webhooks by event id. */
+  async function deleteWebhook (eventId) {
+    return request(`${adminUrl}/webhook_delete_uuid`, {
+      event_ids: Array.isArray(eventId) ? eventId : [eventId]
+    }, { admin: true })
+  }
+
+  /** Admin: delete ALL webhooks for an address. */
+  async function deleteAddressWebhooks (address) {
+    return request(`${adminUrl}/webhook_delete`, { addresses: [address] }, { admin: true })
+  }
+
+  /** Admin: list all registered webhooks. */
+  async function listWebhooks () {
+    return request(`${adminUrl}/webhook_list`, {}, { admin: true })
+  }
+
   return {
     getAddressTxs,
     getAddressInfo,
@@ -359,6 +389,10 @@ export function createLwsClient (options = {}) {
     listAccounts,
     addAccount,
     modifyAccountStatus,
+    addWebhook,
+    deleteWebhook,
+    deleteAddressWebhooks,
+    listWebhooks,
     getDaemonStatus,
     getBlockchainHeight
   }

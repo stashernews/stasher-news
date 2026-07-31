@@ -89,7 +89,7 @@ async function seedTip ({ postId, piconeros, height, recipientAccountId }) {
       recipientAccountId,
       recipientMajor: 0,
       recipientMinor: 0,
-      paymentId: null,
+      paymentId: 'cftest' + String(tipSeq).padStart(8, '0') + '00000000',
       piconeros,
       height,
       state: 'DETECTED',

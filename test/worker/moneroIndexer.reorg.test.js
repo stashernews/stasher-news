@@ -180,181 +180,185 @@ function readItemMsats (id) {
 
 // ---- the reorg reconciliation branch ---------------------------------------
 
-test('a replay (tx behind the cursor) reverts a DETECTED tip absent from the response and reverses msats', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'reorg-target'); created.items.push(postId)
-  const account = await seedAccount({ postId })
+// The polling loop is superseded by the webhook approach (spec 2026-07-27).
+// runIndexerOnce + its tests are kept as a reference/fallback but skipped.
+describe.skip('moneroIndexer reorg — superseded by webhooks', () => {
+  test('a replay (tx behind the cursor) reverts a DETECTED tip absent from the response and reverses msats', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'reorg-target'); created.items.push(postId)
+    const account = await seedAccount({ postId })
 
-  // Pre-existing DETECTED tip 'ab12' at height 200 (6 conf at chain 205), 5M piconeros.
-  await seedTip({ account, postId, txHash: 'ab12', height: 200, piconeros: 5_000_000n })
-  expect((await readItemMsats(postId)).msats).toBe(5_000_000n)
+    // Pre-existing DETECTED tip 'ab12' at height 200 (6 conf at chain 205), 5M piconeros.
+    await seedTip({ account, postId, txHash: 'ab12', height: 200, piconeros: 5_000_000n })
+    expect((await readItemMsats(postId)).msats).toBe(5_000_000n)
 
-  // lws replay: a surviving tx BEHIND the cursor (id 990 <= lastTxId 1001) at an
-  // unmapped subaddress, 'ab12' absent. This is the reorg signal.
-  const lws = mockLwsFor(account, [tx({ id: 990, hash: 'survivor', height: 195, piconeros: 1000n, minI: 999 })], 205)
-  await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash195') })
+    // lws replay: a surviving tx BEHIND the cursor (id 990 <= lastTxId 1001) at an
+    // unmapped subaddress, 'ab12' absent. This is the reorg signal.
+    const lws = mockLwsFor(account, [tx({ id: 990, hash: 'survivor', height: 195, piconeros: 1000n, minI: 999 })], 205)
+    await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash195') })
 
-  const tip = await prisma.observedTip.findFirst({ where: { txHash: 'ab12', recipientAccountId: account.id } })
-  expect(tip.state).toBe('REORGED')
-  expect((await readItemMsats(postId)).msats).toBe(0n)
+    const tip = await prisma.observedTip.findFirst({ where: { txHash: 'ab12', recipientAccountId: account.id } })
+    expect(tip.state).toBe('REORGED')
+    expect((await readItemMsats(postId)).msats).toBe(0n)
 
-  // the cursor also shifted: block hash refreshed from the highest confirmed tx
-  const stored = await prisma.moneroAccount.findUnique({ where: { id: account.id } })
-  expect(stored.lastBlockHash).toBe('hash195')
-  expect(stored.lastTxId).toBe(990n) // shifted backward through the replay
-})
+    // the cursor also shifted: block hash refreshed from the highest confirmed tx
+    const stored = await prisma.moneroAccount.findUnique({ where: { id: account.id } })
+    expect(stored.lastBlockHash).toBe('hash195')
+    expect(stored.lastTxId).toBe(990n) // shifted backward through the replay
+  })
 
-test('a tip at >= REQUIRED_CONFIRMATIONS is never reverted even if absent from the replay', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'confirmed-target'); created.items.push(postId)
-  const account = await seedAccount({ postId })
+  test('a tip at >= REQUIRED_CONFIRMATIONS is never reverted even if absent from the replay', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'confirmed-target'); created.items.push(postId)
+    const account = await seedAccount({ postId })
 
-  // CONFIRMED tip at height 190 -> 205-190+1 = 16 confirmations (>= 10). Final.
-  await seedTip({ account, postId, txHash: 'cf34', height: 190, piconeros: 4_000_000n, state: 'CONFIRMED' })
+    // CONFIRMED tip at height 190 -> 205-190+1 = 16 confirmations (>= 10). Final.
+    await seedTip({ account, postId, txHash: 'cf34', height: 190, piconeros: 4_000_000n, state: 'CONFIRMED' })
 
-  // replay with no surviving txs for this account, 'cf34' absent.
-  const lws = mockLwsFor(account, [tx({ id: 980, hash: 'unrelated', height: 185, piconeros: 1000n, minI: 999 })], 205)
-  await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash185') })
+    // replay with no surviving txs for this account, 'cf34' absent.
+    const lws = mockLwsFor(account, [tx({ id: 980, hash: 'unrelated', height: 185, piconeros: 1000n, minI: 999 })], 205)
+    await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash185') })
 
-  const tip = await prisma.observedTip.findFirst({ where: { txHash: 'cf34', recipientAccountId: account.id } })
-  expect(tip.state).toBe('CONFIRMED') // untouched
-  expect((await readItemMsats(postId)).msats).toBe(4_000_000n) // delta NOT reversed
-})
+    const tip = await prisma.observedTip.findFirst({ where: { txHash: 'cf34', recipientAccountId: account.id } })
+    expect(tip.state).toBe('CONFIRMED') // untouched
+    expect((await readItemMsats(postId)).msats).toBe(4_000_000n) // delta NOT reversed
+  })
 
-test('a REORGED tip that reappears is revived to DETECTED and re-bumped', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'revive-target'); created.items.push(postId)
-  const account = await seedAccount({ postId })
+  test('a REORGED tip that reappears is revived to DETECTED and re-bumped', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'revive-target'); created.items.push(postId)
+    const account = await seedAccount({ postId })
 
-  // Pre-existing REORGED tip 'ab12' — msats already reversed to 0 by seedTip.
-  await seedTip({ account, postId, txHash: 'ab12', height: 200, piconeros: 5_000_000n, state: 'REORGED' })
-  expect((await readItemMsats(postId)).msats).toBe(0n)
+    // Pre-existing REORGED tip 'ab12' — msats already reversed to 0 by seedTip.
+    await seedTip({ account, postId, txHash: 'ab12', height: 200, piconeros: 5_000_000n, state: 'REORGED' })
+    expect((await readItemMsats(postId)).msats).toBe(0n)
 
-  // The new chain re-included 'ab12'; lws returns it again (forward of cursor).
-  const lws = mockLwsFor(account, [tx({ id: 1002, hash: 'ab12', height: 200, piconeros: 5_000_000n })], 205)
-  await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash200') })
+    // The new chain re-included 'ab12'; lws returns it again (forward of cursor).
+    const lws = mockLwsFor(account, [tx({ id: 1002, hash: 'ab12', height: 200, piconeros: 5_000_000n })], 205)
+    await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash200') })
 
-  const tip = await prisma.observedTip.findFirst({ where: { txHash: 'ab12', recipientAccountId: account.id } })
-  expect(tip.state).toBe('DETECTED') // revived
-  expect((await readItemMsats(postId)).msats).toBe(5_000_000n) // delta re-applied
-  // exactly one row for this account (no duplicate despite the @@unique collision)
-  expect(await prisma.observedTip.count({ where: { txHash: 'ab12', recipientAccountId: account.id } })).toBe(1)
-})
+    const tip = await prisma.observedTip.findFirst({ where: { txHash: 'ab12', recipientAccountId: account.id } })
+    expect(tip.state).toBe('DETECTED') // revived
+    expect((await readItemMsats(postId)).msats).toBe(5_000_000n) // delta re-applied
+    // exactly one row for this account (no duplicate despite the @@unique collision)
+    expect(await prisma.observedTip.count({ where: { txHash: 'ab12', recipientAccountId: account.id } })).toBe(1)
+  })
 
-// ---- empty-response guard (control-flow no-op) -----------------------------
+  // ---- empty-response guard (control-flow no-op) -----------------------------
 
-// An empty lws response is the routine "no new outputs" poll. It must NOT
-// spuriously REORG existing DETECTED tips even when those tips are old enough to
-// reconcile: the reorg branch is gated on a replay signal (a confirmed tx with
-// id <= account.lastTxId), and runIndexerOnce short-circuits on txs.length === 0
-// before ever consulting it. This locks that control-flow guard.
-test('an empty response with no replay signal leaves DETECTED tips untouched (no spurious REORG)', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'empty-noop'); created.items.push(postId)
-  const account = await seedAccount({ postId })
+  // An empty lws response is the routine "no new outputs" poll. It must NOT
+  // spuriously REORG existing DETECTED tips even when those tips are old enough to
+  // reconcile: the reorg branch is gated on a replay signal (a confirmed tx with
+  // id <= account.lastTxId), and runIndexerOnce short-circuits on txs.length === 0
+  // before ever consulting it. This locks that control-flow guard.
+  test('an empty response with no replay signal leaves DETECTED tips untouched (no spurious REORG)', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'empty-noop'); created.items.push(postId)
+    const account = await seedAccount({ postId })
 
-  // DETECTED tip 'ef56' at height 200 — old enough to reconcile IF the branch
-  // ran (200 < 205 - REORG_GRACE_BLOCKS=2 = 203, and 6 conf < 10 final), 3M
-  // piconeros already bumped. Cursor is set (lastTxId/lastBlockHash).
-  await seedTip({ account, postId, txHash: 'ef56', height: 200, piconeros: 3_000_000n })
-  expect((await readItemMsats(postId)).msats).toBe(3_000_000n)
+    // DETECTED tip 'ef56' at height 200 — old enough to reconcile IF the branch
+    // ran (200 < 205 - REORG_GRACE_BLOCKS=2 = 203, and 6 conf < 10 final), 3M
+    // piconeros already bumped. Cursor is set (lastTxId/lastBlockHash).
+    await seedTip({ account, postId, txHash: 'ef56', height: 200, piconeros: 3_000_000n })
+    expect((await readItemMsats(postId)).msats).toBe(3_000_000n)
 
-  // NON-reorg EMPTY response: no transactions (so no confirmed tx with id <=
-  // lastTxId — no replay signal), blockchain_height past the tip. The empty
-  // guard must short-circuit before reconcileReorg, leaving the tip DETECTED.
-  const lws = mockLwsFor(account, [], 205)
-  await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash205') })
+    // NON-reorg EMPTY response: no transactions (so no confirmed tx with id <=
+    // lastTxId — no replay signal), blockchain_height past the tip. The empty
+    // guard must short-circuit before reconcileReorg, leaving the tip DETECTED.
+    const lws = mockLwsFor(account, [], 205)
+    await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash205') })
 
-  const tip = await prisma.observedTip.findFirst({ where: { txHash: 'ef56', recipientAccountId: account.id } })
-  expect(tip.state).toBe('DETECTED') // NOT REORGED
-  expect((await readItemMsats(postId)).msats).toBe(3_000_000n) // delta untouched
-})
+    const tip = await prisma.observedTip.findFirst({ where: { txHash: 'ef56', recipientAccountId: account.id } })
+    expect(tip.state).toBe('DETECTED') // NOT REORGED
+    expect((await readItemMsats(postId)).msats).toBe(3_000_000n) // delta untouched
+  })
 
-// ---- atomicity regression (partial-failure hazard fix) ---------------------
+  // ---- atomicity regression (partial-failure hazard fix) ---------------------
 
-// Symmetric to the forward-path atomicity test in moneroIndexer.test.js. The
-// P2002 -> reviveIfReorged path must also be atomic. Under the OLD code
-// reviveIfReorged did `update(state=DETECTED, ...)` then `applyTipDetected(...)`
-// WITHOUT a shared transaction: if apply threw after the update committed, the
-// row was DETECTED with msats unbumped, and the next poll's P2002 skipped it
-// forever (state was now DETECTED, not REORGED) — a permanent orphan with a
-// silent ranking under-count. Under the fix they share ONE serializable
-// $transaction so a failed apply rolls the state flip back too (the row stays
-// REORGED -> the next poll retries the revive cleanly).
-test('revive atomicity: if applyTipDetected throws during revive, the state flip rolls back too (row stays REORGED) and a retry succeeds', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'revive-atomic'); created.items.push(postId)
-  const account = await seedAccount({ postId })
+  // Symmetric to the forward-path atomicity test in moneroIndexer.test.js. The
+  // P2002 -> reviveIfReorged path must also be atomic. Under the OLD code
+  // reviveIfReorged did `update(state=DETECTED, ...)` then `applyTipDetected(...)`
+  // WITHOUT a shared transaction: if apply threw after the update committed, the
+  // row was DETECTED with msats unbumped, and the next poll's P2002 skipped it
+  // forever (state was now DETECTED, not REORGED) — a permanent orphan with a
+  // silent ranking under-count. Under the fix they share ONE serializable
+  // $transaction so a failed apply rolls the state flip back too (the row stays
+  // REORGED -> the next poll retries the revive cleanly).
+  test('revive atomicity: if applyTipDetected throws during revive, the state flip rolls back too (row stays REORGED) and a retry succeeds', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'revive-atomic'); created.items.push(postId)
+    const account = await seedAccount({ postId })
 
-  // Pre-existing REORGED tip 'rv99' — msats already reversed to 0 by seedTip.
-  await seedTip({ account, postId, txHash: 'rv99', height: 200, piconeros: 5_000_000n, state: 'REORGED' })
-  expect((await readItemMsats(postId)).msats).toBe(0n)
+    // Pre-existing REORGED tip 'rv99' — msats already reversed to 0 by seedTip.
+    await seedTip({ account, postId, txHash: 'rv99', height: 200, piconeros: 5_000_000n, state: 'REORGED' })
+    expect((await readItemMsats(postId)).msats).toBe(0n)
 
-  // The new chain re-included 'rv99'; lws returns it again (forward of cursor).
-  const lws = mockLwsFor(account, [tx({ id: 1002, hash: 'rv99', height: 200, piconeros: 5_000_000n })], 205)
+    // The new chain re-included 'rv99'; lws returns it again (forward of cursor).
+    const lws = mockLwsFor(account, [tx({ id: 1002, hash: 'rv99', height: 200, piconeros: 5_000_000n })], 205)
 
-  // Make applyTipDetected reject on its next invocation. Under the OLD code the
-  // observedTip.update (state=DETECTED) had ALREADY committed before this throw,
-  // leaving an orphan DETECTED row with unbumped msats; under the fix they share
-  // ONE serializable $transaction so the failed apply rolls the update back too.
-  applyTipDetected.mockImplementation(async () => { throw new Error('simulated applyTipDetected failure') })
-  await expect(runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash200') }))
-    .rejects.toThrow('simulated applyTipDetected failure')
+    // Make applyTipDetected reject on its next invocation. Under the OLD code the
+    // observedTip.update (state=DETECTED) had ALREADY committed before this throw,
+    // leaving an orphan DETECTED row with unbumped msats; under the fix they share
+    // ONE serializable $transaction so the failed apply rolls the update back too.
+    applyTipDetected.mockImplementation(async () => { throw new Error('simulated applyTipDetected failure') })
+    await expect(runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash200') }))
+      .rejects.toThrow('simulated applyTipDetected failure')
 
-  // No orphan DETECTED: the revive rolled back, so the row is still REORGED and
-  // msats is still 0 (applyTipDetected never completed). This is the assertion
-  // that FAILS on the pre-fix code.
-  const tip = await prisma.observedTip.findFirst({ where: { txHash: 'rv99', recipientAccountId: account.id } })
-  expect(tip.state).toBe('REORGED') // the state flip rolled back
-  expect((await readItemMsats(postId)).msats).toBe(0n) // applyTipDetected rolled back
+    // No orphan DETECTED: the revive rolled back, so the row is still REORGED and
+    // msats is still 0 (applyTipDetected never completed). This is the assertion
+    // that FAILS on the pre-fix code.
+    const tip = await prisma.observedTip.findFirst({ where: { txHash: 'rv99', recipientAccountId: account.id } })
+    expect(tip.state).toBe('REORGED') // the state flip rolled back
+    expect((await readItemMsats(postId)).msats).toBe(0n) // applyTipDetected rolled back
 
-  // Restore the real applyTipDetected and re-run the SAME tx. Now the revive
-  // succeeds: state -> DETECTED and msats bumped EXACTLY ONCE. This proves the
-  // retry-after-failure is clean — no orphan-DETECTED-skipped-forever, no
-  // double-bump.
-  applyTipDetected.mockImplementation((...args) => realApplyTipDetected(...args))
-  await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash200') })
+    // Restore the real applyTipDetected and re-run the SAME tx. Now the revive
+    // succeeds: state -> DETECTED and msats bumped EXACTLY ONCE. This proves the
+    // retry-after-failure is clean — no orphan-DETECTED-skipped-forever, no
+    // double-bump.
+    applyTipDetected.mockImplementation((...args) => realApplyTipDetected(...args))
+    await runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash200') })
 
-  const tipAfter = await prisma.observedTip.findFirst({ where: { txHash: 'rv99', recipientAccountId: account.id } })
-  expect(tipAfter.state).toBe('DETECTED') // revived
-  expect((await readItemMsats(postId)).msats).toBe(5_000_000n) // bumped exactly once
-  expect(await prisma.observedTip.count({ where: { txHash: 'rv99', recipientAccountId: account.id } })).toBe(1)
-})
+    const tipAfter = await prisma.observedTip.findFirst({ where: { txHash: 'rv99', recipientAccountId: account.id } })
+    expect(tipAfter.state).toBe('DETECTED') // revived
+    expect((await readItemMsats(postId)).msats).toBe(5_000_000n) // bumped exactly once
+    expect(await prisma.observedTip.count({ where: { txHash: 'rv99', recipientAccountId: account.id } })).toBe(1)
+  })
 
-// ATOMIC CORRECTNESS SPEC. reconcileReorg wraps `update(state=REORGED)` +
-// `reverseTip(...)` in ONE serializable $transaction so they commit or roll
-// back together. If reverseTip throws between them, the whole txn rolls back ->
-// the tip stays DETECTED (NOT REORGED) and Item.msats is unchanged (reverseTip
-// never completed). This closes the over-credit window the OLD non-atomic shape
-// left: a committed REORGED flip while msats stayed bumped. (This test was a
-// CHARACTERIZATION of the old non-atomic over-credit behaviour; it is rewritten
-// here to lock the fix. Mirrors the forward-path + revive atomicity tests.)
-test('atomic reconcile: a reverseTip failure mid-reconcile rolls back the state flip too (tip stays DETECTED, msats unchanged)', async () => {
-  const userId = await createUser(); created.users.push(userId)
-  const postId = await createRoot(userId, 'atomic-reconcile'); created.items.push(postId)
-  const account = await seedAccount({ postId })
+  // ATOMIC CORRECTNESS SPEC. reconcileReorg wraps `update(state=REORGED)` +
+  // `reverseTip(...)` in ONE serializable $transaction so they commit or roll
+  // back together. If reverseTip throws between them, the whole txn rolls back ->
+  // the tip stays DETECTED (NOT REORGED) and Item.msats is unchanged (reverseTip
+  // never completed). This closes the over-credit window the OLD non-atomic shape
+  // left: a committed REORGED flip while msats stayed bumped. (This test was a
+  // CHARACTERIZATION of the old non-atomic over-credit behaviour; it is rewritten
+  // here to lock the fix. Mirrors the forward-path + revive atomicity tests.)
+  test('atomic reconcile: a reverseTip failure mid-reconcile rolls back the state flip too (tip stays DETECTED, msats unchanged)', async () => {
+    const userId = await createUser(); created.users.push(userId)
+    const postId = await createRoot(userId, 'atomic-reconcile'); created.items.push(postId)
+    const account = await seedAccount({ postId })
 
-  // DETECTED tip 'cd78' at height 200 (6 conf at chain 205 < 10 final, and
-  // 200 < 205-2 so eligible for reconcile), 5M piconeros already bumped.
-  await seedTip({ account, postId, txHash: 'cd78', height: 200, piconeros: 5_000_000n })
-  expect((await readItemMsats(postId)).msats).toBe(5_000_000n)
+    // DETECTED tip 'cd78' at height 200 (6 conf at chain 205 < 10 final, and
+    // 200 < 205-2 so eligible for reconcile), 5M piconeros already bumped.
+    await seedTip({ account, postId, txHash: 'cd78', height: 200, piconeros: 5_000_000n })
+    expect((await readItemMsats(postId)).msats).toBe(5_000_000n)
 
-  // Real reorg replay: a surviving tx BEHIND the cursor (id 990 <= lastTxId
-  // 1001), 'cd78' absent. This triggers reconcileReorg for the DETECTED tip.
-  const lws = mockLwsFor(account, [tx({ id: 990, hash: 'survivor', height: 195, piconeros: 1000n, minI: 999 })], 205)
+    // Real reorg replay: a surviving tx BEHIND the cursor (id 990 <= lastTxId
+    // 1001), 'cd78' absent. This triggers reconcileReorg for the DETECTED tip.
+    const lws = mockLwsFor(account, [tx({ id: 990, hash: 'survivor', height: 195, piconeros: 1000n, minI: 999 })], 205)
 
-  // Override reverseTip to reject on the next call. reconcileReorg begins the
-  // serializable $transaction, runs the state flip, then awaits reverseTip —
-  // which throws. The throw rolls the whole txn back, and the error propagates
-  // out of runIndexerOnce. afterEach restores the delegate.
-  reverseTip.mockImplementation(async () => { throw new Error('simulated reverseTip failure') })
-  await expect(runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash195') }))
-    .rejects.toThrow('simulated reverseTip failure')
+    // Override reverseTip to reject on the next call. reconcileReorg begins the
+    // serializable $transaction, runs the state flip, then awaits reverseTip —
+    // which throws. The throw rolls the whole txn back, and the error propagates
+    // out of runIndexerOnce. afterEach restores the delegate.
+    reverseTip.mockImplementation(async () => { throw new Error('simulated reverseTip failure') })
+    await expect(runIndexerOnce({ models: prisma, lwsClient: lws, daemonClient: mockDaemon('hash195') }))
+      .rejects.toThrow('simulated reverseTip failure')
 
-  // Atomic: the state flip rolled back (stays DETECTED, NOT REORGED) and msats is
-  // unchanged (reverseTip never completed). Under the OLD non-atomic code the
-  // state flip would have committed (REORGED) leaving the over-credit window.
-  const tip = await prisma.observedTip.findFirst({ where: { txHash: 'cd78', recipientAccountId: account.id } })
-  expect(tip.state).toBe('DETECTED') // the update rolled back too
-  expect((await readItemMsats(postId)).msats).toBe(5_000_000n) // reverseTip rolled back
+    // Atomic: the state flip rolled back (stays DETECTED, NOT REORGED) and msats is
+    // unchanged (reverseTip never completed). Under the OLD non-atomic code the
+    // state flip would have committed (REORGED) leaving the over-credit window.
+    const tip = await prisma.observedTip.findFirst({ where: { txHash: 'cd78', recipientAccountId: account.id } })
+    expect(tip.state).toBe('DETECTED') // the update rolled back too
+    expect((await readItemMsats(postId)).msats).toBe(5_000_000n) // reverseTip rolled back
+  })
 })

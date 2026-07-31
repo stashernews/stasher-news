@@ -402,6 +402,57 @@ describe('retry policy', () => {
   })
 })
 
+// ---- webhook management ----------------------------------------------------
+
+describe('webhook management', () => {
+  test('addWebhook POSTs {auth, params:{type, url, address, payment_id, token}} to /webhook_add', async () => {
+    const t = recordingTransport(() => jsonRes(200, { event_id: 'evt-123' }))
+    const client = makeClient(t)
+    const out = await client.addWebhook({ type: 'tx-confirmation', url: 'http://app:3000/api/monero/webhook', address: ADDR, paymentId: '4f695d197f2a3c54', token: 'secret', confirmations: 10 })
+    expect(t.calls[0].url).toBe(ADMIN_URL + '/webhook_add')
+    expect(JSON.parse(t.calls[0].opts.body).params).toEqual({
+      type: 'tx-confirmation',
+      url: 'http://app:3000/api/monero/webhook',
+      address: ADDR,
+      payment_id: '4f695d197f2a3c54',
+      token: 'secret',
+      confirmations: 10
+    })
+    expect(out).toEqual({ event_id: 'evt-123' })
+  })
+
+  test('deleteWebhook POSTs {auth, params:{event_ids}} to /webhook_delete_uuid', async () => {
+    const t = recordingTransport(() => jsonRes(200, {}))
+    const client = makeClient(t)
+    await client.deleteWebhook('evt-123')
+    expect(t.calls[0].url).toBe(ADMIN_URL + '/webhook_delete_uuid')
+    expect(JSON.parse(t.calls[0].opts.body).params).toEqual({ event_ids: ['evt-123'] })
+  })
+
+  test('deleteWebhook accepts an array of event ids', async () => {
+    const t = recordingTransport(() => jsonRes(200, {}))
+    const client = makeClient(t)
+    await client.deleteWebhook(['evt-1', 'evt-2'])
+    expect(JSON.parse(t.calls[0].opts.body).params).toEqual({ event_ids: ['evt-1', 'evt-2'] })
+  })
+
+  test('deleteAddressWebhooks POSTs {auth, params:{addresses}} to /webhook_delete', async () => {
+    const t = recordingTransport(() => jsonRes(200, {}))
+    const client = makeClient(t)
+    await client.deleteAddressWebhooks(ADDR)
+    expect(t.calls[0].url).toBe(ADMIN_URL + '/webhook_delete')
+    expect(JSON.parse(t.calls[0].opts.body).params).toEqual({ addresses: [ADDR] })
+  })
+
+  test('listWebhooks POSTs to /webhook_list and returns the parsed response', async () => {
+    const t = recordingTransport(() => jsonRes(200, { webhooks: [] }))
+    const client = makeClient(t)
+    const out = await client.listWebhooks()
+    expect(t.calls[0].url).toBe(ADMIN_URL + '/webhook_list')
+    expect(out).toEqual({ webhooks: [] })
+  })
+})
+
 // ---- singleton + factory ---------------------------------------------------
 
 describe('module surface', () => {
@@ -414,6 +465,10 @@ describe('module surface', () => {
     expect(typeof lws.lwsClient.modifyAccountStatus).toBe('function')
     expect(typeof lws.lwsClient.getDaemonStatus).toBe('function')
     expect(typeof lws.lwsClient.getBlockchainHeight).toBe('function')
+    expect(typeof lws.lwsClient.addWebhook).toBe('function')
+    expect(typeof lws.lwsClient.deleteWebhook).toBe('function')
+    expect(typeof lws.lwsClient.deleteAddressWebhooks).toBe('function')
+    expect(typeof lws.lwsClient.listWebhooks).toBe('function')
   })
 
   test('createLwsClient builds a real transport when none is injected (no throw, insecure flag honoured)', () => {

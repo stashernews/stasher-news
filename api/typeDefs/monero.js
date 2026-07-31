@@ -30,12 +30,11 @@ export default gql`
       address: String!
       viewKey: String!
       privacyMode: PrivacyMode!
-      subaddresses: [SubaddressInput!]
     ): MoneroAccount!
-    addSubaddresses(
-      accountId: ID!
-      subaddresses: [SubaddressInput!]!
-    ): MoneroAccount!
+    initiateTip(
+      postId: ID!
+      amount: String!
+    ): TipInitiation!
   }
 
   type MoneroAccount {
@@ -51,10 +50,12 @@ export default gql`
     subaddressPoolRemaining: Int!
   }
 
-  input SubaddressInput {
-    majorIndex: Int!
-    minorIndex: Int!
-    address: String!
+  # Result of initiateTip: the integrated address + payment ID the tipper sends
+  # to, plus a monero: URI for one-click wallet handoff.
+  type TipInitiation {
+    integratedAddress: String!
+    paymentId: String!
+    uri: String!
   }
 
   enum PrivacyMode {

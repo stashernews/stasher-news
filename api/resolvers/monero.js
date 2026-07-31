@@ -1,12 +1,15 @@
 import { MoneroUtils, MoneroNetworkType } from 'monero-ts'
 import { encryptViewKey } from '../monero/viewkey'
-import { GqlAuthenticationError, GqlAuthorizationError, GqlInputError } from '@/lib/error'
+import { makeIntegratedAddress } from '../monero/integratedAddress'
+import { generateTipPaymentId } from '../monero/paymentId'
+import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
+import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 
-// StealthNews Monero wallet-setup resolvers (spec §7.3, controller res. #1-#7).
+// StealthNews Monero wallet-setup + tip-initiation resolvers (spec §4.5, §7.3).
 //
-// Three operations only (YAGNI):
-//   - Mutation.registerMoneroAccount — wallet onboarding
-//   - Mutation.addSubaddresses       — grow an existing account's pool
+// Operations:
+//   - Mutation.registerMoneroAccount — wallet onboarding (primary address + view key)
+//   - Mutation.initiateTip           — start a P2P tip via webhook + payment ID
 //   - Query.myMoneroAccount          — the caller's registered account
 //
 // `MoneroAccount` field resolvers (controller #2): privacyMode lives on the
@@ -22,26 +25,6 @@ function networkForEnv () {
   if (env === 'mainnet') return { moneroTs: MoneroNetworkType.MAINNET, prisma: 'MAINNET' }
   if (env === 'testnet') return { moneroTs: MoneroNetworkType.TESTNET, prisma: 'TESTNET' }
   return { moneroTs: MoneroNetworkType.STAGENET, prisma: 'STAGENET' }
-}
-
-// Convert [SubaddressInput] into monero-lws's explicit-index range shape
-// (spec §5.1 line 685): { "<majorIndex>": [[<minMinor>, <maxMinor>], ...], ... }
-// where each [a,b] is an inclusive range. We collapse all supplied minors
-// under a major into a single [min,max] range — sufficient for v1; lws accepts
-// multiple disjoint ranges per major if a future caller needs them.
-function subaddrsToRanges (subaddresses) {
-  if (!subaddresses || subaddresses.length === 0) return null
-  const byMajor = new Map()
-  for (const s of subaddresses) {
-    if (!byMajor.has(s.majorIndex)) byMajor.set(s.majorIndex, [])
-    byMajor.get(s.majorIndex).push(s.minorIndex)
-  }
-  const ranges = {}
-  for (const [major, minors] of byMajor.entries()) {
-    const sorted = [...new Set(minors)].sort((a, b) => a - b)
-    ranges[String(major)] = [[sorted[0], sorted[sorted.length - 1]]]
-  }
-  return ranges
 }
 
 export default {
@@ -65,16 +48,8 @@ export default {
     // called FIRST so an lws failure leaves nothing locally. A local-persist
     // failure AFTER a successful lws addAccount leaves an lws-only orphan —
     // acceptable for v1 because lws add_account is idempotent on address, so
-    // a client retry self-heals. (The reverse direction — local-first — would
-    // leave an orphan MoneroAccount locally that lws doesn't know about AND
-    // block retries via the @@unique([address, network]) constraint; harder
-    // to recover. lws-first is the safer direction.)
-    //
-    // upsertSubaddrs is called AFTER local persist because lwsClient.
-    // upsertSubaddrs(account, ranges) decrypts the account's view key from
-    // its stored envelope (walletLogin -> viewKeyFor -> decryptViewKey), so
-    // the MoneroViewKey row must exist first.
-    async registerMoneroAccount (parent, { address, viewKey, privacyMode, subaddresses }, { me, models, monero }) {
+    // a client retry self-heals.
+    async registerMoneroAccount (parent, { address, viewKey, privacyMode }, { me, models, monero }) {
       if (!me) throw new GqlAuthenticationError()
       const net = networkForEnv()
 
@@ -95,7 +70,7 @@ export default {
 
       // 3. Persist locally in a transaction (atomic). encryptViewKey (Task 2)
       //    returns the spread-safe AES-256-GCM envelope; the plaintext is
-      //    never written. SubaddressIndex rows are seeded AVAILABLE.
+      //    never written.
       const created = await models.$transaction(async (tx) => {
         const account = await tx.moneroAccount.create({
           data: {
@@ -110,40 +85,12 @@ export default {
         await tx.moneroViewKey.create({
           data: { accountId: account.id, ...encryptViewKey(viewKey) }
         })
-        if (subaddresses && subaddresses.length > 0) {
-          await tx.subaddressIndex.createMany({
-            data: subaddresses.map(s => ({
-              accountId: account.id,
-              majorIndex: s.majorIndex,
-              minorIndex: s.minorIndex,
-              address: s.address,
-              state: 'AVAILABLE'
-            }))
-          })
-        }
         // privacyMode lives on the USER (controller #2), not MoneroAccount.
         await tx.user.update({ where: { id: me.id }, data: { privacyMode } })
         return account
       })
 
-      // 4. Register the subaddress pool with lws (best-effort AFTER commit:
-      //    lwsClient decrypts the view key from the stored envelope, so the
-      //    MoneroViewKey row must exist first). On a transient lws failure
-      //    here the local account is intact and the pool can be registered
-      //    via addSubaddresses — the local DB is the source of truth.
-      if (subaddresses && subaddresses.length > 0) {
-        const fresh = await models.moneroAccount.findUnique({
-          where: { id: created.id },
-          include: { viewKey: true }
-        })
-        try {
-          await monero.upsertSubaddrs(fresh, subaddrsToRanges(subaddresses))
-        } catch (err) {
-          console.warn(`registerMoneroAccount: lws upsertSubaddrs failed (best-effort; local DB is source of truth): ${err && err.message}`)
-        }
-      }
-
-      // 5. Return with the owner User eager-loaded so the privacyMode field
+      // 4. Return with the owner User eager-loaded so the privacyMode field
       //    resolver can read parent.user.privacyMode without an extra round
       //    trip. subaddressPoolRemaining resolves via its own field resolver.
       return models.moneroAccount.findUnique({
@@ -152,52 +99,56 @@ export default {
       })
     },
 
-    // §7.3 line 958. Grow an existing account's subaddress pool. The caller
-    // must own the account.
-    async addSubaddresses (parent, { accountId, subaddresses }, { me, models, monero }) {
+    // Spec §4.5. Start a P2P tip: generate a payment ID, derive an integrated
+    // address from the POST AUTHOR's primary address, register a lws webhook,
+    // and create a PENDING ObservedTip. The tipper sends to the integrated
+    // address; the webhook receiver handles detection + confirmation.
+    async initiateTip (parent, { postId, amount }, { me, models, monero }) {
       if (!me) throw new GqlAuthenticationError()
-      const id = Number(accountId)
-      if (!Number.isInteger(id) || id <= 0) throw new GqlInputError('invalid accountId')
-      const account = await models.moneroAccount.findUnique({
-        where: { id },
-        include: { viewKey: true }
-      })
-      if (!account) throw new GqlInputError('account not found')
-      if (account.ownerUserId !== me.id) throw new GqlAuthorizationError('not your account')
+      const id = Number(postId)
+      const post = await models.item.findUnique({ where: { id } })
+      if (!post) throw new GqlInputError('post not found')
 
-      // Empty-list short-circuit: subaddrsToRanges([]) -> null, and
-      // lwsClient.upsertSubaddrs(account, null) defaults to { 0: [[0, 499]] }
-      // (api/monero/lwsClient.js), silently registering 500 default
-      // subaddresses. Mirrors registerMoneroAccount's empty-list guard.
-      if (!subaddresses || subaddresses.length === 0) {
-        return models.moneroAccount.findUnique({
-          where: { id },
-          include: { user: true }
-        })
-      }
+      // The recipient is the post author — their MoneroAccount holds the
+      // primary address the integrated address is derived from.
+      const account = await models.moneroAccount.findFirst({ where: { ownerUserId: post.userId } })
+      if (!account) throw new GqlInputError('post author has no monero account')
 
-      // Local persist first (idempotent on (accountId, majorIndex, minorIndex)
-      // via @@unique), then lws registration. createMany skips duplicates so a
-      // retry after a partial lws failure won't double-insert.
-      await models.subaddressIndex.createMany({
-        data: subaddresses.map(s => ({
-          accountId: id,
-          majorIndex: s.majorIndex,
-          minorIndex: s.minorIndex,
-          address: s.address,
-          state: 'AVAILABLE'
-        })),
-        skipDuplicates: true
+      const nonce = Date.now()
+      const paymentId = generateTipPaymentId(id, nonce)
+      const { integratedAddress } = makeIntegratedAddress(account.address, paymentId)
+
+      const webhook = await monero.addWebhook({
+        type: 'tx-confirmation',
+        url: process.env.LWS_WEBHOOK_URL,
+        address: account.address,
+        paymentId,
+        token: process.env.LWS_WEBHOOK_TOKEN || '',
+        confirmations: REQUIRED_CONFIRMATIONS
       })
-      try {
-        await monero.upsertSubaddrs(account, subaddrsToRanges(subaddresses))
-      } catch (err) {
-        console.warn(`addSubaddresses: lws upsertSubaddrs failed (best-effort; local DB is source of truth): ${err && err.message}`)
+
+      await models.observedTip.create({
+        data: {
+          txHash: 'pending-' + paymentId,
+          postId: id,
+          tipperId: null,
+          recipientAccountId: account.id,
+          recipientMajor: null,
+          recipientMinor: null,
+          paymentId,
+          webhookEventId: webhook.event_id || null,
+          piconeros: BigInt(amount),
+          height: null,
+          state: 'PENDING',
+          proofType: 'INDEXED'
+        }
+      })
+
+      return {
+        integratedAddress,
+        paymentId,
+        uri: `monero:${integratedAddress}?tx_amount=${BigInt(amount).toString()}`
       }
-      return models.moneroAccount.findUnique({
-        where: { id },
-        include: { user: true }
-      })
     }
   },
 
