@@ -2,6 +2,7 @@ import { MoneroUtils, MoneroNetworkType } from 'monero-ts'
 import { encryptViewKey } from '../monero/viewkey'
 import { makeIntegratedAddress } from '../monero/integratedAddress'
 import { generateTipPaymentId } from '../monero/paymentId'
+import { buildMoneroUri } from '../monero/uri'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 
@@ -144,10 +145,18 @@ export default {
         }
       })
 
+      // Cake Wallet / Monerujo parse tx_amount as DECIMAL XMR (not atomic units),
+      // so the URI is built via buildMoneroUri + piconerosToXmrDecimal. Emitting raw
+      // piconeros here would make every tip misread 1e12x by the receiving wallet.
+      const uri = buildMoneroUri(
+        [{ address: integratedAddress, amount: BigInt(amount) }],
+        { description: `tip on "${post.title ?? ''}" via StealthNews`, paymentId }
+      )
+
       return {
         integratedAddress,
         paymentId,
-        uri: `monero:${integratedAddress}?tx_amount=${BigInt(amount).toString()}`
+        uri
       }
     }
   },
