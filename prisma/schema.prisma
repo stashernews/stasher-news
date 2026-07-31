@@ -416,6 +416,13 @@ model Item {
   moneroAccountId      Int?
   moneroAccount        MoneroAccount? @relation(fields: [moneroAccountId], references: [id])
 
+  // StealthNews posting-fee gate (§6.2, Q8): a low-rep author's post is created
+  // PENDING_FEE and invisible until the penaltyIndexer observes the posting fee;
+  // FEE_PAID (or FEE_NOT_REQUIRED for above-threshold authors) makes it visible.
+  feeStatus   ItemFeeStatus @default(FEE_NOT_REQUIRED)
+  feePayInId  Int?           @unique
+  feePayIn    PayIn?         @relation("ItemFeePayIn", fields: [feePayInId], references: [id])
+
   // back-relation to the pre-registered subaddress pool
   subaddresses  SubaddressIndex[] @relation("PostSubaddress")
   // back-relations for observed Monero tips/burns (ObservedTip/ObservedBurn)
@@ -638,6 +645,13 @@ model Sub {
 
   // StealthNews (§4.2): territory owner's Monero address (per-territory).
   moneroAddress String?
+
+  // StealthNews territory-fee gate (§6.2): territory create/renew fees land on the
+  // rewards wallet; billingStatus tracks PAID -> PENDING_FEE -> LAPSED. Reuses the
+  // existing billedLastAt/billPaidUntil cadence in worker/territory.js.
+  billingStatus   SubBillingStatus @default(PAID)
+  billingPayInId  Int?             @unique
+  billingPayIn    PayIn?           @relation("SubBillingPayIn", fields: [billingPayInId], references: [id])
 
   parent            Sub?                @relation("ParentChildren", fields: [parentName], references: [name])
   children          Sub[]               @relation("ParentChildren")
@@ -1141,6 +1155,11 @@ model PayIn {
   moneroUri      String?
   observedTipId  BigInt?
   observedBurnId BigInt?
+  // StealthNews fee linkage (§6.2): the rewards-wallet fee subaddress this PayIn
+  // watches. The detected FeeObservation is reached via the `feeObservation`
+  // back-relation (1:1, FK on FeeObservation.payInId) rather than a redundant scalar.
+  moneroSubaddressMajor Int?
+  moneroSubaddressMinor Int?
 
   genesis       PayIn?        @relation("PayInGenesis", fields: [genesisId], references: [id], onDelete: Cascade)
   successor     PayIn?        @relation("PayInSuccessor", fields: [successorId], references: [id], onDelete: Cascade)
@@ -1152,6 +1171,11 @@ model PayIn {
   progeny       PayIn[]       @relation("PayInGenesis")
   pollVote      PollVote?
   uploadPayIns  UploadPayIn[]
+  // back-relations for the fee 1:1 linkages (Item.feePayIn / Sub.billingPayIn /
+  // FeeObservation.payIn). The FKs live on the other side; these are the read sides.
+  feeItem       Item?          @relation("ItemFeePayIn")
+  feeSub        Sub?           @relation("SubBillingPayIn")
+  feeObservation FeeObservation?
 
   @@index([userId])
   @@index([createdAt])
@@ -1335,6 +1359,27 @@ enum PayoutState {
   FAILED
 }
 
+// StealthNews fee ledger (§6.2). Posting/territory fees land on the platform
+// rewards wallet via dedicated subaddresses; the penaltyIndexer attributes them.
+enum FeeType {
+  POSTING
+  TERRITORY_CREATE
+  TERRITORY_BILLING
+  TERRITORY_UNARCHIVE
+}
+
+enum ItemFeeStatus {
+  FEE_NOT_REQUIRED
+  PENDING_FEE
+  FEE_PAID
+}
+
+enum SubBillingStatus {
+  PAID
+  PENDING_FEE
+  LAPSED
+}
+
 // A registered Monero wallet under observation by monero-lws.
 // One row per (user, wallet) for authors; plus ONE fixed row for the platform rewards wallet.
 model MoneroAccount {
@@ -1440,6 +1485,34 @@ model ObservedBurn {
 
   @@unique([txHash, paymentId])
   @@index([postId])
+}
+
+// An observed posting/territory fee payment (arrives on the platform rewards
+// wallet via a DEDICATED fee subaddress — major 1 = posting, major 2 = territory).
+// The penaltyIndexer attributes each fee output to its pending PayIn and flips the
+// linked Item.feeStatus / Sub.billingStatus to paid. Phase 4's rewardsDistributor
+// sums these per period. postId/subName are denormalized for the rewards ledger.
+model FeeObservation {
+  id             BigInt        @id @default(autoincrement())
+  txHash         String
+  payInId        Int           @unique
+  feeType        FeeType
+  postId         Int?
+  subName        String?       @db.Citext
+  recipientMajor Int
+  recipientMinor Int
+  piconeros      BigInt
+  height         Int?
+  confirmations  Int           @default(0)
+  state          ObservedState @default(DETECTED)
+  detectedAt     DateTime      @default(now())
+  confirmedAt    DateTime?
+
+  payIn PayIn @relation(fields: [payInId], references: [id])
+
+  @@unique([txHash, recipientMajor, recipientMinor])
+  @@index([payInId])
+  @@index([feeType, state])
 }
 
 // One weekly rewards distribution run.
