@@ -31,6 +31,7 @@ import {
 } from './domainVerification.js'
 import { untrackOldItems } from './untrackOldItems'
 import { confirmFinalizer } from './confirmFinalizer'
+import { penaltyIndexer } from './penaltyIndexer'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -128,6 +129,13 @@ async function work () {
   // than being piggybacked on the indexer's 20s cadence.
   if (await boss.getQueueSize('confirmFinalizer') === 0) {
     await boss.send('confirmFinalizer', {})
+  }
+
+  // penaltyIndexer: polls the platform rewards wallet for posting/territory fee
+  // outputs (subaddress attribution). Same self-requeuing pattern as confirmFinalizer.
+  await boss.work('penaltyIndexer', jobWrapper(penaltyIndexer))
+  if (await boss.getQueueSize('penaltyIndexer') === 0) {
+    await boss.send('penaltyIndexer', {})
   }
 
   console.log('working jobs')
