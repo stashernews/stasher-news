@@ -217,9 +217,12 @@ function whenClause (when, table) {
 }
 
 export const activeOrMine = (me) => {
+  // StealthNews posting-fee gate (§6.2, Q8): a PENDING_FEE item is invisible to
+  // everyone except its author until the penaltyIndexer observes its posting fee and
+  // flips feeStatus to FEE_PAID. (Existing items default to FEE_NOT_REQUIRED.)
   return me
-    ? `("Item".status <> 'STOPPED' OR "Item"."userId" = ${me.id})`
-    : '"Item".status <> \'STOPPED\''
+    ? `(("Item".status <> 'STOPPED' AND COALESCE("Item"."feeStatus", 'FEE_NOT_REQUIRED') <> 'PENDING_FEE') OR "Item"."userId" = ${me.id})`
+    : '("Item".status <> \'STOPPED\' AND COALESCE("Item"."feeStatus", \'FEE_NOT_REQUIRED\') <> \'PENDING_FEE\')'
 }
 
 export const muteClause = me =>

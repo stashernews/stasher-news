@@ -1,15 +1,15 @@
-import { ANON_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
+import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { notifyItemMention, notifyItemParents, notifyMention, notifyTerritorySubscribers, notifyUserSubscribers, notifyThreadSubscribers } from '@/lib/webPush'
-import { getItemMentions, getMentions, performBotBehavior, getSubs } from '../lib/item'
+import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
-import { msatsToSats, satsToMsats } from '@/lib/format'
+import { msatsToSats } from '@/lib/format'
 import { GqlInputError } from '@/lib/error'
-import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
-import * as MEDIA_UPLOAD from './mediaUpload'
-import { getBeneficiariesMcost } from '../lib/beneficiaries'
 import { getItem } from '@/api/resolvers/item'
 import { getTempImgproxyUrls } from '../lib/upload'
-import { checkFreebieEligibility, incrementFreeCommentCount } from '../lib/freebie'
+import { incrementFreeCommentCount } from '../lib/freebie'
+import { canPostFree, postingFeePiconeros } from '@/api/monero/postingFee'
+import { reserveFeeSubaddress } from '@/api/monero/feePool'
+import { buildMoneroUri } from '@/api/monero/uri'
 
 export const anonable = true
 
@@ -20,75 +20,44 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-const DEFAULT_ITEM_MCOST = 1000n
-
-async function getBaseMcost (models, { bio, parentId, subNames }) {
-  if (bio) return DEFAULT_ITEM_MCOST
-
-  const subs = await getSubs(models, { subNames, parentId })
-
-  if (parentId) {
-    let replyMcost = 0n
-    for (const sub of subs) {
-      if (sub.replyCost) {
-        replyMcost += satsToMsats(sub.replyCost)
-      } else {
-        replyMcost += DEFAULT_ITEM_MCOST
-      }
-    }
-    return replyMcost > 0n ? replyMcost : DEFAULT_ITEM_MCOST
-  }
-
-  let baseMcost = 0n
-  for (const sub of subs) {
-    if (sub.baseCost) {
-      baseMcost += satsToMsats(sub.baseCost)
-    } else {
-      baseMcost += DEFAULT_ITEM_MCOST
-    }
-  }
-
-  return baseMcost > 0n ? baseMcost : DEFAULT_ITEM_MCOST
-}
-
-async function getMcost (models, { subNames, parentId, uploadIds, bio }, { me }) {
-  const baseMcost = await getBaseMcost(models, { bio, parentId, subNames })
-
-  // mcost = baseMcost * 10^num_items_in_10m * 100 (anon) or 1 (user) + upload fees
-  const [{ mcost }] = await models.$queryRaw`
-    SELECT ${baseMcost}::INTEGER
-      * POWER(10, item_spam(${parseInt(parentId)}::INTEGER, ${me.id}::INTEGER,
-          ${me.id !== USER_ID.anon && !bio ? ITEM_SPAM_INTERVAL : ANON_ITEM_SPAM_INTERVAL}::INTERVAL))
-      * ${me.id !== USER_ID.anon ? 1 : ANON_FEE_MULTIPLIER}::INTEGER  as mcost`
-
-  const isFreebie = await checkFreebieEligibility(models, { mcost, baseMcost, parentId, bio }, { me })
-  return isFreebie ? BigInt(0) : BigInt(mcost)
-}
-
 export async function getInitial (models, args, { me }) {
-  const mcost = await getMcost(models, args, { me })
-  const subs = await getSubs(models, args)
+  // StealthNews posting-fee gate (spec §6.2, Q5). Posting is free for established
+  // users (stacked >= 1e10 piconeros AND age >= 7d); low-rep users pay a posting fee
+  // to the platform rewards wallet before their post goes live.
+  //
+  // mcost is 0 in BOTH cases — StealthNews does not charge custodial sats for
+  // posting. The fee (when required) is on-chain Monero to a rewards-wallet fee
+  // subaddress, observed by the penaltyIndexer. The SN payIn engine therefore sees
+  // mcost=0 -> payInState=PAID; the post's VISIBILITY is gated independently by
+  // Item.feeStatus (set in onBegin), which the penaltyIndexer flips PENDING_FEE ->
+  // FEE_PAID when it observes the fee output.
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  if (!config) throw new GqlInputError('fee config not initialized')
+  const user = await models.user.findUnique({ where: { id: me.id } })
+  if (!user) throw new GqlInputError('user not found')
 
-  // for item creation, each sub can have a different cost
-  const subsWithCosts = subs.map(sub => ({
-    ...sub,
-    mcost: args.parentId
-      ? satsToMsats(sub.replyCost ?? 1)
-      : satsToMsats(sub.baseCost ?? 1)
-  }))
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs: subsWithCosts, mcost })
-
-  const beneficiaries = []
-  if (args.uploadIds?.length > 0) {
-    beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds: args.uploadIds }, { me, subs }))
+  if (canPostFree(user, config)) {
+    return {
+      payInType: 'ITEM_CREATE',
+      userId: me.id,
+      mcost: 0n
+    }
   }
 
+  // low-rep user: reserve a rewards-wallet posting-fee subaddress and build the URI
+  const fee = postingFeePiconeros(config)
+  const sub = await reserveFeeSubaddress(models, 'POSTING')
+  const moneroUri = buildMoneroUri(
+    [{ address: sub.address, amount: fee }],
+    { description: 'StealthNews posting fee' }
+  )
   return {
     payInType: 'ITEM_CREATE',
     userId: me.id,
-    mcost: mcost + getBeneficiariesMcost(beneficiaries),
-    payOutCustodialTokens,
-    beneficiaries
+    mcost: 0n,
+    moneroUri,
+    moneroSubaddressMajor: sub.major,
+    moneroSubaddressMinor: sub.minor
   }
 }
 
@@ -125,6 +94,14 @@ export async function onBegin (tx, payInId, args) {
   const { parentId, uploadIds = [], forwardUsers = [], options: pollOptions = [], subNames = [], ...data } = args
   const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
 
+  // StealthNews posting-fee gate: a PayIn that reserved a rewards-wallet fee
+  // subaddress (moneroSubaddressMajor set) creates the Item PENDING_FEE (invisible
+  // until the penaltyIndexer observes the fee and flips it to FEE_PAID); otherwise
+  // the Item is live (FEE_NOT_REQUIRED). feeStatus is derived here from the PayIn's
+  // subaddress fields rather than threaded through the prospect, since feeStatus is
+  // an Item column (not a PayIn column).
+  const feeStatus = payIn.moneroSubaddressMajor != null ? 'PENDING_FEE' : 'FEE_NOT_REQUIRED'
+
   const { userNames, itemIds } = extractMentions(args.text)
   const mentions = await getMentions(tx, { names: userNames, userId: payIn.userId })
   const itemMentions = await getItemMentions(tx, { itemIds, userId: payIn.userId })
@@ -151,6 +128,8 @@ export async function onBegin (tx, payInId, args) {
     cost: msatsToSats(payIn.mcost),
     freebie: isFreebie,
     imgproxyUrls,
+    feeStatus,
+    feePayInId: feeStatus === 'PENDING_FEE' ? payInId : null,
     itemPayIns: {
       create: [{ payInId }]
     },
@@ -292,6 +271,13 @@ export async function onPaidSideEffects (models, payInId) {
       }
     }
   })
+
+  // StealthNews: a PENDING_FEE post is not live yet (invisible until the
+  // penaltyIndexer observes its posting fee and flips feeStatus to FEE_PAID), so
+  // suppress all creation notifications here. They will fire once the post goes live.
+  if (item.feeStatus === 'PENDING_FEE') {
+    return
+  }
 
   if (item.parentId) {
     notifyItemParents({ item, models }).catch(console.error)
