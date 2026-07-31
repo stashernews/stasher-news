@@ -1310,6 +1310,7 @@ enum SubaddressState {
 }
 
 enum ObservedState {
+  PENDING
   DETECTED
   CONFIRMED
   REORGED
@@ -1400,15 +1401,16 @@ model ObservedTip {
   postId             Int
   tipperId           Int?
   recipientAccountId Int
-  recipientMajor     Int
-  recipientMinor     Int
-  paymentId          String?
+  recipientMajor     Int?
+  recipientMinor     Int?
+  paymentId          String
   piconeros          BigInt
   height             Int?
   confirmations      Int           @default(0)
   state              ObservedState @default(DETECTED)
   proofType          ProofType     @default(INDEXED)
   txPrivateKey       String?
+  webhookEventId     String?
   detectedAt         DateTime      @default(now())
   confirmedAt        DateTime?
 

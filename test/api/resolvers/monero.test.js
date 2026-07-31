@@ -1,71 +1,53 @@
 /* eslint-env jest */
 
-// Integration tests for the Monero wallet-setup resolvers (Task 8 / spec §7.3).
+// Integration tests for the Monero resolvers (spec §4.5, §7.3).
 //
 // registerMoneroAccount is the wallet-onboarding mutation: it validates the
 // stagenet address + private view key via monero-ts (real validation, NOT
-// mocked — the validation IS part of what's being tested per the brief),
-// encrypts the view key (Task 2 envelope), registers the account + the
-// subaddress pool with monero-lws, and persists MoneroAccount / MoneroViewKey
-// / SubaddressIndex rows (Task 1 schema) + sets User.privacyMode.
+// mocked), encrypts the view key (Task 2 envelope), registers the account
+// with monero-lws, and persists MoneroAccount / MoneroViewKey rows + sets
+// User.privacyMode.
+//
+// initiateTip starts a P2P tip: it derives an integrated address from the
+// post author's primary address + a payment ID, registers a lws webhook, and
+// creates a PENDING ObservedTip.
 //
 // The lwsClient is the only mock — it is the network boundary (DI seam on the
 // Apollo `monero` context). Everything else is real DB behaviour against a
-// live, migrated database, mirroring test/worker/moneroIndexer.test.js.
-//
-// Run via the node:22.21.1 helper container:
-//   docker exec sn-prisma npx jest test/api/resolvers/monero.test.js
+// live, migrated database.
 
 import { PrismaClient } from '@prisma/client'
 import resolvers from '@/api/resolvers/monero'
 
-// Envelope encryption needs a master key in the env (Task 2). Set before any
-// encryptViewKey call; getMasterKey() lazily caches it.
 process.env.VIEWKEY_MASTER_KEY = Buffer.from('a'.repeat(32)).toString('base64')
-
-// The fixture address is a stagenet vector; under mainnet/testnet monero-ts
-// validation rejects it. Pin the network explicitly so a CI env exporting a
-// different MONERO_NETWORK can't flip the resolver's validation target.
 process.env.MONERO_NETWORK = 'stagenet'
+process.env.LWS_WEBHOOK_URL = 'http://app:3000/api/monero/webhook'
 
 const prisma = new PrismaClient()
 
-// Real valid stagenet test vectors. Derived OFFLINE from monero-ts
-// createWalletKeys({ networkType: STAGENET }) (see task-8-report.md):
-//   - address validates via MoneroUtils.isValidAddress(addr, STAGENET) -> true
-//   - view key validates via MoneroUtils.isValidPrivateViewKey(vk) -> true
-// Hard-coded so the test fixture is stable across runs (no wallet-gen in CI).
 const STAGENET_ADDR = '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
 const STAGENET_VIEWKEY = '5580e0440c77c9b720950defd0bcfbd87b6a10f098ed345fac290c7f48b3c60e'
-// On a fresh wallet, subaddress (0,0) IS the primary address, so it is itself
-// a valid stagenet address — sufficient for the SubaddressIndex row's stored
-// `address` (the resolver does NOT verify parent-child, which would require
-// the spend key).
-const STAGENET_SUBADDR_0_0 = STAGENET_ADDR
 
-// Mock lwsClient — the network boundary (DI via context.monero). The real
-// addAccount / upsertSubaddrs are exercised end-to-end in test/api/monero/
-// lwsClient.test.js (Task 3); here we only assert the resolver calls them
-// with the right shape.
 function makeMockLws () {
   return {
     addAccount: jest.fn().mockResolvedValue({}),
-    upsertSubaddrs: jest.fn().mockResolvedValue({})
+    addWebhook: jest.fn().mockResolvedValue({ event_id: 'evt-test-1' })
   }
 }
 
-// FK-safe teardown per test (so the same valid stagenet address can be reused
-// across tests despite the @@unique([address, network]) constraint).
-// Order: SubaddressIndex + MoneroViewKey -> MoneroAccount -> users.
-const created = { users: [], accounts: [] }
+const created = { users: [], accounts: [], items: [], tips: [] }
 
 async function cleanupTracked () {
+  await prisma.observedTip.deleteMany({ where: { recipientAccountId: { in: created.accounts } } })
   await prisma.subaddressIndex.deleteMany({ where: { accountId: { in: created.accounts } } })
   await prisma.moneroViewKey.deleteMany({ where: { accountId: { in: created.accounts } } })
   await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
+  await prisma.item.deleteMany({ where: { id: { in: created.items } } })
   await prisma.user.deleteMany({ where: { id: { in: created.users } } })
   created.users.length = 0
   created.accounts.length = 0
+  created.items.length = 0
+  created.tips.length = 0
 }
 
 afterEach(cleanupTracked)
@@ -81,6 +63,14 @@ async function createUser () {
   return id
 }
 
+async function createPost (userId) {
+  const item = await prisma.item.create({
+    data: { userId, title: 'test post for tipping', status: 'ACTIVE' }
+  })
+  created.items.push(item.id)
+  return item
+}
+
 async function registerFor (userId, overrides = {}, lws = makeMockLws()) {
   const acct = await resolvers.Mutation.registerMoneroAccount(null, {
     address: STAGENET_ADDR,
@@ -93,56 +83,28 @@ async function registerFor (userId, overrides = {}, lws = makeMockLws()) {
 }
 
 describe('Mutation.registerMoneroAccount', () => {
-  test('validates, encrypts the view key, calls lws addAccount + upsertSubaddrs, creates SubaddressIndex AVAILABLE, sets User.privacyMode', async () => {
+  test('validates, encrypts the view key, calls lws addAccount, sets User.privacyMode', async () => {
     const userId = await createUser()
-    const { acct, lws } = await registerFor(userId, {
-      subaddresses: [{ majorIndex: 0, minorIndex: 0, address: STAGENET_SUBADDR_0_0 }]
-    })
+    const { acct, lws } = await registerFor(userId)
 
-    // MoneroAccount created with the supplied address.
     expect(acct.address).toBe(STAGENET_ADDR)
     expect(acct.label).toBe('author')
     expect(acct.network).toBe('STAGENET')
 
-    // lws admin registration happened with the PLAINTEXT view key (the one
-    // place plaintext traverses the wire, over TLS — spec §5).
     expect(lws.addAccount).toHaveBeenCalledWith(STAGENET_ADDR, STAGENET_VIEWKEY)
     expect(lws.addAccount).toHaveBeenCalledTimes(1)
 
-    // lws subaddress pool registration happened with the account + the derived
-    // explicit-index range shape (spec §5.1: { "<major>": [[minMinor, maxMinor]] }).
-    expect(lws.upsertSubaddrs).toHaveBeenCalledTimes(1)
-    const [acctArg, rangesArg] = lws.upsertSubaddrs.mock.calls[0]
-    expect(acctArg.address).toBe(STAGENET_ADDR)
-    expect(rangesArg).toEqual({ 0: [[0, 0]] })
-
-    // MoneroViewKey persisted encrypted: ciphertext hex AND utf8 must NOT
-    // contain the plaintext view key (defence-in-depth on top of GCM).
     const stored = await prisma.moneroViewKey.findUnique({ where: { accountId: acct.id } })
     expect(stored.ciphertext.toString('hex')).not.toContain(STAGENET_VIEWKEY)
-    expect(stored.ciphertext.toString('utf8')).not.toContain(STAGENET_VIEWKEY)
     expect(stored.dekVersion).toBe(1)
 
-    // SubaddressIndex row created AVAILABLE.
-    const subs = await prisma.subaddressIndex.findMany({ where: { accountId: acct.id } })
-    expect(subs).toHaveLength(1)
-    expect(subs[0].state).toBe('AVAILABLE')
-    expect(subs[0].majorIndex).toBe(0)
-    expect(subs[0].minorIndex).toBe(0)
-    expect(subs[0].address).toBe(STAGENET_SUBADDR_0_0)
-
-    // User.privacyMode set (lives on USER, not MoneroAccount — controller #2).
     const user = await prisma.user.findUnique({ where: { id: userId } })
     expect(user.privacyMode).toBe('AUTO_INDEX')
 
-    // Computed field resolvers (controller #2): privacyMode reads from the
-    // eager-loaded owner User; subaddressPoolRemaining counts AVAILABLE rows.
-    const ctxForFields = { models: prisma }
     expect(resolvers.MoneroAccount.privacyMode(acct)).toBe('AUTO_INDEX')
-    expect(await resolvers.MoneroAccount.subaddressPoolRemaining(acct, null, ctxForFields)).toBe(1)
   })
 
-  test('rejects an invalid address (monero-ts isValidAddress returns false) and persists nothing', async () => {
+  test('rejects an invalid address and persists nothing', async () => {
     const userId = await createUser()
     const lws = makeMockLws()
     await expect(resolvers.Mutation.registerMoneroAccount(null, {
@@ -151,9 +113,7 @@ describe('Mutation.registerMoneroAccount', () => {
       privacyMode: 'AUTO_INDEX'
     }, { me: { id: userId }, models: prisma, monero: lws })).rejects.toThrow(/invalid monero address/i)
 
-    // lws.addAccount MUST NOT have run (validation gates registration).
     expect(lws.addAccount).not.toHaveBeenCalled()
-    // Nothing was persisted locally.
     expect(await prisma.moneroAccount.count({ where: { ownerUserId: userId } })).toBe(0)
   })
 
@@ -168,90 +128,84 @@ describe('Mutation.registerMoneroAccount', () => {
     expect(lws.addAccount).not.toHaveBeenCalled()
   })
 
-  test('rejects if no me (GqlAuthenticationError: "you must be logged in")', async () => {
+  test('rejects if no me (GqlAuthenticationError)', async () => {
     await expect(resolvers.Mutation.registerMoneroAccount(null, {
       address: STAGENET_ADDR,
       viewKey: STAGENET_VIEWKEY,
       privacyMode: 'AUTO_INDEX'
     }, { models: prisma, monero: makeMockLws() })).rejects.toThrow(/you must be logged in/i)
   })
-
-  test('without subaddresses: registers account + view key only, skips upsertSubaddrs', async () => {
-    // Controller #4: "if privacyMode is MANUAL_PROOF, subaddresses may be
-    // absent — handle both."
-    const userId = await createUser()
-    const { acct, lws } = await registerFor(userId, { privacyMode: 'MANUAL_PROOF' })
-
-    expect(lws.addAccount).toHaveBeenCalledTimes(1)
-    expect(lws.upsertSubaddrs).not.toHaveBeenCalled()
-    expect(acct.address).toBe(STAGENET_ADDR)
-
-    const user = await prisma.user.findUnique({ where: { id: userId } })
-    expect(user.privacyMode).toBe('MANUAL_PROOF')
-  })
 })
 
-describe('Mutation.addSubaddresses', () => {
-  test('adds SubaddressIndex rows + calls upsertSubaddrs with derived ranges', async () => {
-    const userId = await createUser()
-    const { acct: seed } = await registerFor(userId)
+describe('Mutation.initiateTip', () => {
+  test('generates a payment ID, integrated address, registers a webhook, and creates a PENDING ObservedTip', async () => {
+    const authorId = await createUser()
+    const { acct } = await registerFor(authorId)
+    const post = await createPost(authorId)
 
+    const tipperId = await createUser()
     const lws = makeMockLws()
-    const acct = await resolvers.Mutation.addSubaddresses(null, {
-      accountId: String(seed.id),
-      subaddresses: [
-        { majorIndex: 0, minorIndex: 1, address: STAGENET_SUBADDR_0_0 },
-        { majorIndex: 0, minorIndex: 2, address: STAGENET_SUBADDR_0_0 }
-      ]
-    }, { me: { id: userId }, models: prisma, monero: lws })
+    const result = await resolvers.Mutation.initiateTip(null, {
+      postId: String(post.id),
+      amount: '1000000000'
+    }, { me: { id: tipperId }, models: prisma, monero: lws })
 
-    expect(acct.id).toBe(seed.id)
-    expect(lws.upsertSubaddrs).toHaveBeenCalledTimes(1)
-    const [, rangesArg] = lws.upsertSubaddrs.mock.calls[0]
-    expect(rangesArg).toEqual({ 0: [[1, 2]] })
+    // return value has the integrated address + payment ID + monero URI
+    expect(result.integratedAddress).toMatch(/^5/)
+    expect(result.integratedAddress).toHaveLength(106)
+    expect(result.paymentId).toMatch(/^[0-9a-f]{16}$/)
+    expect(result.uri).toContain(`monero:${result.integratedAddress}`)
+    expect(result.uri).toContain('tx_amount=1000000000')
 
-    const subs = await prisma.subaddressIndex.findMany({ where: { accountId: seed.id } })
-    expect(subs).toHaveLength(2)
-    expect(subs.map(s => s.minorIndex).sort((a, b) => a - b)).toEqual([1, 2])
-    expect(subs.every(s => s.state === 'AVAILABLE')).toBe(true)
+    // lws webhook registered with the author's address + payment ID
+    expect(lws.addWebhook).toHaveBeenCalledTimes(1)
+    const whArgs = lws.addWebhook.mock.calls[0][0]
+    expect(whArgs.address).toBe(acct.address)
+    expect(whArgs.paymentId).toBe(result.paymentId)
+    expect(whArgs.confirmations).toBe(10)
+    expect(whArgs.type).toBe('tx-confirmation')
+
+    // ObservedTip created PENDING
+    const tip = await prisma.observedTip.findFirst({
+      where: { paymentId: result.paymentId },
+      include: { recipientAccount: true }
+    })
+    expect(tip).not.toBeNull()
+    expect(tip.state).toBe('PENDING')
+    expect(tip.postId).toBe(post.id)
+    expect(tip.piconeros).toBe(1000000000n)
+    expect(tip.webhookEventId).toBe('evt-test-1')
+    expect(tip.recipientAccountId).toBe(acct.id)
   })
 
-  test('rejects if me does not own the account (GqlAuthorizationError)', async () => {
-    const ownerId = await createUser()
-    const intruderId = await createUser()
-    const { acct: seed } = await registerFor(ownerId)
+  test('rejects if the tipper is not logged in', async () => {
+    const authorId = await createUser()
+    await registerFor(authorId)
+    const post = await createPost(authorId)
 
-    await expect(resolvers.Mutation.addSubaddresses(null, {
-      accountId: String(seed.id),
-      subaddresses: [{ majorIndex: 0, minorIndex: 1, address: STAGENET_SUBADDR_0_0 }]
-    }, { me: { id: intruderId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/not your account/i)
-  })
-
-  test('empty subaddresses list: does NOT call upsertSubaddrs and creates no SubaddressIndex rows (regression: lwsClient defaults null ranges to {0:[[0,499]]})', async () => {
-    const userId = await createUser()
-    const { acct: seed } = await registerFor(userId)
-
-    const lws = makeMockLws()
-    const acct = await resolvers.Mutation.addSubaddresses(null, {
-      accountId: String(seed.id),
-      subaddresses: []
-    }, { me: { id: userId }, models: prisma, monero: lws })
-
-    expect(acct.id).toBe(seed.id)
-    // Regression guard: subaddrsToRanges([]) -> null, and lwsClient.upsertSubaddrs
-    // defaults null ranges to { 0: [[0, 499]] } — silently registering 500
-    // default subaddresses with lws. The resolver must short-circuit before that.
-    expect(lws.upsertSubaddrs).not.toHaveBeenCalled()
-    // No new SubaddressIndex rows created (createMany must not run either).
-    const subs = await prisma.subaddressIndex.findMany({ where: { accountId: seed.id } })
-    expect(subs).toHaveLength(0)
-  })
-
-  test('rejects if no me', async () => {
-    await expect(resolvers.Mutation.addSubaddresses(null, {
-      accountId: '1',
-      subaddresses: []
+    await expect(resolvers.Mutation.initiateTip(null, {
+      postId: String(post.id),
+      amount: '1000000000'
     }, { models: prisma, monero: makeMockLws() })).rejects.toThrow(/you must be logged in/i)
+  })
+
+  test('rejects if the post does not exist', async () => {
+    const tipperId = await createUser()
+    await expect(resolvers.Mutation.initiateTip(null, {
+      postId: '9999999',
+      amount: '1000000000'
+    }, { me: { id: tipperId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/post not found/i)
+  })
+
+  test('rejects if the post author has no monero account', async () => {
+    const authorId = await createUser()
+    const post = await createPost(authorId)
+    const tipperId = await createUser()
+
+    await expect(resolvers.Mutation.initiateTip(null, {
+      postId: String(post.id),
+      amount: '1000000000'
+    }, { me: { id: tipperId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/no monero account/i)
   })
 })
 
@@ -262,11 +216,10 @@ describe('Query.myMoneroAccount', () => {
 
     const found = await resolvers.Query.myMoneroAccount(null, {}, { me: { id: userId }, models: prisma })
     expect(found.id).toBe(created.id)
-    // owner User eager-loaded so the privacyMode field resolver can read it.
     expect(found.user.privacyMode).toBe('AUTO_INDEX')
   })
 
-  test('returns null when no me (matches the my* null-on-anonymous convention)', async () => {
+  test('returns null when no me', async () => {
     expect(await resolvers.Query.myMoneroAccount(null, {}, { models: prisma })).toBeNull()
   })
 

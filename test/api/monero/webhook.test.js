@@ -1,0 +1,165 @@
+/* eslint-env jest */
+
+// Unit tests for the lws tx-confirmation webhook receiver (spec §4.4).
+//
+// The receiver is a Next.js API route whose core logic is exported as
+// `handleWebhook(req, res, models, monero)` so it can be tested with mocked
+// prisma + lwsClient (the two network/DI seams), without touching the DB or
+// the network. The real applyTipDetected runs against a fake transaction
+// client that provides $executeRaw (the only method it calls when a tx is
+// passed), so the ranking side-effect path is exercised end-to-end.
+
+import { handleWebhook } from '@/pages/api/monero/webhook'
+
+function mockModels (overrides = {}) {
+  const txUpdate = overrides.txUpdate || jest.fn().mockResolvedValue({})
+  const userUpdate = overrides.userUpdate || jest.fn().mockResolvedValue({})
+  const execRaw = overrides.execRaw || jest.fn().mockResolvedValue(1)
+  return {
+    observedTip: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({}),
+      ...overrides.observedTip
+    },
+    $transaction: jest.fn(async (fn) => fn({
+      observedTip: { update: txUpdate },
+      user: { update: userUpdate },
+      $executeRaw: execRaw
+    }))
+  }
+}
+
+function mockMonero (overrides = {}) {
+  return {
+    deleteWebhook: jest.fn().mockResolvedValue({}),
+    ...overrides
+  }
+}
+
+function mockRes () {
+  return {
+    status: jest.fn().mockReturnThis(),
+    json: jest.fn().mockReturnThis(),
+    end: jest.fn().mockReturnThis()
+  }
+}
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  delete process.env.LWS_WEBHOOK_TOKEN
+})
+
+test('returns 200 for an unknown payment ID (not our tip)', async () => {
+  const models = mockModels()
+  const res = mockRes()
+  await handleWebhook({ body: { payment_id: 'unknown123', event: 'tx-confirmation', confirmations: 0 } }, res, models)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(models.observedTip.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { paymentId: 'unknown123' } }))
+  expect(models.$transaction).not.toHaveBeenCalled()
+})
+
+test('returns 200 when payment_id is missing', async () => {
+  const res = mockRes()
+  await handleWebhook({ body: { event: 'tx-confirmation', confirmations: 0 } }, res, mockModels())
+  expect(res.status).toHaveBeenCalledWith(200)
+})
+
+test('flips PENDING -> DETECTED at 0 confirmations and runs the ranking delta', async () => {
+  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-1', post: { userId: 99 } }
+  const txUpdate = jest.fn().mockResolvedValue({ ...tip, state: 'DETECTED' })
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
+    txUpdate,
+    execRaw
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(txUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    where: { id: 1 },
+    data: expect.objectContaining({ state: 'DETECTED', txHash: 'deadbeef', piconeros: 1000000000n })
+  }))
+  // applyTipDetected ran inside the same transaction ($executeRaw is its only
+  // tx-bound call when a tx is supplied)
+  expect(execRaw).toHaveBeenCalledTimes(1)
+})
+
+test('flips DETECTED -> CONFIRMED at REQUIRED_CONFIRMATIONS, bumps stackedPiconeros, deletes webhook', async () => {
+  const tip = { id: 1, postId: 10, state: 'DETECTED', paymentId: 'abc123', piconeros: 1000000000n, height: 2172600, webhookEventId: 'evt-1', post: { userId: 99 } }
+  const txUpdate = jest.fn().mockResolvedValue({})
+  const userUpdate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
+    txUpdate,
+    userUpdate
+  })
+  const monero = mockMonero()
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(txUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ state: 'CONFIRMED' }) }))
+  expect(userUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    where: { id: 99 },
+    data: { stackedPiconeros: { increment: 1000000000n } }
+  }))
+  expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-1')
+})
+
+test('updates confirmations count for intermediate DETECTED callbacks (< REQUIRED_CONFIRMATIONS)', async () => {
+  const tip = { id: 1, postId: 10, state: 'DETECTED', paymentId: 'abc123', piconeros: 1000000000n, height: 2172600, webhookEventId: 'evt-1', post: { userId: 99 } }
+  const models = mockModels({
+    observedTip: {
+      findFirst: jest.fn().mockResolvedValue(tip),
+      update: jest.fn().mockResolvedValue({})
+    }
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 5, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(models.observedTip.update).toHaveBeenCalledWith(expect.objectContaining({
+    where: { id: 1 },
+    data: expect.objectContaining({ confirmations: 5, height: 2172600, txHash: 'deadbeef' })
+  }))
+})
+
+test('is idempotent — a callback when already CONFIRMED is a no-op', async () => {
+  const tip = { id: 1, postId: 10, state: 'CONFIRMED', paymentId: 'abc123', piconeros: 1000000000n, post: { userId: 99 } }
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip), update: jest.fn() }
+  })
+  const monero = mockMonero()
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(models.observedTip.update).not.toHaveBeenCalled()
+  expect(monero.deleteWebhook).not.toHaveBeenCalled()
+})
+
+test('rejects requests with a wrong webhook token when LWS_WEBHOOK_TOKEN is set', async () => {
+  process.env.LWS_WEBHOOK_TOKEN = 'test-secret'
+  const res = mockRes()
+  await handleWebhook({ body: { payment_id: 'abc' }, headers: { 'x-lws-token': 'wrong' } }, res, mockModels())
+  expect(res.status).toHaveBeenCalledWith(401)
+})
+
+test('accepts requests with the correct webhook token', async () => {
+  process.env.LWS_WEBHOOK_TOKEN = 'test-secret'
+  const res = mockRes()
+  await handleWebhook({ body: { payment_id: 'unknown' }, headers: { 'x-lws-token': 'test-secret' } }, res, mockModels())
+  expect(res.status).toHaveBeenCalledWith(200)
+})
+
+test('skips token check when LWS_WEBHOOK_TOKEN is not set (dev default)', async () => {
+  const res = mockRes()
+  await handleWebhook({ body: { payment_id: 'unknown' } }, res, mockModels())
+  expect(res.status).toHaveBeenCalledWith(200)
+})
