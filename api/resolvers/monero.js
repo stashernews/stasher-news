@@ -28,6 +28,73 @@ function networkForEnv () {
   return { moneroTs: MoneroNetworkType.STAGENET, prisma: 'STAGENET' }
 }
 
+// Core tip-initiation logic, extracted so it can be reused/tested independently of
+// the GraphQL context. Enforces the min-tip floor, then: derives a payment ID,
+// mints an integrated address from the POST AUTHOR's primary address, registers a
+// lws tx-confirmation webhook, creates a PENDING ObservedTip, and returns the
+// Cake-compatible monero: URI. The tipper sends to the integrated address; the
+// webhook receiver (pages/api/monero/webhook.js) handles detection + confirmation
+// and calls applyTipDetected (the ranking hook). 100% P2P — no PayIn, no platform
+// output. `me` is the tipper (auth is the caller's responsibility).
+export async function initiateTipCore ({ postId, amount, models, monero }) {
+  const id = Number(postId)
+  const piconeros = BigInt(amount)
+
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  if (!config) throw new GqlInputError('fee config not initialized')
+  if (piconeros < config.minTipPiconeros) {
+    throw new GqlInputError(`min tip is 0.0001 XMR (${config.minTipPiconeros} piconeros)`)
+  }
+
+  const post = await models.item.findUnique({ where: { id } })
+  if (!post) throw new GqlInputError('post not found')
+
+  // The recipient is the post author — their MoneroAccount holds the primary
+  // address the integrated address is derived from.
+  const account = await models.moneroAccount.findFirst({ where: { ownerUserId: post.userId } })
+  if (!account) throw new GqlInputError('post author has no monero account')
+
+  const nonce = Date.now()
+  const paymentId = generateTipPaymentId(id, nonce)
+  const { integratedAddress } = makeIntegratedAddress(account.address, paymentId)
+
+  const webhook = await monero.addWebhook({
+    type: 'tx-confirmation',
+    url: process.env.LWS_WEBHOOK_URL,
+    address: account.address,
+    paymentId,
+    token: process.env.LWS_WEBHOOK_TOKEN || '',
+    confirmations: REQUIRED_CONFIRMATIONS
+  })
+
+  await models.observedTip.create({
+    data: {
+      txHash: 'pending-' + paymentId,
+      postId: id,
+      tipperId: null,
+      recipientAccountId: account.id,
+      recipientMajor: null,
+      recipientMinor: null,
+      paymentId,
+      webhookEventId: webhook.event_id || null,
+      piconeros,
+      height: null,
+      state: 'PENDING',
+      proofType: 'INDEXED'
+    }
+  })
+
+  // Cake Wallet / Monerujo parse tx_amount as DECIMAL XMR (not atomic units), so
+  // the URI is built via buildMoneroUri + piconerosToXmrDecimal. Emitting raw
+  // piconeros here would make every tip misread 1e12x by the receiving wallet.
+  const uri = buildMoneroUri(
+    [{ address: integratedAddress, amount: piconeros }],
+    { description: `tip on "${post.title ?? ''}" via StealthNews`, paymentId }
+  )
+
+  return { integratedAddress, paymentId, uri }
+}
+
 export default {
   Query: {
     // §7.3 line 970. Returns the caller's MoneroAccount (with owner User
@@ -100,64 +167,13 @@ export default {
       })
     },
 
-    // Spec §4.5. Start a P2P tip: generate a payment ID, derive an integrated
-    // address from the POST AUTHOR's primary address, register a lws webhook,
-    // and create a PENDING ObservedTip. The tipper sends to the integrated
-    // address; the webhook receiver handles detection + confirmation.
+    // Spec §4.5. Start a P2P tip. Thin wrapper over initiateTipCore (which enforces
+    // the min-tip floor, mints the integrated address + payment ID, registers the lws
+    // webhook, and creates the PENDING ObservedTip). The webhook receiver handles
+    // detection + confirmation and calls applyTipDetected (the ranking hook).
     async initiateTip (parent, { postId, amount }, { me, models, monero }) {
       if (!me) throw new GqlAuthenticationError()
-      const id = Number(postId)
-      const post = await models.item.findUnique({ where: { id } })
-      if (!post) throw new GqlInputError('post not found')
-
-      // The recipient is the post author — their MoneroAccount holds the
-      // primary address the integrated address is derived from.
-      const account = await models.moneroAccount.findFirst({ where: { ownerUserId: post.userId } })
-      if (!account) throw new GqlInputError('post author has no monero account')
-
-      const nonce = Date.now()
-      const paymentId = generateTipPaymentId(id, nonce)
-      const { integratedAddress } = makeIntegratedAddress(account.address, paymentId)
-
-      const webhook = await monero.addWebhook({
-        type: 'tx-confirmation',
-        url: process.env.LWS_WEBHOOK_URL,
-        address: account.address,
-        paymentId,
-        token: process.env.LWS_WEBHOOK_TOKEN || '',
-        confirmations: REQUIRED_CONFIRMATIONS
-      })
-
-      await models.observedTip.create({
-        data: {
-          txHash: 'pending-' + paymentId,
-          postId: id,
-          tipperId: null,
-          recipientAccountId: account.id,
-          recipientMajor: null,
-          recipientMinor: null,
-          paymentId,
-          webhookEventId: webhook.event_id || null,
-          piconeros: BigInt(amount),
-          height: null,
-          state: 'PENDING',
-          proofType: 'INDEXED'
-        }
-      })
-
-      // Cake Wallet / Monerujo parse tx_amount as DECIMAL XMR (not atomic units),
-      // so the URI is built via buildMoneroUri + piconerosToXmrDecimal. Emitting raw
-      // piconeros here would make every tip misread 1e12x by the receiving wallet.
-      const uri = buildMoneroUri(
-        [{ address: integratedAddress, amount: BigInt(amount) }],
-        { description: `tip on "${post.title ?? ''}" via StealthNews`, paymentId }
-      )
-
-      return {
-        integratedAddress,
-        paymentId,
-        uri
-      }
+      return initiateTipCore({ postId, amount, models, monero })
     }
   },
 

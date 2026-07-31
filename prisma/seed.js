@@ -23,6 +23,15 @@ async function addComments (parentIds, nComments, userIds, commentText) {
 }
 
 async function main () {
+  // StealthNews: ensure the PlatformFeeConfig singleton exists (id=1) with schema
+  // defaults. All fee/tip code reads minTipPiconeros, postingFeeFloorPiconeros, etc.
+  // from this row; without it they would null-deref.
+  await prisma.platformFeeConfig.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1 }
+  })
+
   const k00b = await prisma.user.upsert({
     where: { name: 'k00b' },
     update: {},

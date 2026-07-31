@@ -855,29 +855,22 @@ export default {
       await validateSchema(actSchema, { sats, act })
       await assertGofacYourself({ models, headers })
 
-      const item = await models.item.findUnique({
-        where: { id: Number(id) },
-        include: {
-          itemPayIns: {
-            where: {
-              payIn: {
-                payInType: 'ITEM_CREATE',
-                payInState: 'PAID'
-              }
-            }
-          }
-        }
-      })
-
-      if (item.itemPayIns.length === 0) {
-        throw new GqlInputError('cannot act on unpaid item')
+      // StealthNews: tips are ObservedTip-based (the webhook + payment-ID flow in
+      // the initiateTip mutation), NOT PayIn-based. `act` is typed `: PayIn!` (the
+      // legacy SN zap path) and the frontend ACT_MUTATION spreads PayInFields, so it
+      // cannot carry a TipInitiation. The tip button must call initiateTip directly;
+      // act(TIP) redirects there with an actionable error. Downvotes (DONT_LIKE_THIS)
+      // land in Phase 4 as a DOWN_ZAP PayIn to the rewards wallet.
+      if (act === 'TIP' || act === 'ZAP') {
+        throw new GqlInputError('use the initiateTip mutation to tip (webhook + payment-ID flow)')
       }
-
-      if (item.deletedAt) {
-        throw new GqlInputError('item is deleted')
+      if (act === 'DONT_LIKE_THIS') {
+        throw new GqlInputError('downvotes land in Phase 4 (rewards-funded downvotes)')
       }
-
-      throw new Error('Monero payments are not implemented until Phase 2')
+      if (act === 'BOOST') {
+        throw new GqlInputError('BOOST pays the rewards wallet — not implemented in Phase 3')
+      }
+      throw new GqlInputError(`unsupported act ${act}`)
     },
     payBounty: async (parent, { id, sendProtocolId }, { me, models }) => {
       if (!me) {

@@ -1,3 +1,12 @@
+// SUPERSEDED for tips (StealthNews Phase 3, 2026-07-31).
+// Tips no longer route through the payIn engine: they are ObservedTip-based via
+// the initiateTip mutation (webhook + payment-ID flow) and observed by the lws
+// webhook receiver, which calls applyTipDetected (api/monero/ranking.js) — the
+// ranking equivalent of this file's onPaid. This file is KEPT (not deleted) because
+// its trust/weighted-vote SQL may be referenced by other read paths; deleting it
+// risks silent breakage. getInitial/onPaid here are dead code for the tip path.
+// Phase 4's DOWN_ZAP is a separate payIn type that targets the rewards wallet.
+
 import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { numWithUnits, msatsToSats, satsToMsats } from '@/lib/format'
 import { notifyZapped } from '@/lib/webPush'
