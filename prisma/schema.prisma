@@ -1081,6 +1081,7 @@ enum PayInState {
   DETECTED
   CONFIRMED
   FAILED
+  PAID
 }
 
 enum PayInFailureReason {

@@ -83,6 +83,25 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     }
     confirmed += 1
   }
+
+  // Fee observations (penaltyIndexer / Phase 3 Task 5): mature DETECTED fee
+  // observations to CONFIRMED at the same confirmation threshold. The gated
+  // Item/Sub already went live on DETECTION; CONFIRMED just finalizes the ledger
+  // row so Phase 4's rewardsDistributor can sum paid fees per period. The linked
+  // PayIn's own state is left untouched (it is the ITEM_CREATE bookkeeping state).
+  const fees = await models.feeObservation.findMany({
+    where: { state: 'DETECTED', height: { not: null } },
+    take: SCAN_BATCH_SIZE
+  })
+  for (const fee of fees) {
+    const confirmations = chainHeight - fee.height + 1
+    if (confirmations < REQUIRED_CONFIRMATIONS) continue
+    await models.feeObservation.update({
+      where: { id: fee.id },
+      data: { state: 'CONFIRMED', confirmations, confirmedAt: new Date() }
+    })
+  }
+
   return confirmed
 }
 
