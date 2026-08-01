@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto'
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
 import { GqlInputError } from '@/lib/error'
 import { getItemResult } from '../lib/item'
@@ -40,10 +41,11 @@ export async function getInitial (models, { id, piconeros }, { me }) {
   const item = await models.item.findUnique({ where: { id: parseInt(id) } })
   if (!item) throw new GqlInputError('item not found')
 
-  // Date.now() is unique enough for human-paced downvotes. A same-millisecond
-  // collision on the same post would collide on the payment_id PK (acceptable
-  // for v1 — the user retries); do not add a retry loop here.
-  const nonce = Date.now()
+  // DownvotePidMap.nonce is an Int4 column, so the nonce must fit in 31 bits.
+  // A crypto-random 31-bit value makes (postId, nonce) — and thus the derived
+  // payment_id — effectively unique per downvote; a same-post collision would
+  // hit the payment_id PK and the user retries. (Date.now() overflows Int4.)
+  const nonce = randomInt(0, 0x7fffffff)
   const { integratedAddress, paymentId } = makeDownvoteAddress(parseInt(id), nonce)
 
   // Recorded outside the PayIn transaction (mirrors how itemCreate reserves a
