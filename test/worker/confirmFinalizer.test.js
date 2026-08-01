@@ -27,11 +27,12 @@ const prisma = new PrismaClient()
 const ADDR = '5' + '3'.repeat(94) // 95-char Monero address placeholder
 
 // Tracks every row created across tests so afterAll can tear them down in
-// FK-safe order: ObservedTip -> Item -> MoneroAccount -> users.
-const created = { users: [], items: [], accounts: [], tips: [] }
+// FK-safe order: ObservedTip/ObservedBurn -> Item -> MoneroAccount -> users.
+const created = { users: [], items: [], accounts: [], tips: [], burns: [] }
 
 afterAll(async () => {
   await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } })
+  await prisma.observedBurn.deleteMany({ where: { id: { in: created.burns } } })
   for (const id of created.items) {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
     await prisma.item.deleteMany({ where: { id } })
@@ -113,6 +114,27 @@ function readUser (id) {
   return prisma.user.findUnique({ where: { id }, select: { stackedPiconeros: true } })
 }
 
+// Seed a DETECTED ObservedBurn directly (bypassing the indexer) so the test
+// exercises ONLY the confirmFinalizer flip path. txHash/paymentId must be
+// unique under the @@unique([txHash, paymentId]).
+let burnSeq = 0
+async function seedBurn ({ postId, piconeros, height }) {
+  burnSeq += 1
+  const burn = await prisma.observedBurn.create({
+    data: {
+      txHash: 'ob' + String(burnSeq),
+      postId,
+      downvoterId: null,
+      paymentId: 'obtest' + String(burnSeq).padStart(8, '0') + '00000000',
+      piconeros,
+      height,
+      state: 'DETECTED'
+    }
+  })
+  created.burns.push(burn.id)
+  return burn
+}
+
 test('a DETECTED tip at height 200 becomes CONFIRMED at chain height 209 (10 confs) and bumps the author denorm atomically', async () => {
   const authorId = await createUser(); created.users.push(authorId)
   const postId = await createRoot(authorId, 'confirm-target'); created.items.push(postId)
@@ -170,4 +192,29 @@ test('idempotent: running twice does not double-bump the author denorm', async (
   const after = await readTip(tip.id)
   expect(after.state).toBe('CONFIRMED')
   expect((await readUser(authorId)).stackedPiconeros).toBe(7_000_000n)
+})
+
+test('a DETECTED ObservedBurn becomes CONFIRMED at 10 confirmations', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'burn-confirm-target'); created.items.push(postId)
+  const burn = await seedBurn({ postId, piconeros: 1_000_000_000n, height: 500 })
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(509) })
+
+  const after = await prisma.observedBurn.findUnique({ where: { id: burn.id } })
+  expect(after.state).toBe('CONFIRMED')
+  expect(after.confirmations).toBe(10)
+  expect(after.confirmedAt).toBeInstanceOf(Date)
+})
+
+test('a DETECTED ObservedBurn stays DETECTED below 10 confirmations', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'burn-not-yet'); created.items.push(postId)
+  const burn = await seedBurn({ postId, piconeros: 1_000_000_000n, height: 500 })
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(508) })
+
+  const after = await prisma.observedBurn.findUnique({ where: { id: burn.id } })
+  expect(after.state).toBe('DETECTED')
+  expect(after.confirmedAt).toBeNull()
 })
