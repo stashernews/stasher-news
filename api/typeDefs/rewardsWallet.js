@@ -60,11 +60,17 @@ export default gql`
   # A single curator payout within a distribution. curatorNym is the user's
   # display name (or null if anonymous); amountXmr is the piconeros rendered as
   # a decimal XMR string for direct display.
+  #
+  # NOTE: recipientAddress is deliberately NOT exposed here. The
+  # rewardDistributions query is unauthenticated (transparency-by-design), and
+  # exposing the payout address would link a curator's nym to their Monero
+  # address — a linkage the Monero blockchain itself hides. The resolver may
+  # still spread the column through; an undeclared field is invisible to
+  # GraphQL clients.
   type RewardPayout {
     id: Int!
     curatorId: Int!
     curatorNym: String
-    recipientAddress: String!
     piconeros: BigInt!
     amountXmr: String!
     txHash: String
