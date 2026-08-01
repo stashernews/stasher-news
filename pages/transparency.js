@@ -32,6 +32,26 @@ const REWARDS_WALLET = gql`
         territoryFeeRewardsPct
       }
     }
+    rewardDistributions(limit: 10) {
+      id
+      periodStart
+      periodEnd
+      poolPiconeros
+      distributedPiconeros
+      rolledOverPiconeros
+      payoutCount
+      status
+      completedAt
+      payouts {
+        id
+        curatorId
+        curatorNym
+        piconeros
+        amountXmr
+        txHash
+        state
+      }
+    }
   }
 `
 
@@ -39,6 +59,10 @@ export const getServerSideProps = getGetServerSideProps({ query: REWARDS_WALLET 
 
 function explorerFor (network) {
   return network === 'MAINNET' ? 'https://xmrchain.net/' : 'https://stagenet.xmrchain.net/'
+}
+
+function explorerTxUrl (network) {
+  return network === 'MAINNET' ? 'https://xmrchain.net/tx/' : 'https://stagenet.xmrchain.net/tx/'
 }
 
 function WalletField ({ label, value }) {
@@ -71,6 +95,7 @@ export default function Transparency ({ ssrData }) {
   if (!dat) return <PageLoading />
   const w = dat.rewardsWalletInfo
   const pi = w.periodInflow
+  const dists = dat.rewardDistributions || []
 
   return (
     <Layout footerLinks>
@@ -120,6 +145,58 @@ export default function Transparency ({ ssrData }) {
             <Stat label='Rewards share' value={`${pi.rewardsPiconeros} piconeros`} />
             <Stat label='Ops share' value={`${pi.opsPiconeros} piconeros`} />
           </div>
+
+          <h4 className='text-muted mt-4'>Distribution log</h4>
+          <p className='text-muted'>
+            <small>
+              Recent weekly curator distributions. Each payout is a real on-chain
+              Monero transaction from the rewards wallet — verify any tx hash on
+              the explorer. Curator handles are shown as nyms; sub-threshold
+              shares roll over to the next period.
+            </small>
+          </p>
+          {dists.length === 0
+            ? (
+              <div className='border-bottom border-top py-3 my-2'>
+                <Stat label='No distributions yet' value='—' sub='the first weekly run will appear here' />
+              </div>
+              )
+            : (
+              <div className='border-bottom border-top py-3 my-2'>
+                {dists.map((d, di) => (
+                  <div key={d.id} className={di < dists.length - 1 ? 'mb-4 pb-3 border-bottom' : ''}>
+                    <div className='d-flex flex-wrap justify-content-between'>
+                      <Stat
+                        label={`Distribution #${d.id} — ${d.status}`}
+                        value={`${d.payoutCount} payout${d.payoutCount === 1 ? '' : 's'}`}
+                        sub={`${new Date(d.periodStart).toLocaleDateString()} → ${new Date(d.periodEnd).toLocaleDateString()}`}
+                      />
+                      <Stat label='Pool' value={`${d.poolPiconeros} pico`} />
+                      <Stat label='Distributed' value={`${d.distributedPiconeros} pico`} />
+                      <Stat label='Rolled over' value={`${d.rolledOverPiconeros} pico`} />
+                    </div>
+                    {di === 0 && d.payouts.length > 0 && (
+                      <div className='ms-2 mt-2'>
+                        <small className='text-muted fw-bold d-block mb-1'>Payouts (latest distribution):</small>
+                        {d.payouts.map(p => (
+                          <div key={p.id} className='d-flex flex-column mb-1'>
+                            <span className='text-monospace'>
+                              {p.curatorNym || `user #${p.curatorId}`} — {p.amountXmr} XMR
+                              {' '}<span className='text-muted'>({p.piconeros} pico)</span> — {p.state}
+                            </span>
+                            {p.txHash && (
+                              <a href={`${explorerTxUrl(w.network)}${p.txHash}`} target='_blank' rel='noreferrer'>
+                                <small className='text-monospace text-break text-decoration-none'>{p.txHash.slice(0, 24)}…</small>
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              )}
 
           <div className='alert alert-light mt-4'>
             <h6>Verify independently</h6>

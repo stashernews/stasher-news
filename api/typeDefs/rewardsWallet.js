@@ -11,6 +11,7 @@ import { gql } from 'graphql-tag'
 export default gql`
   extend type Query {
     rewardsWalletInfo: RewardsWalletInfo!
+    rewardDistributions(limit: Int): [RewardDistribution!]!
   }
 
   type RewardsWalletInfo {
@@ -37,5 +38,36 @@ export default gql`
     downvoteRewardsPct: Int!
     postingFeeRewardsPct: Int!
     territoryFeeRewardsPct: Int!
+  }
+
+  # A weekly rewards distribution run (spec §5, §6.2). Each distribution records
+  # the pool total, the amount distributed to curators, the rollover, and its
+  # individual RewardPayout rows with real on-chain tx hashes.
+  type RewardDistribution {
+    id: Int!
+    periodStart: Date!
+    periodEnd: Date!
+    poolPiconeros: BigInt!
+    distributedPiconeros: BigInt!
+    rolledOverPiconeros: BigInt!
+    payoutCount: Int!
+    status: String!
+    startedAt: Date
+    completedAt: Date
+    payouts: [RewardPayout!]!
+  }
+
+  # A single curator payout within a distribution. curatorNym is the user's
+  # display name (or null if anonymous); amountXmr is the piconeros rendered as
+  # a decimal XMR string for direct display.
+  type RewardPayout {
+    id: Int!
+    curatorId: Int!
+    curatorNym: String
+    recipientAddress: String!
+    piconeros: BigInt!
+    amountXmr: String!
+    txHash: String
+    state: String!
   }
 `
