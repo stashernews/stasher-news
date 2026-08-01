@@ -125,7 +125,7 @@ export async function runIndexerOnce ({ models, lwsClient: client = lwsClient, d
       // is unset (bootstrapping / first poll); since_tx_id alone is ignored.
       // Filter client-side: skip confirmed txs already behind the cursor.
       // Mempool txs (height null) are always processed — they are new.
-      if (tx.height != null && typeof tx.id === 'number' && BigInt(tx.id) <= account.lastTxId) continue
+      if (tx.height != null && typeof tx.id === 'number' && account.lastTxId != null && BigInt(tx.id) <= account.lastTxId) continue
       // Map the receiving subaddress -> the Post it is assigned to. A missing
       // row or an unassigned subaddress means this output is not a tip to a
       // known post (payment-id mode, or a subaddress not yet bound) -> skip.
@@ -196,7 +196,7 @@ export async function runIndexerOnce ({ models, lwsClient: client = lwsClient, d
       }
     }
     const data = {}
-    if (maxId > 0) data.lastTxId = BigInt(maxId)
+    if (maxId >= 0) data.lastTxId = BigInt(maxId)
     if (maxConfirmedHeight !== null) {
       try {
         data.lastBlockHash = await dClient.getBlockHashByHeight(maxConfirmedHeight)
@@ -204,7 +204,7 @@ export async function runIndexerOnce ({ models, lwsClient: client = lwsClient, d
         console.error(`moneroIndexer: block-hash fetch failed for account ${account.id} at height ${maxConfirmedHeight}: ${err && err.message}`)
       }
     }
-    if (maxId > 0 || maxConfirmedHeight !== null) {
+    if (maxId >= 0 || maxConfirmedHeight !== null) {
       await models.moneroAccount.update({ where: { id: account.id }, data })
     }
   }
@@ -252,5 +252,5 @@ async function reviveIfReorged ({ models, account, tx, postId }) {
 // job is still active at requeue time and a singleton guard would drop it.
 export async function moneroIndexer ({ boss, models }) {
   await runIndexerOnce({ models })
-  await boss.send('moneroIndexer', {}, { startAfter: MONERO_POLL_INTERVAL_MS })
+  await boss.send('moneroIndexer', {}, { startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
 }

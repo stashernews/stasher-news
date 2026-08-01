@@ -241,7 +241,7 @@ describe('upsertSubaddrs', () => {
     expect(t.calls[0].url).toBe(LWS_URL + '/upsert_subaddrs')
     expect(body.address).toBe(ADDR)
     expect(body.view_key).toBe(VIEWKEY_HEX)
-    expect(body.subaddrs).toEqual({ 0: [[0, 499]] })
+    expect(body.subaddrs).toEqual([{ key: 0, value: [[0, 499]] }])
     expect(body.get_all).toBe(true)
   })
 })

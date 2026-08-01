@@ -36,12 +36,13 @@ async function main () {
   const wallet = await moneroTs.createWalletKeys({
     networkType: net,
     password: 'derive-only',
+    proxyToWorker: false,
     primaryAddress: address,
     privateViewKey: viewKey,
     privateSpendKey: spendKey
   })
 
-  const account = await prisma.moneroAccount.findFirst({ where: { label: 'platform_rewards' } })
+  const account = await prisma.moneroAccount.findFirst({ where: { label: 'platform_rewards' }, include: { viewKey: true } })
   if (!account) throw new Error('platform_rewards MoneroAccount not registered yet; run sndev monero register-rewards-wallet first')
 
   const plans = [
@@ -51,7 +52,7 @@ async function main () {
 
   for (const { major, count } of plans) {
     for (let minor = 1; minor <= count; minor++) {
-      const subAddress = await wallet.getSubaddress(major, minor)
+      const subAddress = await wallet.getAddress(major, minor)
       await prisma.subaddressIndex.upsert({
         where: { accountId_majorIndex_minorIndex: { accountId: account.id, majorIndex: major, minorIndex: minor } },
         create: { accountId: account.id, majorIndex: major, minorIndex: minor, address: subAddress, state: 'AVAILABLE' },

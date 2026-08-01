@@ -112,5 +112,5 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
 // duplicate loops; the requeue deliberately omits it (mirrors moneroIndexer).
 export async function confirmFinalizer ({ boss, models }) {
   await runConfirmFinalizerOnce({ models })
-  await boss.send('confirmFinalizer', {}, { startAfter: CONFIRM_POLL_INTERVAL_MS })
+  await boss.send('confirmFinalizer', {}, { startAfter: CONFIRM_POLL_INTERVAL_MS / 1000 })
 }
