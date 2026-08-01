@@ -20,7 +20,7 @@ const REWARDS_WALLET = gql`
       balanceXmr
       rewardsEarmarkPiconeros
       opsEarmarkPiconeros
-      periodInflow {
+      inflowBreakdown {
         downvotePiconeros
         postingFeePiconeros
         territoryFeePiconeros
@@ -94,7 +94,7 @@ export default function Transparency ({ ssrData }) {
 
   if (!dat) return <PageLoading />
   const w = dat.rewardsWalletInfo
-  const pi = w.periodInflow
+  const pi = w.inflowBreakdown
   const dists = dat.rewardDistributions || []
 
   return (

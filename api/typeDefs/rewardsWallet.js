@@ -24,11 +24,11 @@ export default gql`
     balanceXmr: String!
     rewardsEarmarkPiconeros: BigInt!
     opsEarmarkPiconeros: BigInt!
-    periodInflow: RewardsPeriodInflow!
+    inflowBreakdown: RewardsInflowBreakdown!
   }
 
   # All-time CONFIRMED inflow by source, plus the allocation % applied to each.
-  type RewardsPeriodInflow {
+  type RewardsInflowBreakdown {
     downvotePiconeros: BigInt!
     postingFeePiconeros: BigInt!
     territoryFeePiconeros: BigInt!

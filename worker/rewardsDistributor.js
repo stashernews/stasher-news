@@ -192,20 +192,36 @@ function toBigInt (v) {
 // Task 9: drive the hot-wallet signer after the ledger transaction commits a
 // PENDING distribution + its QUEUED payouts, and flip the distribution's status.
 //
-//   - Idempotent: a re-run that finds an already-terminal (COMPLETE/FAILED)
-//     distribution returns without re-sending, so a repeated weekly fire or a
-//     manual `sndev monero distribute` racing the cron is safe.
-//   - Empty week (0 payouts): skip straight to COMPLETE without entering SENDING
-//     (resolves the PENDING+0-payout rows that would otherwise accumulate).
-//   - Catastrophic signer failure: flip to FAILED. Individual payouts keep
-//     whatever state the signer left them in (QUEUED/SENT/FAILED), so a partial
-//     send is resumable and never double-paid — the funds never leave the wallet
-//     on a FAILED payout, so nothing is lost.
+//   - Atomic {PENDING,FAILED} -> SENDING: the flip is a compare-and-set
+//     (`UPDATE ... WHERE status IN ('PENDING','FAILED') RETURNING id`). A manual
+//     `sndev monero distribute` racing the weekly cron can't both win the flip
+//     and both call the signer on the same QUEUED rows — the loser's UPDATE
+//     matches zero rows and it bails before sending. No double-send.
+//   - Resumable after failure: a FAILED distribution that still has QUEUED
+//     payouts is re-driven on the next run. sendPayouts is idempotent on QUEUED
+//     rows (it filters `state === 'QUEUED'`, so already-SENT payouts are
+//     skipped), so resuming never double-pays. (FAILED is in the CAS set above
+//     for exactly this reason.)
+//   - Nothing left to send: an empty week (0 payouts), or a row whose payouts
+//     are all already SENT, reconciles straight to COMPLETE without entering
+//     SENDING.
+//   - SENDING / COMPLETE: a no-op for this call (another process is mid-send, or
+//     the run already finished).
+//   - Catastrophic signer failure: flip to FAILED. QUEUED payouts are untouched
+//     (funds never left the wallet), so the next run resumes as above.
 export async function finalizeDistribution (models, distribution, sendPayouts) {
-  if (distribution.status !== 'PENDING') return distribution
+  // SENDING = another process is mid-send; COMPLETE = already done. Nothing for
+  // this call to drive. (PENDING and FAILED fall through — FAILED is resumable
+  // if it still has QUEUED payouts.)
+  if (distribution.status === 'SENDING' || distribution.status === 'COMPLETE') return distribution
 
   const payouts = distribution.payouts || []
-  if (payouts.length === 0) {
+  const hasQueued = payouts.some(p => p.state === 'QUEUED')
+
+  if (!hasQueued) {
+    // Nothing to send — covers the 0-payout week AND a row whose payouts are all
+    // already SENT (e.g. a FAILED run since delivered). Reconcile straight to
+    // COMPLETE without ever entering SENDING.
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { status: 'COMPLETE', completedAt: new Date() }
@@ -213,10 +229,14 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
     return
   }
 
-  await models.rewardDistribution.update({
-    where: { id: distribution.id },
-    data: { status: 'SENDING', startedAt: new Date() }
-  })
+  // Atomic CAS: only the process that flips {PENDING,FAILED} -> SENDING
+  // proceeds. The loser's RETURNING is empty and it bails before sendPayouts, so
+  // the same QUEUED payouts are never sent twice.
+  const flipped = await models.$queryRaw`
+    UPDATE "RewardDistribution" SET status = 'SENDING', "startedAt" = NOW()
+    WHERE id = ${distribution.id} AND status IN ('PENDING','FAILED') RETURNING id`
+  if (!flipped || flipped.length === 0) return
+
   try {
     await sendPayouts(payouts, { models })
     await models.rewardDistribution.update({

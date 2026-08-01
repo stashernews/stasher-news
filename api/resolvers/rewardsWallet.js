@@ -98,7 +98,7 @@ export default {
         balanceXmr: piconerosToXmrDecimal(balance),
         rewardsEarmarkPiconeros: earmarks.rewardsEarmark,
         opsEarmarkPiconeros: earmarks.opsEarmark,
-        periodInflow: {
+        inflowBreakdown: {
           downvotePiconeros,
           postingFeePiconeros,
           territoryFeePiconeros,
