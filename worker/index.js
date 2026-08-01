@@ -125,10 +125,8 @@ async function work () {
 
   await boss.work('confirmFinalizer', jobWrapper(confirmFinalizer))
 
-  // Seed the self-requeuing confirmFinalizer loop the same way as moneroIndexer
-  // (singleton guard on the seed only). Confirmation is low-frequency
-  // (CONFIRM_POLL_INTERVAL_MS, default 60s) so it gets its own loop rather
-  // than being piggybacked on the indexer's 20s cadence.
+  // Seed the self-requeuing confirmFinalizer loop (singleton guard on the seed
+  // only). Confirmation is low-frequency (CONFIRM_POLL_INTERVAL_MS, default 60s).
   if (await boss.getQueueSize('confirmFinalizer') === 0) {
     await boss.send('confirmFinalizer', {})
   }
