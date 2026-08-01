@@ -60,6 +60,8 @@ async function openRewardsWallet () {
 
   // In-memory wallet (no `path`): reopened from keys each worker boot, so there
   // is no on-disk wallet file to conflict on restart.
+  // password is a required-but-meaningless placeholder for an in-memory wallet
+  // (no `path`, so nothing is persisted/encrypted to decrypt) — NOT a secret.
   const wallet = await api.createWalletFull({
     password: 'platform-rewards-signer',
     networkType,
@@ -107,19 +109,20 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
       skipped += 1
       continue
     }
+    // Relay (broadcast) is split from persist so a relayed tx hash is NEVER lost.
+    // createTx({ relay: true }) moves funds on-chain; if the DB write then throws,
+    // the catch below still has the hash (logged the instant relay succeeded) and
+    // never marks the payout FAILED — FAILED implies funds stayed in the wallet.
+    let tx
     try {
-      const tx = await w.createTx({
+      tx = await w.createTx({
         accountIndex: 0,
         address: payout.recipientAddress,
         amount: payout.piconeros,
         relay: true
       })
-      await models.rewardPayout.update({
-        where: { id: payout.id },
-        data: { state: 'SENT', txHash: toTxHash(tx.getHash()) }
-      })
-      sent += 1
     } catch (err) {
+      // PRE-relay failure: funds never left the wallet.
       if (isBalanceError(err)) {
         // not enough unlocked money -> retryable, do not abandon as FAILED
         skipped += 1
@@ -131,6 +134,31 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
         data: { state: 'FAILED' }
       })
       failed += 1
+      continue
+    }
+    // Relay succeeded — funds are on-chain. Persist the hash BEFORE anything else
+    // and log it the instant relay succeeds so it is never silently lost.
+    const txHash = toTxHash(tx.getHash())
+    console.log(`sendPayouts: payout ${payout.id} relayed txHash=${txHash}`)
+    try {
+      await models.rewardPayout.update({
+        where: { id: payout.id },
+        data: { state: 'SENT', txHash }
+      })
+      sent += 1
+    } catch (err) {
+      // The tx IS sent (funds left). Retry once; on failure do NOT mark FAILED —
+      // a CRITICAL log is the reconciliation signal for a manual fix.
+      console.error(`sendPayouts: CRITICAL — tx ${txHash} relayed for payout ${payout.id} but DB update failed: ${err && err.message}. Manual reconciliation required.`)
+      try {
+        await models.rewardPayout.update({
+          where: { id: payout.id },
+          data: { state: 'SENT', txHash }
+        })
+        sent += 1
+      } catch (err2) {
+        console.error(`sendPayouts: CRITICAL — retry also failed for payout ${payout.id} txHash=${txHash}: ${err2 && err2.message}`)
+      }
     }
   }
 
@@ -142,7 +170,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
 // always a lowercase hex string.
 function toTxHash (hash) {
   if (hash == null) return null
-  if (typeof hash === 'string') return hash
+  if (typeof hash === 'string') return hash.toLowerCase()
   if (typeof hash === 'object') {
     const arr = Array.isArray(hash) ? hash : (hash.data || Array.from(hash))
     if (arr && arr.length) return Array.from(arr).map(b => (b >>> 0).toString(16).padStart(2, '0')).join('')
