@@ -32,6 +32,7 @@ import { untrackOldItems } from './untrackOldItems'
 import { confirmFinalizer } from './confirmFinalizer'
 import { penaltyIndexer } from './penaltyIndexer'
 import { rewardsDistributor } from './rewardsDistributor'
+import { rotateViewKeys } from './rotateViewKeys'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -145,6 +146,14 @@ async function work () {
   // out-of-band run before that.
   if (await boss.getQueueSize('rewardsDistributor') === 0) {
     await boss.send('rewardsDistributor', {}, { startAfter: 7 * 24 * 60 * 60 })
+  }
+
+  // rotateViewKeys: quarterly DEK-hygiene re-wrap of every encrypted view key.
+  // Self-requeues on a 90d startAfter; the seed starts it after a day so it doesn't
+  // fire on every fresh boot. Mirrors the rewardsDistributor deferred-seed pattern.
+  await boss.work('rotateViewKeys', jobWrapper(rotateViewKeys))
+  if (await boss.getQueueSize('rotateViewKeys') === 0) {
+    await boss.send('rotateViewKeys', {}, { startAfter: 24 * 60 * 60 })
   }
 
   console.log('working jobs')
