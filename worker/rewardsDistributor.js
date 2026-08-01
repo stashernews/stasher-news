@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
 import { computeCuratorShares } from './curatorShares'
 
@@ -44,116 +45,134 @@ async function distribute (models) {
   const periodEnd = new Date()
   const periodStart = new Date(periodEnd.getTime() - WEEK_MS)
 
-  // Idempotency: if a distribution already exists whose periodEnd falls inside
-  // (or after) this week's window, a run already happened this week — return it
-  // verbatim instead of double-distributing.
-  const existing = await models.rewardDistribution.findFirst({
-    where: { periodEnd: { gte: periodStart } },
-    orderBy: { periodEnd: 'desc' },
-    include: { payouts: true }
-  })
-  if (existing) {
-    console.log('rewardsDistributor: distribution already exists for this period; skipping')
-    return existing
-  }
+  // The whole ledger write is atomic: the idempotency check, the read-only
+  // inflow/share computations, the RewardDistribution create, and the
+  // RewardPayout createMany all run inside ONE serializable transaction so they
+  // commit or roll back together. This mirrors the codebase's wallet-safety
+  // convention (api/payIn/index.js `begin`; worker/moneroIndexer.js) and closes
+  // two hazards the sequential-await form would have:
+  //   - crash window: a process death between the distribution create and the
+  //     payout createMany can no longer leave a PENDING RewardDistribution with
+  //     payoutCount > 0 but zero RewardPayout rows;
+  //   - race window: a concurrent run (a manual `sndev monero distribute`
+  //     racing a scheduled cron fire) that both pass the findFirst can no longer
+  //     both create — under Serializable the loser aborts, then either no-ops
+  //     (finds the existing distribution on retry) or errors cleanly. No partial
+  //     write is ever visible.
+  return await models.$transaction(async (tx) => {
+    // Idempotency: if a distribution already exists whose periodEnd falls inside
+    // (or after) this week's window, a run already happened this week — return it
+    // verbatim instead of double-distributing.
+    const existing = await tx.rewardDistribution.findFirst({
+      where: { periodEnd: { gte: periodStart } },
+      orderBy: { periodEnd: 'desc' },
+      include: { payouts: true }
+    })
+    if (existing) {
+      console.log('rewardsDistributor: distribution already exists for this period; skipping')
+      return existing
+    }
 
-  // --- Inflow by source (all CONFIRMED, confirmedAt in [periodStart, periodEnd)) ---
-  const [downvoteAgg, postingAgg, territoryAgg] = await Promise.all([
-    models.observedBurn.aggregate({
-      _sum: { piconeros: true },
-      where: { state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
-    }),
-    models.feeObservation.aggregate({
-      _sum: { piconeros: true },
-      where: { feeType: 'POSTING', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
-    }),
-    models.feeObservation.aggregate({
-      _sum: { piconeros: true },
-      where: {
-        feeType: { in: ['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE'] },
-        state: 'CONFIRMED',
-        confirmedAt: { gte: periodStart, lt: periodEnd }
+    // --- Inflow by source (all CONFIRMED, confirmedAt in [periodStart, periodEnd)) ---
+    const [downvoteAgg, postingAgg, territoryAgg] = await Promise.all([
+      tx.observedBurn.aggregate({
+        _sum: { piconeros: true },
+        where: { state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
+      }),
+      tx.feeObservation.aggregate({
+        _sum: { piconeros: true },
+        where: { feeType: 'POSTING', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
+      }),
+      tx.feeObservation.aggregate({
+        _sum: { piconeros: true },
+        where: {
+          feeType: { in: ['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE'] },
+          state: 'CONFIRMED',
+          confirmedAt: { gte: periodStart, lt: periodEnd }
+        }
+      })
+    ])
+
+    const downvotePiconeros = toBigInt(downvoteAgg._sum.piconeros)
+    const postingFeePiconeros = toBigInt(postingAgg._sum.piconeros)
+    const territoryFeePiconeros = toBigInt(territoryAgg._sum.piconeros)
+
+    // --- Allocation config (platform singleton row, id=1) ---
+    const config = await tx.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
+
+    // Rewards earmark: floor each source's contribution at its allocation %. The
+    // remainder (ops share) stays in the rewards wallet and is NOT distributed.
+    // BigInt division floors, so each term is rounded down independently.
+    const rewardsInflow =
+      downvotePiconeros * BigInt(config.downvoteRewardsPct) / 100n +
+      postingFeePiconeros * BigInt(config.postingFeeRewardsPct) / 100n +
+      territoryFeePiconeros * BigInt(config.territoryFeeRewardsPct) / 100n
+
+    // --- Pool: this week's earmark + the prior period's rollover ---
+    const lastDistribution = await tx.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
+    const rolledOver = toBigInt(lastDistribution?.rolledOverPiconeros)
+    const poolPiconeros = rewardsInflow + rolledOver
+
+    // --- Curator shares (Task 7). Read-only, so it COULD run outside the tx,
+    // but passing tx keeps the reads in the same serializable snapshot as the
+    // writes below — fully consistent at no extra cost. ---
+    const { shares } = await computeCuratorShares(
+      periodStart, periodEnd, poolPiconeros,
+      { minPayout: toBigInt(config.distributionMinPayoutPiconeros), topN: config.distributionTopN },
+      tx)
+
+    // --- Address filter + payout rows ---
+    // A curator is a tipper; they may not have registered a wallet to RECEIVE
+    // payouts. Curators with no MoneroAccount(ownerUserId) are excluded — their
+    // share rolls over (it stays in poolPiconeros - distributedPiconeros).
+    const payoutRows = []
+    for (const share of shares) {
+      const account = await tx.moneroAccount.findFirst({ where: { ownerUserId: share.curatorId } })
+      if (!account) continue
+      payoutRows.push({
+        curatorId: share.curatorId,
+        recipientAddress: account.address,
+        piconeros: share.sharePiconeros
+      })
+    }
+
+    // --- Final ledger (atomic with the payout createMany below) ---
+    // distributedPiconeros is the sum of the CREATED payouts (after address
+    // filtering). rolledOverPiconeros is whatever is left — this captures BOTH
+    // Task 7's sub-minPayout/topN rollover AND the addressless-curator rollover.
+    const distributedPiconeros = payoutRows.reduce((acc, p) => acc + p.piconeros, 0n)
+    const finalRolledOverPiconeros = poolPiconeros - distributedPiconeros
+
+    const distribution = await tx.rewardDistribution.create({
+      data: {
+        periodStart,
+        periodEnd,
+        poolPiconeros,
+        distributedPiconeros,
+        rolledOverPiconeros: finalRolledOverPiconeros,
+        payoutCount: payoutRows.length,
+        status: 'PENDING'
       }
     })
-  ])
 
-  const downvotePiconeros = toBigInt(downvoteAgg._sum.piconeros)
-  const postingFeePiconeros = toBigInt(postingAgg._sum.piconeros)
-  const territoryFeePiconeros = toBigInt(territoryAgg._sum.piconeros)
-
-  // --- Allocation config (platform singleton row, id=1) ---
-  const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
-
-  // Rewards earmark: floor each source's contribution at its allocation %. The
-  // remainder (ops share) stays in the rewards wallet and is NOT distributed.
-  // BigInt division floors, so each term is rounded down independently.
-  const rewardsInflow =
-    downvotePiconeros * BigInt(config.downvoteRewardsPct) / 100n +
-    postingFeePiconeros * BigInt(config.postingFeeRewardsPct) / 100n +
-    territoryFeePiconeros * BigInt(config.territoryFeeRewardsPct) / 100n
-
-  // --- Pool: this week's earmark + the prior period's rollover ---
-  const lastDistribution = await models.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
-  const rolledOver = toBigInt(lastDistribution?.rolledOverPiconeros)
-  const poolPiconeros = rewardsInflow + rolledOver
-
-  // --- Curator shares (Task 7) ---
-  const { shares } = await computeCuratorShares(
-    periodStart, periodEnd, poolPiconeros,
-    { minPayout: toBigInt(config.distributionMinPayoutPiconeros), topN: config.distributionTopN },
-    models)
-
-  // --- Address filter + payout rows ---
-  // A curator is a tipper; they may not have registered a wallet to RECEIVE
-  // payouts. Curators with no MoneroAccount(ownerUserId) are excluded — their
-  // share rolls over (it stays in poolPiconeros - distributedPiconeros).
-  const payoutRows = []
-  for (const share of shares) {
-    const account = await models.moneroAccount.findFirst({ where: { ownerUserId: share.curatorId } })
-    if (!account) continue
-    payoutRows.push({
-      curatorId: share.curatorId,
-      recipientAddress: account.address,
-      piconeros: share.sharePiconeros
-    })
-  }
-
-  // --- Final ledger ---
-  // distributedPiconeros is the sum of the CREATED payouts (after address
-  // filtering). rolledOverPiconeros is whatever is left — this captures BOTH
-  // Task 7's sub-minPayout/topN rollover AND the addressless-curator rollover.
-  const distributedPiconeros = payoutRows.reduce((acc, p) => acc + p.piconeros, 0n)
-  const finalRolledOverPiconeros = poolPiconeros - distributedPiconeros
-
-  const distribution = await models.rewardDistribution.create({
-    data: {
-      periodStart,
-      periodEnd,
-      poolPiconeros,
-      distributedPiconeros,
-      rolledOverPiconeros: finalRolledOverPiconeros,
-      payoutCount: payoutRows.length,
-      status: 'PENDING'
+    if (payoutRows.length > 0) {
+      await tx.rewardPayout.createMany({
+        data: payoutRows.map(p => ({ ...p, distributionId: distribution.id, state: 'QUEUED' }))
+      })
     }
-  })
 
-  if (payoutRows.length > 0) {
-    await models.rewardPayout.createMany({
-      data: payoutRows.map(p => ({ ...p, distributionId: distribution.id, state: 'QUEUED' }))
+    // Task 9 wires the hot-wallet signer here:
+    //   await sendPayouts(payouts)        // from api/monero/rewards.js
+    //   then flip this distribution's status PENDING -> SENDING -> COMPLETE.
+    // Until Task 9 lands, payouts remain QUEUED.
+
+    console.log(`rewardsDistributor: pool=${poolPiconeros.toString()} distributed=${distributedPiconeros.toString()} rolledOver=${finalRolledOverPiconeros.toString()} payouts=${payoutRows.length}`)
+
+    return await tx.rewardDistribution.findUnique({
+      where: { id: distribution.id },
+      include: { payouts: true }
     })
-  }
-
-  // Task 9 wires the hot-wallet signer here:
-  //   await sendPayouts(payouts)        // from api/monero/rewards.js
-  //   then flip this distribution's status PENDING -> SENDING -> COMPLETE.
-  // Until Task 9 lands, payouts remain QUEUED.
-
-  console.log(`rewardsDistributor: pool=${poolPiconeros.toString()} distributed=${distributedPiconeros.toString()} rolledOver=${finalRolledOverPiconeros.toString()} payouts=${payoutRows.length}`)
-
-  return await models.rewardDistribution.findUnique({
-    where: { id: distribution.id },
-    include: { payouts: true }
-  })
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10000 })
 }
 
 function toBigInt (v) {
