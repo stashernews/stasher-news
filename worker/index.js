@@ -34,6 +34,7 @@ import { penaltyIndexer } from './penaltyIndexer'
 import { rewardsDistributor } from './rewardsDistributor'
 import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
+import { webhookCleanup } from './webhookCleanup'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -43,6 +44,7 @@ if (typeof WebSocket === 'undefined') {
 }
 
 async function work () {
+  const CLEANUP_INTERVAL_SECONDS = 60 * 60 // hourly — must match worker/webhookCleanup.js
   const boss = new PgBoss(process.env.DATABASE_URL)
   const models = createPrisma({
     connectionParams: { connection_limit: process.env.DB_WORKER_CONNECTION_LIMIT }
@@ -136,6 +138,12 @@ async function work () {
   await boss.work('reconcilePendingTips', jobWrapper(reconcilePendingTips))
   if (await boss.getQueueSize('reconcilePendingTips') === 0) {
     await boss.send('reconcilePendingTips', {})
+  }
+
+  // webhookCleanup: hourly sweep of orphaned lws webhooks (CONFIRMED/EXPIRED tips).
+  await boss.work('webhookCleanup', jobWrapper(webhookCleanup))
+  if (await boss.getQueueSize('webhookCleanup') === 0) {
+    await boss.send('webhookCleanup', {}, { startAfter: CLEANUP_INTERVAL_SECONDS / 4 }) // first sweep after 15min
   }
 
   // penaltyIndexer: polls the platform rewards wallet for posting/territory fee
