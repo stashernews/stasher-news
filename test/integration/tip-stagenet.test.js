@@ -139,14 +139,22 @@ async function chainHeight () {
 async function sendTipProgrammatic (recipientAddress, amountPiconeros) {
   const moneroTs = await import('monero-ts')
   const api = moneroTs.default || moneroTs
+  const daemon = await api.connectToDaemonRpc(process.env.STAGENET_DAEMON_URI || 'http://127.0.0.1:38081')
+  const chainHeight = await daemon.getHeight()
   const wallet = await api.createWalletFull({
     password: 'sndev-stagenet-integration-test',
     networkType: api.MoneroNetworkType.STAGENET,
     seed: requireEnv('STAGENET_SENDER_SEED'),
     server: { uri: process.env.STAGENET_DAEMON_URI || 'http://127.0.0.1:38081' },
+    restoreHeight: Math.max(0, chainHeight - 500),
     proxyToWorker: false
   })
   try {
+    await wallet.sync()
+    const unlocked = await wallet.getUnlockedBalance(0)
+    if (unlocked < BigInt(amountPiconeros)) {
+      throw new Error(`sender has insufficient unlocked balance (${unlocked.toString()} < ${amountPiconeros.toString()}); fund STAGENET_SENDER_SEED or wait for change to mature`)
+    }
     const tx = await wallet.createTx({
       accountIndex: 0,
       address: recipientAddress,
