@@ -9,16 +9,14 @@ import { gql } from 'graphql-tag'
 // upsertSub) belongs to Phase 3/4/5 and is intentionally NOT defined here —
 // YAGNI.
 //
-// `MoneroAccount` is the registered wallet under monero-lws observation. Two
-// of its fields are NOT columns on the Prisma model and are served by field
-// resolvers in api/resolvers/monero.js (controller resolution #2):
-//   - privacyMode           lives on the owner USER (User.privacyMode), not
-//                            on MoneroAccount;
-//   - subaddressPoolRemaining  is a computed count of AVAILABLE SubaddressIndex
-//                            rows for the account.
+// `MoneroAccount` is the registered wallet under monero-lws observation. Its
+// privacyMode field is NOT a column on the Prisma model and is served by a
+// field resolver in api/resolvers/monero.js (controller resolution #2):
+// privacyMode lives on the owner USER (User.privacyMode), not on
+// MoneroAccount.
 //
-// `PrivacyMode` mirrors the Prisma enum of the same name; `SubaddressInput`
-// is the explicit-index pool shape consumed by register/addSubaddresses.
+// `PrivacyMode` mirrors the Prisma enum of the same name and is retained as a
+// forward-compat placeholder for Model B (manual-proof tipping).
 
 export default gql`
   extend type Query {
@@ -29,7 +27,7 @@ export default gql`
     registerMoneroAccount(
       address: String!
       viewKey: String!
-      privacyMode: PrivacyMode!
+      privacyMode: PrivacyMode      # optional; defaults to AUTO_INDEX
     ): MoneroAccount!
     initiateTip(
       postId: ID!
@@ -46,8 +44,8 @@ export default gql`
     # parent.user?.privacyMode ?? null. A non-null contract here would break the
     # whole selection for any account whose owner has a null privacyMode
     # (GraphQL non-null violation), so the contract must match reality.
+    # Retained as a forward-compat placeholder for future Model B.
     privacyMode: PrivacyMode
-    subaddressPoolRemaining: Int!
   }
 
   # Result of initiateTip: the integrated address + payment ID the tipper sends
