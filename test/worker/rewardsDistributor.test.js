@@ -355,6 +355,35 @@ test('a catastrophic signer failure marks the distribution FAILED (payouts keep 
   expect(payoutAfter.state).toBe('QUEUED')
 })
 
+test('a FAILED distribution with QUEUED payouts is resumable to COMPLETE (Fix 2)', async () => {
+  // The CAS accepts FAILED, and sendPayouts is idempotent on QUEUED, so a stuck
+  // distribution can be re-driven to COMPLETE with no double-send. Driven here
+  // with the module-level fakeSigner (marks QUEUED -> SENT).
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 31 * DAY),
+      periodEnd: new Date(Date.now() - 30 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 1,
+      status: 'FAILED'
+    }
+  })
+  created.distributions.push(dist.id)
+  const payout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, fakeSigner)
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('COMPLETE')
+  expect(updated.completedAt).toBeTruthy()
+  const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
+  expect(payoutAfter.state).toBe('SENT')
+  expect(payoutAfter.txHash).toMatch(/^[0-9a-f]{64}$/)
+})
+
 test('a second run within the same week is idempotent (returns the existing distribution)', async () => {
   const before = await prisma.rewardPayout.count({ where: { distributionId: result.id } })
   const again = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
