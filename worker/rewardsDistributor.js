@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
 import { computeCuratorShares } from './curatorShares'
+import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
 
 // rewardsDistributor — StealthNews' weekly rewards-pool distribution job
 // (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
@@ -15,8 +16,10 @@ import { computeCuratorShares } from './curatorShares'
 //      who has a registered receiving address. Curators with no address are
 //      excluded — their share joins the rollover.
 //
-// The actual on-chain signing/sending is Task 9's hot-wallet signer; until it
-// lands, payouts remain QUEUED and the distribution stays PENDING.
+// The actual on-chain signing/sending is Task 9's hot-wallet signer
+// (api/monero/rewards.js): after the ledger transaction below commits a PENDING
+// distribution + QUEUED payouts, finalizeDistribution drives the signer and
+// flips the distribution PENDING -> SENDING -> COMPLETE (payouts QUEUED -> SENT).
 //
 // This module exports TWO things (mirrors worker/penaltyIndexer.js /
 // worker/confirmFinalizer.js):
@@ -29,13 +32,20 @@ const WEEK_SECONDS = 7 * 24 * 60 * 60
 
 // One weekly distribution. The testable core: no pg-boss, no network. Accepts
 // the Prisma client (so tests pass their own); creates a throwaway client if
-// omitted. Returns the created (or pre-existing, via idempotency) RewardDistribution
-// with its RewardPayout rows included.
-export async function runDistributionOnce ({ models } = {}) {
+// omitted. `sendPayouts` is injectable so tests drive the signer with a stub
+// (no real keys/wallet); production leaves it unset and uses the real signer.
+// Returns the created (or pre-existing, via idempotency) RewardDistribution
+// with its RewardPayout rows included (post-send state).
+export async function runDistributionOnce ({ models, sendPayouts: injectSendPayouts } = {}) {
   const ownsClient = !models
   const db = ownsClient ? createPrisma() : models
   try {
-    return await distribute(db)
+    const distribution = await distribute(db)
+    await finalizeDistribution(db, distribution, injectSendPayouts || defaultSendPayouts)
+    return await db.rewardDistribution.findUnique({
+      where: { id: distribution.id },
+      include: { payouts: true }
+    })
   } finally {
     if (ownsClient) db.$disconnect().catch(console.error)
   }
@@ -161,10 +171,9 @@ async function distribute (models) {
       })
     }
 
-    // Task 9 wires the hot-wallet signer here:
-    //   await sendPayouts(payouts)        // from api/monero/rewards.js
-    //   then flip this distribution's status PENDING -> SENDING -> COMPLETE.
-    // Until Task 9 lands, payouts remain QUEUED.
+    // The on-chain signing + PENDING -> SENDING -> COMPLETE flip happens AFTER
+    // this transaction commits, in finalizeDistribution (Task 9), so a signer
+    // failure never rolls back the atomic ledger write above.
 
     console.log(`rewardsDistributor: pool=${poolPiconeros.toString()} distributed=${distributedPiconeros.toString()} rolledOver=${finalRolledOverPiconeros.toString()} payouts=${payoutRows.length}`)
 
@@ -178,6 +187,49 @@ async function distribute (models) {
 function toBigInt (v) {
   if (v == null) return 0n
   return BigInt(v)
+}
+
+// Task 9: drive the hot-wallet signer after the ledger transaction commits a
+// PENDING distribution + its QUEUED payouts, and flip the distribution's status.
+//
+//   - Idempotent: a re-run that finds an already-terminal (COMPLETE/FAILED)
+//     distribution returns without re-sending, so a repeated weekly fire or a
+//     manual `sndev monero distribute` racing the cron is safe.
+//   - Empty week (0 payouts): skip straight to COMPLETE without entering SENDING
+//     (resolves the PENDING+0-payout rows that would otherwise accumulate).
+//   - Catastrophic signer failure: flip to FAILED. Individual payouts keep
+//     whatever state the signer left them in (QUEUED/SENT/FAILED), so a partial
+//     send is resumable and never double-paid — the funds never leave the wallet
+//     on a FAILED payout, so nothing is lost.
+export async function finalizeDistribution (models, distribution, sendPayouts) {
+  if (distribution.status !== 'PENDING') return distribution
+
+  const payouts = distribution.payouts || []
+  if (payouts.length === 0) {
+    await models.rewardDistribution.update({
+      where: { id: distribution.id },
+      data: { status: 'COMPLETE', completedAt: new Date() }
+    })
+    return
+  }
+
+  await models.rewardDistribution.update({
+    where: { id: distribution.id },
+    data: { status: 'SENDING', startedAt: new Date() }
+  })
+  try {
+    await sendPayouts(payouts, { models })
+    await models.rewardDistribution.update({
+      where: { id: distribution.id },
+      data: { status: 'COMPLETE', completedAt: new Date() }
+    })
+  } catch (err) {
+    console.error(`rewardsDistributor: sendPayouts failed for distribution ${distribution.id}: ${err && err.message}`)
+    await models.rewardDistribution.update({
+      where: { id: distribution.id },
+      data: { status: 'FAILED' }
+    })
+  }
 }
 
 // pg-boss handler. Runs the weekly distribution and self-requeues for the next
