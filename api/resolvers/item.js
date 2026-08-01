@@ -863,12 +863,16 @@ export default {
       // legacy SN zap path) and the frontend ACT_MUTATION spreads PayInFields, so it
       // cannot carry a TipInitiation. The tip button must call initiateTip directly;
       // act(TIP) redirects there with an actionable error. Downvotes (DONT_LIKE_THIS)
-      // land in Phase 4 as a DOWN_ZAP PayIn to the rewards wallet.
+      // are a DOWN_ZAP PayIn that returns a monero: URI to the rewards wallet; the
+      // `sats` arg carries the piconeros amount for downvotes.
       if (act === 'TIP' || act === 'ZAP') {
         throw new GqlInputError('use the initiateTip mutation to tip (webhook + payment-ID flow)')
       }
       if (act === 'DONT_LIKE_THIS') {
-        throw new GqlInputError('downvotes land in Phase 4 (rewards-funded downvotes)')
+        if (!me) {
+          throw new GqlAuthenticationError()
+        }
+        return await pay('DOWN_ZAP', { id: Number(id), piconeros: BigInt(sats) }, { me, sendProtocolId })
       }
       if (act === 'BOOST') {
         throw new GqlInputError('BOOST pays the rewards wallet — not implemented in Phase 3')
