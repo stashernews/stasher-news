@@ -128,7 +128,6 @@ export default {
       })
       return distributions.map(d => ({
         ...d,
-        status: d.status,
         payouts: d.payouts.map(p => ({
           ...p,
           curatorNym: p.curator?.name || null,

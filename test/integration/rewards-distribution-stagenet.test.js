@@ -15,7 +15,7 @@
 //     post author's stackedPiconeros unchanged.
 //
 // The exit-gate invariants asserted:
-//   1. RewardDistribution exists with status COMPLETE (or SENDING).
+//   1. RewardDistribution exists with status COMPLETE.
 //   2. RewardPayout rows exist with state === 'SENT' and a real 64-hex txHash.
 //   3. The curator who tipped more gets a larger payout (proportionality).
 //   4. A sub-minPayout share is EXCLUDED and counted in rolledOverPiconeros.
@@ -300,8 +300,12 @@ async function generateStagenetAddresses (count) {
 
     // ===== 7. ASSERT — the exit gate =====================================
 
-    // (1) Distribution status
-    expect(['COMPLETE', 'SENDING']).toContain(result.status)
+    // (1) Distribution status. runDistributionOnce awaits sendPayouts to
+    // completion before returning, so the status must be COMPLETE (or FAILED
+    // on error) — SENDING is never observable here. Asserting COMPLETE (not
+    // the looser [COMPLETE, SENDING] set) means a stuck-SENDING bug would
+    // actually trip this gate.
+    expect(result.status).toBe('COMPLETE')
 
     // (2) At least one SENT payout with a real 64-hex tx hash
     const sentPayouts = result.payouts.filter(p => p.state === 'SENT')
