@@ -110,6 +110,31 @@ export default {
           territoryFeeRewardsPct: config.territoryFeeRewardsPct
         }
       }
+    },
+
+    // Public distribution log (spec §7.3). Returns recent RewardDistributions
+    // with their RewardPayouts, curator nym resolved, and piconeros rendered as
+    // XMR decimal for display. No auth — transparency-by-design.
+    async rewardDistributions (parent, { limit = 10 }, { models }) {
+      const distributions = await models.rewardDistribution.findMany({
+        take: Math.min(limit || 10, 50),
+        orderBy: { id: 'desc' },
+        include: {
+          payouts: {
+            include: { curator: { select: { name: true } } },
+            orderBy: { piconeros: 'desc' }
+          }
+        }
+      })
+      return distributions.map(d => ({
+        ...d,
+        status: d.status,
+        payouts: d.payouts.map(p => ({
+          ...p,
+          curatorNym: p.curator?.name || null,
+          amountXmr: piconerosToXmrDecimal(p.piconeros)
+        }))
+      }))
     }
   }
 }
