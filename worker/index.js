@@ -31,6 +31,7 @@ import {
 import { untrackOldItems } from './untrackOldItems'
 import { confirmFinalizer } from './confirmFinalizer'
 import { penaltyIndexer } from './penaltyIndexer'
+import { rewardsDistributor } from './rewardsDistributor'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -133,6 +134,13 @@ async function work () {
   await boss.work('penaltyIndexer', jobWrapper(penaltyIndexer))
   if (await boss.getQueueSize('penaltyIndexer') === 0) {
     await boss.send('penaltyIndexer', {})
+  }
+
+  // rewardsDistributor: weekly rewards-pool distribution (earmark inflow, compute
+  // curator shares, write QUEUED payouts). Self-requeues weekly (7d startAfter).
+  await boss.work('rewardsDistributor', jobWrapper(rewardsDistributor))
+  if (await boss.getQueueSize('rewardsDistributor') === 0) {
+    await boss.send('rewardsDistributor', {}, { startAfter: 7 * 24 * 60 * 60 })
   }
 
   console.log('working jobs')

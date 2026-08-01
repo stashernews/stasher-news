@@ -1,0 +1,294 @@
+/* eslint-env jest */
+
+// Integration test for the weekly rewardsDistributor (Phase 4 Task 8 / spec §5).
+//
+// runDistributionOnce is the testable core: it tallies a week of CONFIRMED
+// platform inflow (downvote burns + posting/territory fees) by source, applies
+// the PlatformFeeConfig allocation split, adds the prior period's rollover to
+// form the pool, calls computeCuratorShares (Task 7) to apportion it to the
+// curators of top content, and writes one RewardDistribution row + QUEUED
+// RewardPayout rows (one per curator WITH a registered receiving address).
+// Curators with no registered address are excluded — their share rolls over.
+//
+// Task 9 wires the hot-wallet signer that flips these QUEUED payouts to SENT;
+// this test asserts they remain QUEUED / the distribution stays PENDING.
+//
+// Real DB integration test mirroring test/worker/curatorShares.test.js and
+// test/worker/penaltyIndexer.fee.test.js (live migrated database, FK-safe
+// teardown). Run via the app container:
+//   docker exec -u apprunner app npx jest test/worker/rewardsDistributor.test.js
+
+import { PrismaClient } from '@prisma/client'
+import { runDistributionOnce } from '@/worker/rewardsDistributor'
+
+const prisma = new PrismaClient()
+
+// 95-char Monero address placeholder, made unique per call via a counter.
+let addrSeq = 0
+function makeAddress () {
+  addrSeq += 1
+  return '5' + String(addrSeq).padStart(4, '0') + 'A'.repeat(90)
+}
+
+const DAY = 24 * 60 * 60 * 1000
+
+// Tracks every row created across tests so afterAll can tear them down in
+// FK-safe order.
+const created = {
+  users: [],
+  items: [],
+  accounts: [],
+  tips: [],
+  payIns: [],
+  fees: [],
+  burns: [],
+  distributions: []
+}
+
+let result // the distribution returned by runDistributionOnce (beforeAll)
+let seededCurators // { c1, c2, c3 } — c3 has NO registered payout address
+
+// Seed amounts (piconeros). Picked so the allocation math is exact:
+//   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100
+//                 = 5e12 + 2.8e12 + 0.6e12 = 8.4e12
+//   pool          = 8.4e12 + 1e12 (prior rollover) = 9.4e12
+const DOWNVOTE_PICONEROS = 5_000_000_000_000n
+const POSTING_FEE_PICONEROS = 4_000_000_000_000n
+const TERRITORY_FEE_PICONEROS = 2_000_000_000_000n
+const PRIOR_ROLLOVER_PICONEROS = 1_000_000_000_000n
+const EXPECTED_POOL_PICONEROS = 9_400_000_000_000n
+
+async function createUser () {
+  const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
+  const id = rows[0].id
+  created.users.push(id)
+  return id
+}
+
+async function createRootPost (userId, weightedVotes, createdAt) {
+  const rows = await prisma.$queryRaw`
+    INSERT INTO "Item" ("userId", title, "weightedVotes", "created_at")
+    VALUES (${userId}::int, ${'rewards test post'}, ${weightedVotes}::float, ${createdAt})
+    RETURNING id::int AS id`
+  const id = rows[0].id
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(id)}::ltree WHERE id = ${id}::int`
+  created.items.push(id)
+  return id
+}
+
+async function createRecipientAccount () {
+  const account = await prisma.moneroAccount.create({
+    data: { ownerUserId: null, address: makeAddress(), label: 'author', network: 'STAGENET', status: 'ACTIVE' }
+  })
+  created.accounts.push(account.id)
+  return account
+}
+
+// A curator's RECEIVING account (ownerUserId set) so rewardsDistributor can pay
+// them. Curators created WITHOUT this are excluded from payouts.
+async function createPayoutAccount (ownerUserId) {
+  const account = await prisma.moneroAccount.create({
+    data: { ownerUserId, address: makeAddress(), label: 'curator-payout', network: 'STAGENET', status: 'ACTIVE' }
+  })
+  created.accounts.push(account.id)
+  return account
+}
+
+let tipSeq = 0
+async function seedTip ({ postId, tipperId, piconeros, confirmedAt, recipientAccountId }) {
+  tipSeq += 1
+  const tip = await prisma.observedTip.create({
+    data: {
+      txHash: 'rdtip' + String(tipSeq),
+      postId,
+      tipperId,
+      recipientAccountId,
+      recipientMajor: 0,
+      recipientMinor: 0,
+      paymentId: 'rdtest' + String(tipSeq).padStart(6, '0') + '0000000000',
+      piconeros,
+      height: 3000,
+      confirmations: 10,
+      state: 'CONFIRMED',
+      proofType: 'INDEXED',
+      confirmedAt
+    }
+  })
+  created.tips.push(tip.id)
+  return tip
+}
+
+async function seedPayIn (userId, payInType, major, minor) {
+  const payIn = await prisma.payIn.create({
+    data: { userId, payInType, payInState: 'PAID', mcost: 0n, moneroSubaddressMajor: major, moneroSubaddressMinor: minor }
+  })
+  created.payIns.push(payIn.id)
+  return payIn
+}
+
+let feeSeq = 0
+async function seedFee (payInId, feeType, major, piconeros, confirmedAt) {
+  feeSeq += 1
+  const fee = await prisma.feeObservation.create({
+    data: {
+      txHash: 'rdfee' + String(feeSeq),
+      payInId,
+      feeType,
+      recipientMajor: major,
+      recipientMinor: feeSeq,
+      piconeros,
+      height: 3000,
+      confirmations: 10,
+      state: 'CONFIRMED',
+      confirmedAt
+    }
+  })
+  created.fees.push(fee.id)
+  return fee
+}
+
+let burnSeq = 0
+async function seedBurn (postId, piconeros, confirmedAt) {
+  burnSeq += 1
+  const burn = await prisma.observedBurn.create({
+    data: {
+      txHash: 'rdburn' + String(burnSeq),
+      postId,
+      paymentId: 'rdburn' + String(burnSeq).padStart(8, '0'),
+      piconeros,
+      height: 3000,
+      confirmations: 10,
+      state: 'CONFIRMED',
+      confirmedAt
+    }
+  })
+  created.burns.push(burn.id)
+  return burn
+}
+
+beforeAll(async () => {
+  // Ensure the PlatformFeeConfig singleton exists with schema defaults
+  // (downvoteRewardsPct=100, postingFeeRewardsPct=70, territoryFeeRewardsPct=30,
+  //  distributionMinPayoutPiconeros=1e9, distributionTopN=100).
+  await prisma.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
+
+  // Clear any distribution left over from a prior run of THIS test whose
+  // periodEnd falls inside the coming week (otherwise runDistributionOnce's
+  // idempotency guard would short-circuit and reuse a stale row). The prior
+  // distribution seeded below (periodEnd ~8 days ago) is left untouched.
+  const weekAgo = new Date(Date.now() - 7 * DAY)
+  const stale = await prisma.rewardDistribution.findMany({ where: { periodEnd: { gte: weekAgo } } })
+  for (const d of stale) {
+    await prisma.rewardPayout.deleteMany({ where: { distributionId: d.id } })
+    await prisma.rewardDistribution.deleteMany({ where: { id: d.id } })
+  }
+
+  // Prior period's distribution carrying a rollover into this week's pool.
+  const priorEnd = new Date(Date.now() - 8 * DAY)
+  const priorStart = new Date(Date.now() - 15 * DAY)
+  const prior = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: priorStart,
+      periodEnd: priorEnd,
+      poolPiconeros: PRIOR_ROLLOVER_PICONEROS,
+      distributedPiconeros: 0n,
+      rolledOverPiconeros: PRIOR_ROLLOVER_PICONEROS,
+      payoutCount: 0,
+      status: 'COMPLETE'
+    }
+  })
+  created.distributions.push(prior.id)
+
+  // --- Inflow for THIS week (all CONFIRMED, confirmedAt inside the period) ---
+  const inPeriod = new Date(Date.now() - 2 * DAY)
+
+  // Author + ranked root post (the tipped content) + author receiving account.
+  const authorId = await createUser()
+  const recipientAccount = await createRecipientAccount()
+  const postId = await createRootPost(authorId, 100, new Date(Date.now() - 3 * DAY))
+
+  // Downvote burn (platform rewards wallet inflow) attributed to the post.
+  await seedBurn(postId, DOWNVOTE_PICONEROS, inPeriod)
+
+  // Posting fee + territory fee (need distinct PayIns for the FK).
+  const postingPayIn = await seedPayIn(authorId, 'ITEM_CREATE', 1, 1)
+  const territoryPayIn = await seedPayIn(authorId, 'TERRITORY_CREATE', 2, 1)
+  await seedFee(postingPayIn.id, 'POSTING', 1, POSTING_FEE_PICONEROS, inPeriod)
+  await seedFee(territoryPayIn.id, 'TERRITORY_CREATE', 2, TERRITORY_FEE_PICONEROS, inPeriod)
+
+  // --- Curators (tippers): c1, c2 get payout accounts; c3 does NOT ---
+  const c1 = await createUser()
+  const c2 = await createUser()
+  const c3 = await createUser()
+  seededCurators = { c1, c2, c3 }
+  await createPayoutAccount(c1)
+  await createPayoutAccount(c2)
+  // c3: intentionally no MoneroAccount(ownerUserId: c3) -> excluded from payouts.
+
+  // Equal-weight confirmed tips from each curator on the top post, inside the period.
+  await seedTip({ postId, tipperId: c1, piconeros: 2_000_000_000_000n, confirmedAt: inPeriod, recipientAccountId: recipientAccount.id })
+  await seedTip({ postId, tipperId: c2, piconeros: 2_000_000_000_000n, confirmedAt: new Date(inPeriod.getTime() + 60000), recipientAccountId: recipientAccount.id })
+  await seedTip({ postId, tipperId: c3, piconeros: 2_000_000_000_000n, confirmedAt: new Date(inPeriod.getTime() + 120000), recipientAccountId: recipientAccount.id })
+
+  // --- Run the distribution ---
+  result = await runDistributionOnce({ models: prisma })
+  created.distributions.push(result.id)
+})
+
+afterAll(async () => {
+  // FK-safe teardown.
+  for (const id of created.distributions) {
+    await prisma.rewardPayout.deleteMany({ where: { distributionId: id } })
+  }
+  await prisma.rewardDistribution.deleteMany({ where: { id: { in: created.distributions } } })
+  await prisma.feeObservation.deleteMany({ where: { id: { in: created.fees } } })
+  await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } })
+  await prisma.observedBurn.deleteMany({ where: { id: { in: created.burns } } })
+  await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } })
+  for (const id of created.items) {
+    await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
+    await prisma.item.deleteMany({ where: { id } })
+  }
+  await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
+  for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
+  await prisma.$disconnect()
+})
+
+test('the rewards pool equals the exact allocation earmark + prior rollover', async () => {
+  expect(result.poolPiconeros.toString()).toBe(EXPECTED_POOL_PICONEROS.toString())
+})
+
+test('distributedPiconeros + rolledOverPiconeros reconciles to the pool exactly', async () => {
+  expect(result.distributedPiconeros + result.rolledOverPiconeros).toBe(result.poolPiconeros)
+})
+
+test('a RewardDistribution row was created in PENDING status (awaiting Task 9 signer)', async () => {
+  expect(result.status).toBe('PENDING')
+  expect(result.payoutCount).toBeGreaterThan(0)
+})
+
+test('QUEUED RewardPayout rows exist, each with an address and at least minPayout', async () => {
+  const payouts = await prisma.rewardPayout.findMany({ where: { distributionId: result.id } })
+  expect(payouts.length).toBeGreaterThan(0)
+  for (const p of payouts) {
+    expect(p.state).toBe('QUEUED')
+    expect(p.recipientAddress).toBeTruthy()
+    expect(p.piconeros).toBeGreaterThanOrEqual(1_000_000_000n)
+  }
+})
+
+test('a curator WITHOUT a registered receiving address is excluded (their share rolls over)', async () => {
+  const payouts = await prisma.rewardPayout.findMany({ where: { distributionId: result.id }, select: { curatorId: true } })
+  const curatorIds = payouts.map(p => p.curatorId)
+  expect(curatorIds).toContain(seededCurators.c1)
+  expect(curatorIds).toContain(seededCurators.c2)
+  expect(curatorIds).not.toContain(seededCurators.c3)
+})
+
+test('a second run within the same week is idempotent (returns the existing distribution)', async () => {
+  const before = await prisma.rewardPayout.count({ where: { distributionId: result.id } })
+  const again = await runDistributionOnce({ models: prisma })
+  expect(again.id).toBe(result.id)
+  const after = await prisma.rewardPayout.count({ where: { distributionId: result.id } })
+  expect(after).toBe(before)
+})

@@ -788,10 +788,16 @@ sndev__monero__rescan() {
   echo
 }
 
+sndev__monero__distribute() {
+  __sndev_monero_ensure_up
+  echo "Running one weekly rewards distribution..."
+  docker__compose exec -T -u apprunner app npx tsx --tsconfig jsconfig.json scripts/run-rewards-distribution.js
+}
+
 sndev__monero() {
   shift
   if [ $# -eq 0 ]; then
-    echo "Usage: sndev monero {status|accounts|add_account|faucet|rescan|register-rewards-wallet|derive-fee-pool}" >&2
+    echo "Usage: sndev monero {status|accounts|add_account|faucet|rescan|register-rewards-wallet|derive-fee-pool|distribute}" >&2
     return 1
   fi
   sub="$1"; shift
@@ -803,6 +809,7 @@ sndev__monero() {
     rescan)      sndev__monero__rescan "$@" ;;
     register-rewards-wallet) sndev__monero__register_rewards_wallet "$@" ;;
     derive-fee-pool)         sndev__monero__derive_fee_pool "$@" ;;
+    distribute)              sndev__monero__distribute "$@" ;;
     *) echo "Unknown subcommand: monero $sub" >&2; return 1 ;;
   esac
 }
@@ -820,6 +827,7 @@ COMMANDS
   add_account <addr> <viewkey>   register an account with lws
   faucet <addr>                  print stagenet faucet URLs for <addr>
   rescan <addr> <height>         rescan an account from <height>
+  distribute                    run one weekly rewards distribution now
 "
   echo "$help"
 }
