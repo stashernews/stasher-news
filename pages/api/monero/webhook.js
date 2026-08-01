@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 import { applyTipDetected } from '@/api/monero/ranking'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
@@ -13,8 +13,13 @@ import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 //
 // lws treats any non-200 as a delivery failure and retries, so every path
 // returns 200 except auth failures (401) and non-POST requests (405).
-// Idempotency: the state machine is one-way, so a retried callback for an
-// already-advanced state is a no-op.
+// Idempotency: the PENDING->DETECTED transition uses an atomic conditional
+// UPDATE (... WHERE state = 'PENDING') inside a Serializable transaction.
+// reconcilePendingTips is a second concurrent claimer for the same PENDING
+// tip (a missed 0-conf webhook); the conditional claim ensures exactly one
+// claimer wins (rowCount > 0) and only it applies the ranking delta, so the
+// tip is never double-counted. A retried callback for an already-advanced
+// state loses the claim (state is no longer PENDING) and is a no-op.
 
 const prisma = new PrismaClient()
 
@@ -42,12 +47,15 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   if (tip.state === 'PENDING') {
     const piconeros = BigInt(amount || '0')
     await models.$transaction(async (tx) => {
-      await tx.observedTip.update({
-        where: { id: tip.id },
-        data: { state: 'DETECTED', txHash, height: height ?? null, piconeros, confirmations }
-      })
-      await applyTipDetected(tip.postId, null, piconeros, tx)
-    })
+      const claimed = await tx.$executeRaw`
+        UPDATE "ObservedTip"
+        SET state = 'DETECTED', "txHash" = ${txHash},
+            height = ${height ?? null}, piconeros = ${piconeros}, confirmations = ${confirmations}
+        WHERE id = ${tip.id} AND state = 'PENDING'`
+      if (claimed > 0) {
+        await applyTipDetected(tip.postId, null, piconeros, tx)
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     return res.status(200).end()
   }
 
