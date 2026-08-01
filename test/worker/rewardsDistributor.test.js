@@ -357,7 +357,7 @@ test('a catastrophic signer failure marks the distribution FAILED (payouts keep 
 
 test('a second run within the same week is idempotent (returns the existing distribution)', async () => {
   const before = await prisma.rewardPayout.count({ where: { distributionId: result.id } })
-  const again = await runDistributionOnce({ models: prisma })
+  const again = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
   expect(again.id).toBe(result.id)
   const after = await prisma.rewardPayout.count({ where: { distributionId: result.id } })
   expect(after).toBe(before)
