@@ -42,6 +42,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { reserveFeeSubaddress, getRewardsWalletId } from '@/api/monero/feePool'
+import { daemonClient } from '@/api/monero/daemonClient'
 
 process.env.MONERO_NETWORK = process.env.MONERO_NETWORK || 'stagenet'
 
@@ -50,10 +51,11 @@ const prisma = new PrismaClient()
 const STAGENET_ENABLED = process.env.RUN_STAGENET_INTEGRATION === '1'
 const FEE_PICONEROS = BigInt(process.env.STAGENET_FEE_PICONEROS || '1000000000')
 
-const DETECT_TIMEOUT_MS = 180_000
+const DETECT_TIMEOUT_MS = 600_000
 const DETECT_POLL_MS = 10_000
 const CONFIRM_TIMEOUT_MS = 25 * 60_000
 const CONFIRM_POLL_MS = 30_000
+const RESTORE_HEIGHT_MARGIN = 1000
 
 function sleep (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
@@ -80,14 +82,29 @@ async function pollUntil (label, pred, { timeoutMs = DETECT_TIMEOUT_MS, pollMs =
 async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
   const moneroTs = await import('monero-ts')
   const api = moneroTs.default || moneroTs
+  // The fee lands in a block AFTER this wallet is created, so start scanning a
+  // few blocks back instead of from genesis (a from-genesis scan of stagenet is
+  // ~2.1M blocks of WASM work and would add many minutes per send). The margin
+  // must also cover the sender's OWN funding tx, which arrives before the test
+  // starts — 1000 blocks (~33h of stagenet) keeps that safe for a freshly funded
+  // disposable wallet while keeping the scan fast.
+  let restoreHeight = 0
+  try {
+    restoreHeight = Math.max(0, await daemonClient.getHeight() - RESTORE_HEIGHT_MARGIN)
+  } catch {
+    // daemon unreachable -> wallet falls back to a from-genesis scan and the
+    // send fails loudly anyway
+  }
   const wallet = await api.createWalletFull({
     password: 'sndev-phase3-integration',
     networkType: api.MoneroNetworkType.STAGENET,
     seed: requireEnv('STAGENET_SENDER_SEED'),
+    restoreHeight,
     server: { uri: process.env.STAGENET_DAEMON_URI || 'http://127.0.0.1:38081' },
     proxyToWorker: false
   })
   try {
+    await wallet.sync()
     const tx = await wallet.createTx({ accountIndex: 0, address: recipientAddress, amount: amountPiconeros, relay: true })
     const hash = tx.getHash()
     return Array.isArray(hash) ? hash[0] : hash
@@ -173,7 +190,7 @@ async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
     created.payIns.push(payIn.id)
     const name = `_phase3territory_${payIn.id}`
     const territory = await prisma.sub.create({
-      data: { name, userId, billingType: 'MONTHLY', billingCost: 1, baseCost: 1, replyCost: 1, billingStatus: 'PENDING_FEE', billingPayInId: payIn.id }
+      data: { name, userId, billingType: 'MONTHLY', billingCost: 1, baseCost: 1, replyCost: 1, rankingType: 'WOT', billingStatus: 'PENDING_FEE', billingPayInId: payIn.id }
     })
     created.subs.push(territory.name)
 

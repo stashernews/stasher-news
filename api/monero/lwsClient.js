@@ -294,7 +294,7 @@ export function createLwsClient (options = {}) {
   async function upsertSubaddrs (account, ranges) {
     const body = {
       ...walletLogin(account),
-      subaddrs: ranges ?? { 0: [[0, 499]] },
+      subaddrs: Object.entries(ranges ?? { 0: [[0, 499]] }).map(([key, value]) => ({ key: Number(key), value })),
       get_all: true
     }
     return request(`${walletUrl}/upsert_subaddrs`, body)

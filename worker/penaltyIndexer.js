@@ -114,22 +114,25 @@ async function flipPendingToLive (models, payIn) {
 // idempotent FeeObservation insert handles it; confirmFinalizer gates finality).
 export async function penaltyIndexer ({ boss, models }) {
   const account = await models.moneroAccount.findFirst({
-    where: { label: 'platform_rewards', network: (process.env.MONERO_NETWORK || 'STAGENET').toUpperCase() }
+    where: { label: 'platform_rewards', network: (process.env.MONERO_NETWORK || 'STAGENET').toUpperCase() },
+    include: { viewKey: true }
   })
   if (account) {
     const resp = await lwsClient.getAddressTxs(account, account.lastTxId, account.lastBlockHash)
     const txs = (resp && resp.transactions) || []
-    // bootstrapping filter: skip confirmed txs already behind the cursor
-    const fresh = txs.filter(t => t.height == null || typeof t.id !== 'number' || BigInt(t.id) > account.lastTxId)
+    // bootstrapping filter: skip confirmed txs already behind the cursor. null
+    // lastTxId = nothing seen yet, so process the whole returned history (this
+    // is what lets a brand-new account's FIRST lws tx, which has id 0, through).
+    const fresh = txs.filter(t => t.height == null || typeof t.id !== 'number' || account.lastTxId == null || BigInt(t.id) > account.lastTxId)
     await runPenaltyIndexerOnce({ models, account, txs: fresh })
 
     let maxId = 0
     for (const t of txs) {
       if (typeof t.id === 'number' && t.id > maxId) maxId = t.id
     }
-    if (maxId > 0) {
+    if (txs.length > 0) {
       await models.moneroAccount.update({ where: { id: account.id }, data: { lastTxId: BigInt(maxId) } })
     }
   }
-  await boss.send('penaltyIndexer', {}, { startAfter: MONERO_POLL_INTERVAL_MS })
+  await boss.send('penaltyIndexer', {}, { startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
 }

@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "MoneroAccount" ALTER COLUMN "lastTxId" DROP NOT NULL,
+ALTER COLUMN "lastTxId" DROP DEFAULT;

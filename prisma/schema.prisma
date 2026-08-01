@@ -1390,7 +1390,7 @@ model MoneroAccount {
   label           String
   network         Network
   scanFromHeight  BigInt           @default(0)
-  lastTxId        BigInt           @default(0)
+  lastTxId        BigInt?
   lastBlockHash   String?
   status          LwsAccountStatus @default(ACTIVE)
   lwsRegisteredAt DateTime?
