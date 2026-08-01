@@ -1339,6 +1339,7 @@ enum ObservedState {
   DETECTED
   CONFIRMED
   REORGED
+  EXPIRED
 }
 
 enum ProofType {

@@ -33,6 +33,7 @@ import { confirmFinalizer } from './confirmFinalizer'
 import { penaltyIndexer } from './penaltyIndexer'
 import { rewardsDistributor } from './rewardsDistributor'
 import { rotateViewKeys } from './rotateViewKeys'
+import { reconcilePendingTips } from './reconcilePendingTips'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -128,6 +129,13 @@ async function work () {
   // than being piggybacked on the indexer's 20s cadence.
   if (await boss.getQueueSize('confirmFinalizer') === 0) {
     await boss.send('confirmFinalizer', {})
+  }
+
+  // reconcilePendingTips: recover PENDING tips stranded by a missed 0-conf webhook, and
+  // expire never-paid tips. Self-requeues on a 2min startAfter.
+  await boss.work('reconcilePendingTips', jobWrapper(reconcilePendingTips))
+  if (await boss.getQueueSize('reconcilePendingTips') === 0) {
+    await boss.send('reconcilePendingTips', {})
   }
 
   // penaltyIndexer: polls the platform rewards wallet for posting/territory fee
