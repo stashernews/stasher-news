@@ -13,10 +13,9 @@ import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 //   - Mutation.initiateTip           — start a P2P tip via webhook + payment ID
 //   - Query.myMoneroAccount          — the caller's registered account
 //
-// `MoneroAccount` field resolvers (controller #2): privacyMode lives on the
-// owner USER (User.privacyMode), and subaddressPoolRemaining is the count of
-// SubaddressIndex rows in state AVAILABLE — neither is a column on the
-// MoneroAccount model, so they are resolved per-field below.
+// `MoneroAccount` field resolver (controller #2): privacyMode lives on the
+// owner USER (User.privacyMode) — not a column on the MoneroAccount model,
+// so it is resolved per-field below.
 
 // MONERO_NETWORK env ('stagenet' | 'mainnet' | 'testnet', default 'stagenet')
 // maps to BOTH the monero-ts MoneroNetworkType enum (for validation) and the
@@ -154,13 +153,15 @@ export default {
           data: { accountId: account.id, ...encryptViewKey(viewKey) }
         })
         // privacyMode lives on the USER (controller #2), not MoneroAccount.
-        await tx.user.update({ where: { id: me.id }, data: { privacyMode } })
+        // Default to AUTO_INDEX when the caller omits it — post-pivot there is
+        // only one detection model, so AUTO_INDEX is the implicit choice.
+        await tx.user.update({ where: { id: me.id }, data: { privacyMode: privacyMode ?? 'AUTO_INDEX' } })
         return account
       })
 
       // 4. Return with the owner User eager-loaded so the privacyMode field
       //    resolver can read parent.user.privacyMode without an extra round
-      //    trip. subaddressPoolRemaining resolves via its own field resolver.
+      //    trip.
       return models.moneroAccount.findUnique({
         where: { id: created.id },
         include: { user: true }
@@ -177,17 +178,13 @@ export default {
     }
   },
 
-  // Field resolvers for the two NON-model fields on the GraphQL MoneroAccount
-  // type (controller resolution #2). Both are cheap and only fire when the
-  // field is actually selected.
+  // Field resolver for the NON-model field on the GraphQL MoneroAccount
+  // type (controller resolution #2). Cheap and only fires when the field is
+  // actually selected.
   MoneroAccount: {
     // privacyMode lives on the owner User (User.privacyMode). Callers that
     // return a MoneroAccount MUST include the user relation for this to
     // resolve non-null — registerMoneroAccount / myMoneroAccount do.
-    privacyMode: (parent) => parent.user?.privacyMode ?? null,
-
-    // subaddressPoolRemaining: count of AVAILABLE SubaddressIndex rows.
-    subaddressPoolRemaining: (parent, args, { models }) =>
-      models.subaddressIndex.count({ where: { accountId: parent.id, state: 'AVAILABLE' } })
+    privacyMode: (parent) => parent.user?.privacyMode ?? null
   }
 }

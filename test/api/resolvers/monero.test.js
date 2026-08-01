@@ -135,6 +135,18 @@ describe('Mutation.registerMoneroAccount', () => {
       privacyMode: 'AUTO_INDEX'
     }, { models: prisma, monero: makeMockLws() })).rejects.toThrow(/you must be logged in/i)
   })
+
+  test('defaults privacyMode to AUTO_INDEX when omitted', async () => {
+    // Post-pivot there is only one detection model, so the resolver fills in
+    // AUTO_INDEX when the caller does not pass privacyMode. registerFor
+    // normally passes privacyMode: 'AUTO_INDEX'; overriding with undefined
+    // exercises the default path.
+    const userId = await createUser()
+    await registerFor(userId, { privacyMode: undefined })
+
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    expect(user.privacyMode).toBe('AUTO_INDEX')
+  })
 })
 
 describe('Mutation.initiateTip', () => {
