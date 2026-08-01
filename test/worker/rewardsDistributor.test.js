@@ -10,8 +10,9 @@
 // RewardPayout rows (one per curator WITH a registered receiving address).
 // Curators with no registered address are excluded — their share rolls over.
 //
-// Task 9 wires the hot-wallet signer that flips these QUEUED payouts to SENT;
-// this test asserts they remain QUEUED / the distribution stays PENDING.
+// Task 9 wires the hot-wallet signer: runDistributionOnce now calls sendPayouts
+// (injected here as a stub so no real stagenet keys/wallet are needed) and flips
+// the distribution PENDING -> SENDING -> COMPLETE, with payouts QUEUED -> SENT.
 //
 // Real DB integration test mirroring test/worker/curatorShares.test.js and
 // test/worker/penaltyIndexer.fee.test.js (live migrated database, FK-safe
@@ -19,7 +20,7 @@
 //   docker exec -u apprunner app npx jest test/worker/rewardsDistributor.test.js
 
 import { PrismaClient } from '@prisma/client'
-import { runDistributionOnce } from '@/worker/rewardsDistributor'
+import { runDistributionOnce, finalizeDistribution } from '@/worker/rewardsDistributor'
 
 const prisma = new PrismaClient()
 
@@ -47,6 +48,20 @@ const created = {
 
 let result // the distribution returned by runDistributionOnce (beforeAll)
 let seededCurators // { c1, c2, c3 } — c3 has NO registered payout address
+
+// Task 9 stub signer: records that it was invoked and marks each QUEUED payout
+// SENT with a stable fake tx hash. Injected into runDistributionOnce so the
+// wiring (SENDING -> COMPLETE, payouts -> SENT) is verified without real XMR.
+let signerInvocations = 0
+const fakeSigner = async (payouts, { models } = {}) => {
+  signerInvocations += 1
+  for (const p of payouts) {
+    if (p.state === 'QUEUED') {
+      await models.rewardPayout.update({ where: { id: p.id }, data: { state: 'SENT', txHash: 'ab'.repeat(32) } })
+    }
+  }
+  return { sent: payouts.length, failed: 0, skipped: 0 }
+}
 
 // Seed amounts (piconeros). Picked so the allocation math is exact:
 //   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100
@@ -230,8 +245,8 @@ beforeAll(async () => {
   await seedTip({ postId, tipperId: c2, piconeros: 2_000_000_000_000n, confirmedAt: new Date(inPeriod.getTime() + 60000), recipientAccountId: recipientAccount.id })
   await seedTip({ postId, tipperId: c3, piconeros: 2_000_000_000_000n, confirmedAt: new Date(inPeriod.getTime() + 120000), recipientAccountId: recipientAccount.id })
 
-  // --- Run the distribution ---
-  result = await runDistributionOnce({ models: prisma })
+  // --- Run the distribution (Task 9 signer stub injected) ---
+  result = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
   created.distributions.push(result.id)
 })
 
@@ -262,19 +277,25 @@ test('distributedPiconeros + rolledOverPiconeros reconciles to the pool exactly'
   expect(result.distributedPiconeros + result.rolledOverPiconeros).toBe(result.poolPiconeros)
 })
 
-test('a RewardDistribution row was created in PENDING status (awaiting Task 9 signer)', async () => {
-  expect(result.status).toBe('PENDING')
+test('the distribution is finalized COMPLETE (Task 9 signer wired) with completedAt set', async () => {
+  expect(result.status).toBe('COMPLETE')
   expect(result.payoutCount).toBeGreaterThan(0)
+  expect(result.completedAt).toBeTruthy()
 })
 
-test('QUEUED RewardPayout rows exist, each with an address and at least minPayout', async () => {
+test('RewardPayout rows are SENT with a tx hash, each with an address and at least minPayout', async () => {
   const payouts = await prisma.rewardPayout.findMany({ where: { distributionId: result.id } })
   expect(payouts.length).toBeGreaterThan(0)
   for (const p of payouts) {
-    expect(p.state).toBe('QUEUED')
+    expect(p.state).toBe('SENT')
+    expect(p.txHash).toMatch(/^[0-9a-f]{64}$/)
     expect(p.recipientAddress).toBeTruthy()
     expect(p.piconeros).toBeGreaterThanOrEqual(1_000_000_000n)
   }
+})
+
+test('the signer was invoked once with the created QUEUED payouts', async () => {
+  expect(signerInvocations).toBe(1)
 })
 
 test('a curator WITHOUT a registered receiving address is excluded (their share rolls over)', async () => {
@@ -283,6 +304,55 @@ test('a curator WITHOUT a registered receiving address is excluded (their share 
   expect(curatorIds).toContain(seededCurators.c1)
   expect(curatorIds).toContain(seededCurators.c2)
   expect(curatorIds).not.toContain(seededCurators.c3)
+})
+
+test('a zero-payout distribution skips SENDING and goes straight to COMPLETE', async () => {
+  // period far in the past so this row never trips runDistributionOnce's
+  // week-window idempotency check (this test calls finalizeDistribution directly).
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 31 * DAY),
+      periodEnd: new Date(Date.now() - 30 * DAY),
+      poolPiconeros: 0n,
+      distributedPiconeros: 0n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 0,
+      status: 'PENDING'
+    }
+  })
+  created.distributions.push(dist.id)
+  let called = false
+  await finalizeDistribution(prisma, { ...dist, payouts: [] }, async () => { called = true; return { sent: 0, failed: 0, skipped: 0 } })
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('COMPLETE')
+  expect(updated.completedAt).toBeTruthy()
+  expect(updated.startedAt).toBeNull() // never entered SENDING on an empty week
+  expect(called).toBe(false) // signer not invoked
+})
+
+test('a catastrophic signer failure marks the distribution FAILED (payouts keep their state)', async () => {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 31 * DAY),
+      periodEnd: new Date(Date.now() - 30 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 1,
+      status: 'PENDING'
+    }
+  })
+  created.distributions.push(dist.id)
+  const payout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, async () => { throw new Error('wallet unavailable') })
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('FAILED')
+  // the payout is untouched (signer threw before marking it) -> still retryable
+  const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
+  expect(payoutAfter.state).toBe('QUEUED')
 })
 
 test('a second run within the same week is idempotent (returns the existing distribution)', async () => {
