@@ -1,8 +1,7 @@
 import Dropdown from 'react-bootstrap/Dropdown'
 import { useShowModal } from './modal'
 import { useToast } from './toast'
-import ItemAct from './item-act'
-import AccordianItem from './accordian-item'
+import DownvoteModal from './downvote-modal'
 import Flag from '@/svgs/flag-fill.svg'
 import { useMemo } from 'react'
 import getColor from '@/lib/rainbow'
@@ -37,21 +36,9 @@ function DownZapper ({ item, As, children }) {
       onClick={async () => {
         try {
           showModal(onClose =>
-            <ItemAct
-              onClose={onClose} item={item} act='DONT_LIKE_THIS'
-            >
-              <AccordianItem
-                header='what is a downzap?' body={
-                  <ul>
-                    <li>downzaps are just like zaps but cause items to lose ranking position</li>
-                    <li>downzaps also reduce trust between you and whoever zaps it so you'll see less of what they zap in the future</li>
-                    <li>all sats from downzaps go to rewards</li>
-                  </ul>
-              }
-              />
-            </ItemAct>)
+            <DownvoteModal item={item} onClose={onClose} />)
         } catch (error) {
-          toaster.danger('failed to downzap item')
+          toaster.danger('failed to downvote item')
         }
       }}
     >
@@ -66,7 +53,7 @@ export default function DontLikeThisDropdownItem ({ item }) {
       As={Dropdown.Item}
       item={item}
     >
-      <span className='text-danger'>downzap</span>
+      <span className='text-danger'>downvote</span>
     </DownZapper>
   )
 }

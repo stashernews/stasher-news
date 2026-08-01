@@ -160,6 +160,7 @@ type PayIn {
   createdAt: Date!
   updatedAt: Date!
   mcost: BigInt!
+  moneroUri: String
   isSend: Boolean
   payInBolt11Public: PayInBolt11Public
   payOutBolt11Public: PayOutBolt11Public
