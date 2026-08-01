@@ -1,110 +1,98 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
-import { msatsToSats, satsToMsats, numWithUnits } from '@/lib/format'
-import { Prisma } from '@prisma/client'
-import { getItemResult, getSubs } from '../lib/item'
-import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
+import { GqlInputError } from '@/lib/error'
+import { getItemResult } from '../lib/item'
+import { makeDownvoteAddress } from '@/api/monero/penalty'
+import { buildMoneroUri } from '@/api/monero/uri'
+
+// StealthNews rewards-funded downvote (spec §3.3).
+//
+// A downvote pays a fee-sized amount of Monero to the platform rewards wallet
+// via an *integrated address* (primary rewards address + an 8-byte payment_id
+// that encodes (postId, nonce)). The payment_id reverse map (DownvotePidMap) is
+// recorded here so the penaltyIndexer (Task 4) can attribute the on-chain
+// payment and apply the ranking penalty when it lands.
+//
+// mcost is deliberately 0n: StealthNews downvotes are NOT paid in custodial
+// sats. The on-chain Monero amount is observed externally by the penaltyIndexer
+// and recorded in ObservedBurn.piconeros (Task 4). With mcost=0n and no
+// payOuts, the PayIn engine resolves this to payInState=PAID at creation time,
+// so the monero: URI is returned straight to the client — no invoice, no throw
+// (see api/payIn/lib/payInCreate.js getPayInState).
 
 export const anonable = false
 
 export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.FEE_CREDIT,
   PAID_ACTION_PAYMENT_METHODS.REWARD_SATS,
-  PAID_ACTION_PAYMENT_METHODS.OPTIMISTIC
+  PAID_ACTION_PAYMENT_METHODS.OPTIMISTIC,
+  PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-export async function getInitial (models, { sats, id: itemId }, { me }) {
-  const item = await models.item.findUnique({ where: { id: parseInt(itemId) } })
-  const subs = await getSubs(models, { subNames: item.subNames, parentId: item.parentId })
+export async function getInitial (models, { id, piconeros }, { me }) {
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  if (!config) throw new GqlInputError('fee config not initialized')
 
-  const mcost = satsToMsats(sats)
-  // all of the sats for a downzap go to the rewards pool
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, mcost, rewardsPct: 100n })
+  const amount = BigInt(piconeros)
+  if (!(amount >= config.downvoteMinPiconeros)) {
+    throw new GqlInputError(`downvote below minimum (${config.downvoteMinPiconeros} piconeros)`)
+  }
+
+  const item = await models.item.findUnique({ where: { id: parseInt(id) } })
+  if (!item) throw new GqlInputError('item not found')
+
+  // Date.now() is unique enough for human-paced downvotes. A same-millisecond
+  // collision on the same post would collide on the payment_id PK (acceptable
+  // for v1 — the user retries); do not add a retry loop here.
+  const nonce = Date.now()
+  const { integratedAddress, paymentId } = makeDownvoteAddress(parseInt(id), nonce)
+
+  // Recorded outside the PayIn transaction (mirrors how itemCreate reserves a
+  // fee subaddress in getInitial): an orphaned row on a later PayIn failure is
+  // harmless — it expires in 24h, never consumed.
+  await models.downvotePidMap.create({
+    data: {
+      paymentId,
+      postId: parseInt(id),
+      nonce,
+      userId: me.id,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+    }
+  })
+
+  const moneroUri = buildMoneroUri(
+    [{ address: integratedAddress, amount }],
+    { description: 'StealthNews downvote' }
+  )
 
   return {
     payInType: 'DOWN_ZAP',
-    userId: me?.id,
-    mcost,
-    itemPayIn: {
-      itemId: parseInt(itemId)
-    },
-    payOutCustodialTokens
+    userId: me.id,
+    mcost: 0n,
+    moneroUri,
+    itemPayIn: { itemId: parseInt(id) }
   }
 }
 
-export async function onRetry (tx, oldPayInId, newPayInId) {
-  const { itemId, payIn } = await tx.itemPayIn.findUnique({ where: { payInId: oldPayInId }, include: { payIn: true } })
+export async function onRetry (tx, oldPayInId) {
+  const { itemId } = await tx.itemPayIn.findUnique({ where: { payInId: oldPayInId } })
   const item = await getItemResult(tx, { id: itemId })
-  return { id: item.id, path: item.path, sats: msatsToSats(payIn.mcost), act: 'DONT_LIKE_THIS' }
+  return { id: item.id, path: item.path, act: 'DONT_LIKE_THIS' }
 }
 
 export async function onBegin (tx, payInId, payInArgs) {
   const item = await getItemResult(tx, { id: payInArgs.id })
-  return { id: item.id, path: item.path, sats: payInArgs.sats, act: 'DONT_LIKE_THIS' }
+  return { id: item.id, path: item.path, act: 'DONT_LIKE_THIS' }
 }
 
+// Intentionally a no-op. With mcost=0n the PayIn is PAID at creation time, so
+// onPaid fires immediately during begin(). Applying the ranking penalty here
+// would penalise the item BEFORE the downvote is actually paid on-chain. The
+// real penalty is applied by the penaltyIndexer (Task 4) when it observes the
+// payment as an ObservedBurn.
 export async function onPaid (tx, payInId) {
-  const payIn = await tx.payIn.findUnique({
-    where: { id: payInId },
-    include: {
-      itemPayIn: { include: { item: true } },
-      payOutBolt11: true
-    }
-  })
-
-  const msats = payIn.mcost
-  const sats = msatsToSats(msats)
-  const userId = payIn.userId
-  const item = payIn.itemPayIn.item
-
-  // denormalize downzaps
-  // NOTE: ancestors are ORDER BY id for consistent lock ordering to prevent deadlocks
-  // XXX we base the zap weight on the first sub in the subNames array
-  // this is mostly a placeholder becasue we are running a no trust experiment
-  // if we use trust again, we'll need an approach to this for multiple territories
-  await tx.$executeRaw`
-    WITH territory AS (
-      SELECT COALESCE(r."subNames"[1], i."subNames"[1], 'meta')::CITEXT as "subName"
-      FROM "Item" i
-      LEFT JOIN "Item" r ON r.id = i."rootId"
-      WHERE i.id = ${item.id}::INTEGER
-    ), zapper AS (
-      SELECT
-        COALESCE(${item.parentId
-          ? Prisma.sql`"zapCommentTrust"`
-          : Prisma.sql`"zapPostTrust"`}, 0) as "zapTrust",
-        COALESCE(${item.parentId
-          ? Prisma.sql`"subZapCommentTrust"`
-          : Prisma.sql`"subZapPostTrust"`}, 0) as "subZapTrust"
-      FROM territory
-      LEFT JOIN "UserSubTrust" ust ON ust."subName" = territory."subName"
-        AND ust."userId" = ${userId}::INTEGER
-    ), zap AS (
-      INSERT INTO "ItemUserAgg" ("userId", "itemId", "downZapSats")
-      VALUES (${userId}::INTEGER, ${item.id}::INTEGER, ${sats}::INTEGER)
-      ON CONFLICT ("itemId", "userId") DO UPDATE
-      SET "downZapSats" = "ItemUserAgg"."downZapSats" + ${sats}::INTEGER, updated_at = now()
-      RETURNING LOG("downZapSats" / GREATEST("downZapSats" - ${sats}::INTEGER, 1)::FLOAT) AS log_sats
-    ), item_downzapped AS (
-      UPDATE "Item"
-      SET "weightedDownVotes" = "weightedDownVotes" + zapper."zapTrust" * zap.log_sats,
-          "subWeightedDownVotes" = "subWeightedDownVotes" + zapper."subZapTrust" * zap.log_sats,
-          "downMsats" = "downMsats" + ${msats}::BIGINT
-      FROM zap, zapper
-      WHERE "Item".id = ${item.id}::INTEGER
-      RETURNING "Item".*
-    )
-    UPDATE "Item"
-    SET "commentDownMsats" = "commentDownMsats" + ${msats}::BIGINT
-    FROM (
-      SELECT "Item".id
-      FROM "Item", item_downzapped
-      WHERE "Item".path @> item_downzapped.path AND "Item".id <> item_downzapped.id
-      ORDER BY "Item".id
-    ) AS ancestors
-    WHERE "Item".id = ancestors.id`
 }
 
 export async function describe (models, payInId) {
   const payIn = await models.payIn.findUnique({ where: { id: payInId }, include: { itemPayIn: true } })
-  return `SN: downzap #${payIn.itemPayIn.itemId} for ${numWithUnits(msatsToSats(payIn.mcost), { abbreviate: false })}`
+  return `SN: downvote #${payIn.itemPayIn.itemId}`
 }
