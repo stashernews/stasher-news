@@ -70,9 +70,9 @@ export async function runReconcilePendingTipsOnce ({
             WHERE id = ${tip.id} AND state = 'PENDING'`
           if (claimed > 0) {
             await apply(tip.postId, null, amount, txdb)
+            recovered += 1
           }
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-        recovered += 1
       } else if (tip.detectedAt < expireBefore) {
         await models.observedTip.updateMany({
           where: { id: tip.id, state: 'PENDING' },

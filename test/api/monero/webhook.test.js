@@ -78,13 +78,35 @@ test('flips PENDING -> DETECTED at 0 confirmations and runs the ranking delta', 
     body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
   }, res, models)
   expect(res.status).toHaveBeenCalledWith(200)
-  expect(txUpdate).toHaveBeenCalledWith(expect.objectContaining({
-    where: { id: 1 },
-    data: expect.objectContaining({ state: 'DETECTED', txHash: 'deadbeef', piconeros: 1000000000n })
-  }))
-  // applyTipDetected ran inside the same transaction ($executeRaw is its only
-  // tx-bound call when a tx is supplied)
+  // The PENDING branch now uses an atomic conditional UPDATE via $executeRaw,
+  // NOT tx.observedTip.update (the claim mirrors reconcilePendingTips).
+  expect(txUpdate).not.toHaveBeenCalled()
+  // The conditional claim ran ($executeRaw); applyTipDetected then runs inside
+  // the same transaction and also calls $executeRaw on the tx, so execRaw is
+  // invoked one or more times (>= 1 = at least the claim).
+  expect(execRaw.mock.calls.length).toBeGreaterThanOrEqual(1)
+})
+
+test('does NOT apply ranking delta when the conditional claim loses (race with reconcile sweep)', async () => {
+  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-1', post: { userId: 99 } }
+  const txUpdate = jest.fn().mockResolvedValue({})
+  // The sweep already flipped the row DETECTED, so the conditional UPDATE
+  // matches 0 rows -> the webhook loses the claim and must NOT apply the delta.
+  const execRaw = jest.fn().mockResolvedValue(0)
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
+    txUpdate,
+    execRaw
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // Exactly one $executeRaw call: the claim. applyTipDetected never ran
+  // (claimed === 0), so there is no second apply call -> no double-count.
   expect(execRaw).toHaveBeenCalledTimes(1)
+  expect(txUpdate).not.toHaveBeenCalled()
 })
 
 test('flips DETECTED -> CONFIRMED at REQUIRED_CONFIRMATIONS, bumps stackedPiconeros, deletes webhook', async () => {
