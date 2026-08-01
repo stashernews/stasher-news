@@ -139,6 +139,10 @@ async function work () {
   // rewardsDistributor: weekly rewards-pool distribution (earmark inflow, compute
   // curator shares, write QUEUED payouts). Self-requeues weekly (7d startAfter).
   await boss.work('rewardsDistributor', jobWrapper(rewardsDistributor))
+  // Unlike penaltyIndexer/confirmFinalizer (which seed immediately), the
+  // rewardsDistributor seed starts AFTER a full week: the first payout needs a
+  // week of inflow to accumulate first. `sndev monero distribute` covers any
+  // out-of-band run before that.
   if (await boss.getQueueSize('rewardsDistributor') === 0) {
     await boss.send('rewardsDistributor', {}, { startAfter: 7 * 24 * 60 * 60 })
   }
