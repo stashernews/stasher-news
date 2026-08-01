@@ -23,8 +23,11 @@ import { CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constant
 // diverge — a CONFIRMED tip with an unbumped author (or vice versa) would
 // desync the reputation calc. The transaction guarantees they commit together.
 //
-// Scope: ObservedTip ONLY. ObservedBurn confirmation is the penaltyIndexer's
-// domain (Phase 4) and will be added when that lands.
+// Scope: ObservedTip, FeeObservation, AND ObservedBurn. The tip flip is coupled
+// to the author stackedPiconeros denorm (atomic); the fee and burn flips are
+// ledger-only (their ranking/visibility effects already applied at DETECTION).
+// Reorg reversal is NOT implemented — deferred as an accepted v1 limitation
+// (consistent with the tip flow; a >10-block Monero reorg is negligible).
 //
 // This module exports TWO things (mirrors worker/moneroIndexer.js):
 //   - runConfirmFinalizerOnce: the testable per-run core (no pg-boss). Takes
@@ -98,6 +101,26 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     if (confirmations < REQUIRED_CONFIRMATIONS) continue
     await models.feeObservation.update({
       where: { id: fee.id },
+      data: { state: 'CONFIRMED', confirmations, confirmedAt: new Date() }
+    })
+  }
+
+  // ObservedBurn (penaltyIndexer Phase 4): mature DETECTED downvote burns to
+  // CONFIRMED at the same confirmation threshold. The ranking penalty
+  // (weightedDownVotes/downMsats) was already applied at DETECTION — mirroring
+  // how tips apply their effect at DETECTION — so CONFIRMED just finalizes the
+  // ledger row. Reorg reversal is deferred (consistent with the tip flow: a
+  // >10-block Monero reorg is negligible; consequence is minor ranking drift,
+  // not fund loss).
+  const burns = await models.observedBurn.findMany({
+    where: { state: 'DETECTED', height: { not: null } },
+    take: SCAN_BATCH_SIZE
+  })
+  for (const burn of burns) {
+    const confirmations = chainHeight - burn.height + 1
+    if (confirmations < REQUIRED_CONFIRMATIONS) continue
+    await models.observedBurn.update({
+      where: { id: burn.id },
       data: { state: 'CONFIRMED', confirmations, confirmedAt: new Date() }
     })
   }
