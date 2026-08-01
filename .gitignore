@@ -82,3 +82,9 @@ docker/dnsmasq/dnsmasq.d/*
 
 # git worktrees (local isolation for parallel/feature work)
 .worktrees/
+
+# superpowers skill working state (SDD progress notes, task reports)
+.superpowers/
+
+# personal admin guide (maintained privately by the project admin, not part of the project)
+ADMIN-GUIDE.md

@@ -11,7 +11,6 @@ import { timestampItem } from './ots'
 import { computeStreaks, checkStreak } from './streak'
 import { nip57 } from './nostr'
 import fetch from 'cross-fetch'
-import { views, rankViews } from './views'
 import { imgproxy } from './imgproxy'
 import { deleteItem } from './ephemeralItems'
 import { deleteUnusedImages } from './deleteUnusedImages'
@@ -110,8 +109,6 @@ async function work () {
   await boss.work('streak', jobWrapper(computeStreaks))
   await boss.work('checkStreak', jobWrapper(checkStreak))
   await boss.work('nip57', jobWrapper(nip57))
-  await boss.work('views-*', jobWrapper(views))
-  await boss.work('rankViews', jobWrapper(rankViews))
   await boss.work('deleteItem', jobWrapper(deleteItem))
   await boss.work('territoryBilling', jobWrapper(territoryBilling))
   await boss.work('ofac', jobWrapper(ofac))
