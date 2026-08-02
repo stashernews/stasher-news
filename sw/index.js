@@ -23,8 +23,8 @@ precacheAndRoute(self.__WB_MANIFEST,
     // this returns url fallbacks, we map CDN urls to the origin because that's how they are cached
     // source: https://github.com/GoogleChrome/workbox/blob/e26d8d7507f9412ba029922f3d9920e68710f2cf/packages/workbox-precaching/src/utils/generateURLVariations.ts#L54-L59
     urlManipulation: ({ url }) => {
-      if (url.hostname === 'a.stacker.news') {
-        const newUrl = new URL(url.pathname, 'https://stacker.news')
+      if (url.hostname === 'a.stasher.news') {
+        const newUrl = new URL(url.pathname, 'https://stasher.news')
         return [newUrl]
       }
       return [url]

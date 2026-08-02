@@ -18,7 +18,7 @@ function itemToContent (item, { includeTitle = true } = {}) {
     content += `\n\n${item.text}`
   }
 
-  content += `\n\nhttps://stacker.news/items/${item.id}`
+  content += `\n\nhttps://stasher.news/items/${item.id}`
 
   return content.trim()
 }
@@ -74,7 +74,7 @@ function bountyToEvent (item) {
     tags: [
       ['d', item.id.toString()],
       ['title', item.title],
-      ['location', `https://stacker.news/items/${item.id}`],
+      ['location', `https://stasher.news/items/${item.id}`],
       ['price', item.bounty.toString(), 'SATS'],
       ['t', 'bounty'],
       ['published_at', createdAt.toString()]

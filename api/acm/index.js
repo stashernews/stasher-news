@@ -20,7 +20,7 @@ export async function requestCertificate (domain, idempotencyToken) {
     Tags: [
       {
         Key: 'ManagedBy',
-        Value: 'stacker.news'
+        Value: 'stasher.news'
       }
     ]
   }
