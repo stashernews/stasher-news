@@ -6,12 +6,12 @@ import { useBranding } from './territory-branding'
 
 // Resolves the brand/site-name/tagline triple for SEO meta:
 // - on a custom domain those come from the territory's branding (with sub-name fallbacks)
-// - on stacker news those fall back to the SN defaults.
+// - on stasher news those fall back to the SN defaults.
 function useSiteSeo () {
   const branding = useBranding()
 
-  const brand = branding?.title ?? 'stacker news'
-  const siteName = branding?.title ?? 'Stacker News'
+  const brand = branding?.title ?? 'stasher news'
+  const siteName = branding?.title ?? 'Stasher News'
   const tagline = branding?.tagline ?? 'moderating forums with money'
 
   // territory branding doesn't carry a twitter handle, so suppress @site on custom domains
@@ -22,7 +22,7 @@ function useSiteSeo () {
   return { branding, brand, siteName, tagline, twitter }
 }
 
-// capture service takes a path and navigates to it on the main domain (stacker.news)
+// capture service takes a path and navigates to it on the main domain (stasher.news)
 // to support custom domains, we need to prepend the subname to the path
 function capturePath ({ path, branding }) {
   if (!branding?.subName) return path
@@ -52,7 +52,7 @@ export function SeoSearch ({ sub }) {
         description: desc,
         images: [
           {
-            url: 'https://capture.stacker.news' + imagePath
+            url: 'https://capture.stasher.news' + imagePath
           }
         ],
         site_name: siteName
@@ -117,7 +117,7 @@ export default function Seo ({ sub, item, user }) {
         description: desc,
         images: [
           {
-            url: 'https://capture.stacker.news' + imagePath
+            url: 'https://capture.stasher.news' + imagePath
           }
         ],
         site_name: siteName

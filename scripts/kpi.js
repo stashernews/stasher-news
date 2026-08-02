@@ -167,7 +167,7 @@ function getTotalValue (dataArray) {
 
 async function generateKPISummary (monthsBack = 6) {
   try {
-    console.log(`\n# Stacker News KPI Summary (Last ${monthsBack} months)\n`)
+    console.log(`\n# Stasher News KPI Summary (Last ${monthsBack} months)\n`)
 
     const now = new Date()
     console.log('Current date:', now.toISOString().slice(0, 10))
@@ -284,7 +284,7 @@ async function generateKPISummary (monthsBack = 6) {
       try {
         // Get pageviews
         const pvResponse = await fetch(
-          `https://plausible.io/api/v1/stats/timeseries?site_id=stacker.news&period=custom&date=${dateRange}&interval=month&metrics=pageviews`,
+          `https://plausible.io/api/v1/stats/timeseries?site_id=stasher.news&period=custom&date=${dateRange}&interval=month&metrics=pageviews`,
           {
             headers: { Authorization: `Bearer ${PLAUSIBLE_API_KEY}` }
           }
@@ -294,7 +294,7 @@ async function generateKPISummary (monthsBack = 6) {
 
         // Get visitors
         const vResponse = await fetch(
-          `https://plausible.io/api/v1/stats/timeseries?site_id=stacker.news&period=custom&date=${dateRange}&interval=month&metrics=visitors`,
+          `https://plausible.io/api/v1/stats/timeseries?site_id=stasher.news&period=custom&date=${dateRange}&interval=month&metrics=visitors`,
           {
             headers: { Authorization: `Bearer ${PLAUSIBLE_API_KEY}` }
           }
@@ -415,7 +415,7 @@ const monthsBack = args[0] ? parseInt(args[0]) : 6
 if (isNaN(monthsBack) || monthsBack < 1) {
   console.error('Usage: node scripts/kpi.js [months_back]')
   console.error('Example: node scripts/kpi.js 12  # for last 12 months')
-  console.error('Example: GRAPHQL_ENDPOINT=https://stacker.news/api/graphql PLAUSIBLE_API_KEY=key node scripts/kpi.js 6')
+  console.error('Example: GRAPHQL_ENDPOINT=https://stasher.news/api/graphql PLAUSIBLE_API_KEY=key node scripts/kpi.js 6')
   process.exit(1)
 }
 
