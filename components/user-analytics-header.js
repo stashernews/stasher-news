@@ -6,7 +6,7 @@ import { whenToFrom } from '@/lib/time'
 export function UserAnalyticsHeader ({ pathname = null }) {
   const router = useRouter()
 
-  const path = pathname || 'satistics/graph'
+  const path = pathname || 'statistics/graph'
 
   const select = async values => {
     const { when, ...query } = values

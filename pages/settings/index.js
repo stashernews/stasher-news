@@ -297,7 +297,7 @@ export default function Settings ({ ssrData }) {
           />
           <div className='form-label'>privacy</div>
           <Checkbox
-            label={<>hide me from  <Link href='/top/stackers/day'>top stashers</Link></>}
+            label={<>hide me from  <Link href='/top/stashers/day'>top stashers</Link></>}
             name='hideFromTopUsers'
             groupClassName='mb-0'
           />

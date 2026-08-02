@@ -61,7 +61,7 @@ export default function OffCanvas ({ me, dropNavKey }) {
                   <Dropdown.Item as={Link} href='/wallets' eventKey='wallets'>
                     <Indicator show={walletIndicator} top='2px' right='-10px'>wallets</Indicator>
                   </Dropdown.Item>
-                  <Dropdown.Item as={Link} href='/satistics' eventKey='satistics'>satistics</Dropdown.Item>
+                  <Dropdown.Item as={Link} href='/statistics' eventKey='statistics'>Statistics</Dropdown.Item>
                   <Dropdown.Divider />
                   <Dropdown.Item as={Link} href='/invites' eventKey='invites'>invites</Dropdown.Item>
                   <Dropdown.Divider />

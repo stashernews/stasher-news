@@ -18,16 +18,16 @@ export function SatisticsHeader () {
   const activeKey = pathParts[1] ?? 'history'
   return (
     <>
-      <h2 className='mb-2 text-start'>satistics</h2>
+      <h2 className='mb-2 text-start'>Statistics</h2>
       <Nav
         className={navStyles.nav}
         activeKey={activeKey}
       >
         <Nav.Item>
-          <Nav.Link as={Link} href='/satistics' eventKey='history'>history</Nav.Link>
+          <Nav.Link as={Link} href='/statistics' eventKey='history'>history</Nav.Link>
         </Nav.Item>
         <Nav.Item>
-          <Nav.Link as={Link} href='/satistics/graphs/day' eventKey='graphs'>graphs</Nav.Link>
+          <Nav.Link as={Link} href='/statistics/graphs/day' eventKey='graphs'>graphs</Nav.Link>
         </Nav.Item>
       </Nav>
     </>

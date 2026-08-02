@@ -4,7 +4,7 @@ import { getGetServerSideProps } from '@/api/ssrApollo'
 import Layout from '@/components/layout'
 import Col from 'react-bootstrap/Col'
 import Row from 'react-bootstrap/Row'
-import { SatisticsHeader } from '@/pages/satistics'
+import { SatisticsHeader } from '@/pages/statistics'
 import { useRouter } from 'next/router'
 import dynamic from 'next/dynamic'
 import PageLoading from '@/components/page-loading'
@@ -93,7 +93,7 @@ export default function Growth ({ ssrData }) {
   return (
     <Layout>
       <SatisticsHeader />
-      <UserAnalyticsHeader pathname='satistics/graphs' />
+      <UserAnalyticsHeader pathname='statistics/graphs' />
       <UserGrowthTotals totals={growthTotals} />
       <Row>
         <Col className='mt-3'>

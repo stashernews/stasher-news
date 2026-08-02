@@ -620,7 +620,7 @@ const newUserHtml = ({ url, token, site, email }) => {
   const dailyUrl = new URL('/daily', process.env.NEXT_PUBLIC_URL).href
   const guideUrl = new URL('/guide', process.env.NEXT_PUBLIC_URL).href
   const faqUrl = new URL('/faq', process.env.NEXT_PUBLIC_URL).href
-  const topUrl = new URL('/top/stackers/forever', process.env.NEXT_PUBLIC_URL).href
+  const topUrl = new URL('/top/stashers/forever', process.env.NEXT_PUBLIC_URL).href
   const postUrl = new URL('/post', process.env.NEXT_PUBLIC_URL).href
 
   // Some simple styling options

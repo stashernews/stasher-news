@@ -106,7 +106,7 @@ function oneDayReferral (request, { me }) {
       const name = referrer.slice(8)
       // exclude all pages that are not user profiles
       if (['api', 'auth', 'day', 'invites', 'invoices', 'referrals', 'rewards',
-        'satistics', 'settings', 'stackers', 'wallet', 'withdrawals', '404', '500',
+        'statistics', 'settings', 'stashers', 'wallet', 'withdrawals', '404', '500',
         'email', 'live', 'login', 'notifications', 'offline', 'search', 'share',
         'signup', 'territory', 'new', 'top', 'edit', 'post', 'rss', 'saloon',
         'faq', 'story', 'privacy', 'copyright', 'tos', 'changes', 'guide', 'daily',

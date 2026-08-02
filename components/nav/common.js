@@ -198,7 +198,7 @@ export function MeDropdown ({ me, dropNavKey }) {
           <Dropdown.Item as={Link} href='/wallets' eventKey='wallets'>
             <Indicator show={walletIndicator} top='2px' right='-10px'>wallets</Indicator>
           </Dropdown.Item>
-          <Dropdown.Item as={Link} href='/satistics' eventKey='statistics'>statistics</Dropdown.Item>
+          <Dropdown.Item as={Link} href='/statistics' eventKey='statistics'>statistics</Dropdown.Item>
           <Dropdown.Divider />
           <Dropdown.Item as={Link} href='/invites' eventKey='invites'>invites</Dropdown.Item>
           <Dropdown.Divider />
