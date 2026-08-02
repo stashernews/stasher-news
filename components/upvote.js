@@ -8,11 +8,11 @@ import { useZap } from './use-zap'
 import { useMe } from './me'
 import getColor from '@/lib/rainbow'
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { xmrFromSats } from '@/lib/format'
 import LongPressable from './long-pressable'
 import Overlay from 'react-bootstrap/Overlay'
 import Popover from 'react-bootstrap/Popover'
 import { useShowModal } from './modal'
-import { xmrFromSats } from '@/lib/format'
 import { Dropdown } from 'react-bootstrap'
 import classNames from 'classnames'
 
@@ -25,12 +25,12 @@ const UpvotePopover = ({ target, show, handleClose }) => {
       placement='right'
     >
       <Popover id='popover-basic'>
-        <Popover.Header className='d-flex justify-content-between alert-dismissible' as='h4'>Zapping
+        <Popover.Header className='d-flex justify-content-between alert-dismissible' as='h4'>Tipping
           <button type='button' className='btn-close' onClick={handleClose}><span className='visually-hidden-focusable'>Close alert</span></button>
         </Popover.Header>
         <Popover.Body>
-          <div className='mb-2'>Press the bolt again to zap {me?.privates?.tipRandom ? 'a random amount of' : `${me?.privates?.tipDefault || 1} more`} sat{me?.privates?.tipDefault > 1 ? 's' : ''}.</div>
-          <div>Repeatedly press the bolt to zap more sats.</div>
+          <div className='mb-2'>Press the tip button again to tip {me?.privates?.tipRandom ? 'a random amount' : `${xmrFromSats(me?.privates?.tipDefault || 1)} more`}.</div>
+          <div>Repeatedly press the tip button to tip more.</div>
         </Popover.Body>
       </Popover>
     </Overlay>
@@ -48,8 +48,8 @@ const TipPopover = ({ target, show, handleClose }) => (
         <button type='button' className='btn-close' onClick={handleClose}><span className='visually-hidden-focusable'>Close alert</span></button>
       </Popover.Header>
       <Popover.Body>
-        <div className='mb-2'>Press and hold bolt to zap a custom amount.</div>
-        <div>As you zap more, the bolt color follows the rainbow.</div>
+        <div className='mb-2'>Press and hold the tip button to tip a custom amount.</div>
+        <div>As you tip more, the tip button color follows the rainbow.</div>
       </Popover.Body>
     </Popover>
   </Overlay>
@@ -65,7 +65,7 @@ export function DropdownItemUpVote ({ item }) {
           <ItemAct onClose={onClose} item={item} />)
       }}
     >
-      <span className='text-success'>zap</span>
+      <span className='text-success'>tip</span>
     </Dropdown.Item>
   )
 }
@@ -166,7 +166,7 @@ export default function UpVote ({ item, className, collapsed }) {
     if (me) {
       overlayTextContent = me.privates?.tipRandom ? 'random' : xmrFromSats(sats)
     } else {
-      overlayTextContent = 'zap it'
+      overlayTextContent = 'tip it'
     }
 
     return [

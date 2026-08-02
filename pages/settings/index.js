@@ -174,13 +174,13 @@ export default function Settings ({ ssrData }) {
           }}
         >
           <Input
-            label='zap default'
+            label='tip default'
             name='tipDefault'
             groupClassName='mb-0'
             required
             autoFocus
             append={<InputGroup.Text className='text-monospace'>sats</InputGroup.Text>}
-            hint={<small className='text-muted'>note: you can also press and hold the lightning bolt to zap custom amounts</small>}
+            hint={<small className='text-muted'>note: you can also press and hold the money button to tip custom amounts</small>}
           />
           <div className='pb-4'>
             <AccordianItem
@@ -191,22 +191,22 @@ export default function Settings ({ ssrData }) {
                   <Checkbox
                     name='turboTipping'
                     label={
-                      <div className='d-flex align-items-center'>turbo zapping
+                      <div className='d-flex align-items-center'>turbo tipping
                         <Info>
                           <ul>
-                            <li>Makes every additional bolt click raise your total zap to another 10x multiple of your default zap</li>
-                            <li>e.g. if your zap default is 10 sats
+                            <li>Makes every additional click raise your total tip to another 10x multiple of your default tip</li>
+                            <li>e.g. if your tip default is 10 sats
                               <ul>
-                                <li>1st click: 10 sats total zapped</li>
-                                <li>2nd click: 100 sats total zapped</li>
-                                <li>3rd click: 1000 sats total zapped</li>
-                                <li>4th click: 10000 sats total zapped</li>
+                                <li>1st click: 10 sats total tipped</li>
+                                <li>2nd click: 100 sats total tipped</li>
+                                <li>3rd click: 1000 sats total tipped</li>
+                                <li>4th click: 10000 sats total tipped</li>
                                 <li>and so on ...</li>
                               </ul>
                             </li>
-                            <li>You can still custom zap via long press
+                            <li>You can still custom tip via long press
                               <ul>
-                                <li>the next bolt click rounds up to the next greatest 10x multiple of your default</li>
+                                <li>the next click rounds up to the next greatest 10x multiple of your default</li>
                               </ul>
                             </li>
                           </ul>
@@ -286,9 +286,8 @@ export default function Settings ({ ssrData }) {
               <div className='d-flex align-items-center'>use blank invoice descriptions
                 <Info>
                   <ul>
-                    <li>Use this if you don't want funding sources to know you're using stacker.news.</li>
+                    <li>Use this if you don't want funding sources to know you're using stasher.news.</li>
                     <li>It makes your invoice descriptions blank.</li>
-                    <li>Note: lnurl-pay and lightning addresses still reference SN and your nym</li>
                   </ul>
                 </Info>
               </div>
@@ -397,8 +396,8 @@ export default function Settings ({ ssrData }) {
               <div className='d-flex align-items-center'>posts sat filter
                 <Info>
                   <ul>
-                    <li>hide posts if net investment (cost + zaps + boost - downzaps) is less than this</li>
-                    <li>set to zero or negative to see more content, including heavily downzapped posts</li>
+                    <li>hide posts if net investment (cost + tips + boost - downvotes) is less than this</li>
+                    <li>set to zero or negative to see more content, including heavily downvoted posts</li>
                   </ul>
                 </Info>
               </div>
@@ -420,7 +419,7 @@ export default function Settings ({ ssrData }) {
                 <Info>
                   <ul>
                     <li>collapse comments and rank at bottom if net investment is less than this</li>
-                    <li>set to zero or negative to see all comments normally, including heavily downzapped ones</li>
+                    <li>set to zero or negative to see all comments normally, including heavily downvoted ones</li>
                   </ul>
                 </Info>
               </div>
@@ -525,12 +524,12 @@ const ZapUndosField = () => {
         groupClassName='mb-0'
         label={
           <div className='d-flex align-items-center'>
-            zap undos
+            tip undos
             <Info>
               <ul>
-                <li>After every zap that exceeds or is equal to the threshold, the bolt will pulse</li>
-                <li>You can undo the zap if you click the bolt while it's pulsing</li>
-                <li>The bolt will pulse for {ZAP_UNDO_DELAY_MS / 1000} seconds</li>
+                <li>After every tip that exceeds or is equal to the threshold, the tip button will pulse</li>
+                <li>You can undo the tip if you click the tip button while it's pulsing</li>
+                <li>The tip button will pulse for {ZAP_UNDO_DELAY_MS / 1000} seconds</li>
               </ul>
             </Info>
           </div>
@@ -558,12 +557,12 @@ const TipRandomField = () => {
         groupClassName='mb-0'
         label={
           <div className='d-flex align-items-center'>
-            random zaps
+            random tips
             <Info>
               <ul>
-                <li>Set a minimum and maximum zap amount</li>
-                <li>Each time you zap something, a random amount of sats between your minimum and maximum will be zapped</li>
-                <li>If this setting is enabled, it will ignore your default zap amount</li>
+                <li>Set a minimum and maximum tip amount</li>
+                <li>Each time you tip something, a random amount of sats between your minimum and maximum will be tipped</li>
+                <li>If this setting is enabled, it will ignore your default tip amount</li>
               </ul>
             </Info>
           </div>
@@ -573,7 +572,7 @@ const TipRandomField = () => {
         <>
           <Input
             type='number'
-            label='minimum random zap'
+            label='minimum random tip'
             name='tipRandomMin'
             disabled={!tipRandomField.value}
             groupClassName='mb-1'
@@ -584,7 +583,7 @@ const TipRandomField = () => {
           />
           <Input
             type='number'
-            label='maximum random zap'
+            label='maximum random tip'
             name='tipRandomMax'
             disabled={!tipRandomField.value}
             required

@@ -78,7 +78,7 @@ function ItemEmbed ({ url, imgproxyUrls }) {
 function FwdUsers ({ forwards }) {
   return (
     <div className={styles.other}>
-      zaps forwarded to {' '}
+      tips forwarded to {' '}
       {forwards.map((fwd, index, arr) => (
         <span key={fwd.user.name}>
           <Link href={`/${fwd.user.name}`}>

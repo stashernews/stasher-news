@@ -74,10 +74,10 @@ function Reward ({ rank, type, sats, item }) {
   let category = type
   switch (type) {
     case 'TIP_POST':
-      category = 'in post zapping'
+      category = 'in post tipping'
       break
     case 'TIP_COMMENT':
-      category = 'in comment zapping'
+      category = 'in comment tipping'
       break
     case 'POST':
       category = 'among posts'

@@ -118,7 +118,7 @@ const defaultManifest = {
     }
   },
   description: 'moderating forums with money',
-  categories: ['news', 'bitcoin', 'lightning', 'zaps', 'community'],
+  categories: ['news', 'community', 'money'],
   screenshots: [
     {
       src: '/shot/narrow.png',
