@@ -7,7 +7,6 @@ import { useMe } from './me'
 import UpBolt from '@/svgs/bolt.svg'
 import { amountSchema } from '@/lib/validate'
 import { defaultTipIncludingRandom } from './upvote'
-import { ZAP_UNDO_DELAY_MS } from '@/lib/constants'
 import { ACT_MUTATION } from '@/fragments/payIn'
 import { actWaitFor, getPayIn } from '@/lib/pay-in'
 import { meAnonSats } from '@/lib/apollo'
@@ -56,7 +55,7 @@ const setItemMeAnonSats = ({ id, amount }) => {
   window.localStorage.setItem(storageKey, existingAmount + amount)
 }
 
-export default function ItemAct ({ onClose, item, act = 'TIP', step, children, abortSignal }) {
+export default function ItemAct ({ onClose, item, act = 'TIP', step, children }) {
   const inputRef = useRef(null)
   const { me } = useMe()
   const hasReadySendWallet = useHasSendWallet()
@@ -72,17 +71,6 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children, a
   const animate = useAnimation()
 
   const onSubmit = useCallback(async ({ amount }) => {
-    if (abortSignal && zapUndoTrigger({ me, amount })) {
-      onClose?.()
-      try {
-        await abortSignal.pause({ me, amount })
-      } catch (error) {
-        if (error instanceof ActCanceledError) {
-          return
-        }
-      }
-    }
-
     const onPaid = (cache, { data } = {}) => {
       animate()
       onClose?.()
@@ -115,7 +103,7 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children, a
       // failed — it's processed server-side and the bump (kept by withActBump) reconciles. don't toast.
       if (!isTransientNetworkError(e)) throw e
     }
-  }, [me, actor, client, hasReadySendWallet, act, item.id, item.path, onClose, abortSignal, animate, toaster])
+  }, [me, actor, client, hasReadySendWallet, act, item.id, item.path, onClose, animate, toaster])
 
   return (
     <Form
@@ -265,7 +253,7 @@ function updateAncestors (cache, { payerPrivates, payOutBolt11Public }) {
 
 // act bump: write an item's counters to the ROOT cache (survives navigation under
 // maxMerge), assuming p2p so credits are skipped — getActCachePhases.onMutationResult adds them if
-// the response turns out non-p2p. both the modal (item-act) and the bolt (use-zap) use this.
+// the response turns out non-p2p. used by this modal (via withActBump) and tip-modal (directly).
 export function bumpActCache (cache, result, me) {
   modifyActCache(cache, { payerPrivates: { result }, payOutBolt11Public: true }, me)
 }
@@ -279,7 +267,7 @@ export function revertActBump (cache, result, me, payOutBolt11Public = true) {
 // bump an item's counters at click time, run the act attempt, and revert the bump if the attempt
 // throws before a payIn exists (no cache phase reverts then). returns the attempt's result; a
 // returned (non-thrown) error is left for getActCachePhases.onPayError. used by the modal and the
-// notifications retry (the bolt bumps at click and reverts in its deferred fire, so it can't share).
+// notifications retry.
 export async function withActBump (cache, result, me, attempt) {
   bumpActCache(cache, result, me)
   try {
@@ -341,47 +329,4 @@ export function useAct ({ query = ACT_MUTATION, ...options } = {}) {
     }
   })
   return act
-}
-
-export class ActCanceledError extends Error {
-  constructor () {
-    super('act canceled')
-    this.name = 'ActCanceledError'
-  }
-}
-
-export class ZapUndoController extends AbortController {
-  constructor ({ onStart = () => {}, onDone = () => {} }) {
-    super()
-    this.signal.start = onStart
-    this.signal.done = onDone
-    this.signal.pause = async ({ me, amount }) => {
-      if (zapUndoTrigger({ me, amount })) {
-        await zapUndo(this.signal, amount)
-      }
-    }
-  }
-}
-
-export const zapUndoTrigger = ({ me, amount }) => {
-  if (!me) return false
-  const enabled = me.privates.zapUndos !== null
-  return enabled ? amount >= me.privates.zapUndos : false
-}
-
-export const zapUndo = async (signal, amount) => {
-  return await new Promise((resolve, reject) => {
-    signal.start?.(amount)
-    const abortHandler = () => {
-      reject(new ActCanceledError())
-      signal.done?.()
-      signal.removeEventListener('abort', abortHandler)
-    }
-    signal.addEventListener('abort', abortHandler)
-    setTimeout(() => {
-      resolve()
-      signal.done?.()
-      signal.removeEventListener('abort', abortHandler)
-    }, ZAP_UNDO_DELAY_MS)
-  })
 }
