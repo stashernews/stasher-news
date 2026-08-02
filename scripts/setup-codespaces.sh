@@ -12,7 +12,6 @@ echo "Setting up Codespaces environment variables..."
 declare -A env_vars=(
   ["NEXTAUTH_URL"]="https://${CODESPACE_NAME}-3000.app.github.dev/api/auth"
   ["NEXT_PUBLIC_MEDIA_URL"]="https://${CODESPACE_NAME}-4566.app.github.dev/uploads"
-  ["LNAUTH_URL"]="https://${CODESPACE_NAME}-3000.app.github.dev/api/lnauth"
   ["PUBLIC_URL"]="https://${CODESPACE_NAME}-3000.app.github.dev"
   ["NEXT_PUBLIC_URL"]="https://${CODESPACE_NAME}-3000.app.github.dev"
   ["NEXT_PUBLIC_IMGPROXY_URL"]="https://${CODESPACE_NAME}-3001.app.github.dev"
