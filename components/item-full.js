@@ -19,7 +19,7 @@ import Toc from './table-of-contents'
 import Link from 'next/link'
 import { RootProvider } from './root'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseEmbedUrl } from '@/lib/url'
-import { numWithUnits } from '@/lib/format'
+import { xmrFromSats } from '@/lib/format'
 import { useQuoteReply } from './use-quote-reply'
 import { UNKNOWN_LINK_REL, DEFAULT_POSTS_SATS_FILTER } from '@/lib/constants'
 import classNames from 'classnames'
@@ -123,12 +123,12 @@ function TopLevelItem ({ item, noReply, ...props }) {
             {item.bountyPaidTo?.length
               ? (
                 <div className='px-3 py-1 d-inline-block bg-grey-medium rounded text-success'>
-                  <Check className='fill-success' /> {numWithUnits(item.bounty, { abbreviate: false, format: true })} paid
+                  <Check className='fill-success' /> {xmrFromSats(item.bounty)} paid
                   {item.bountyPaidTo.length > 1 && <small className='fw-light'> {new Set(item.bountyPaidTo).size} times</small>}
                 </div>)
               : (
                 <div className='px-3 py-1 d-inline-block bg-grey-darkmode rounded text-light'>
-                  {numWithUnits(item.bounty, { abbreviate: false, format: true })} bounty
+                  {xmrFromSats(item.bounty)} bounty
                 </div>)}
           </div>}
       </article>

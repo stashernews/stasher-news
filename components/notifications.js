@@ -27,7 +27,7 @@ import { useData } from './use-data'
 import { nostrZapDetails } from '@/lib/nostr'
 import Text from '@/components/text'
 import NostrIcon from '@/svgs/nostr.svg'
-import { msatsToSats, numWithUnits } from '@/lib/format'
+import { msatsToSats, numWithUnits, xmrFromSats } from '@/lib/format'
 import BountyIcon from '@/svgs/bounty-bag.svg'
 import { LongCountdown } from './countdown'
 import { nextBillingWithGrace } from '@/lib/territory'
@@ -263,14 +263,14 @@ function EarnNotification ({ n }) {
       <HandCoin className='align-self-center fill-boost mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
       <div className='ms-2'>
         <NoteHeader color='boost' big>
-          you stacked {numWithUnits(n.earnedSats, { abbreviate: false })} in rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{time}</small>
+          you stacked {xmrFromSats(n.earnedSats)} in rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{time}</small>
         </NoteHeader>
         {n.sources &&
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
-            {n.sources.posts > 0 && <span>{numWithUnits(n.sources.posts, { abbreviate: false })} for top posts</span>}
-            {n.sources.comments > 0 && <span>{n.sources.posts > 0 && ' \\ '}{numWithUnits(n.sources.comments, { abbreviate: false })} for top comments</span>}
-            {n.sources.tipPosts > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0) && ' \\ '}{numWithUnits(n.sources.tipPosts, { abbreviate: false })} for zapping top posts early</span>}
-            {n.sources.tipComments > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0 || n.sources.tipPosts > 0) && ' \\ '}{numWithUnits(n.sources.tipComments, { abbreviate: false })} for zapping top comments early</span>}
+            {n.sources.posts > 0 && <span>{xmrFromSats(n.sources.posts)} for top posts</span>}
+            {n.sources.comments > 0 && <span>{n.sources.posts > 0 && ' \\ '}{xmrFromSats(n.sources.comments)} for top comments</span>}
+            {n.sources.tipPosts > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0) && ' \\ '}{xmrFromSats(n.sources.tipPosts)} for zapping top posts early</span>}
+            {n.sources.tipComments > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0 || n.sources.tipPosts > 0) && ' \\ '}{xmrFromSats(n.sources.tipComments)} for zapping top comments early</span>}
           </div>}
         <div style={{ lineHeight: '140%' }}>
           SN distributes the sats it earns to top stackers like you daily. The top stackers make the top posts and comments or zap the top posts and comments early and generously. View the rewards pool and make a donation <Link href='/rewards'>here</Link>.
@@ -287,12 +287,12 @@ function ReferralReward ({ n }) {
       <UserAdd className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
-          you stacked {numWithUnits(n.earnedSats, { abbreviate: false })} in referral rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{dayMonthYear(new Date(n.sortTime))}</small>
+          you stacked {xmrFromSats(n.earnedSats)} in referral rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{dayMonthYear(new Date(n.sortTime))}</small>
         </NoteHeader>
         {n.sources &&
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
-            {n.sources.forever > 0 && <span>{numWithUnits(n.sources.forever, { abbreviate: false })} for stackers joining because of you</span>}
-            {n.sources.oneDay > 0 && <span>{n.sources.forever > 0 && ' \\ '}{numWithUnits(n.sources.oneDay, { abbreviate: false })} for stackers referred to content by you today</span>}
+            {n.sources.forever > 0 && <span>{xmrFromSats(n.sources.forever)} for stackers joining because of you</span>}
+            {n.sources.oneDay > 0 && <span>{n.sources.forever > 0 && ' \\ '}{xmrFromSats(n.sources.oneDay)} for stackers referred to content by you today</span>}
           </div>}
         <div style={{ lineHeight: '140%' }}>
           SN gives referral rewards to stackers like you for referring the top stackers daily. You refer stackers when they visit your posts, comments, profile, territory, or if they visit SN through your referral links.
@@ -308,7 +308,7 @@ function RevenueNotification ({ n }) {
       <BountyIcon className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
-          you stacked {numWithUnits(n.earnedSats, { abbreviate: false })} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
+          you stacked {xmrFromSats(n.earnedSats)} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
         </NoteHeader>
         <div style={{ lineHeight: '140%' }}>
           As the founder of territory <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 70% of the post, comment, boost, and zap fees. The other 30% go to <Link href='/rewards'>rewards</Link>.
@@ -361,7 +361,7 @@ function NostrZap ({ n }) {
 
   return (
     <div className='fw-bold text-nostr'>
-      <NostrIcon width={24} height={24} className='fill-nostr me-1' />{numWithUnits(n.earnedSats)} zap from
+      <NostrIcon width={24} height={24} className='fill-nostr me-1' />{xmrFromSats(n.earnedSats)} zap from
       {// eslint-disable-next-line
         <Link className='mx-1 text-reset text-underline' target='_blank' href={`https://njump.me/${npub}`} rel={UNKNOWN_LINK_REL}>
           {npub.slice(0, 10)}...
@@ -407,7 +407,7 @@ function PayInProxyPayment ({ n }) {
 
   return (
     <div className='fw-bold text-info'>
-      <Check className='fill-info me-1' />{numWithUnits(sats, { abbreviate: false, unitSingular: 'sat was', unitPlural: 'sats were' })} {actionString}
+      <Check className='fill-info me-1' />{xmrFromSats(sats)} {actionString}
       <small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
       {n.payIn.payerPrivates.payInBolt11.comment &&
         <small className='d-block ms-4 ps-1 mt-1 mb-1 text-muted fw-normal'>
@@ -543,7 +543,7 @@ function PayInFailed ({ n }) {
     <div>
       <NoteHeader color={colorClass}>
         {actionString}
-        <span className='ms-1 text-muted fw-light'> {numWithUnits(msatsToSats(payIn.mcost))}</span>
+        <span className='ms-1 text-muted fw-light'> {xmrFromSats(msatsToSats(payIn.mcost))}</span>
         <span className={['FAILED'].includes(payIn.payInState) && !isAutoRetryEligiblePayIn(payIn) ? 'visible' : 'invisible'}>
           <Button
             size='sm' variant={classNames('outline-warning ms-2 border-1 rounded py-0', disableRetry && 'pulse')}
@@ -578,7 +578,7 @@ function PayInWithdrawal ({ n }) {
   return (
     <div className='fw-bold text-info'>
       <Check className='fill-info me-1' />
-      {numWithUnits(amount, { abbreviate: false, unitSingular: 'sat was ', unitPlural: 'sats were ' })}
+      {xmrFromSats(amount)}
       {actionString}
       <small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
       {n.payIn.payInType === 'AUTO_WITHDRAWAL' && <Badge className={styles.badge} bg={null}>autowithdraw</Badge>}
@@ -617,7 +617,7 @@ function stackedText (item, total) {
   const credits = item.sats > 0 ? Math.floor(total * item.credits / item.sats) : total
   const sats = total - credits
   if (sats > 0) {
-    text += `${numWithUnits(sats, { abbreviate: false })}`
+    text += `${xmrFromSats(sats)}`
     if (credits > 0) text += ' and '
   }
   if (credits > 0) {
@@ -658,7 +658,7 @@ function BountyPayment ({ n }) {
   return (
     <>
       <NoteHeader color='success'>
-        you received a {numWithUnits(n.earnedSats, { abbreviate: false })} bounty payment
+        you received a {xmrFromSats(n.earnedSats)} bounty payment
       </NoteHeader>
       <NoteItem item={n.item} />
     </>

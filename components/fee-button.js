@@ -6,7 +6,7 @@ import styles from './fee-button.module.css'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
 import { ANON_FEE_MULTIPLIER, FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
-import { numWithUnits } from '@/lib/format'
+import { xmrFromSats } from '@/lib/format'
 import { useMe } from './me'
 import AnonIcon from '@/svgs/spy-fill.svg'
 import { useShowModal } from './modal'
@@ -212,13 +212,13 @@ export default function FeeButton ({ ChildButton = SubmitButton, variant, text, 
   const feeText = free
     ? 'free'
     : total > 1
-      ? numWithUnits(total, { abbreviate: false, format: true })
+      ? xmrFromSats(total)
       : undefined
   disabled ||= ctxDisabled
 
   return (
     <div className={styles.feeButton}>
-      <ActionTooltip overlayText={!free && total === 1 ? '1 sat' : feeText}>
+      <ActionTooltip overlayText={!free && total === 1 ? xmrFromSats(1) : feeText}>
         <ChildButton
           variant={variant} disabled={disabled}
           appendText={feeText}
@@ -246,7 +246,7 @@ function Receipt ({ lines, total }) {
       </tbody>
       <tfoot>
         <tr>
-          <td className='fw-bold'>{numWithUnits(total, { abbreviate: false, format: true })}</td>
+          <td className='fw-bold'>{xmrFromSats(total)}</td>
           <td align='right' className='font-weight-light'>total fee</td>
         </tr>
       </tfoot>

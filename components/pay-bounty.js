@@ -2,7 +2,7 @@ import React from 'react'
 import styles from './pay-bounty.module.css'
 import ActionTooltip from './action-tooltip'
 import { useMe } from './me'
-import { numWithUnits, satsToMsats } from '@/lib/format'
+import { satsToMsats, xmrFromSats } from '@/lib/format'
 import { useShowModal } from './modal'
 import { useRoot } from './root'
 import { useAnimation } from '@/components/animation'
@@ -117,10 +117,10 @@ export default function PayBounty ({ children, item }) {
               Pay this bounty to {item.user.name}?
             </div>
             <div className='text-center text-muted mt-2'>
-              {numWithUnits(bounty)} + {numWithUnits(proxyFee)} proxy fee
+              {xmrFromSats(bounty)} + {xmrFromSats(proxyFee)} proxy fee
             </div>
             <Form className='text-center' onSubmit={() => handlePayBounty(onClose)} initial={{ id: item.id }}>
-              <SubmitButton className='mt-4' variant='primary' submittingText='paying...' appendText={numWithUnits(totalCost)}>
+              <SubmitButton className='mt-4' variant='primary' submittingText='paying...' appendText={xmrFromSats(totalCost)}>
                 pay
               </SubmitButton>
             </Form>

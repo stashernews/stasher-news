@@ -1,7 +1,7 @@
 import { NextSeo } from 'next-seo'
 import { useRouter } from 'next/router'
 import removeMd from 'remove-markdown'
-import { numWithUnits } from '@/lib/format'
+import { numWithUnits, xmrFromSats } from '@/lib/format'
 import { useBranding } from './territory-branding'
 
 // Resolves the brand/site-name/tagline triple for SEO meta:
@@ -92,7 +92,7 @@ export default function Seo ({ sub, item, user }) {
         desc = desc.replace(/\s+/g, ' ')
       }
     } else {
-      desc = `@${item.user.name} stacked ${numWithUnits(item.sats)} ${item.url ? `posting ${item.url}` : 'with this discussion'}`
+      desc = `@${item.user.name} stacked ${xmrFromSats(item.sats)} ${item.url ? `posting ${item.url}` : 'with this discussion'}`
     }
     if (item.ncomments) {
       desc += ` [${numWithUnits(item.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })}`

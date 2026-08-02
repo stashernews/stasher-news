@@ -1,4 +1,4 @@
-import { msatsToSatsDecimal, numWithUnits } from '@/lib/format'
+import { msatsToSats, msatsToSatsDecimal, numWithUnits, xmrFromSats } from '@/lib/format'
 import { payTypeShortName } from '@/lib/pay-in'
 import { ResponsiveSankey } from '@nivo/sankey'
 import { RotatingSankeyLabels } from './label'
@@ -46,7 +46,7 @@ function assetFormatted (msats, type) {
   if (type === 'CREDITS') {
     return numWithUnits(msatsToSatsDecimal(msats), { unitSingular: 'CC', unitPlural: 'CCs', abbreviate: false })
   }
-  return numWithUnits(msatsToSatsDecimal(msats), { unitSingular: 'sat', unitPlural: 'sats', abbreviate: false })
+  return xmrFromSats(msatsToSats(msats))
 }
 
 function Tooltip ({ node, link }) {

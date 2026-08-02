@@ -3,7 +3,7 @@ import Comment, { CommentSkeleton } from './comment'
 import styles from './header.module.css'
 import Nav from 'react-bootstrap/Nav'
 import Navbar from 'react-bootstrap/Navbar'
-import { numWithUnits } from '@/lib/format'
+import { xmrFromSats } from '@/lib/format'
 import { defaultCommentSort } from '@/lib/item'
 import { useRouter } from 'next/router'
 import MoreFooter from './more-footer'
@@ -27,8 +27,8 @@ export function CommentsHeader ({ handleSort, pinned, bio, parentCreatedAt, comm
         className={styles.navbarNav}
         activeKey={sort}
       >
-        <Nav.Item className='text-muted' title={`${numWithUnits(commentSats + commentCost + commentBoost)} (${commentSats} stacked \\ ${commentCost} cost \\ ${commentBoost} boost)`}>
-          {numWithUnits(commentSats + commentCost + commentBoost)}
+        <Nav.Item className='text-muted' title={`${xmrFromSats(commentSats + commentCost + commentBoost)} (${commentSats} stacked \\ ${commentCost} cost \\ ${commentBoost} boost)`}>
+          {xmrFromSats(commentSats + commentCost + commentBoost)}
         </Nav.Item>
         <div className='ms-auto d-flex'>
           <Nav.Item>

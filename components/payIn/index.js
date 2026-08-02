@@ -1,4 +1,4 @@
-import { msatsToSats, numWithUnits } from '@/lib/format'
+import { msatsToSats, xmrFromSats } from '@/lib/format'
 import { FAILED_PAY_IN_STATES, getPayInFailurePresentation, describePayInType } from '@/lib/pay-in'
 import Qr from '../qr'
 import useWatchPayIn from './hooks/use-watch-pay-in'
@@ -47,7 +47,7 @@ export default function PayIn ({ id, ssrData }) {
           <div style={{ maxWidth: '300px' }}>
             <Qr
               value={payerInvoice?.invoice}
-              description={numWithUnits(msatsToSats(payerInvoice?.msatsRequested), { abbreviate: false })}
+              description={xmrFromSats(msatsToSats(payerInvoice?.msatsRequested))}
             />
           </div>
         </div>

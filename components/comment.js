@@ -13,7 +13,7 @@ import { USER_ID, COMMENT_DEPTH_LIMIT, UNKNOWN_LINK_REL, DEFAULT_COMMENTS_SATS_F
 import PayBounty from './pay-bounty'
 import BountyIcon from '@/svgs/bounty-bag.svg'
 import ActionTooltip from './action-tooltip'
-import { numWithUnits } from '@/lib/format'
+import { xmrFromSats } from '@/lib/format'
 import Share from './share'
 import ItemInfo from './item-info'
 import Badge from 'react-bootstrap/Badge'
@@ -257,7 +257,7 @@ export default function Comment ({
                     <>
                       {includeParent && <Parent item={item} rootText={rootText} />}
                       {bountyPaid &&
-                        <ActionTooltip notForm overlayText={`${numWithUnits(root.bounty)} paid`}>
+                        <ActionTooltip notForm overlayText={`${xmrFromSats(root.bounty)} paid`}>
                           <BountyIcon className={`${styles.bountyIcon} ${'fill-success vertical-align-middle'}`} height={16} width={16} />
                         </ActionTooltip>}
                     </>
