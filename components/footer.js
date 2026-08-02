@@ -1,17 +1,13 @@
 import Container from 'react-bootstrap/Container'
 import OverlayTrigger from 'react-bootstrap/OverlayTrigger'
 import Popover from 'react-bootstrap/Popover'
-import { CopyInput } from './form'
 import styles from './footer.module.css'
-import Texas from '@/svgs/texas.svg'
 import Github from '@/svgs/github-fill.svg'
 import Link from 'next/link'
 import Sun from '@/svgs/sun-fill.svg'
 import Moon from '@/svgs/moon-fill.svg'
 import No from '@/svgs/no.svg'
 import Bolt from '@/svgs/bolt.svg'
-import Amboss from '@/svgs/amboss.svg'
-import Mempool from '@/svgs/bimi.svg'
 import Live from '@/svgs/chat-unread-fill.svg'
 import NoLive from '@/svgs/chat-off-fill.svg'
 import Rewards from './footer-rewards'
@@ -62,20 +58,6 @@ const SocialsPopover = (
           target='_blank' rel='noreferrer'
         >
           nostr
-        </a>
-        <span className='mx-2 text-muted'> \ </span>
-        <a
-          href='https://twitter.com/stacker_news' className='nav-link p-0 d-inline-flex'
-          target='_blank' rel='noreferrer'
-        >
-          twitter
-        </a>
-        <span className='mx-2 text-muted'> \ </span>
-        <a
-          href='https://www.youtube.com/@stackernews' className='nav-link p-0 d-inline-flex'
-          target='_blank' rel='noreferrer'
-        >
-          youtube
         </a>
       </div>
       <div className='d-flex justify-content-center'>
@@ -213,52 +195,10 @@ export default function Footer ({ links = true }) {
               </OverlayTrigger>
             </div>
           </>}
-        {process.env.NEXT_PUBLIC_LND_CONNECT_ADDRESS &&
-          <div
-            className={`text-small mx-auto mb-2 ${styles.connect}`}
-          >
-            <small className='nav-item text-muted me-2'>connect:</small>
-            <CopyInput
-              size='sm'
-              groupClassName='mb-0 w-100'
-              readOnly
-              noForm
-              placeholder={process.env.NEXT_PUBLIC_LND_CONNECT_ADDRESS}
-            />
-            <a
-              href='https://amboss.space/node/03cc1d0932bb99b0697f5b5e5961b83ab7fd66f1efc4c9f5c7bad66c1bcbe78f02'
-              target='_blank' rel='noreferrer'
-            >
-              <Amboss className='ms-2 theme' width={20} height={20} />
-            </a>
-            <a
-              href='https://mempool.space/lightning/node/03cc1d0932bb99b0697f5b5e5961b83ab7fd66f1efc4c9f5c7bad66c1bcbe78f02'
-              target='_blank' rel='noreferrer'
-            >
-              <Mempool className='ms-2' width={20} height={20} />
-            </a>
-          </div>}
         <small className='d-flex justify-content-center align-items-center text-muted flex-wrap'>
           <a className={`${styles.contrastLink} d-flex align-items-center`} href='https://github.com/stackernews/stacker.news' target='_blank' rel='noreferrer'>
-            FOSS <Github width={20} height={20} className='mx-1' />
+            upstream <Github width={20} height={20} className='mx-1' />
           </a>
-          made in Austin<Texas className='ms-1' width={20} height={20} />
-          <span className='ms-1'>by</span>
-          <span>
-            <Link href='/k00b' className='ms-1'>
-              @k00b
-            </Link>
-            <Link href='/sox' className='ms-1'>
-              @sox
-            </Link>
-            <Link href='/Scoresby' className='ms-1'>
-              @Scoresby
-            </Link>
-            <span className='ms-1'>&</span>
-            <Link href='https://github.com/stackernews/stacker.news/graphs/contributors' className='ms-1' target='_blank' rel='noreferrer'>
-              more
-            </Link>
-          </span>
         </small>
         {version &&
           <div className={styles.version}>

@@ -106,7 +106,7 @@ export function PostForm ({ type, subs, children }) {
           </Alert>}
         {subs.length > 0 && (
           <SubMultiSelect
-            placeholder='pick territories'
+            placeholder='pick turfs'
             className='d-flex'
             noForm
             size='medium'
@@ -170,7 +170,7 @@ export default function Post ({ subs }) {
       <PostForm type={type} subs={subs}>
         <SubMultiSelect
           subs={subNames(subs)}
-          placeholder='pick territories'
+          placeholder='pick turfs'
           filterSubs={s => s.postTypes?.includes(type.toUpperCase())}
           className='d-flex'
           size='medium'

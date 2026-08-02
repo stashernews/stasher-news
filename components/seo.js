@@ -17,7 +17,7 @@ function useSiteSeo () {
   // territory branding doesn't carry a twitter handle, so suppress @site on custom domains
   const twitter = branding
     ? { cardType: 'summary_large_image' }
-    : { site: '@stacker_news', cardType: 'summary_large_image' }
+    : { site: 'stashernews', cardType: 'summary_large_image' }
 
   return { branding, brand, siteName, tagline, twitter }
 }

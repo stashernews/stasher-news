@@ -61,7 +61,7 @@ export default function UserHeader ({ user }) {
               {numWithUnits(user.nterritories, {
                 abbreviate: false,
                 unitSingular: 'territory',
-                unitPlural: 'territories'
+                unitPlural: 'turfs'
               })}
             </Nav.Link>
           </Nav.Item>
