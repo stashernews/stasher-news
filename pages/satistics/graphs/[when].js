@@ -61,7 +61,7 @@ function UserGrowthTotals ({ totals }) {
   return (
     <Row className='my-4'>
       <Col xs={6} md={4} className='text-center mb-3'>
-        <div className='text-muted small'>total stacked</div>
+        <div className='text-muted small'>total stashed</div>
         <div className='fw-bold fs-5'>{xmrFromSats(Math.floor(totals.stacking))}</div>
       </Col>
       <Col xs={6} md={4} className='text-center mb-3'>
@@ -97,7 +97,7 @@ export default function Growth ({ ssrData }) {
       <UserGrowthTotals totals={growthTotals} />
       <Row>
         <Col className='mt-3'>
-          <div className='text-center text-muted fw-bold'>sats stacked</div>
+          <div className='text-center text-muted fw-bold'>XMR stashed</div>
           <WhenAreaChart data={stackingGrowth} />
         </Col>
         <Col className='mt-3'>

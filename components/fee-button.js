@@ -200,7 +200,7 @@ function FreebieDialog ({ freeCommentsLeft }) {
         {freeCommentsLeft !== null && (
           <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left this month.</li>
         )}
-        <li>To get fully visible right away, fund your account with a few sats or earn some on Stacker News.</li>
+        <li>To get fully visible right away, fund your account with a few sats or earn some on Stasher News.</li>
       </ul>
     </>
   )

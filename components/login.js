@@ -62,7 +62,7 @@ export function authErrorMessage (error, signin) {
       <>
         {message}
         <br />
-        If you are new to Stacker News, please <Link className='fw-bold' href='/signup'>sign up</Link> first.
+        If you are new to Stasher News, please <Link className='fw-bold' href='/signup'>sign up</Link> first.
       </>
     )
   }

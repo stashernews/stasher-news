@@ -130,7 +130,7 @@ export default function ItemJob ({ item, toc, rank, children, ...props }) {
         <div className={styles.children} style={{ marginLeft: 'calc(42px + .8rem)' }}>
           <div className='mb-3 d-flex'>
             <Button
-              target='_blank' href={isEmail ? `mailto:${item.url}?subject=${encodeURIComponent(item.title)} via Stacker News` : item.url}
+              target='_blank' href={isEmail ? `mailto:${item.url}?subject=${encodeURIComponent(item.title)} via Stasher News` : item.url}
             >
               apply {isEmail && <EmailIcon className='ms-1' />}
             </Button>
