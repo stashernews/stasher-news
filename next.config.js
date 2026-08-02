@@ -206,8 +206,8 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
   async redirects () {
     return [
       {
-        source: '/statistics',
-        destination: '/satistics',
+        source: '/satistics',
+        destination: '/statistics',
         permanent: true
       },
       {
@@ -232,7 +232,12 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
       },
       {
         source: '/~:sub/top/stackers/:when*',
-        destination: '/top/stackers/:when*',
+        destination: '/top/stashers/:when*',
+        permanent: true
+      },
+      {
+        source: '/top/stackers/:when*',
+        destination: '/top/stashers/:when*',
         permanent: true
       },
       {

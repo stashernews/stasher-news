@@ -97,13 +97,13 @@ export default function SubSelect ({ prependSubs, sub, onChange, size, appendSub
           }
         } else {
           // we're currently on the home sub
-          // if in /top/cowboys, /top/territories, or /top/stackers
+          // if in /top/cowboys, /top/territories, or /top/stashers
           // and a territory is selected, go to /~sub/top/posts/day
           if (router.pathname.startsWith('/~/top/cowboys')) {
             router.push(sub ? `/~${sub}/top/posts/day` : '/top/cowboys')
             return
-          } else if (router.pathname.startsWith('/~/top/stackers')) {
-            router.push(sub ? `/~${sub}/top/posts/day` : 'top/stackers/day')
+          } else if (router.pathname.startsWith('/~/top/stashers')) {
+            router.push(sub ? `/~${sub}/top/posts/day` : 'top/stashers/day')
             return
           } else if (router.pathname.startsWith('/~/top/territories')) {
             router.push(sub ? `/~${sub}/top/posts/day` : '/top/territories/day')
@@ -198,13 +198,13 @@ export function SubMultiSelect ({ prependSubs, subs, onChange, size, appendSubs,
           }
         } else {
           // we're currently on the home sub
-          // if in /top/cowboys, /top/territories, or /top/stackers
+          // if in /top/cowboys, /top/territories, or /top/stashers
           // and a territory is selected, go to /~sub/top/posts/day
           if (router.pathname.startsWith('/~/top/cowboys')) {
             router.push(sub ? `/~${sub}/top/posts/day` : '/top/cowboys')
             return
-          } else if (router.pathname.startsWith('/~/top/stackers')) {
-            router.push(sub ? `/~${sub}/top/posts/day` : 'top/stackers/day')
+          } else if (router.pathname.startsWith('/~/top/stashers')) {
+            router.push(sub ? `/~${sub}/top/posts/day` : 'top/stashers/day')
             return
           } else if (router.pathname.startsWith('/~/top/territories')) {
             router.push(sub ? `/~${sub}/top/posts/day` : '/top/territories/day')

@@ -36,10 +36,10 @@ export default function Search ({ sub }) {
 
       if (nextValues.what === 'stackers') {
         await router.push({
-          pathname: '/stackers/search',
+          pathname: '/stashers/search',
           query: { q: query, what: 'stackers' }
         }, {
-          pathname: '/stackers/search',
+          pathname: '/stashers/search',
           query: { q: query }
         })
         return
@@ -59,7 +59,7 @@ export default function Search ({ sub }) {
   }
 
   const filter = sub !== 'jobs'
-  const what = router.pathname.startsWith('/stackers') ? 'stackers' : queryWhat || 'all'
+  const what = router.pathname.startsWith('/stashers') ? 'stackers' : queryWhat || 'all'
   const sort = querySort || 'relevance'
   const when = queryWhen || 'forever'
   const whatItemOptions = useMemo(() => (['all', 'posts', 'comments', me ? 'bookmarks' : undefined, 'stackers'].filter(item => !!item)), [me])
