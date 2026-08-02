@@ -43,9 +43,9 @@ export default function Boost ({ item, className, ...props }) {
 export function BoostHelp () {
   return (
     <ol>
-      <li>Boost is <strong>exactly</strong> like a zap from other stackers: it ranks the item higher based on the amount</li>
+      <li>Boost is <strong>exactly</strong> like a tip from other stashers: it ranks the item higher based on the amount</li>
       <li>100% of boost goes to the territory founder and top stackers as rewards</li>
-      <li>Boosted items can be downzapped to reduce their rank</li>
+      <li>Boosted items can be downvoted to reduce their rank</li>
     </ol>
   )
 }

@@ -142,7 +142,7 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children, a
       </div>
       <div className='d-flex mt-3'>
         <SubmitButton variant={act === 'DONT_LIKE_THIS' ? 'danger' : 'success'} className='ms-auto mt-1 px-4' value={act}>
-          {act === 'DONT_LIKE_THIS' ? 'downzap' : act === 'BOOST' ? 'boost' : 'zap'}
+          {act === 'DONT_LIKE_THIS' ? 'downvote' : act === 'BOOST' ? 'boost' : 'tip'}
         </SubmitButton>
       </div>
       {children}

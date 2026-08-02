@@ -269,11 +269,11 @@ function EarnNotification ({ n }) {
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
             {n.sources.posts > 0 && <span>{xmrFromSats(n.sources.posts)} for top posts</span>}
             {n.sources.comments > 0 && <span>{n.sources.posts > 0 && ' \\ '}{xmrFromSats(n.sources.comments)} for top comments</span>}
-            {n.sources.tipPosts > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0) && ' \\ '}{xmrFromSats(n.sources.tipPosts)} for zapping top posts early</span>}
-            {n.sources.tipComments > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0 || n.sources.tipPosts > 0) && ' \\ '}{xmrFromSats(n.sources.tipComments)} for zapping top comments early</span>}
+            {n.sources.tipPosts > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0) && ' \\ '}{xmrFromSats(n.sources.tipPosts)} for tipping top posts early</span>}
+            {n.sources.tipComments > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0 || n.sources.tipPosts > 0) && ' \\ '}{xmrFromSats(n.sources.tipComments)} for tipping top comments early</span>}
           </div>}
         <div style={{ lineHeight: '140%' }}>
-          SN distributes the sats it earns to top stackers like you daily. The top stackers make the top posts and comments or zap the top posts and comments early and generously. View the rewards pool and make a donation <Link href='/rewards'>here</Link>.
+          SN distributes the XMR it earns to top stashers like you daily. The top stashers make the top posts and comments or tip the top posts and comments early and generously. View the rewards pool and make a donation <Link href='/rewards'>here</Link>.
         </div>
         <small className='text-muted ms-1 pb-1 fw-normal'>click for details</small>
       </div>
@@ -311,7 +311,7 @@ function RevenueNotification ({ n }) {
           you stacked {xmrFromSats(n.earnedSats)} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
         </NoteHeader>
         <div style={{ lineHeight: '140%' }}>
-          As the founder of territory <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 70% of the post, comment, boost, and zap fees. The other 30% go to <Link href='/rewards'>rewards</Link>.
+          As the founder of territory <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 70% of the post, comment, boost, and tip fees. The other 30% go to <Link href='/rewards'>rewards</Link>.
         </div>
       </div>
     </div>
@@ -361,7 +361,7 @@ function NostrZap ({ n }) {
 
   return (
     <div className='fw-bold text-nostr'>
-      <NostrIcon width={24} height={24} className='fill-nostr me-1' />{xmrFromSats(n.earnedSats)} zap from
+      <NostrIcon width={24} height={24} className='fill-nostr me-1' />{xmrFromSats(n.earnedSats)} tip from
       {// eslint-disable-next-line
         <Link className='mx-1 text-reset text-underline' target='_blank' href={`https://njump.me/${npub}`} rel={UNKNOWN_LINK_REL}>
           {npub.slice(0, 10)}...
@@ -514,9 +514,9 @@ function PayInFailed ({ n }) {
       actionString = `bounty payment on ${itemType} `
     } else {
       if (payIn.payInType === 'ZAP') {
-        actionString = 'zap'
+        actionString = 'tip'
       } else if (payIn.payInType === 'DOWN_ZAP') {
-        actionString = 'downzap'
+        actionString = 'downvote'
       } else if (payIn.payInType === 'BOOST') {
         actionString = 'boost'
       }
@@ -713,7 +713,7 @@ function JobChanged ({ n }) {
         {n.item.status === 'ACTIVE'
           ? 'your job is active again'
           : (n.item.status === 'NOSATS'
-              ? 'your job promotion ran out of sats'
+              ? 'your job promotion ran out of funds'
               : 'your job has been stopped')}
       </NoteHeader>
       <ItemJob item={n.item} />
