@@ -24,7 +24,6 @@ import { DownZap } from './dont-link-this'
 import { commentSubTreeRootId } from '@/lib/item'
 import Pin from '@/svgs/pushpin-fill.svg'
 import LinkToContext from './link-to-context'
-import Boost from './boost-button'
 import { gql } from '@apollo/client'
 import { useApolloClient } from '@apollo/client/react'
 import classNames from 'classnames'
@@ -228,7 +227,7 @@ export default function Comment ({
         {pin
           ? <Pin width={22} height={22} className={styles.pin} />
           : item.mine
-            ? <Boost item={item} className={styles.upvote} />
+            ? null
             : item.meDontLikeSats > item.meSats
               ? <DownZap width={24} height={24} className={styles.dontLike} item={item} />
               : <UpVote item={item} className={styles.upvote} collapsed={collapse === 'yep'} />}

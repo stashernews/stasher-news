@@ -22,7 +22,6 @@ import removeMd from 'remove-markdown'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseInternalLinks } from '@/lib/url'
 import ItemPopover from './item-popover'
 import { useMe } from './me'
-import Boost from './boost-button'
 import { SearchText } from './text'
 
 function onItemClick (e, router, item) {
@@ -106,7 +105,7 @@ export default function Item ({
         {item.position && (pinnable || !item.subNames)
           ? <Pin width={24} height={24} className={styles.pin} />
           : item.mine || item.meForward
-            ? <Boost item={item} className={classNames(styles.upvote, item.bio && 'invisible')} />
+            ? null
             : item.meDontLikeSats > item.meSats
               ? <DownZap width={24} height={24} className={styles.dontLike} item={item} />
               : <UpVote item={item} className={styles.upvote} />}
