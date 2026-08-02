@@ -129,9 +129,24 @@ function xmrToPiconerosSafe (amount) {
   try { return xmrToPiconeros(amount) } catch { return 0n }
 }
 
+function tipStatusCopy (state) {
+  switch (state) {
+    case 'EXPIRED':
+      return 'this tip expired before it was detected — try again'
+    case 'REORGED':
+      return 'the payment was detected then reorganized — try again'
+    case 'CONFIRMED':
+      return 'status: CONFIRMED'
+    default: {
+      // DETECTED bumps + closes via onDetected; PENDING/null keeps the waiting copy
+      const label = state ?? 'PENDING'
+      return `status: ${label} — waiting for your payment (usually < 2 min)`
+    }
+  }
+}
+
 function TipPaymentView ({ uri, paymentId, amount, onDetected }) {
   const { state } = useWatchTip({ paymentId, onDetected })
-  const label = state ?? 'PENDING'
   return (
     <div className='d-flex flex-column align-items-center'>
       <h6>Pay this tip</h6>
@@ -143,7 +158,7 @@ function TipPaymentView ({ uri, paymentId, amount, onDetected }) {
         <a href={uri} className='fw-bold text-decoration-underline'>Open in Cake Wallet</a>
       </div>
       <p className='text-muted text-center mt-2'>
-        <small>status: {label} — waiting for your payment (usually &lt; 2 min)</small>
+        <small>{tipStatusCopy(state)}</small>
       </p>
     </div>
   )

@@ -1,5 +1,20 @@
 import { createHmac } from 'node:crypto'
 
+const DEFAULT_PID_KEY = 'stealthnews-dev-pid-key'
+
+// Resolve the HMAC key used to mint payment-Id capability tokens. Fail-closed on
+// mainnet when the weak committed dev-default is still in use: tipStatus exposes
+// paymentId as an UNAUTHENTICATED capability token, and with the default key the
+// (public, sequential) postId + Date.now() nonce become brute-forceable. Non-
+// mainnet keeps the dev default so local/stagenet stacks boot without config.
+function resolveRewardsPidKey () {
+  const key = process.env.REWARDS_PID_KEY || DEFAULT_PID_KEY
+  if (process.env.MONERO_NETWORK === 'mainnet' && key === DEFAULT_PID_KEY) {
+    throw new Error('REWARDS_PID_KEY must be set to a non-default value on mainnet')
+  }
+  return key
+}
+
 // Deterministic payment-ID generator for tip attribution (spec §4.1).
 //
 // Each tip gets a unique 8-byte (16 hex char) payment ID derived from
@@ -9,7 +24,7 @@ import { createHmac } from 'node:crypto'
 // Mirrors the downvote payment-ID scheme (spec §2.5) for consistency.
 
 export function generateTipPaymentId (postId, nonce) {
-  const key = process.env.REWARDS_PID_KEY || 'stealthnews-dev-pid-key'
+  const key = resolveRewardsPidKey()
   const hmac = createHmac('sha256', key)
   hmac.update(`tip:${postId}:${nonce}`)
   return hmac.digest('hex').slice(0, 16)
@@ -22,7 +37,7 @@ export function generateTipPaymentId (postId, nonce) {
 // The "dv:" prefix keeps downvote IDs disjoint from tip IDs ("tip:") so the
 // moneroIndexer (tips) and penaltyIndexer (downvotes) never collide.
 export function generateDownvotePaymentId (postId, nonce) {
-  const key = process.env.REWARDS_PID_KEY || 'stealthnews-dev-pid-key'
+  const key = resolveRewardsPidKey()
   const hmac = createHmac('sha256', key)
   hmac.update(`dv:${postId}:${nonce}`)
   return hmac.digest('hex').slice(0, 16)

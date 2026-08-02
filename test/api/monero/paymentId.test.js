@@ -44,3 +44,40 @@ test('generateDownvotePaymentId differs from generateTipPaymentId for the same (
   const tip = generateTipPaymentId(42, 1)
   expect(dv).not.toBe(tip)
 })
+
+describe('mainnet fail-closed on weak default REWARDS_PID_KEY', () => {
+  const origKey = process.env.REWARDS_PID_KEY
+  const origNet = process.env.MONERO_NETWORK
+
+  afterEach(() => {
+    if (origKey === undefined) delete process.env.REWARDS_PID_KEY
+    else process.env.REWARDS_PID_KEY = origKey
+    if (origNet === undefined) delete process.env.MONERO_NETWORK
+    else process.env.MONERO_NETWORK = origNet
+  })
+
+  test('mainnet + default key throws for generateTipPaymentId', () => {
+    delete process.env.REWARDS_PID_KEY
+    process.env.MONERO_NETWORK = 'mainnet'
+    expect(() => generateTipPaymentId(42, 1)).toThrow()
+  })
+
+  test('mainnet + default key throws for generateDownvotePaymentId (shared chokepoint)', () => {
+    delete process.env.REWARDS_PID_KEY
+    process.env.MONERO_NETWORK = 'mainnet'
+    expect(() => generateDownvotePaymentId(42, 1)).toThrow()
+  })
+
+  test('stagenet + default key does NOT throw', () => {
+    delete process.env.REWARDS_PID_KEY
+    process.env.MONERO_NETWORK = 'stagenet'
+    expect(generateTipPaymentId(42, 1)).toMatch(/^[0-9a-f]{16}$/)
+  })
+
+  test('mainnet + a real (non-default) key does NOT throw', () => {
+    process.env.REWARDS_PID_KEY = 'some-long-random-production-secret-key'
+    process.env.MONERO_NETWORK = 'mainnet'
+    expect(generateTipPaymentId(42, 1)).toMatch(/^[0-9a-f]{16}$/)
+    expect(generateDownvotePaymentId(42, 1)).toMatch(/^[0-9a-f]{16}$/)
+  })
+})
