@@ -220,11 +220,13 @@ export async function onPaid (tx, payInId) {
   // `retrydelay` period, and thus would make it possible for a parent to be
   // consistently processed after a child, making this fragile; we have to maintain
   // item creation order for this.
-  await tx.$executeRaw`INSERT INTO pgboss.job (name, data, startafter, priority, retrylimit, retrydelay, retrybackoff)
-    VALUES ('timestampItem', jsonb_build_object('id', ${item.id}::INTEGER), now() + interval '10 minutes', -2, 12, 600, false)`
+  // pg-boss v9 dropped the DB-side default on pgboss.job.id (uuids are now minted
+  // by the JS client), so these raw INSERTs must supply it via gen_random_uuid.
+  await tx.$executeRaw`INSERT INTO pgboss.job (id, name, data, startafter, priority, retrylimit, retrydelay, retrybackoff)
+    VALUES (gen_random_uuid(), 'timestampItem', jsonb_build_object('id', ${item.id}::INTEGER), now() + interval '10 minutes', -2, 12, 600, false)`
   await tx.$executeRaw`
-    INSERT INTO pgboss.job (name, data, retrylimit, retrybackoff, startafter)
-    VALUES ('imgproxy', jsonb_build_object('id', ${item.id}::INTEGER), 21, true, now() + interval '5 seconds')`
+    INSERT INTO pgboss.job (id, name, data, retrylimit, retrybackoff, startafter)
+    VALUES (gen_random_uuid(), 'imgproxy', jsonb_build_object('id', ${item.id}::INTEGER), 21, true, now() + interval '5 seconds')`
 
   if (item.parentId) {
     // denormalize ncomments, lastCommentAt, commentCost for ancestors, and insert into reply table

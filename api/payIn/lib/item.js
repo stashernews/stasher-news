@@ -65,9 +65,12 @@ export async function performBotBehavior (tx, { text, id, userId = USER_ID.anon 
   if (text) {
     const deleteAt = getDeleteAt(text)
     if (deleteAt) {
+      // pg-boss v9 dropped the DB-side default on pgboss.job.id (uuids are now
+      // minted by the JS client), so these raw INSERTs must supply it via gen_random_uuid.
       await tx.$queryRaw`
-        INSERT INTO pgboss.job (name, data, startafter, keepuntil)
+        INSERT INTO pgboss.job (id, name, data, startafter, keepuntil)
         VALUES (
+          gen_random_uuid(),
           'deleteItem',
           jsonb_build_object('id', ${id}::INTEGER),
           ${deleteAt}::TIMESTAMP WITH TIME ZONE,
@@ -77,8 +80,9 @@ export async function performBotBehavior (tx, { text, id, userId = USER_ID.anon 
     const remindAt = getRemindAt(text)
     if (remindAt) {
       await tx.$queryRaw`
-        INSERT INTO pgboss.job (name, data, startafter, keepuntil)
+        INSERT INTO pgboss.job (id, name, data, startafter, keepuntil)
         VALUES (
+          gen_random_uuid(),
           'reminder',
           jsonb_build_object('itemId', ${id}::INTEGER, 'userId', ${userId}::INTEGER),
           ${remindAt}::TIMESTAMP WITH TIME ZONE,
