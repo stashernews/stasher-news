@@ -18,7 +18,6 @@ import { ServiceWorkerProvider } from '@/components/serviceworker'
 import { SSR } from '@/lib/constants'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
-import { ChainFeeProvider } from '@/components/chain-fee.js'
 import dynamic from 'next/dynamic'
 import { HasNewNotesProvider } from '@/components/use-has-new-notes'
 import { BrandingProvider } from '@/components/territory-branding'
@@ -103,7 +102,7 @@ export default function MyApp ({ Component, pageProps: { ...props } }) {
     If we are on the client, we populate the apollo cache with the
     ssr data
   */
-  const { apollo, ssrData, ssrPublicCookies, me, price, blockHeight, chainFee, branding, ...otherProps } = props
+  const { apollo, ssrData, ssrPublicCookies, me, price, blockHeight, branding, ...otherProps } = props
   useEffect(() => {
     writeQuery(client, apollo, ssrData)
   }, [client, apollo, ssrData])
@@ -128,12 +127,10 @@ export default function MyApp ({ Component, pageProps: { ...props } }) {
                               <ToastProvider>
                                 <ShowModalProvider>
                                   <BlockHeightProvider blockHeight={blockHeight}>
-                                    <ChainFeeProvider chainFee={chainFee}>
-                                      <ErrorBoundary>
-                                        <Component ssrData={ssrData} {...otherProps} />
-                                        {!router?.query?.disablePrompt && <PWAPrompt copyBody='This website has app functionality. Add it to your home screen to use it in fullscreen and receive notifications. In Safari:' promptOnVisit={2} />}
-                                      </ErrorBoundary>
-                                    </ChainFeeProvider>
+                                    <ErrorBoundary>
+                                      <Component ssrData={ssrData} {...otherProps} />
+                                      {!router?.query?.disablePrompt && <PWAPrompt copyBody='This website has app functionality. Add it to your home screen to use it in fullscreen and receive notifications. In Safari:' promptOnVisit={2} />}
+                                    </ErrorBoundary>
                                   </BlockHeightProvider>
                                 </ShowModalProvider>
                               </ToastProvider>
