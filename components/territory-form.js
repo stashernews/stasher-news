@@ -149,10 +149,10 @@ export default function TerritoryForm ({ sub }) {
           prepend={<InputGroup.Text className='text-monospace'>~</InputGroup.Text>}
           onChange={onNameChange}
           warn={archived && (
-            <div className='d-flex align-items-center'>this territory is archived
+            <div className='d-flex align-items-center'>this turf is archived
               <Info>
                 <ul>
-                  <li>This territory got archived because the previous founder did not pay for the upkeep</li>
+                  <li>This turf got archived because the previous founder did not pay for the upkeep</li>
                   <li>You can proceed but will inherit the old content</li>
                 </ul>
               </Info>
@@ -287,8 +287,8 @@ export default function TerritoryForm ({ sub }) {
                   <div className='d-flex align-items-center'>mark as nsfw
                     <Info>
                       <ol>
-                        <li>Let stackers know that your territory may contain explicit content</li>
-                        <li>Your territory will get a <Badge bg='secondary'>nsfw</Badge> badge</li>
+                        <li>Let stackers know that your turf may contain explicit content</li>
+                        <li>Your turf will get a <Badge bg='secondary'>nsfw</Badge> badge</li>
                       </ol>
                     </Info>
                   </div>

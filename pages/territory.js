@@ -10,7 +10,7 @@ export default function TerritoryPage () {
     <CenterLayout>
       <div className='text-center'>
         <h1 className='mt-5'>break new ground</h1>
-        <Link className='text-muted' href='/faq#stacker-news-territories'>learn about territories</Link>
+        <Link className='text-muted' href='/faq#stacker-news-territories'>learn about turfs</Link>
       </div>
       <TerritoryForm />
     </CenterLayout>

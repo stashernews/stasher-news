@@ -122,13 +122,13 @@ export default function TerritoryHeader ({ sub }) {
           <TerritoryDetails sub={sub}>
             <div className='d-flex my-2 justify-content-end'>
               {sub.name}
-              <Share path={`${prefix}/`} title={`~${sub.name} stacker news territory`} className='mx-1' />
+              <Share path={`${prefix}/`} title={`~${sub.name} stacker news turf`} className='mx-1' />
               {me &&
                 <>
                   {(isMine
                     ? (
                       <Link href={`${prefix}/edit`} className='d-flex align-items-center'>
-                        <Button variant='outline-grey border-2 rounded py-0' size='sm'>edit territory</Button>
+                        <Button variant='outline-grey border-2 rounded py-0' size='sm'>edit turf</Button>
                       </Link>)
                     : (
                       <Button
@@ -138,12 +138,12 @@ export default function TerritoryHeader ({ sub }) {
                           try {
                             await toggleMuteSub({ variables: { name: sub.name } })
                           } catch {
-                            toaster.danger(`failed to ${sub.meMuteSub ? 'join' : 'mute'} territory`)
+                            toaster.danger(`failed to ${sub.meMuteSub ? 'join' : 'mute'} turf`)
                             return
                           }
-                          toaster.success(`${sub.meMuteSub ? 'joined' : 'muted'} territory`)
+                          toaster.success(`${sub.meMuteSub ? 'joined' : 'muted'} turf`)
                         }}
-                      >{sub.meMuteSub ? 'join' : 'mute'} territory
+                      >{sub.meMuteSub ? 'join' : 'mute'} turf
                       </Button>)
               )}
                   <ActionDropdown>
@@ -192,10 +192,10 @@ export function MuteSubDropdownItem ({ item, sub }) {
         try {
           await toggleMuteSub({ variables: { name: sub.name } })
         } catch {
-          toaster.danger(`failed to ${sub.meMuteSub ? 'join' : 'mute'} territory`)
+          toaster.danger(`failed to ${sub.meMuteSub ? 'join' : 'mute'} turf`)
           return
         }
-        toaster.success(`${sub.meMuteSub ? 'joined' : 'muted'} territory`)
+        toaster.success(`${sub.meMuteSub ? 'joined' : 'muted'} turf`)
       }}
     >{sub.meMuteSub ? 'unmute' : 'mute'} ~{sub.name}
     </Dropdown.Item>

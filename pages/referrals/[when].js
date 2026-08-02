@@ -119,7 +119,7 @@ export default function Referrals ({ ssrData }) {
           <ul>
             <li>your profile link is an implicit referral link</li>
             <li>all links to post and comments are implicit referral links attributed to the OP</li>
-            <li>links to territories are implicit referral links attributed to the territory founder</li>
+            <li>links to turfs are implicit referral links attributed to the turf founder</li>
           </ul>
         </li>
         <li>appending /r/{me.name} to any SN link makes it a ref link to {me.name}</li>

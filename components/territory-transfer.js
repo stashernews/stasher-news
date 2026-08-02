@@ -38,7 +38,7 @@ function TransferObstacle ({ sub, onClose, userName }) {
 
   return (
     <div className='text-center'>
-      <p>Do you really want to transfer your territory</p>
+      <p>Do you really want to transfer your turf</p>
       <div>
         <Link href={`/~${sub.name}`}>~{sub.name}</Link>
         {' '}to{' '}
@@ -67,7 +67,7 @@ function TerritoryTransferForm ({ sub, onClose }) {
       schema={schema}
       onSubmit={onSubmit}
     >
-      <h2 className='text-center'>transfer territory</h2>
+      <h2 className='text-center'>transfer turf</h2>
       <div className='d-flex align-items-center mb-2'>
         <InputUserSuggest
           label='stacker'

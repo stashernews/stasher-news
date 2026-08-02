@@ -76,7 +76,7 @@ export default function PostEdit ({ ssrData }) {
         <FormType item={item} subs={subs} EditInfo={EditInfo}>
           {!item.isJob &&
             <SubMultiSelect
-              placeholder='pick territories'
+              placeholder='pick turfs'
               className='d-flex'
               size='md'
               label='territory'
