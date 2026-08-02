@@ -174,7 +174,7 @@ export default function Post ({ subs }) {
           filterSubs={s => s.postTypes?.includes(type.toUpperCase())}
           className='d-flex'
           size='medium'
-          label='territory'
+          label='turf'
         />
       </PostForm>
     </>

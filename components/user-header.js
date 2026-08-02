@@ -60,7 +60,7 @@ export default function UserHeader ({ user }) {
             <Nav.Link as={Link} href={'/' + user.name + '/territories'} eventKey='territories'>
               {numWithUnits(user.nterritories, {
                 abbreviate: false,
-                unitSingular: 'territory',
+                unitSingular: 'turf',
                 unitPlural: 'turfs'
               })}
             </Nav.Link>

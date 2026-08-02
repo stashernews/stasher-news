@@ -138,7 +138,7 @@ export default function Transparency ({ ssrData }) {
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
             <Stat label='Downvotes' value={`${pi.downvotePiconeros} piconeros`} sub={`${pi.downvoteRewardsPct}% to rewards`} />
             <Stat label='Posting fees' value={`${pi.postingFeePiconeros} piconeros`} sub={`${pi.postingFeeRewardsPct}% to rewards`} />
-            <Stat label='Territory fees' value={`${pi.territoryFeePiconeros} piconeros`} sub={`${pi.territoryFeeRewardsPct}% to rewards`} />
+            <Stat label='Turf fees' value={`${pi.territoryFeePiconeros} piconeros`} sub={`${pi.territoryFeeRewardsPct}% to rewards`} />
           </div>
           <div className='d-flex flex-wrap justify-content-between py-3 my-2'>
             <Stat label='Total inflow' value={`${pi.totalPiconeros} piconeros`} />
