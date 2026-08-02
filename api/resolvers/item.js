@@ -127,16 +127,15 @@ export async function itemQueryWithMeta ({ me, models, query, orderBy = '' }, ..
       ) "subs" ON true
       LEFT JOIN LATERAL (
         SELECT "itemId",
-          sum("PayIn".mcost) FILTER (WHERE "PayOutBolt11".id IS NOT NULL AND "PayIn"."payInType" = 'ZAP') AS "meMsats",
-          sum("PayIn".mcost) FILTER (WHERE "PayOutBolt11".id IS NULL AND "PayIn"."payInType" = 'ZAP') AS "meMcredits",
-          sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayOutBolt11".id IS NOT NULL AND "PayIn"."payInType" = 'ZAP') AS "mePendingMsats",
-          sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayOutBolt11".id IS NULL AND "PayIn"."payInType" = 'ZAP') AS "mePendingMcredits",
+          sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInType" = 'ZAP') AS "meMsats",
+          NULL::bigint AS "meMcredits",
+          sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayIn"."payInType" = 'ZAP') AS "mePendingMsats",
+          NULL::bigint AS "mePendingMcredits",
           sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInType" = 'DOWN_ZAP') AS "meDontLikeMsats",
           sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInType" = 'DOWN_ZAP' AND "PayIn"."payInState" <> 'PAID') AS "mePendingDontLikeMsats",
           sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayIn"."payInType" = 'BOOST') AS "mePendingBoostMsats"
         FROM "ItemPayIn"
         JOIN "PayIn" ON "PayIn".id = "ItemPayIn"."payInId"
-        LEFT JOIN "PayOutBolt11" ON "PayOutBolt11"."payInId" = "PayIn"."id"
         WHERE "PayIn"."userId" = ${me.id}
         AND "ItemPayIn"."itemId" = "Item".id
         AND (
@@ -956,36 +955,7 @@ export default {
     commentCredits: async (item, args, { models }) => {
       return msatsToSats(item.commentMcredits)
     },
-    bountyPaidTo: async (item, args, { models, me }) => {
-      if (!me || !item.bounty || item.userId !== me.id) return item.bountyPaidTo
-
-      const pendingPayments = await models.$queryRawUnsafe(`
-        SELECT "ItemPayIn"."itemId"
-        FROM "ItemPayIn"
-        JOIN "PayIn" ON "PayIn".id = "ItemPayIn"."payInId"
-        JOIN "Item" ON "Item".id = "ItemPayIn"."itemId"
-        WHERE "PayIn"."payInType" = 'BOUNTY_PAYMENT'
-        AND "PayIn"."userId" = $1
-        AND "Item"."rootId" = $2
-        AND (
-          "PayIn"."payInState" <> 'FAILED'
-          OR (
-            "PayIn"."payInState" = 'FAILED'
-            AND "PayIn"."payInFailureReason" <> 'USER_CANCELLED'
-            AND "PayIn"."payInStateChangedAt" > now() - '${WALLET_RETRY_BEFORE_MS} milliseconds'::interval
-            AND "PayIn"."retryCount" < ${WALLET_MAX_RETRIES}::integer
-            AND "PayIn"."successorId" IS NULL
-          )
-        )
-        AND "PayIn"."payInState" <> 'PAID'
-      `, me.id, item.id)
-
-      if (!pendingPayments.length) return item.bountyPaidTo
-
-      const pendingIds = pendingPayments.map(p => p.itemId)
-      const merged = [...new Set([...(item.bountyPaidTo || []), ...pendingIds])]
-      return merged.length ? merged : null
-    },
+    bountyPaidTo: (item) => item.bountyPaidTo,
     commentCost: async (item) => item.commentCost || 0,
     commentBoost: async (item) => item.commentBoost || 0,
     isJob: async (item, args, { models }) => {

@@ -6,7 +6,6 @@ import { payInTypesSql } from '../payIn/lib/sql'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
 import { getItem, getItemsById } from './item'
 import { getSub } from './sub'
-import { parseWalletId } from '@/wallets/server/resolvers/util'
 import { Prisma } from '@prisma/client'
 
 function verifyHmac (hash, hmac) {
@@ -81,71 +80,22 @@ export default {
         throw new GqlAuthenticationError()
       }
       const userId = me.id
-      const walletIdNumber = walletId != null ? parseWalletId(walletId) : null
-
-      // When filtering by wallet, pre-resolve the wallet's protocol IDs once
-      // (with explicit ownership)
-      let authorizedProtocolIds = null
-      if (walletIdNumber !== null) {
-        const protocols = await models.walletProtocol.findMany({
-          where: { walletId: walletIdNumber, wallet: { userId } },
-          select: { id: true }
-        })
-        if (protocols.length === 0) {
-          // Wallet does not exist, is not owned by the caller, or has no
-          // protocols. Either way, there is no activity to surface.
-          return { payIns: [], cursor: null }
-        }
-        authorizedProtocolIds = protocols.map(p => p.id)
+      // StealthNews: per-wallet filtering (WalletProtocol + PayInBolt11/PayOutBolt11
+      // protocolId matching) was removed with the Lightning strip.
+      if (walletId != null) {
+        return { payIns: [], cursor: null }
       }
 
       const decodedCursor = decodeCursor(cursor)
       const offset = decodedCursor.offset
       const limit = LIMIT
-      const walletSendFilter = authorizedProtocolIds
-        ? Prisma.sql`
-            AND EXISTS (
-              SELECT 1
-              FROM "PayInBolt11"
-              WHERE "PayInBolt11"."payInId" = "PayIn"."id"
-              AND "PayInBolt11"."protocolId" IN (${Prisma.join(authorizedProtocolIds)})
-            )`
-        : Prisma.empty
-      const walletReceiveFilter = authorizedProtocolIds
-        ? Prisma.sql`
-            AND EXISTS (
-              SELECT 1
-              FROM "PayOutBolt11"
-              WHERE "PayOutBolt11"."payInId" = "PayIn"."id"
-              AND "PayOutBolt11"."protocolId" IN (${Prisma.join(authorizedProtocolIds)})
-            )`
-        : Prisma.empty
-
-      // Receive-side ownership for the activity branch: a row qualifies only when
-      // the user is the payee in one of three tables.
-      const isMyReceiveSql = Prisma.sql`(
-        EXISTS (
-          SELECT 1
-          FROM "RefundCustodialToken"
-          WHERE "RefundCustodialToken"."payInId" = "PayIn"."id" AND "PayIn"."userId" = ${userId}
-        ) OR
-        EXISTS (
-          SELECT 1
-          FROM "PayOutBolt11"
-          WHERE "PayOutBolt11"."payInId" = "PayIn"."id" AND "PayOutBolt11"."userId" = ${userId}
-          AND "PayIn"."payInState" = 'PAID'
-        ) OR
-        EXISTS (
-          SELECT 1
-          FROM "PayOutCustodialToken"
-          WHERE "PayOutCustodialToken"."payInId" = "PayIn"."id" AND "PayOutCustodialToken"."userId" = ${userId}
-          AND "PayIn"."payInState" = 'PAID'
-        )
-      )`
-
-      const receivePredicate = authorizedProtocolIds
-        ? Prisma.sql`AND "PayIn"."payInState" = 'PAID'`
-        : Prisma.sql`AND ${isMyReceiveSql}`
+      const walletSendFilter = Prisma.empty
+      const walletReceiveFilter = Prisma.empty
+      // StealthNews: the receive side of the activity feed was backed by the custodial
+      // payout tables (PayOutBolt11, PayOutCustodialToken, RefundCustodialToken), which
+      // are gone. Monero tips are P2P and don't produce custodial receive-side payIns,
+      // so only the user's own (send-side) payIns are surfaced here.
+      const receivePredicate = Prisma.sql`AND FALSE`
 
       // why we need the union:
       // if we are paying in, we want a row for that when it's created, regardless of whether it's succeeded, pending, or failed
@@ -162,7 +112,6 @@ export default {
             WHERE "PayIn"."userId" = ${userId}
             AND "PayIn"."benefactorId" IS NULL
             AND "PayIn"."mcost" > 0
-            AND "PayIn"."payInType" NOT IN ('PROXY_PAYMENT')
             AND "PayIn"."created_at" <= ${decodedCursor.time}
             ${walletSendFilter}
             ORDER BY "sortTime" DESC
@@ -332,20 +281,15 @@ export default {
       return null
     },
     payOutCustodialTokens: async (payIn, args, { models, me }) => {
-      let payOutCustodialTokens = []
-      if (typeof payIn.payOutCustodialTokens !== 'undefined') {
-        payOutCustodialTokens = [
-          ...payIn.payOutCustodialTokens,
-          ...payIn.beneficiaries.reduce((acc, beneficiary) => {
-            if (beneficiary.payOutCustodialTokens) {
-              return [...acc, ...beneficiary.payOutCustodialTokens]
-            }
-            return acc
-          }, [])
-        ]
-      } else {
-        payOutCustodialTokens = await models.payOutCustodialToken.findMany({ where: { payInId: payIn.id } })
-      }
+      let payOutCustodialTokens = [
+        ...(payIn.payOutCustodialTokens ?? []),
+        ...(payIn.beneficiaries ?? []).reduce((acc, beneficiary) => {
+          if (beneficiary.payOutCustodialTokens) {
+            return [...acc, ...beneficiary.payOutCustodialTokens]
+          }
+          return acc
+        }, [])
+      ]
 
       // obscure rewards if they are not mine
       if (payIn.payInType === 'REWARDS') {
@@ -421,38 +365,18 @@ export default {
     }
   },
   PayerPrivates: {
-    payInBolt11: async (payIn, args, { models, me }) => {
-      if (typeof payIn.payInBolt11 !== 'undefined') {
-        return payIn.payInBolt11
-      }
-      return await models.payInBolt11.findUnique({ where: { payInId: payIn.id } })
-    },
-    payInCustodialTokens: async (payIn, args, { models, me }) => {
-      let payInCustodialTokens = payIn.payInCustodialTokens
-      if (typeof payInCustodialTokens === 'undefined') {
-        payInCustodialTokens = await models.payInCustodialToken.findMany({ where: { payInId: payIn.id } })
-      }
-      return payInCustodialTokens.map(token => ({
+    payInBolt11: (payIn) => payIn.payInBolt11 ?? null,
+    payInCustodialTokens: (payIn, args, { me }) =>
+      (payIn.payInCustodialTokens ?? []).map(token => ({
         ...token,
         mtokensAfter: isMine(payIn, { me }) ? token.mtokensAfter : null
-      }))
-    },
-    refundCustodialTokens: async (payIn, args, { models, me }) => {
-      let refundCustodialTokens = payIn.refundCustodialTokens
-      if (typeof refundCustodialTokens === 'undefined') {
-        refundCustodialTokens = await models.refundCustodialToken.findMany({ where: { payInId: payIn.id } })
-      }
-      return refundCustodialTokens.map(token => ({
+      })),
+    refundCustodialTokens: (payIn, args, { me }) =>
+      (payIn.refundCustodialTokens ?? []).map(token => ({
         ...token,
         mtokensAfter: isMine(payIn, { me }) ? token.mtokensAfter : null
-      }))
-    },
-    pessimisticEnv: async (payIn, args, { models, me }) => {
-      if (typeof payIn.pessimisticEnv !== 'undefined') {
-        return payIn.pessimisticEnv
-      }
-      return await models.pessimisticEnv.findUnique({ where: { payInId: payIn.id } })
-    },
+      })),
+    pessimisticEnv: (payIn) => payIn.pessimisticEnv ?? null,
     result: (payIn, args, { models, me }) => {
       // if the payIn was paid pessimistically, the result is permanently in the pessimisticEnv
       const result = payIn.result || payIn.pessimisticEnv?.result
@@ -477,12 +401,7 @@ export default {
     }
   },
   PayeePrivates: {
-    payOutBolt11: async (payIn, args, { models, me }) => {
-      if (typeof payIn.payOutBolt11 !== 'undefined') {
-        return payIn.payOutBolt11
-      }
-      return await models.payOutBolt11.findUnique({ where: { payInId: payIn.id } })
-    }
+    payOutBolt11: (payIn) => payIn.payOutBolt11 ?? null
   }
 }
 
@@ -532,7 +451,14 @@ export default {
 */
 
 async function getPayInFull ({ models, query, orderBy = Prisma.empty }) {
-  return await models.$queryRaw`
+  // StealthNews: the custodial/Lightning pay-in/out tables (PayInBolt11, PayOutBolt11,
+  // PayOutCustodialToken, PayInCustodialToken, RefundCustodialToken, PessimisticEnv,
+  // SubPayOutCustodialToken, ...) were removed in the Monero strip. The Lightning wallet
+  // history this query fed is obsolete; a Monero wallet history is a separate feature.
+  // We return the bare PayIn rows plus the surviving ItemPayIn/SubPayIn links, and default
+  // the removed relations to null/empty so the PayIn field resolvers take their fast path
+  // and never fall through to the (also removed) lazy-load Prisma models.
+  const rows = await models.$queryRaw`
     WITH payins AS (
       ${query}
     )
@@ -540,23 +466,9 @@ async function getPayInFull ({ models, query, orderBy = Prisma.empty }) {
       p.*,
       p.created_at AS "createdAt",
       p.updated_at AS "updatedAt",
-      pe."pessimisticEnv",
       ip."itemPayIn",
-      sp."subPayIn",
-      pib."payInBolt11",
-      pob."payOutBolt11",
-      pic."payInCustodialTokens",
-      poct."payOutCustodialTokens",
-      b."beneficiaries",
-      rct."refundCustodialTokens"
+      sp."subPayIn"
     FROM payins p
-    LEFT JOIN LATERAL (
-      SELECT to_jsonb(x.*) AS "pessimisticEnv"
-      FROM "PessimisticEnv" x
-      WHERE x."payInId" = p.id
-      ORDER BY x.id
-      LIMIT 1
-    ) pe ON true
     LEFT JOIN LATERAL (
       SELECT to_jsonb(x.*) AS "itemPayIn"
       FROM "ItemPayIn" x
@@ -571,95 +483,16 @@ async function getPayInFull ({ models, query, orderBy = Prisma.empty }) {
       ORDER BY x.id
       LIMIT 1
     ) sp ON true
-    LEFT JOIN LATERAL (
-      SELECT
-        to_jsonb(pib.*)
-        || jsonb_build_object(
-            'lud18Data',  to_jsonb(pibl.*),
-            'nostrNote',  to_jsonb(pin.*),
-            'comment',    to_jsonb(picm.*)
-          ) AS "payInBolt11"
-      FROM "PayInBolt11" pib
-      LEFT JOIN "PayInBolt11Lud18"     pibl ON pibl."payInBolt11Id" = pib.id
-      LEFT JOIN "PayInBolt11NostrNote" pin  ON pin."payInBolt11Id"  = pib.id
-      LEFT JOIN "PayInBolt11Comment"   picm ON picm."payInBolt11Id" = pib.id
-      WHERE pib."payInId" = p.id
-      ORDER BY pib.id
-      LIMIT 1
-    ) pib ON true
-    LEFT JOIN LATERAL (
-      SELECT
-        to_jsonb(ob.*) || jsonb_build_object('user', to_jsonb(u.*)) AS "payOutBolt11"
-      FROM "PayOutBolt11" ob
-      JOIN users u ON u.id = ob."userId"
-      WHERE ob."payInId" = p.id
-      ORDER BY ob.id
-      LIMIT 1
-    ) pob ON true
-    LEFT JOIN LATERAL (
-      SELECT COALESCE(jsonb_agg(to_jsonb(x.*) ORDER BY x.id), '[]'::jsonb) AS "payInCustodialTokens"
-      FROM "PayInCustodialToken" x
-      WHERE x."payInId" = p.id
-    ) pic ON true
-    LEFT JOIN LATERAL (
-      SELECT COALESCE(
-              jsonb_agg(
-                to_jsonb(o.*)
-                || jsonb_build_object(
-                      'user',
-                        to_jsonb(u.*) || jsonb_build_object('invite', to_jsonb(inv.*)),
-                      'subPayOutCustodialToken',
-                        (
-                          SELECT to_jsonb(spo.*) || jsonb_build_object('sub', to_jsonb(s.*))
-                          FROM "SubPayOutCustodialToken" spo
-                          JOIN "Sub" s ON s."id" = spo."subId"
-                          WHERE spo."payOutCustodialTokenId" = o.id
-                          LIMIT 1
-                        )
-                    )
-                ORDER BY o.id
-              ),
-              '[]'::jsonb
-            ) AS "payOutCustodialTokens"
-      FROM "PayOutCustodialToken" o
-      LEFT JOIN users u      ON u.id = o."userId"
-      LEFT JOIN "Invite" inv ON inv.id = u."inviteId"
-      WHERE o."payInId" = p.id
-    ) poct ON true
-    LEFT JOIN LATERAL (
-      SELECT COALESCE(
-              jsonb_agg(
-                to_jsonb(benef.*)
-                || jsonb_build_object(
-                      'payOutCustodialTokens',
-                        (
-                          SELECT COALESCE(jsonb_agg(to_jsonb(po.*)
-                            || jsonb_build_object('user', to_jsonb(u.*),
-                            'subPayOutCustodialToken',
-                              (SELECT to_jsonb(spo.*) || jsonb_build_object('sub', to_jsonb(s.*))
-                                FROM "SubPayOutCustodialToken" spo
-                                JOIN "Sub" s ON s."id" = spo."subId"
-                                WHERE spo."payOutCustodialTokenId" = po.id
-                                LIMIT 1
-                              )
-                            )
-                          ORDER BY po.id), '[]'::jsonb)
-                          FROM "PayOutCustodialToken" po
-                          LEFT JOIN users u ON u.id = po."userId"
-                          WHERE po."payInId" = benef.id
-                        )
-                    )
-                ORDER BY benef.id
-              ),
-              '[]'::jsonb
-            ) AS "beneficiaries"
-      FROM "PayIn" benef
-      WHERE benef."benefactorId" = p.id
-    ) b ON true
-    LEFT JOIN LATERAL (
-      SELECT COALESCE(jsonb_agg(to_jsonb(x.*) ORDER BY x.id), '[]'::jsonb) AS "refundCustodialTokens"
-      FROM "RefundCustodialToken" x
-      WHERE x."payInId" = p.id
-    ) rct ON true
     ${orderBy}`
+
+  return rows.map(r => ({
+    ...r,
+    pessimisticEnv: null,
+    payInBolt11: null,
+    payOutBolt11: null,
+    payInCustodialTokens: [],
+    payOutCustodialTokens: [],
+    beneficiaries: [],
+    refundCustodialTokens: []
+  }))
 }

@@ -532,13 +532,30 @@ sndev__login() {
     BASE_URL="http://localhost:3000"
   fi
 
-  docker__exec db psql -U sn -d stackernews -q <<EOF
+  if ! docker__exec db psql -U sn -d stackernews -q <<EOF
     INSERT INTO users (name) VALUES ('$1') ON CONFLICT DO NOTHING;
     UPDATE users SET email = '$email', "emailHash" = encode(digest(LOWER('$email')||'$salt', 'sha256'), 'hex') WHERE name = '$1';
     DELETE FROM verification_requests WHERE token = '$token';
     INSERT INTO verification_requests (identifier, token, expires)
       VALUES ('$email', '$token', NOW() + INTERVAL '1 day');
 EOF
+  then
+    echo
+    echo "failed to write to the dev database - is the environment running?" >&2
+    echo "run './sndev start' first, then retry './sndev login $1'" >&2
+    echo
+    exit 1
+  fi
+
+  # confirm the verification token was actually created before handing out a link
+  if ! docker__exec db psql -U sn -d stackernews -t -A -c \
+    "SELECT count(*) FROM verification_requests WHERE identifier = '$email' AND token = '$token' AND expires > NOW()" | grep -q '[1-9]'
+  then
+    echo
+    echo "verification token was not created - retry './sndev login $1'" >&2
+    echo
+    exit 1
+  fi
 
   echo
   echo "open url in browser"
