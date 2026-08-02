@@ -17,7 +17,7 @@ import { SUPPORTED_CURRENCIES } from '@/lib/currency'
 import PageLoading from '@/components/page-loading'
 import { useToast } from '@/components/toast'
 import { useMe } from '@/components/me'
-import { DEFAULT_COMMENTS_SATS_FILTER, DEFAULT_POSTS_SATS_FILTER, ZAP_UNDO_DELAY_MS } from '@/lib/constants'
+import { DEFAULT_COMMENTS_SATS_FILTER, DEFAULT_POSTS_SATS_FILTER } from '@/lib/constants'
 import { useField } from 'formik'
 import styles from '@/styles/nav.module.css'
 import { AuthBanner } from '@/components/banners'
@@ -101,8 +101,6 @@ export default function Settings ({ ssrData }) {
             tipRandomMin: settings?.tipRandomMin || 1,
             tipRandomMax: settings?.tipRandomMax || 10,
             turboTipping: settings?.turboTipping,
-            zapUndos: settings?.zapUndos || (settings?.tipDefault ? 100 * settings.tipDefault : 2100),
-            zapUndosEnabled: settings?.zapUndos !== null,
             fiatCurrency: settings?.fiatCurrency || 'USD',
             noteItemSats: settings?.noteItemSats,
             noteEarning: settings?.noteEarning,
@@ -134,7 +132,7 @@ export default function Settings ({ ssrData }) {
           schema={settingsSchema}
           onSubmit={async ({
             tipDefault, tipRandom, tipRandomMin, tipRandomMax,
-            zapUndos, zapUndosEnabled, nostrPubkey, nostrRelays, postsSatsFilter, commentsSatsFilter,
+            nostrPubkey, nostrRelays, postsSatsFilter, commentsSatsFilter,
             ...values
           }) => {
             if (nostrPubkey.length === 0) {
@@ -159,7 +157,6 @@ export default function Settings ({ ssrData }) {
                     tipRandomMax: tipRandom ? Number(tipRandomMax) : null,
                     postsSatsFilter: postsSatsFilter == null ? null : Number(postsSatsFilter),
                     commentsSatsFilter: commentsSatsFilter == null ? null : Number(commentsSatsFilter),
-                    zapUndos: zapUndosEnabled ? Number(zapUndos) : null,
                     nostrPubkey,
                     nostrRelays: nostrRelaysFiltered,
                     ...values
@@ -215,7 +212,6 @@ export default function Settings ({ ssrData }) {
                     }
                     groupClassName='mb-0'
                   />
-                  <ZapUndosField />
                   <TipRandomField />
                 </>
               }
@@ -512,37 +508,6 @@ export default function Settings ({ ssrData }) {
         </Form>
       </div>
     </Layout>
-  )
-}
-
-const ZapUndosField = () => {
-  const [checkboxField] = useField({ name: 'zapUndosEnabled' })
-  return (
-    <>
-      <Checkbox
-        name='zapUndosEnabled'
-        groupClassName='mb-0'
-        label={
-          <div className='d-flex align-items-center'>
-            tip undos
-            <Info>
-              <ul>
-                <li>After every tip that exceeds or is equal to the threshold, the tip button will pulse</li>
-                <li>You can undo the tip if you click the tip button while it's pulsing</li>
-                <li>The tip button will pulse for {ZAP_UNDO_DELAY_MS / 1000} seconds</li>
-              </ul>
-            </Info>
-          </div>
-          }
-      />
-      {checkboxField.value &&
-        <Input
-          name='zapUndos'
-          append={<InputGroup.Text className='text-monospace'>sats</InputGroup.Text>}
-          hint={<small className='text-muted'>threshold at which undos will be possible</small>}
-          groupClassName='mt-1'
-        />}
-    </>
   )
 }
 
