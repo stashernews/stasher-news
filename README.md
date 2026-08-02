@@ -1,6 +1,6 @@
 <p align="center">
 <a href="https://stasher.news">
-<img height="50" alt="sn banner" src="https://github.com/stackernews/stacker.news/assets/34140557/a8ccc5dc-c453-46dc-be74-60dd0a42ce09">
+<img height="50" alt="sn banner" src="https://github.com/stackernews/stasher.news/assets/34140557/a8ccc5dc-c453-46dc-be74-60dd0a42ce09">
 </a>
 </p>
 
@@ -28,8 +28,8 @@ Go to [localhost:3000](http://localhost:3000).
 ## Installation
 
 - Clone the repo
-   - ssh: `git clone git@github.com:stackernews/stacker.news.git`
-   - https: `git clone https://github.com/stackernews/stacker.news.git`
+   - ssh: `git clone git@github.com:stackernews/stasher.news.git`
+   - https: `git clone https://github.com/stackernews/stasher.news.git`
 - Install [docker](https://docs.docker.com/compose/install/)
     - If you're running MacOS or Windows, I ***highly recommend***  using [OrbStack](https://orbstack.dev/) instead of Docker Desktop
 - Please make sure that at least 10 GB of free space is available, otherwise you may encounter issues while setting up the development environment.
@@ -38,7 +38,7 @@ Go to [localhost:3000](http://localhost:3000).
 
 ### GitHub Codespaces
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/stackernews/stacker.news)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/stackernews/stasher.news)
 
 You can run Stasher News on Github Codespaces
 
@@ -107,7 +107,7 @@ COMMANDS
     login                 login as a nym
     set_balance           set the balance of a nym
 
-  lightning:
+  monero:
     fund                   pay a bolt11 for funding
     withdraw               create a bolt11 for withdrawal
 
@@ -223,7 +223,7 @@ The `domains` profile enables dnsmasq and custom-domain worker jobs. The bundled
     - [Testing local auth](#testing-local-auth)
         - [Login with Email](#login-with-email)
         - [Login with Github](#login-with-github)
-        - [Login with Lightning](#login-with-lightning)
+        - [Login with Monero](#login-with-monero)
     - [Enabling web push notifications](#enabling-web-push-notifications)
 - [Internals](#internals)
     - [Stack](#stack)
@@ -375,7 +375,7 @@ Like issue specification awards, helping fellow contributors substantially in a 
 We want to make contributing to SN as rewarding as possible, so we offer a few extras to contributors.
 
 ## Dev chat
-We self-host a private chat server for contributors to SN. If you'd like to join, please respond in this [discussion](https://github.com/stackernews/stacker.news/discussions/1059).
+We self-host a private chat server for contributors to SN. If you'd like to join, please respond in this [discussion](https://github.com/stackernews/stasher.news/discussions/1059).
 
 ## Triage permissions
 We offer triage permissions to contributors after they've made a few contributions. I'll usually add them as I notice people contributing, but if I missed you and you'd like to be added, let me know!
@@ -424,11 +424,11 @@ You can connect to the local database via `./sndev psql`. [psql](https://www.pos
 
 <br>
 
-## Running cli on local lightning nodes
+## Running cli on local monero nodes
 
-You can run `lncli` on the local lnd nodes via `./sndev cli lnd` and `./sndev cli sn_lnd`. The node for your local SN instance is `sn_lnd` and the node serving as any external node, like a stacker's node or external wallet, is `lnd`.
+You can run `lncli` on the local lnd nodes via `./sndev cli lnd` and `./sndev cli sn_lnd`. The node for your local SN instance is `sn_lnd` and the node serving as any external node, like a stasher's node or external wallet, is `lnd`.
 
-You can run `lightning-cli` on the local cln node via `./sndev cli cln` which serves as an external node or wallet.
+You can run `monero-cli` on the local cln node via `./sndev cli cln` which serves as an external node or wallet.
 
 <br>
 
@@ -478,7 +478,7 @@ GITHUB_SECRET=<Client secret>
 ```
 - Signup and login as above
 
-### Login with Lightning
+### Login with Monero
 
 - Use [ngrok](https://ngrok.com/) to create a HTTPS tunnel to localhost:3000
 - Update `LNAUTH_URL` in `.env` with the URL provided by `ngrok` and add /api/lnauth to it
@@ -518,7 +518,7 @@ For every edit on dnsmasq, it will give you the option to either edit the `/etc/
 
 ## Stack
 
-The site is written in javascript (not typescript 😱) using [Next.js](https://nextjs.org/), a [React](https://react.dev/) framework. The backend API is provided via [GraphQL](https://graphql.org/). The database is [PostgreSQL](https://www.postgresql.org/) modeled with [Prisma](https://www.prisma.io/). The [job queue](https://github.com/timgit/pg-boss) is also maintained in PostgreSQL. We use [lnd](https://github.com/lightningnetwork/lnd) for our lightning node. A customized [Bootstrap](https://react-bootstrap.netlify.app/) theme is used for styling.
+The site is written in javascript (not typescript 😱) using [Next.js](https://nextjs.org/), a [React](https://react.dev/) framework. The backend API is provided via [GraphQL](https://graphql.org/). The database is [PostgreSQL](https://www.postgresql.org/) modeled with [Prisma](https://www.prisma.io/). The [job queue](https://github.com/timgit/pg-boss) is also maintained in PostgreSQL. We use [lnd](https://github.com/lightningnetwork/lnd) for our monero node. A customized [Bootstrap](https://react-bootstrap.netlify.app/) theme is used for styling.
 
 <br>
 
@@ -536,20 +536,20 @@ In addition, we run other critical services the above services interact with lik
 
 ## Wallet transaction safety
 
-To ensure stackers balances are kept sane, some wallet updates are run in [serializable transactions](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE) at the database level. Because early versions of prisma had relatively poor support for transactions most wallet touching code is written in [plpgsql](https://www.postgresql.org/docs/current/plpgsql.html) stored procedures and can be found in the `prisma/migrations` folder.
+To ensure stashers balances are kept sane, some wallet updates are run in [serializable transactions](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE) at the database level. Because early versions of prisma had relatively poor support for transactions most wallet touching code is written in [plpgsql](https://www.postgresql.org/docs/current/plpgsql.html) stored procedures and can be found in the `prisma/migrations` folder.
 
 *UPDATE*: Most wallet updates are now run in [read committed](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED) transactions. See `api/payIn/README.md` for more information.
 
 <br>
 
 # Need help?
-Open a [discussion](http://github.com/stackernews/stacker.news/discussions) or [issue](http://github.com/stackernews/stacker.news/issues/new) or [email us](mailto:kk@stasher.news) or request joining the [dev chat](#dev-chat).
+Open a [discussion](http://github.com/stackernews/stasher.news/discussions) or [issue](http://github.com/stackernews/stasher.news/issues/new) or [email us](mailto:kk@stasher.news) or request joining the [dev chat](#dev-chat).
 
 <br>
 
 # Responsible disclosure
 
-If you found a vulnerability, we would greatly appreciate it if you contact us via [security@stasher.news](mailto:security@stasher.news) or open a [security advisory](https://github.com/stackernews/stacker.news/security/advisories/new). Our PGP key can be found [here](https://stasher.news/pgp.txt) (FEE1 E768 E0B3 81F5).
+If you found a vulnerability, we would greatly appreciate it if you contact us via [security@stasher.news](mailto:security@stasher.news) or open a [security advisory](https://github.com/stackernews/stasher.news/security/advisories/new). Our PGP key can be found [here](https://stasher.news/pgp.txt) (FEE1 E768 E0B3 81F5).
 
 <br>
 

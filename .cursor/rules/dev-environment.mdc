@@ -17,7 +17,7 @@ The `./sndev` script is the primary dev CLI. Key commands:
 - `./sndev prisma [COMMAND]` — run prisma commands inside the app container
 - `./sndev cli [SERVICE] [COMMAND]` — run CLI commands against LN nodes (lnd, cln, etc.)
 - `./sndev set_balance NYM MSATS` — set a user's balance
-- `./sndev fund BOLT11` — pay a bolt11 from the stacker lnd node
+- `./sndev fund BOLT11` — pay a bolt11 from the stasher lnd node
 - `./sndev withdraw SATS` — create a bolt11 invoice for withdrawal
 
 ## Docker Services & Ports
@@ -38,9 +38,9 @@ Use `required_permissions: ["all"]` for shell commands that need Docker access.
 | MailHog | mailhog | 8025 (web), 1026 (smtp, host) | email testing — host SMTP port remapped from 1025 (often taken by host mail agents); the app reaches it via docker network at mailhog:1025 |
 | Bitcoin (regtest) | bitcoin | — | bitcoind regtest node |
 | SN LND | sn_lnd | 8080 (REST), 10009 (gRPC) | site's LND node |
-| Stacker LND | lnd | 8081 (REST), 10010 (gRPC) | stacker's LND node |
+| Stasher LND | lnd | 8081 (REST), 10010 (gRPC) | stasher's LND node |
 | Router LND | router_lnd | 8082 (REST), 10011 (gRPC) | routing node |
-| CLN | cln | 9092 (REST) | Core Lightning node |
+| CLN | cln | 9092 (REST) | Core Monero node |
 
 ## Compose Profiles
 

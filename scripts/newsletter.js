@@ -215,19 +215,19 @@ async function main () {
   const topSpenders = await getTopUsers({ by: 'spent', when: 'custom', from, to })
 
   process.stdout.write(
-`Happy Sat-urday Stackers,
+`Happy Saturday Stashers,
 
 Have a great weekend!
 
 ##### Top Posts
 ${top.data.items.items.map((item, i) =>
   `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
-    - ${abbrNum(item.sats + item.boost + item.cost)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
+    - ${abbrNum(item.sats + item.boost + item.cost)} XMR \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
 ##### Top AMAs
 ${ama.data.items.items.slice(0, 10).map((item, i) =>
   `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
-    - ${abbrNum(item.sats + item.boost + item.cost)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
+    - ${abbrNum(item.sats + item.boost + item.cost)} XMR \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
 [**all of this week's AMAs**](https://stasher.news/~ama/top/posts/week)
 
@@ -254,16 +254,16 @@ ${meta.data.items.items.slice(0, 10).map((item, i) =>
 
 ------
 
-##### Top Stackers
+##### Top Stashers
 ${topStackers.map((user, i) =>
-    `${i + 1}. [@${user.name}](https://stasher.news/${user.name}): ${abbrNum(user.optional.stacked)} sats stacked`
+    `${i + 1}. [@${user.name}](https://stasher.news/${user.name}): ${abbrNum(user.optional.stacked)} XMR stashed`
 ).join('\n')}
 
 ------
 
 ##### Top Spenders
 ${topSpenders.map((user, i) =>
-    `${i + 1}. [@${user.name}](https://stasher.news/${user.name}): ${abbrNum(user.optional.spent)} sats spent`
+    `${i + 1}. [@${user.name}](https://stasher.news/${user.name}): ${abbrNum(user.optional.spent)} XMR spent`
 ).join('\n')}
 
 ------

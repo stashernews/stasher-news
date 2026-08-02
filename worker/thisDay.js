@@ -101,7 +101,7 @@ function topComments (days) {
 }
 
 function topSubs (days) {
-  let text = '#### Top Territories'
+  let text = '#### Top Turfs'
   for (const { day, data } of days) {
     const sub = data.territories.subs?.[0]
     if (sub) {
