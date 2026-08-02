@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useMe } from '../../me'
-import { isNumber, numWithUnits, msatsToSatsDecimal } from '@/lib/format'
+import { isNumber, numWithUnits, msatsToSats, msatsToSatsDecimal, xmrFromSats } from '@/lib/format'
 import Plug from '@/svgs/plug.svg'
 import classNames from 'classnames'
 import styles from './index.module.css'
@@ -32,7 +32,7 @@ function Money ({ mtokens, mtokensAfter, singular, plural }) {
   return (
     <div className='d-grid'>
       <div>{formatCost(mtokens, singular, plural)}</div>
-      {isNumber(mtokensAfter) && <small className='text-muted'>{numWithUnits(msatsToSatsDecimal(mtokensAfter), { unitSingular: singular, unitPlural: plural, abbreviate: false })}</small>}
+      {isNumber(mtokensAfter) && <small className='text-muted'>{formatCost(mtokensAfter, singular, plural)}</small>}
     </div>
   )
 }
@@ -42,7 +42,9 @@ function formatCost (mtokens, unitSingular, unitPlural) {
   // if (mtokens > 0) {
   //   sign = '+'
   // }
-
+  if (unitSingular === 'sat') {
+    return `${sign}${xmrFromSats(msatsToSats(mtokens))}`
+  }
   return `${sign}${numWithUnits(msatsToSatsDecimal(mtokens), { unitSingular, unitPlural, abbreviate: false })}`
 }
 

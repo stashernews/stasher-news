@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Badge from 'react-bootstrap/Badge'
 import Dropdown from 'react-bootstrap/Dropdown'
 import Countdown from './countdown'
-import { abbrNum, numWithUnits } from '@/lib/format'
+import { abbrNum, numWithUnits, xmrFromSats } from '@/lib/format'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
 import { timeSince } from '@/lib/time'
 import { DeleteDropdownItem } from './delete'
@@ -42,7 +42,7 @@ function itemTitle (item) {
     unitPlural: 'zappers'
   })
   if (item.sats - item.credits) {
-    title += ` \\ ${numWithUnits(item.sats - item.credits, { abbreviate: false })} stacked`
+    title += ` \\ ${xmrFromSats(item.sats - item.credits)} stacked`
   }
   if (item.credits) {
     title += ` \\ ${numWithUnits(item.credits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })} stacked`
@@ -54,18 +54,18 @@ function itemTitle (item) {
     title += ` \\ ${numWithUnits(item.cost, { abbreviate: false, unitSingular: 'cost', unitPlural: 'cost' })}`
   }
   if (item.downSats) {
-    title += ` \\ ${numWithUnits(item.downSats, { abbreviate: false, unitSingular: 'downsat', unitPlural: 'downsats' })}`
+    title += ` \\ ${xmrFromSats(item.downSats)}`
   }
   if (item.meSats || item.meDontLikeSats || item.meAnonSats) {
     const satSources = []
     if (item.meAnonSats || (item.meSats || 0) - (item.meCredits || 0) > 0) {
-      satSources.push(`${numWithUnits((item.meSats || 0) + (item.meAnonSats || 0) - (item.meCredits || 0), { abbreviate: false })}`)
+      satSources.push(`${xmrFromSats((item.meSats || 0) + (item.meAnonSats || 0) - (item.meCredits || 0))}`)
     }
     if (item.meCredits) {
       satSources.push(`${numWithUnits(item.meCredits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })}`)
     }
     if (item.meDontLikeSats) {
-      satSources.push(`${numWithUnits(item.meDontLikeSats, { abbreviate: false, unitSingular: 'downsat', unitPlural: 'downsats' })}`)
+      satSources.push(`${xmrFromSats(item.meDontLikeSats)}`)
     }
     if (satSources.length) {
       title += ` (${satSources.join(' & ')} from me)`
@@ -119,7 +119,7 @@ export default function ItemInfo ({
       {!isPinnedPost && !(isPinnedSubReply && !full) &&
         <>
           <span title={itemTitle(item)}>
-            {numWithUnits(item.sats + item.boost + item.cost)}
+            {xmrFromSats(item.sats + item.boost + item.cost)}
           </span>
           <span> \ </span>
         </>}
@@ -132,7 +132,7 @@ export default function ItemInfo ({
               `/items/${item.id}?commentsViewedAt=${viewedAt}`,
               `/items/${item.id}`)
           }
-        }} title={`${numWithUnits(item.commentSats + item.commentCost + item.commentBoost)} (${item.commentSats} stacked \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
+        }} title={`${xmrFromSats(item.commentSats + item.commentCost + item.commentBoost)} (${item.commentSats} stacked \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
       >
         {numWithUnits(item.ncomments, {
           abbreviate: false,

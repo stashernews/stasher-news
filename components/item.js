@@ -10,7 +10,7 @@ import BountyIcon from '@/svgs/bounty-bag.svg'
 import ActionTooltip from './action-tooltip'
 import ImageIcon from '@/svgs/image-fill.svg'
 import VideoIcon from '@/svgs/video-on-fill.svg'
-import { numWithUnits } from '@/lib/format'
+import { xmrFromSats } from '@/lib/format'
 import ItemInfo from './item-info'
 import Prism from '@/svgs/prism.svg'
 import { commentsViewedAt } from '@/lib/new-comments'
@@ -122,7 +122,7 @@ export default function Item ({
               {item.pollCost && <PollIndicator item={item} />}
               {item.bounty > 0 &&
                 <span className={styles.icon}>
-                  <ActionTooltip notForm overlayText={`${numWithUnits(item.bounty)} ${item.bountyPaidTo?.length ? ' paid' : ' bounty'}`}>
+                  <ActionTooltip notForm overlayText={`${xmrFromSats(item.bounty)} ${item.bountyPaidTo?.length ? ' paid' : ' bounty'}`}>
                     <BountyIcon className={`${styles.bountyIcon} ${item.bountyPaidTo?.length ? 'fill-success' : 'fill-grey'}`} height={16} width={16} />
                   </ActionTooltip>
                 </span>}

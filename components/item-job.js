@@ -12,7 +12,7 @@ import Badges from './badge'
 import { MEDIA_URL } from '@/lib/constants'
 import { Badge } from 'react-bootstrap'
 import SubPopover from './sub-popover'
-import { numWithUnits } from '@/lib/format'
+import { xmrFromSats } from '@/lib/format'
 import { PayInInfo, InfoDropdownItem } from './item-info'
 import Boost from './boost-button'
 import ActionDropdown from './action-dropdown'
@@ -63,7 +63,7 @@ export default function ItemJob ({ item, toc, rank, children, ...props }) {
           </div>
           <div className={styles.other}>
             <span>
-              {numWithUnits(item.sats + item.boost + item.cost)}
+              {xmrFromSats(item.sats + item.boost + item.cost)}
             </span>
             <span> \ </span>
             {item.company &&

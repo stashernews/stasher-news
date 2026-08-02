@@ -12,7 +12,7 @@ import LongPressable from './long-pressable'
 import Overlay from 'react-bootstrap/Overlay'
 import Popover from 'react-bootstrap/Popover'
 import { useShowModal } from './modal'
-import { numWithUnits } from '@/lib/format'
+import { xmrFromSats } from '@/lib/format'
 import { Dropdown } from 'react-bootstrap'
 import classNames from 'classnames'
 
@@ -164,7 +164,7 @@ export default function UpVote ({ item, className, collapsed }) {
     const sats = pending || nextTip(meSats, { ...me?.privates })
     let overlayTextContent
     if (me) {
-      overlayTextContent = me.privates?.tipRandom ? 'random' : numWithUnits(sats, { abbreviate: false })
+      overlayTextContent = me.privates?.tipRandom ? 'random' : xmrFromSats(sats)
     } else {
       overlayTextContent = 'zap it'
     }

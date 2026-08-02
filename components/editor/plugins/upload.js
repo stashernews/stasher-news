@@ -21,7 +21,7 @@ import { useLazyQuery } from '@apollo/client/react'
 import { useFeeButton } from '@/components/fee-button'
 import { FileUpload } from '@/components/file-upload'
 import useDebounceCallback from '@/components/use-debounce-callback'
-import { numWithUnits } from '@/lib/format'
+import { xmrFromSats } from '@/lib/format'
 import { AWS_S3_URL_REGEXP } from '@/lib/constants'
 import { getDragSelection } from '@/lib/lexical/utils/dom'
 import styles from '@/lib/lexical/theme/editor.module.css'
@@ -280,7 +280,7 @@ function useLexicalUploadFees (editor) {
     const totalFees = feePerUpload * nUnpaid
     merge({
       uploadFees: {
-        term: `+ ${numWithUnits(feePerUpload, { abbreviate: false })} x ${nUnpaid}`,
+        term: `+ ${xmrFromSats(feePerUpload)} x ${nUnpaid}`,
         label: 'upload fee',
         op: '+',
         modifier: cost => cost + totalFees,

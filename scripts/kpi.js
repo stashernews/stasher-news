@@ -83,8 +83,10 @@ function formatNumber (num) {
   return num.toString()
 }
 
-function formatSats (sats) {
-  return formatNumber(sats) + ' sats'
+function formatXmr (sats) {
+  const n = sats / 1e9
+  const str = n % 1 === 0 ? Number(n).toString() : Number(n).toFixed(12).replace(/0+$/, '').replace(/\.$/, '')
+  return formatNumber(str) + ' XMR'
 }
 
 function calculatePercentChange (current, previous) {
@@ -359,7 +361,7 @@ async function generateKPISummary (monthsBack = 6) {
       const change = current.spending !== 'N/A' && previous.spending !== 'N/A'
         ? ` (${calculatePercentChange(current.spending, previous.spending)})`
         : ''
-      const value = current.spending === 'N/A' ? 'N/A' : formatSats(current.spending)
+      const value = current.spending === 'N/A' ? 'N/A' : formatXmr(current.spending)
       console.log(`${formatMonth(current.month)}: ${value}${change}`)
     }
 
@@ -370,7 +372,7 @@ async function generateKPISummary (monthsBack = 6) {
       const change = current.stacking !== 'N/A' && previous.stacking !== 'N/A'
         ? ` (${calculatePercentChange(current.stacking, previous.stacking)})`
         : ''
-      const value = current.stacking === 'N/A' ? 'N/A' : formatSats(current.stacking)
+      const value = current.stacking === 'N/A' ? 'N/A' : formatXmr(current.stacking)
       console.log(`${formatMonth(current.month)}: ${value}${change}`)
     }
 
@@ -381,7 +383,7 @@ async function generateKPISummary (monthsBack = 6) {
       const change = current.territoryRevenue !== 'N/A' && previous.territoryRevenue !== 'N/A'
         ? ` (${calculatePercentChange(current.territoryRevenue, previous.territoryRevenue)})`
         : ''
-      const value = current.territoryRevenue === 'N/A' ? 'N/A' : formatSats(current.territoryRevenue)
+      const value = current.territoryRevenue === 'N/A' ? 'N/A' : formatXmr(current.territoryRevenue)
       console.log(`${formatMonth(current.month)}: ${value}${change}`)
     }
 

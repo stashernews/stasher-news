@@ -5,7 +5,7 @@ import usePayInHelper from '@/components/payIn/hooks/use-pay-in-helper'
 import useWatchPayIn from './use-watch-pay-in'
 import Qr, { QrSkeleton } from '@/components/qr'
 import PayInError from '../error'
-import { msatsToSats, numWithUnits } from '@/lib/format'
+import { msatsToSats, xmrFromSats } from '@/lib/format'
 import { paidWaitFor } from '@/lib/pay-in'
 import { PayInStatus } from '../status'
 
@@ -102,7 +102,7 @@ function QrPayIn ({
       <PayInError error={walletError} />
       <Qr
         value={invoice}
-        description={numWithUnits(msatsToSats(payIn.payerPrivates.payInBolt11.msatsRequested), { abbreviate: false })}
+        description={xmrFromSats(msatsToSats(payIn.payerPrivates.payInBolt11.msatsRequested))}
       />
       <div className='d-flex justify-content-center'>
         <PayInStatus payIn={payIn} />

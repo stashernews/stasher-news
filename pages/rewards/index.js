@@ -7,7 +7,7 @@ import Layout from '@/components/layout'
 import { useQuery } from '@apollo/client/react'
 import Link from 'next/link'
 import { amountSchema } from '@/lib/validate'
-import { msatsToSats, numWithUnits } from '@/lib/format'
+import { msatsToSats, xmrFromSats } from '@/lib/format'
 import PageLoading from '@/components/page-loading'
 import { useShowModal } from '@/components/modal'
 import dynamic from 'next/dynamic'
@@ -47,7 +47,7 @@ export function RewardLine ({ total, time }) {
   return (
     <>
       <span style={{ whiteSpace: 'nowrap' }}>
-        {numWithUnits(total)} in rewards
+        {xmrFromSats(total)} in rewards
       </span>
       {time &&
         <small style={{ whiteSpace: 'nowrap' }}>
