@@ -12,7 +12,7 @@ import { useCallback } from 'react'
 function StackingSince ({ since }) {
   return (
     <small className='text-muted d-flex-inline'>
-      stacking since:{' '}
+      stashing since:{' '}
       {since
         ? (
           <ItemPopover id={since}>

@@ -15,7 +15,7 @@ import classNames from 'classnames'
 import CheckCircle from '@/svgs/checkbox-circle-fill.svg'
 
 // all of this nonsense is to show the stat we are sorting by first
-const Stacked = ({ user }) => (user.optional.stacked !== null && <span>{abbrNum(user.optional.stacked)} stacked</span>)
+const Stacked = ({ user }) => (user.optional.stacked !== null && <span>{abbrNum(user.optional.stacked)} stashed</span>)
 const Spent = ({ user }) => (user.optional.spent !== null && <span>{abbrNum(user.optional.spent)} spent</span>)
 const Items = ({ user }) => (
   <Link href={`/${user.name}/all`} className='text-reset'>
@@ -124,7 +124,7 @@ function UserHidden ({ rank, user, Embellish }) {
         </span>
         <div className={`${styles.hunk} d-flex justify-content-center flex-column`}>
           <div className={`${styles.title} text-muted d-inline-flex align-items-center`}>
-            stacker is in hiding
+            stasher is in hiding
           </div>
           {Embellish && <Embellish rank={rank} user={user} />}
         </div>

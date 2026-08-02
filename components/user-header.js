@@ -240,7 +240,7 @@ function HeaderHeader ({ user }) {
   const Satistics = () => (
     user.optional.stacked !== null &&
       <div className={`mb-2 ms-0 ms-sm-1 ${styles.username} text-success`}>
-        {numWithUnits(user.optional.stacked, { abbreviate: false, format: true })} stacked
+        {numWithUnits(user.optional.stacked, { abbreviate: false, format: true })} stashed
       </div>
   )
 
@@ -251,7 +251,7 @@ function HeaderHeader ({ user }) {
         <HeaderNym user={user} isMe={isMe} />
         <Satistics user={user} />
         <div className='d-flex flex-column mt-1 ms-0'>
-          <small className='text-muted d-flex-inline'>stacking since: {user.since
+          <small className='text-muted d-flex-inline'>stashing since: {user.since
             ? (
               <ItemPopover id={user.since}>
                 <Link href={`/items/${user.since}`} className='ms-1'>#{user.since}</Link>
@@ -263,7 +263,7 @@ function HeaderHeader ({ user }) {
             <small className='text-muted d-flex-inline'>longest cowboy streak: {user.optional.maxStreak}</small>}
           {user.optional.isContributor &&
             <small className='text-muted d-flex align-items-center'>
-              <CodeIcon className='me-1' height={16} width={16} /> verified stacker.news contributor
+              <CodeIcon className='me-1' height={16} width={16} /> verified stasher.news contributor
             </small>}
           {user.optional.nostrAuthPubkey &&
             <small className='text-muted d-flex-inline'>

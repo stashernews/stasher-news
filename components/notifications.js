@@ -263,7 +263,7 @@ function EarnNotification ({ n }) {
       <HandCoin className='align-self-center fill-boost mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
       <div className='ms-2'>
         <NoteHeader color='boost' big>
-          you stacked {xmrFromSats(n.earnedSats)} in rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{time}</small>
+          you stashed {xmrFromSats(n.earnedSats)} in rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{time}</small>
         </NoteHeader>
         {n.sources &&
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
@@ -287,15 +287,15 @@ function ReferralReward ({ n }) {
       <UserAdd className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
-          you stacked {xmrFromSats(n.earnedSats)} in referral rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{dayMonthYear(new Date(n.sortTime))}</small>
+          you stashed {xmrFromSats(n.earnedSats)} in referral rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{dayMonthYear(new Date(n.sortTime))}</small>
         </NoteHeader>
         {n.sources &&
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
-            {n.sources.forever > 0 && <span>{xmrFromSats(n.sources.forever)} for stackers joining because of you</span>}
-            {n.sources.oneDay > 0 && <span>{n.sources.forever > 0 && ' \\ '}{xmrFromSats(n.sources.oneDay)} for stackers referred to content by you today</span>}
+            {n.sources.forever > 0 && <span>{xmrFromSats(n.sources.forever)} for stashers joining because of you</span>}
+            {n.sources.oneDay > 0 && <span>{n.sources.forever > 0 && ' \\ '}{xmrFromSats(n.sources.oneDay)} for stashers referred to content by you today</span>}
           </div>}
         <div style={{ lineHeight: '140%' }}>
-          SN gives referral rewards to stackers like you for referring the top stackers daily. You refer stackers when they visit your posts, comments, profile, territory, or if they visit SN through your referral links.
+          SN gives referral rewards to stashers like you for referring the top stashers daily. You refer stashers when they visit your posts, comments, profile, or turf, or if they visit SN through your referral links.
         </div>
       </div>
     </div>
@@ -308,7 +308,7 @@ function RevenueNotification ({ n }) {
       <BountyIcon className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
-          you stacked {xmrFromSats(n.earnedSats)} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
+          you stashed {xmrFromSats(n.earnedSats)} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
         </NoteHeader>
         <div style={{ lineHeight: '140%' }}>
           As the founder of territory <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 70% of the post, comment, boost, and tip fees. The other 30% go to <Link href='/rewards'>rewards</Link>.
@@ -339,8 +339,8 @@ function Invitification ({ n }) {
         your invite has been redeemed by
         {' ' + numWithUnits(n.invite.giftedCount ?? 0, {
           abbreviate: false,
-          unitSingular: 'stacker',
-          unitPlural: 'stackers'
+          unitSingular: 'stasher',
+          unitPlural: 'stashers'
         })}
       </NoteHeader>
       <div className='ms-4 me-2 mt-1'>
@@ -642,7 +642,7 @@ function Votification ({ n }) {
       <NoteHeader color='success'>
         <span className='d-inline-flex'>
           <span>
-            your {n.item.title ? 'post' : 'reply'} stacked {stackedTextString}
+            your {n.item.title ? 'post' : 'reply'} stashed {stackedTextString}
             {forwardedPct > 0 &&
               <small className='text-muted fw-light ms-1'>{forwardedPct}% forwarded</small>}
           </span>
@@ -673,7 +673,7 @@ function ForwardedVotification ({ n }) {
       <NoteHeader color='success'>
         <span className='d-inline-flex'>
           <span>
-            {n.item.title ? 'post' : 'reply'} stacked {stackedText(n.item)}
+            {n.item.title ? 'post' : 'reply'} stashed {stackedText(n.item)}
             {myPct && <small className='text-muted fw-light ms-1'>{myPct}% forwarded to you</small>}
           </span>
           {n.item.credits > 0 && <CCInfo size={16} />}
@@ -729,7 +729,7 @@ function FollowActivity ({ n }) {
   return (
     <>
       <NoteHeader color='info'>
-        a stacker you subscribe to {n.item.parentId ? 'commented' : 'posted'}
+        a stasher you subscribe to {n.item.parentId ? 'commented' : 'posted'}
       </NoteHeader>
       <NoteItem item={n.item} />
     </>

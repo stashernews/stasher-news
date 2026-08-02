@@ -291,7 +291,7 @@ function ApiKey ({ enabled, apiKey }) {
   const body =
   encodeURI(`**[API Key Request]**
 
-Hi, I would like to use API keys with the [Stacker News GraphQL API](/api/graphql) for the following reasons:
+Hi, I would like to use API keys with the [Stasher News GraphQL API](/api/graphql) for the following reasons:
 
 ...
 

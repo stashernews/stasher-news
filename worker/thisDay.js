@@ -68,16 +68,16 @@ function topPosts (days) {
 }
 
 function topStackers (days) {
-  let text = '#### Top Stackers'
+  let text = '#### Top Stashers'
   for (const { day, data } of days) {
     const user = data.users.users?.[0]
     if (user) {
       text += `
 - @${user.name}
-    - ${abbrNum(user.optional?.stacked)} stacked \\ ${abbrNum(user.optional?.spent)} spent \\ ${numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
+    - ${abbrNum(user.optional?.stacked)} stashed \\ ${abbrNum(user.optional?.spent)} spent \\ ${numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
     } else {
       text += `
-- stacker is in hiding for \`${day}\``
+- stasher is in hiding for \`${day}\``
     }
   }
   return text
@@ -107,7 +107,7 @@ function topSubs (days) {
     if (sub) {
       text += `
 - ~${sub.name}
-    - ${abbrNum(sub.optional?.stacked)} stacked \\ ${abbrNum(sub.optional?.revenue)} revenue \\ ${abbrNum(sub.optional?.spent)} spent \\ ${numWithUnits(sub.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
+    - ${abbrNum(sub.optional?.stacked)} stashed \\ ${abbrNum(sub.optional?.revenue)} revenue \\ ${abbrNum(sub.optional?.spent)} spent \\ ${numWithUnits(sub.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
     } else {
       text += `
 - no top territory for \`${day}\``

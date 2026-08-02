@@ -153,7 +153,7 @@ export function NostrAuth ({ text, callbackUrl, multiAuth }) {
           ['u', process.env.NEXT_PUBLIC_URL],
           ['method', 'GET']
         ],
-        content: 'Stacker News Authentication'
+        content: 'Stasher News Authentication'
       }, { signer })
 
       await signIn('nostr', {

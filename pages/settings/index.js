@@ -297,7 +297,7 @@ export default function Settings ({ ssrData }) {
           />
           <div className='form-label'>privacy</div>
           <Checkbox
-            label={<>hide me from  <Link href='/top/stackers/day'>top stackers</Link></>}
+            label={<>hide me from  <Link href='/top/stackers/day'>top stashers</Link></>}
             name='hideFromTopUsers'
             groupClassName='mb-0'
           />
@@ -307,7 +307,7 @@ export default function Settings ({ ssrData }) {
             groupClassName='mb-0'
           />
           <Checkbox
-            label={<>hide my bookmarks from other stackers</>}
+            label={<>hide my bookmarks from other stashers</>}
             name='hideBookmarks'
             groupClassName='mb-0'
           />

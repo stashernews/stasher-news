@@ -12,7 +12,7 @@ import { TerritoryInfo, ToggleSubSubscriptionDropdownItem, MuteSubDropdownItem }
 
 // all of this nonsense is to show the stat we are sorting by first
 const Revenue = ({ sub }) => (sub.optional.revenue !== null && <span>{abbrNum(sub.optional.revenue)} revenue</span>)
-const Stacked = ({ sub }) => (sub.optional.stacked !== null && <span>{abbrNum(sub.optional.stacked)} stacked</span>)
+const Stacked = ({ sub }) => (sub.optional.stacked !== null && <span>{abbrNum(sub.optional.stacked)} stashed</span>)
 const Spent = ({ sub }) => (sub.optional.spent !== null && <span>{abbrNum(sub.optional.spent)} spent</span>)
 const Items = ({ sub }) => (
   <span>

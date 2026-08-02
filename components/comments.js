@@ -27,7 +27,7 @@ export function CommentsHeader ({ handleSort, pinned, bio, parentCreatedAt, comm
         className={styles.navbarNav}
         activeKey={sort}
       >
-        <Nav.Item className='text-muted' title={`${xmrFromSats(commentSats + commentCost + commentBoost)} (${commentSats} stacked \\ ${commentCost} cost \\ ${commentBoost} boost)`}>
+        <Nav.Item className='text-muted' title={`${xmrFromSats(commentSats + commentCost + commentBoost)} (${commentSats} stashed \\ ${commentCost} cost \\ ${commentBoost} boost)`}>
           {xmrFromSats(commentSats + commentCost + commentBoost)}
         </Nav.Item>
         <div className='ms-auto d-flex'>
