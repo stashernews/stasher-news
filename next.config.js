@@ -75,7 +75,7 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
   allowedDevOrigins: getAllowedDevOrigins(),
   env: {
     NEXT_PUBLIC_COMMIT_HASH: commitHash,
-    NEXT_PUBLIC_ASSET_PREFIX: isProd ? 'https://a.stacker.news' : '',
+    NEXT_PUBLIC_ASSET_PREFIX: isProd ? 'https://a.stasher.news' : '',
     NEXT_PUBLIC_MEDIA_URL: process.env.NEXT_PUBLIC_MEDIA_URL,
     NEXT_PUBLIC_MEDIA_CHECK_URL: process.env.NEXT_PUBLIC_MEDIA_CHECK_URL,
     NEXT_PUBLIC_MEDIA_DOMAIN: process.env.NEXT_PUBLIC_MEDIA_DOMAIN,
@@ -110,7 +110,7 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
   productionBrowserSourceMaps: true,
   generateBuildId: commitHash ? async () => commitHash : undefined,
   // Use the CDN in production and localhost for development.
-  assetPrefix: isProd ? 'https://a.stacker.news' : undefined,
+  assetPrefix: isProd ? 'https://a.stasher.news' : undefined,
   crossOrigin: isProd ? 'anonymous' : undefined,
   async headers () {
     return [

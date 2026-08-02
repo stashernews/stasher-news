@@ -99,7 +99,7 @@ async function itemToMessage ({ item, postAuthorNostrProfile }) {
 by ${postAuthorNostrProfile ? `nostr:${postAuthorNostrProfile}` : `${item.userName}`} in ${item.subNames?.map(sub => `~${sub}`).join(', ')}
 ${numWithUnits(msatsToSats(item.msats), { abbreviate: false })} and ${numWithUnits(item.ncomments, { abbreviate: false, unitSingular: 'comment', unitPlural: 'comments' })} so far
 
-https://stacker.news/items/${item.id}`
+https://stasher.news/items/${item.id}`
 }
 
 export async function postToSocial ({ models }) {

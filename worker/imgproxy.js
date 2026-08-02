@@ -13,7 +13,7 @@ const MEDIA_CHECK_URL = process.env.MEDIA_CHECK_URL_DOCKER || process.env.NEXT_P
 
 const cache = new Map()
 
-// based on heuristics. see https://stacker.news/items/266838
+// based on heuristics. see https://stasher.news/items/266838
 const imageUrlMatchers = [
   u => u.host === 'i.postimg.cc',
   u => u.host === 'pbs.twimg.com',
@@ -29,7 +29,7 @@ const exclude = [
   u => process.env.NODE_ENV === 'production' && u.protocol !== 'https:',
   u => u.host.endsWith('.onion') || u.host.endsWith('.b32.ip') || u.host.endsWith('.loki'),
   u => ['twitter.com', 'x.com', 'nitter.it', 'nitter.at', 'xcancel.com'].some(h => h === u.host),
-  u => u.host === 'stacker.news',
+  u => u.host === 'stasher.news',
   u => u.host === 'news.ycombinator.com',
   u => u.host === 'www.youtube.com' || u.host === 'youtu.be',
   u => u.host === 'github.com'

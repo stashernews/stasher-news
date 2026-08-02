@@ -83,7 +83,7 @@ services:
     env_file: *env_file
     environment:
       # configure to screenshot production, because local dev is too slow
-      - CAPTURE_URL=http://stacker.news
+      - CAPTURE_URL=http://stasher.news
     expose:
       - "5678"
     ports:

@@ -311,7 +311,7 @@ export default function TerritoryForm ({ sub }) {
       {DOMAIN_BETA_IDS.includes(Number(me?.id)) &&
         <>
           {sub && !branding && <TerritoryBranding sub={sub} />}
-          {sub && branding && <Link className='text-muted w-100' href={`${process.env.NEXT_PUBLIC_URL}/~${sub.name}/edit`}>domain and branding settings on stacker.news <LinkExternal width={16} height={16} /></Link>}
+          {sub && branding && <Link className='text-muted w-100' href={`${process.env.NEXT_PUBLIC_URL}/~${sub.name}/edit`}>domain and branding settings on stasher.news <LinkExternal width={16} height={16} /></Link>}
         </>}
     </FeeButtonProvider>
   )
