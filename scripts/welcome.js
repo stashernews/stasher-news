@@ -8,7 +8,7 @@ function usage () {
 let args = process.argv.slice(2)
 
 const useProd = args.indexOf('--prod') !== -1
-const SN_API_URL = useProd ? 'https://stacker.news' : 'http://localhost:3000'
+const SN_API_URL = useProd ? 'https://stasher.news' : 'http://localhost:3000'
 args = args.filter(arg => arg !== '--prod')
 console.log('> url:', SN_API_URL)
 
@@ -175,7 +175,7 @@ function welcomePostNr (welcomePost) {
 
 function printAmount ({ welcomePost, bios }) {
   const nr = welcomePostNr(welcomePost)
-  console.log(`${bios.length} new stackers have found their way to Stacker News since [#${nr}](${util.itemLink(welcomePost.id)})!\n`)
+  console.log(`${bios.length} new stackers have found their way to Stasher News since [#${nr}](${util.itemLink(welcomePost.id)})!\n`)
 }
 
 function printTopTenderfoots ({ bios }) {
@@ -200,7 +200,7 @@ function printQuestions () {
   console.log('1. How did you find out about SN?')
   console.log('2. How difficult was it to get started? Any feedback?')
   console.log('3. How much experience do you have with lightning?')
-  console.log('4. Have you read the [FAQ](https://stacker.news/faq) already?')
+  console.log('4. Have you read the [FAQ](https://stasher.news/faq) already?')
   console.log('5. Have you realized that you need to attach a wallet to receive sats?')
   console.log('6. Do you understand the difference between cowboy credits (CCs) and sats?')
   console.log('7. How were your first weeks on SN?\n')
@@ -247,7 +247,7 @@ const util = {
     return arr.reduce((acc, item) => acc + item[key], 0)
   },
   itemLink (id) {
-    return `https://stacker.news/items/${id}`
+    return `https://stasher.news/items/${id}`
   },
   dateLink (item) {
     return `[${this.formatDate(item.createdAt)}](${this.itemLink(item.id)})`

@@ -1,11 +1,11 @@
 <p align="center">
-<a href="https://stacker.news">
+<a href="https://stasher.news">
 <img height="50" alt="sn banner" src="https://github.com/stackernews/stacker.news/assets/34140557/a8ccc5dc-c453-46dc-be74-60dd0a42ce09">
 </a>
 </p>
 
 
-- Stacker News moderates forums with money
+- Stasher News moderates forums with money
 - What You See is What We Ship (look ma, I invented an initialism)
 - 100% FOSS
 - We pay bitcoin for PRs, issues, documentation, code reviews and more
@@ -40,7 +40,7 @@ Go to [localhost:3000](http://localhost:3000).
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/stackernews/stacker.news)
 
-You can run Stacker News on Github Codespaces
+You can run Stasher News on Github Codespaces
 
 #### Setup
 
@@ -86,7 +86,7 @@ $ ./sndev help
           X88 888  888 Y88b 888 Y8b.      Y8bd8P
       88888P' 888  888  'Y88888  'Y8888    Y88P
 
-manages a docker based stacker news development environment
+manages a docker based stasher news development environment
 
 USAGE
   $ sndev [COMMAND]
@@ -543,13 +543,13 @@ To ensure stackers balances are kept sane, some wallet updates are run in [seria
 <br>
 
 # Need help?
-Open a [discussion](http://github.com/stackernews/stacker.news/discussions) or [issue](http://github.com/stackernews/stacker.news/issues/new) or [email us](mailto:kk@stacker.news) or request joining the [dev chat](#dev-chat).
+Open a [discussion](http://github.com/stackernews/stacker.news/discussions) or [issue](http://github.com/stackernews/stacker.news/issues/new) or [email us](mailto:kk@stasher.news) or request joining the [dev chat](#dev-chat).
 
 <br>
 
 # Responsible disclosure
 
-If you found a vulnerability, we would greatly appreciate it if you contact us via [security@stacker.news](mailto:security@stacker.news) or open a [security advisory](https://github.com/stackernews/stacker.news/security/advisories/new). Our PGP key can be found [here](https://stacker.news/pgp.txt) (FEE1 E768 E0B3 81F5).
+If you found a vulnerability, we would greatly appreciate it if you contact us via [security@stasher.news](mailto:security@stasher.news) or open a [security advisory](https://github.com/stackernews/stacker.news/security/advisories/new). Our PGP key can be found [here](https://stasher.news/pgp.txt) (FEE1 E768 E0B3 81F5).
 
 <br>
 

@@ -9,7 +9,7 @@ const black = '#121214'
 const yellow = '#FADA5E'
 
 const defaultManifest = {
-  name: 'Stacker News',
+  name: 'Stasher News',
   short_name: 'SN',
   icons: [
     {
@@ -104,7 +104,7 @@ const defaultManifest = {
   start_url: '/',
   url_handlers: [
     {
-      origin: 'https://stacker.news'
+      origin: 'https://stasher.news'
     }
   ],
   share_target: {

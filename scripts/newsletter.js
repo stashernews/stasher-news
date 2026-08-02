@@ -58,7 +58,7 @@ const TOP_USERS = gql`
 `
 
 const client = new ApolloClient({
-  link: new HttpLink({ uri: 'https://stacker.news/api/graphql' }),
+  link: new HttpLink({ uri: 'https://stasher.news/api/graphql' }),
   cache: new InMemoryCache()
 })
 
@@ -221,67 +221,67 @@ Have a great weekend!
 
 ##### Top Posts
 ${top.data.items.items.map((item, i) =>
-  `${i + 1}. [${item.title}](https://stacker.news/items/${item.id})
-    - ${abbrNum(item.sats + item.boost + item.cost)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stacker.news/${item.user.name})\n`).join('')}
+  `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
+    - ${abbrNum(item.sats + item.boost + item.cost)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
 ##### Top AMAs
 ${ama.data.items.items.slice(0, 10).map((item, i) =>
-  `${i + 1}. [${item.title}](https://stacker.news/items/${item.id})
-    - ${abbrNum(item.sats + item.boost + item.cost)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stacker.news/${item.user.name})\n`).join('')}
+  `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
+    - ${abbrNum(item.sats + item.boost + item.cost)} sats \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
-[**all of this week's AMAs**](https://stacker.news/~ama/top/posts/week)
+[**all of this week's AMAs**](https://stasher.news/~ama/top/posts/week)
 
 ##### Don't miss
 ${top.data.items.items.map((item, i) =>
-  `- [${item.title}](https://stacker.news/items/${item.id})\n`).join('')}
+  `- [${item.title}](https://stasher.news/items/${item.id})\n`).join('')}
 
-[**all of this week's top posts**](https://stacker.news/top/posts/week)
+[**all of this week's top posts**](https://stasher.news/top/posts/week)
 
 -------
 
 ##### Top meta
 ${meta.data.items.items.slice(0, 10).map((item, i) =>
-  `- [${item.title}](https://stacker.news/items/${item.id})\n`).join('')}
+  `- [${item.title}](https://stasher.news/items/${item.id})\n`).join('')}
 
-[**all of this week's meta**](https://stacker.news/~meta/top/posts/week)
+[**all of this week's meta**](https://stasher.news/~meta/top/posts/week)
 
 -------
 
 ##### Top Monday meme
-![](${new URL(topMeme?.winner.image, 'https://imgprxy.stacker.news').href})
+![](${new URL(topMeme?.winner.image, 'https://imgprxy.stasher.news').href})
 
-[**all monday memes**](https://stacker.news/items/${topMeme?.item})
+[**all monday memes**](https://stasher.news/items/${topMeme?.item})
 
 ------
 
 ##### Top Stackers
 ${topStackers.map((user, i) =>
-    `${i + 1}. [@${user.name}](https://stacker.news/${user.name}): ${abbrNum(user.optional.stacked)} sats stacked`
+    `${i + 1}. [@${user.name}](https://stasher.news/${user.name}): ${abbrNum(user.optional.stacked)} sats stacked`
 ).join('\n')}
 
 ------
 
 ##### Top Spenders
 ${topSpenders.map((user, i) =>
-    `${i + 1}. [@${user.name}](https://stacker.news/${user.name}): ${abbrNum(user.optional.spent)} sats spent`
+    `${i + 1}. [@${user.name}](https://stasher.news/${user.name}): ${abbrNum(user.optional.spent)} sats spent`
 ).join('\n')}
 
 ------
 
 ##### Top Cowboys
 ${topCowboys.map((user, i) =>
-  `${i + 1}. [@${user.name}](https://stacker.news/${user.name}): ${user.optional.streak} days`
+  `${i + 1}. [@${user.name}](https://stasher.news/${user.name}): ${user.optional.streak} days`
 ).join('\n')}
 
 ------
 
 Yeehaw,
 Keyan
-A guy who works on Stacker News
+A guy who works on Stasher News
 
 [Watch](https://www.youtube.com/@stackernews/live) or [Listen to](https://www.fountain.fm/show/Mg1AWuvkeZSFhsJZ3BW2) or [Read in print](https://www.plebpoet.com/zines.html) SN's top stories every week.
 
-Get this newsletter sent to your email inbox by signing up [here](https://mail.stacker.news/subscription/form).`)
+Get this newsletter sent to your email inbox by signing up [here](https://mail.stasher.news/subscription/form).`)
 }
 
 main()
