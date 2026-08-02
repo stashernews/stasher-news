@@ -144,13 +144,13 @@ async function afterBegin (models, { payIn, result, mCostRemaining }, { me, send
 // prisma does not support pipelining this way (or any other way afaict), but a lot of the
 // deadlock and timeout risks of these interactive txs would be helped by such a thing
 export async function onFail (tx, payInId) {
-  const payIn = await tx.payIn.findUnique({ where: { id: payInId }, include: { payInCustodialTokens: true, beneficiaries: true } })
+  const payIn = await tx.payIn.findUnique({ where: { id: payInId }, include: { beneficiaries: true } })
   if (!payIn) {
     throw new Error('PayIn not found')
   }
 
   // refund the custodial tokens
-  for (const payInCustodialToken of payIn.payInCustodialTokens) {
+  for (const payInCustodialToken of payIn.payInCustodialTokens ?? []) {
     const isSats = payInCustodialToken.custodialTokenType === 'SATS'
     await tx.$executeRaw`
       WITH refunduser AS (
@@ -175,10 +175,7 @@ export async function onPaid (tx, payInId) {
   const payIn = await tx.payIn.findUnique({
     where: { id: payInId },
     include: {
-      payOutBolt11: true,
-      beneficiaries: true,
-      // need this for obtaining row level locks on the payOutCustodialTokens
-      payOutCustodialTokens: true
+      beneficiaries: true
     }
   })
   if (!payIn) {
@@ -187,63 +184,7 @@ export async function onPaid (tx, payInId) {
 
   await obtainRowLevelLocks(tx, payIn)
 
-  // Batch all payOut updates into a single query
-  // Each payOut gets sequential mtokensAfter using running totals
-  // payouts are unbounded,may be very numerous, e.g. rewards, so we only want one roundtrip to the database
-  await tx.$executeRaw`
-    WITH payouts_with_running_totals AS (
-      SELECT
-        id,
-        "userId",
-        "custodialTokenType",
-        mtokens,
-        SUM(CASE WHEN "custodialTokenType" = 'SATS' THEN mtokens ELSE 0 END)
-          OVER (PARTITION BY "userId" ORDER BY id) as running_sats,
-        SUM(CASE WHEN "custodialTokenType" = 'CREDITS' THEN mtokens ELSE 0 END)
-          OVER (PARTITION BY "userId" ORDER BY id) as running_credits
-      FROM "PayOutCustodialToken"
-      WHERE "payInId" = ${payIn.id}
-    ),
-    user_totals AS (
-      SELECT
-        "userId",
-        SUM(CASE WHEN "custodialTokenType" = 'SATS' THEN mtokens ELSE 0 END) as final_sats,
-        SUM(CASE WHEN "custodialTokenType" = 'CREDITS' THEN mtokens ELSE 0 END) as final_credits,
-        SUM(mtokens) as final_total
-      FROM "PayOutCustodialToken"
-      WHERE "payInId" = ${payIn.id}
-      GROUP BY "userId"
-    ),
-    outuser AS (
-      UPDATE users
-      SET
-        msats = users.msats + ut.final_sats,
-        "stackedMsats" = users."stackedMsats" + ${isWithdrawal(payIn) ? 0 : Prisma.sql`ut.final_sats`},
-        mcredits = users.mcredits + ut.final_credits,
-        "stackedMcredits" = users."stackedMcredits" + ${isWithdrawal(payIn) ? 0 : Prisma.sql`ut.final_credits`}
-      FROM user_totals ut
-      WHERE users.id = ut."userId"
-      RETURNING users.id, users.mcredits, users.msats
-    )
-    UPDATE "PayOutCustodialToken" pct
-    SET "mtokensAfter" = CASE
-      WHEN pct."custodialTokenType" = 'SATS'
-        THEN outuser.msats - ut.final_sats + p.running_sats
-      ELSE outuser.mcredits - ut.final_credits + p.running_credits
-    END
-    FROM payouts_with_running_totals p
-    JOIN user_totals ut ON ut."userId" = p."userId"
-    JOIN outuser ON outuser.id = p."userId"
-    WHERE pct.id = p.id`
-
   if (!isWithdrawal(payIn) && !isProxyPayment(payIn)) {
-    if (payIn.payOutBolt11) {
-      await tx.$executeRaw`
-        UPDATE users
-        SET "stackedMsats" = "stackedMsats" + ${payIn.payOutBolt11.msats}
-        WHERE id = ${payIn.payOutBolt11.userId}`
-    }
-
     // most paid actions are eligible for a cowboy hat streak
     await tx.$executeRaw`
       INSERT INTO pgboss.job (name, data)
@@ -275,13 +216,9 @@ export async function retry (payInId, { me, sendProtocolId }) {
   try {
     const requestedSendProtocolId = await resolveRequestedSendProtocolId(sendProtocolId, { me })
     const include = {
-      payInBolt11: true,
-      payOutCustodialTokens: { include: { subPayOutCustodialToken: true } },
-      payOutBolt11: true,
       subPayIn: true,
       itemPayIn: true,
-      uploadPayIns: true,
-      pessimisticEnv: true
+      uploadPayIns: true
     }
     const where = { id: payInId, userId: me.id, payInState: 'FAILED', successorId: null, benefactorId: null }
 
@@ -303,7 +240,7 @@ export async function retry (payInId, { me, sendProtocolId }) {
       // pessimistic payIns are fully re-executed without tracking
       return await pay(
         payInFailedInitial.payInType,
-        { ...(payInFailedInitial.pessimisticEnv.args ?? {}) },
+        { ...(payInFailedInitial.pessimisticEnv?.args ?? {}) },
         { me, sendProtocolId: retrySendProtocolId }
       )
     }
