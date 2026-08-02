@@ -105,6 +105,16 @@ export default {
         where: { ownerUserId: me.id },
         include: { user: true }
       })
+    },
+
+    // Capability-style: no `me` gate. The paymentId (postId + nonce) is the
+    // unguessable token the tip modal already holds, so polling survives a session
+    // change. paymentId is NOT unique-constrained on ObservedTip, so findFirst.
+    async tipStatus (parent, { paymentId }, { models }) {
+      return models.observedTip.findFirst({
+        where: { paymentId },
+        select: { state: true, piconeros: true, confirmations: true }
+      })
     }
   },
 
