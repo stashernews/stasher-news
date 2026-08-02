@@ -1,3 +1,13 @@
+// Relations/columns stripped from the schema. They cannot be included/create/d
+// on the real PayIn model; ignoring them keeps the mcost:0 fee path alive.
+const GHOST_KEYS = new Set([
+  'payInCustodialTokens',
+  'payOutCustodialTokens',
+  'payInBolt11',
+  'payOutBolt11',
+  'pessimisticEnv'
+])
+
 export function payInPrismaCreate (payIn) {
   const result = {}
 
@@ -20,6 +30,9 @@ export function payInPrismaCreate (payIn) {
   // if the value is an array, recursively call payInPrismaCreate on each element of the array
   // if the value is not an object or array, add the key and value to the result
   for (const key in payIn) {
+    if (GHOST_KEYS.has(key)) {
+      continue
+    }
     if (Array.isArray(payIn[key])) {
       result[key] = { create: payIn[key].map(item => payInPrismaCreate(item)) }
     } else if (isPlainObject(payIn[key])) {
@@ -44,7 +57,7 @@ export function payInClone (payIn) {
     genesisId: payIn.genesisId ?? payIn.id
   }
   for (const key in payIn) {
-    if (key === 'payInBolt11') {
+    if (GHOST_KEYS.has(key)) {
       continue
     }
     if (Array.isArray(payIn[key])) {
