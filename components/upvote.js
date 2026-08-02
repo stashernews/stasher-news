@@ -3,8 +3,8 @@ import styles from './upvote.module.css'
 import { gql } from '@apollo/client'
 import { useMutation } from '@apollo/client/react'
 import ActionTooltip from './action-tooltip'
-import ItemAct, { ZapUndoController } from './item-act'
-import { useZap } from './use-zap'
+import ItemAct from './item-act'
+import TipModal from './tip-modal'
 import { useMe } from './me'
 import getColor from '@/lib/rainbow'
 import { useCallback, useMemo, useRef, useState } from 'react'
@@ -146,14 +146,6 @@ export default function UpVote ({ item, className, collapsed }) {
     }
   }, [me, tipShow, setWalkthrough])
 
-  // debounced zap hook — zapPending is non-zero during undo window
-  const { zap, pending: zapPending, cancel: zapCancel } = useZap({ nextTip })
-  // separate state for long-press custom amount undo (ItemAct modal has its own undo flow)
-  const [longPressPending, setLongPressPending] = useState(0)
-  const [longPressController, setLongPressController] = useState(null)
-  // combined pending for bolt UI — either debounced undo or long-press undo
-  const pending = zapPending || longPressPending
-
   const disabled = useMemo(() => collapsed || item?.mine || item?.meForward || item?.deletedAt,
     [collapsed, item?.mine, item?.meForward, item?.deletedAt])
 
@@ -161,7 +153,7 @@ export default function UpVote ({ item, className, collapsed }) {
     const meSats = (me ? item?.meSats : item?.meAnonSats) || 0
 
     // what should our next tip be?
-    const sats = pending || nextTip(meSats, { ...me?.privates })
+    const sats = nextTip(meSats, { ...me?.privates })
     let overlayTextContent
     if (me) {
       overlayTextContent = me.privates?.tipRandom ? 'random' : xmrFromSats(sats)
@@ -174,67 +166,26 @@ export default function UpVote ({ item, className, collapsed }) {
       getColor(meSats), getColor(meSats + sats)]
   }, [
     me, item?.meSats, item?.meAnonSats, me?.privates?.tipDefault, me?.privates?.turboDefault,
-    me?.privates?.tipRandom, me?.privates?.tipRandomMin, me?.privates?.tipRandomMax, pending])
-
-  // cancel any active undo (debounced or long-press)
-  const cancelAnyUndo = useCallback(() => {
-    if (zapPending) zapCancel()
-    if (longPressController) {
-      longPressController.abort()
-      setLongPressController(null)
-    }
-  }, [zapPending, zapCancel, longPressController])
+    me?.privates?.tipRandom, me?.privates?.tipRandomMin, me?.privates?.tipRandomMax])
 
   const handleLongPress = (e) => {
-    if (!item) return
-
-    // we can't tip ourselves
-    if (disabled) {
-      return
-    }
-
+    if (!item || disabled) return
     setTipShow(false)
-
-    // if any undo is active, cancel it and return
-    if (pending) {
-      cancelAnyUndo()
-      return
-    }
-
-    // long-press opens custom amount modal with its own undo flow
-    const c = new ZapUndoController({ onStart: (sats) => setLongPressPending(sats), onDone: () => setLongPressPending(0) })
-    setLongPressController(c)
-
-    showModal(onClose =>
-      <ItemAct onClose={onClose} item={item} abortSignal={c.signal} />)
+    showModal(onClose => <TipModal item={item} onClose={onClose} />)
   }
 
   const handleShortPress = () => {
-    if (me) {
-      if (!item) return
-
-      // we can't tip ourselves
-      if (disabled) {
-        return
-      }
-
-      if (meSats) {
-        setVoteShow(false)
-      } else {
-        setTipShow(true)
-      }
-
-      // if any undo is active, cancel it
-      if (pending) {
-        cancelAnyUndo()
-        return
-      }
-
-      // synchronous — updates cache immediately, starts debounce timer
-      zap({ item, me })
-    } else {
-      showModal(onClose => <ItemAct onClose={onClose} item={item} />)
+    if (!me) {
+      showModal(onClose => <TipModal item={item} onClose={onClose} />)
+      return
     }
+    if (!item || disabled) return
+    if (meSats) {
+      setVoteShow(false)
+    } else {
+      setTipShow(true)
+    }
+    showModal(onClose => <TipModal item={item} onClose={onClose} />)
   }
 
   const style = useMemo(() => ({
@@ -258,8 +209,7 @@ export default function UpVote ({ item, className, collapsed }) {
               className={classNames(styles.upvote,
                 className,
                 disabled && styles.noSelfTips,
-                meSats && styles.voted,
-                pending && styles.pending)}
+                meSats && styles.voted)}
               style={style}
             />
           </div>
