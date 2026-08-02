@@ -59,8 +59,10 @@ export default async function pay (payInType, payInArgs, { me, custodialOnly, se
 // after begin and retry, we want to double check that the invoice we're assuming will be created is actually created
 // so this is inserted atomically with the payIn creation
 async function queueCheckPayInInvoiceCreation (tx, payInId) {
-  await tx.$executeRaw`INSERT INTO pgboss.job (name, data, startafter, priority)
-    VALUES ('checkPayInInvoiceCreation', jsonb_build_object('payInId', ${payInId}::INTEGER), now() + INTERVAL '60 seconds', 1000)`
+  // pg-boss v9 dropped the DB-side default on pgboss.job.id (uuids are now minted
+  // by the JS client), so raw INSERTs must supply it themselves via gen_random_uuid.
+  await tx.$executeRaw`INSERT INTO pgboss.job (id, name, data, startafter, priority)
+    VALUES (gen_random_uuid(), 'checkPayInInvoiceCreation', jsonb_build_object('payInId', ${payInId}::INTEGER), now() + INTERVAL '60 seconds', 1000)`
 }
 
 async function begin (models, payInInitial, payInArgs, { me, custodialOnly, sendProtocolId }) {
@@ -186,9 +188,11 @@ export async function onPaid (tx, payInId) {
 
   if (!isWithdrawal(payIn) && !isProxyPayment(payIn)) {
     // most paid actions are eligible for a cowboy hat streak
+    // pg-boss v9 dropped the DB-side default on pgboss.job.id (uuids are now minted
+    // by the JS client), so this raw INSERT must supply it via gen_random_uuid.
     await tx.$executeRaw`
-      INSERT INTO pgboss.job (name, data)
-      VALUES ('checkStreak', jsonb_build_object('id', ${payIn.userId}, 'type', 'COWBOY_HAT'))`
+      INSERT INTO pgboss.job (id, name, data)
+      VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${payIn.userId}, 'type', 'COWBOY_HAT'))`
   }
 
   const payInModule = payInTypeModules[payIn.payInType]
