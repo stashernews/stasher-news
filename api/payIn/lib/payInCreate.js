@@ -1,15 +1,10 @@
 import { assertBelowMaxPendingPayInBolt11s, assertMcostRemaining, assertBalancedPayInAndPayOuts } from './assert'
-import { isInvoiceable, isPessimistic, isWithdrawal } from './is'
+import { isInvoiceable, isWithdrawal } from './is'
 import { getCostBreakdown, getPayInCustodialTokens } from './payInCustodialTokens'
 import { payInPrismaCreate } from './payInPrisma'
 
 export const PAY_IN_INCLUDE = {
-  payInCustodialTokens: true,
-  payOutBolt11: true,
-  payInBolt11: true,
-  pessimisticEnv: true,
   user: true,
-  payOutCustodialTokens: true,
   beneficiaries: true
 }
 
@@ -33,12 +28,7 @@ export async function payInCreate (tx, payInProspect, payInArgs, { me }) {
   await assertBelowMaxPendingPayInBolt11s(tx, fullProspect)
 
   const payIn = await tx.payIn.create({
-    data: {
-      ...payInPrismaCreate(fullProspect),
-      pessimisticEnv: {
-        create: isPessimistic(fullProspect, { me }) ? { args: payInArgs } : undefined
-      }
-    },
+    data: payInPrismaCreate(fullProspect),
     include: PAY_IN_INCLUDE
   })
   return { payIn, mCostRemaining }
