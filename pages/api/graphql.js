@@ -13,6 +13,7 @@ import { ApolloServerPluginLandingPageDisabled } from '@apollo/server/plugin/dis
 import PgBoss from 'pg-boss'
 import { lexicalStateLoader } from '@/lib/lexical/server/loader'
 import { createUserLoader, createSubLoader } from '@/api/loaders'
+import { lwsClient } from '@/api/monero/lwsClient'
 
 const apolloServer = new ApolloServer({
   typeDefs,
@@ -92,6 +93,7 @@ const apolloHandler = startServerAndCreateNextHandler(apolloServer, {
       boss,
       userLoader,
       subLoader,
+      monero: lwsClient,
       lexicalStateLoader: lexicalStateLoader({ me, userLoader })
     }
   }
