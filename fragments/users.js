@@ -22,7 +22,6 @@ ${STREAK_FIELDS}
     bioId
     photoId
     privates {
-      autoDropBolt11s
       noReferralLinks
       fiatCurrency
       postsSatsFilter
@@ -44,10 +43,6 @@ ${STREAK_FIELDS}
       turboTipping
       zapUndos
       upvotePopover
-      vaultKeyHash
-      vaultKeyHashUpdatedAt
-      walletsUpdatedAt
-      showPassphrase
     }
     optional {
       isContributor
@@ -78,7 +73,6 @@ export const SETTINGS_FIELDS = gql`
       noteCowboyHat
       noteForwardedSats
       hideInvoiceDesc
-      autoDropBolt11s
       hideFromTopUsers
       hideCowboyHat
       hideBookmarks

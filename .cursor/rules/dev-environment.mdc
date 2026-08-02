@@ -35,7 +35,7 @@ Use `required_permissions: ["all"]` for shell commands that need Docker access.
 | imgproxy | imgproxy | 3001 | image proxy |
 | LocalStack S3 | s3 | 4566 | local S3 for uploads |
 | Capture | capture | 5678 | screenshot service |
-| MailHog | mailhog | 8025 (web), 1025 (smtp) | email testing |
+| MailHog | mailhog | 8025 (web), 1026 (smtp, host) | email testing — host SMTP port remapped from 1025 (often taken by host mail agents); the app reaches it via docker network at mailhog:1025 |
 | Bitcoin (regtest) | bitcoin | — | bitcoind regtest node |
 | SN LND | sn_lnd | 8080 (REST), 10009 (gRPC) | site's LND node |
 | Stacker LND | lnd | 8081 (REST), 10010 (gRPC) | stacker's LND node |

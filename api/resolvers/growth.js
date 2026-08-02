@@ -44,12 +44,13 @@ function timeHelper (when, from, to) {
 }
 
 function spenderPayInsExcluded (sub, me) {
+  // StealthNews: the custodial PayInType values (WITHDRAWAL, AUTO_WITHDRAWAL,
+  // PROXY_PAYMENT, BUY_CREDITS, INVITE_GIFT, REWARDS, TERRITORY_UPDATE,
+  // DEFUNCT_TERRITORY_DAILY_PAYOUT) were removed from the enum in the Monero strip,
+  // so only the surviving valid types appear below.
   return (sub === ALL_SUB || me)
-    ? Prisma.sql`grid."payInType" NOT IN ('WITHDRAWAL', 'AUTO_WITHDRAWAL', 'PROXY_PAYMENT',
-      'DEFUNCT_TERRITORY_DAILY_PAYOUT', 'REWARDS', 'BUY_CREDITS')`
-    : Prisma.sql`grid."payInType" NOT IN ('DONATE', 'INVITE_GIFT', 'WITHDRAWAL', 'AUTO_WITHDRAWAL',
-      'PROXY_PAYMENT', 'DEFUNCT_TERRITORY_DAILY_PAYOUT', 'REWARDS', 'BUY_CREDITS', 'TERRITORY_CREATE',
-      'TERRITORY_UPDATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE')`
+    ? Prisma.sql`TRUE`
+    : Prisma.sql`grid."payInType" NOT IN ('DONATE', 'TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE')`
 }
 
 function stackerPayOutsExcluded (sub, me) {

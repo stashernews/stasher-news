@@ -1,10 +1,8 @@
 import { Checkbox, Form, Input, SubmitButton, Select, VariableInput, Range } from '@/components/form'
-import Button from 'react-bootstrap/Button'
 import InputGroup from 'react-bootstrap/InputGroup'
 import Nav from 'react-bootstrap/Nav'
 import Layout from '@/components/layout'
 import { useMemo } from 'react'
-import { gql } from '@apollo/client'
 import { useMutation, useQuery } from '@apollo/client/react'
 import { getGetServerSideProps } from '@/api/ssrApollo'
 import { SETTINGS, SET_SETTINGS } from '@/fragments/users'
@@ -17,10 +15,9 @@ import { NOSTR_MAX_RELAY_NUM, NOSTR_PUBKEY_BECH32, DEFAULT_CROSSPOSTING_RELAYS }
 import { settingsSchema } from '@/lib/validate'
 import { SUPPORTED_CURRENCIES } from '@/lib/currency'
 import PageLoading from '@/components/page-loading'
-import { useShowModal } from '@/components/modal'
 import { useToast } from '@/components/toast'
 import { useMe } from '@/components/me'
-import { DEFAULT_COMMENTS_SATS_FILTER, DEFAULT_POSTS_SATS_FILTER, INVOICE_RETENTION_DAYS, ZAP_UNDO_DELAY_MS } from '@/lib/constants'
+import { DEFAULT_COMMENTS_SATS_FILTER, DEFAULT_POSTS_SATS_FILTER, ZAP_UNDO_DELAY_MS } from '@/lib/constants'
 import { useField } from 'formik'
 import styles from '@/styles/nav.module.css'
 import { AuthBanner } from '@/components/banners'
@@ -118,7 +115,6 @@ export default function Settings ({ ssrData }) {
             noteCowboyHat: settings?.noteCowboyHat,
             noteForwardedSats: settings?.noteForwardedSats,
             hideInvoiceDesc: settings?.hideInvoiceDesc,
-            autoDropBolt11s: settings?.autoDropBolt11s,
             hideFromTopUsers: settings?.hideFromTopUsers,
             hideCowboyHat: settings?.hideCowboyHat,
             hideGithub: settings?.hideGithub,
@@ -299,22 +295,6 @@ export default function Settings ({ ssrData }) {
             }
             name='hideInvoiceDesc'
             groupClassName='mb-0'
-          />
-          <DropBolt11sCheckbox
-            groupClassName='mb-3'
-            ssrData={ssrData}
-            label={
-              <div className='d-flex align-items-center'>autodelete outgoing invoices
-                <Info>
-                  <ul>
-                    <li>applies retroactively, cannot be reversed</li>
-                    <li>outgoing invoices are kept at least {INVOICE_RETENTION_DAYS} days for security and debugging purposes</li>
-                    <li>autodeletions are run on a daily basis at night</li>
-                  </ul>
-                </Info>
-              </div>
-            }
-            name='autoDropBolt11s'
           />
           <div className='form-label'>privacy</div>
           <Checkbox
@@ -533,38 +513,6 @@ export default function Settings ({ ssrData }) {
         </Form>
       </div>
     </Layout>
-  )
-}
-
-const DropBolt11sCheckbox = ({ ssrData, ...props }) => {
-  const showModal = useShowModal()
-  const { data } = useQuery(gql`{ numBolt11s }`)
-  const numBolt11s = data?.numBolt11s ?? ssrData?.numBolt11s ?? 0
-
-  return (
-    <Checkbox
-      onClick={e => {
-        if (e.target.checked) {
-          showModal(onClose => {
-            return (
-              <>
-                <p className='fw-bolder'>{numBolt11s} withdrawal invoices will be deleted with this setting.</p>
-                <p className='fw-bolder'>You sure? This is a gone forever kind of delete.</p>
-                <div className='d-flex justify-content-end'>
-                  <Button
-                    variant='danger' onClick={async () => {
-                      await onClose()
-                    }}
-                  >I am sure
-                  </Button>
-                </div>
-              </>
-            )
-          })
-        }
-      }}
-      {...props}
-    />
   )
 }
 

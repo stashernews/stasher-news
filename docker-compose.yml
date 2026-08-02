@@ -218,7 +218,10 @@ services:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8025"]
     ports:
       - "8025:8025"
-      - "1025:1025"
+      # host SMTP port remapped: 1025 is often taken by host mail agents
+      # (e.g. protonmail-bridge). the app still reaches mailhog via the
+      # docker network (smtp://mailhog:1025), so only the published port changes.
+      - "1026:1025"
     links:
       - app
     labels:

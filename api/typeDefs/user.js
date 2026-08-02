@@ -76,7 +76,6 @@ export default gql`
   }
 
   input SettingsInput {
-    autoDropBolt11s: Boolean!
     noReferralLinks: Boolean!
     fiatCurrency: String!
     postsSatsFilter: Int
@@ -138,13 +137,11 @@ export default gql`
     upvotePopover: Boolean!
     hasInvites: Boolean!
     apiKeyEnabled: Boolean!
-    showPassphrase: Boolean!
     diagnostics: Boolean! @deprecated(reason: "Compatibility shim")
 
     """
     mirrors SettingsInput
     """
-    autoDropBolt11s: Boolean!
     noReferralLinks: Boolean!
     fiatCurrency: String!
     postsSatsFilter: Int
@@ -179,9 +176,6 @@ export default gql`
     turboTipping: Boolean!
     zapUndos: Int
     autoWithdrawThreshold: Int
-    vaultKeyHash: String
-    vaultKeyHashUpdatedAt: Date
-    walletsUpdatedAt: Date
   }
 
   type UserOptional {

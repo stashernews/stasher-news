@@ -93,7 +93,6 @@ export async function topUsers (parent, { cursor, when, by = 'stacked', from, to
       WHERE "AggPayIn"."timeBucket" >= ${fromDate}
       AND "AggPayIn"."timeBucket" <= ${toDate}
       AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-      AND "AggPayIn"."payInType" NOT IN ('WITHDRAWAL', 'AUTO_WITHDRAWAL', 'PROXY_PAYMENT', 'BUY_CREDITS')
       AND "AggPayIn"."slice" = 'USER_BY_TYPE'
       GROUP BY "AggPayIn"."userId"
     ),
@@ -105,7 +104,6 @@ export async function topUsers (parent, { cursor, when, by = 'stacked', from, to
       AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
       AND "AggPayOut"."slice" = 'USER_BY_TYPE'
       AND "AggPayOut"."payInType" IS NOT NULL
-      AND "AggPayOut"."payInType" NOT IN ('WITHDRAWAL', 'AUTO_WITHDRAWAL', 'PROXY_PAYMENT', 'BUY_CREDITS')
       GROUP BY "AggPayOut"."userId"
     ),
     user_stats AS (
@@ -286,20 +284,6 @@ export default {
           foundNotes()
           return true
         }
-
-        const [newBounty] = await models.$queryRawUnsafe(`
-          SELECT EXISTS(
-            SELECT *
-            FROM "PayIn"
-            JOIN "PayOutBolt11" ON "PayOutBolt11"."payInId" = "PayIn".id
-            WHERE "PayIn"."payInType" = 'BOUNTY_PAYMENT'
-            AND "PayIn"."payInState" = 'PAID'
-            AND "PayOutBolt11"."userId" = $1
-            AND "PayIn"."payInStateChangedAt" > $2)`, me.id, lastChecked)
-        if (newBounty.exists) {
-          foundNotes()
-          return true
-        }
       }
 
       // break out thread subscription to decrease the search space of the already expensive reply query
@@ -446,41 +430,9 @@ export default {
         }
       }
 
-      if (user.noteDeposits) {
-        const proxyPayment = await models.payIn.findFirst({
-          where: {
-            userId: me.id,
-            payInState: 'PAID',
-            payInStateChangedAt: {
-              gt: lastChecked
-            },
-            payInType: 'PROXY_PAYMENT'
-          }
-        })
-        if (proxyPayment) {
-          foundNotes()
-          return true
-        }
-      }
-
-      if (user.noteWithdrawals) {
-        const withdrawal = await models.payIn.findFirst({
-          where: {
-            userId: me.id,
-            payInState: 'PAID',
-            payInStateChangedAt: {
-              gt: lastChecked
-            },
-            payInType: {
-              in: ['WITHDRAWAL', 'AUTO_WITHDRAWAL']
-            }
-          }
-        })
-        if (withdrawal) {
-          foundNotes()
-          return true
-        }
-      }
+      // StealthNews: custodial deposits (PROXY_PAYMENT) and withdrawals (WITHDRAWAL /
+      // AUTO_WITHDRAWAL) were removed with the Lightning strip; the Monero P2P rail has no
+      // platform-side balance to deposit or withdraw, so these note checks are obsolete.
 
       // check if new invites have been redeemed
       if (user.noteInvites) {
@@ -625,12 +577,16 @@ export default {
         throw error
       }
     },
-    setSettings: async (parent, { settings: { nostrRelays, ...data } }, { me, models }) => {
+    setSettings: async (parent, { settings: { nostrRelays, tipDefault, ...data } }, { me, models }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
 
-      await validateSchema(settingsSchema, { nostrRelays, ...data })
+      await validateSchema(settingsSchema, { nostrRelays, tipDefault, ...data })
+
+      const settingsData = tipDefault !== undefined
+        ? { ...data, tipDefaultPiconeros: tipDefault }
+        : data
 
       if (nostrRelays?.length) {
         const connectOrCreate = []
@@ -646,9 +602,9 @@ export default {
           })
         }
 
-        return await models.user.update({ where: { id: me.id }, data: { ...data, nostrRelays: { deleteMany: {}, connectOrCreate } } })
+        return await models.user.update({ where: { id: me.id }, data: { ...settingsData, nostrRelays: { deleteMany: {}, connectOrCreate } } })
       } else {
-        return await models.user.update({ where: { id: me.id }, data: { ...data, nostrRelays: { deleteMany: {} } } })
+        return await models.user.update({ where: { id: me.id }, data: { ...settingsData, nostrRelays: { deleteMany: {} } } })
       }
     },
     setWalkthrough: async (parent, { upvotePopover, tipPopover }, { me, models }) => {
@@ -926,15 +882,16 @@ export default {
       if (!me || me.id !== user.id) {
         return 0
       }
-      // floor each bucket once so `sats - credits === msatsToSats(user.msats)`
-      return msatsToSats(user.msats) + msatsToSats(user.mcredits)
+      // floor each bucket once so `sats - credits === msatsToSats(user.stackedMsats)`
+      return msatsToSats(user.stackedMsats) + msatsToSats(user.stackedMcredits)
     },
     credits: async (user, args, { models, me }) => {
       if (!me || me.id !== user.id) {
         return 0
       }
-      return msatsToSats(user.mcredits)
+      return msatsToSats(user.stackedMcredits)
     },
+    tipDefault: user => user.tipDefaultPiconeros,
     authMethods,
     hasInvites: async (user, args, { models }) => {
       const invites = await models.user.findUnique({
@@ -975,8 +932,8 @@ export default {
       return Math.max(0, FREE_COMMENTS_PER_MONTH - (user.freeCommentCount || 0))
     },
     hasSendWallet: (user) => {
-      // Return actual value for freebie eligibility (not hidden like UserOptional.hasSendWallet)
-      return user.hasSendWallet
+      // fork has no custodial send wallet; a Monero receive address is the analog
+      return !!user.moneroAddress
     }
   },
 
@@ -1042,7 +999,6 @@ export default {
         AND "AggPayOut"."timeBucket" <= ${toDate}
         AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
         AND "AggPayOut"."slice" = 'USER_BY_TYPE'
-        AND "AggPayOut"."payInType" NOT IN ('WITHDRAWAL', 'AUTO_WITHDRAWAL', 'PROXY_PAYMENT', 'BUY_CREDITS')
         GROUP BY "AggPayOut"."userId"
       `
       return (stacked && msatsToSats(stacked)) || 0
@@ -1058,7 +1014,7 @@ export default {
 
       const [fromDate, toDate] = whenRange(when, from, to)
       const granularity = timeUnitForRange([fromDate, toDate]).toUpperCase()
-      const [{ spent }] = await models.$queryRaw`
+      const [spentRow] = await models.$queryRaw`
         SELECT sum("AggPayIn"."sumMcost") as spent
         FROM "AggPayIn"
         WHERE "AggPayIn"."userId" = ${user.id}
@@ -1066,11 +1022,10 @@ export default {
         AND "AggPayIn"."timeBucket" <= ${toDate}
         AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
         AND "AggPayIn"."slice" = 'USER_BY_TYPE'
-        AND "AggPayIn"."payInType" NOT IN ('WITHDRAWAL', 'AUTO_WITHDRAWAL', 'PROXY_PAYMENT', 'BUY_CREDITS')
         GROUP BY "AggPayIn"."userId"
       `
 
-      return (spent && msatsToSats(spent)) || 0
+      return (spentRow?.spent && msatsToSats(spentRow.spent)) || 0
     },
     referrals: async (user, { when, from, to }, { models, me }) => {
       if ((!me || me.id !== user.id) && user.hideFromTopUsers) {
