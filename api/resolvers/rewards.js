@@ -116,7 +116,9 @@ export default {
         return 0
       }
       return parent.total
-    }
+    },
+    // array_agg over an empty result set yields NULL; default to [] for the non-null schema field
+    sources: (parent) => parent.sources ?? []
   },
   Mutation: {
     donateToRewards: async (parent, { sats, sendProtocolId }, { me, models }) => {
