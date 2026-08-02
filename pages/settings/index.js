@@ -464,7 +464,7 @@ export default function Settings ({ ssrData }) {
               <div className='d-flex align-items-center'>nsfw mode
                 <Info>
                   <ul>
-                    <li>see posts from nsfw territories</li>
+                    <li>see posts from nsfw turfs</li>
                   </ul>
                 </Info>
               </div>

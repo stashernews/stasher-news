@@ -323,11 +323,11 @@ function SubStatus ({ n }) {
   return (
     <div className={`fw-bold text-${n.sub.status === 'ACTIVE' ? 'success' : 'danger'} `}>
       {n.sub.status === 'ACTIVE'
-        ? 'your territory is active again'
+        ? 'your turf is active again'
         : (n.sub.status === 'GRACE'
-            ? <>your territory payment for ~{n.sub.name} is due or your territory will be archived in <LongCountdown date={dueDate} /></>
-            : <>your territory ~{n.sub.name} has been archived</>)}
-      <small className='text-muted d-block pb-1 fw-normal'>click to visit territory and pay</small>
+            ? <>your turf payment for ~{n.sub.name} is due or your turf will be archived in <LongCountdown date={dueDate} /></>
+            : <>your turf ~{n.sub.name} has been archived</>)}
+      <small className='text-muted d-block pb-1 fw-normal'>click to visit turf and pay</small>
     </div>
   )
 }

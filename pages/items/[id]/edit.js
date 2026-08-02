@@ -79,7 +79,7 @@ export default function PostEdit ({ ssrData }) {
               placeholder='pick turfs'
               className='d-flex'
               size='md'
-              label='territory'
+              label='turf'
               filterSubs={s => s.name !== 'jobs' && s.postTypes?.includes(itemType)}
               onChange={(_, e) => setSubs(e)}
               subs={subs}
