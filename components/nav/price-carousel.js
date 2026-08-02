@@ -6,10 +6,7 @@ const DEFAULT_SELECTION = 'fiat'
 const carousel = [
   'fiat',
   'yep',
-  '1btc',
-  'blockHeight',
-  'chainFee',
-  'halving'
+  'blockHeight'
 ]
 
 export const PriceCarouselContext = createContext({

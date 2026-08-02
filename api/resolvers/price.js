@@ -2,11 +2,13 @@ import { SUPPORTED_CURRENCIES } from '@/lib/currency'
 import { cachedFetcher, snFetch } from '@/lib/fetch'
 
 const getPrice = cachedFetcher(async function fetchPrice (fiat = 'USD') {
-  const url = `https://api.coinbase.com/v2/prices/BTC-${fiat}/spot`
+  const vs = fiat.toLowerCase()
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=monero&vs_currencies=${vs}`
   try {
     const res = await snFetch(url)
     const body = await res.json()
-    return parseFloat(body.data.amount)
+    const p = body?.monero?.[vs]
+    return p == null ? -1 : parseFloat(p)
   } catch (err) {
     console.error(err)
     return -1

@@ -6,8 +6,6 @@ import { PRICE } from '@/fragments/price'
 import { CURRENCY_SYMBOLS } from '@/lib/currency'
 import { NORMAL_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
 import { useBlockHeight } from './block-height'
-import { useChainFee } from './chain-fee'
-import { CompactLongCountdown } from './countdown'
 import { usePriceCarousel } from './nav/price-carousel'
 
 export const PriceContext = React.createContext({
@@ -53,28 +51,31 @@ function AccessibleButton ({ id, description, children, ...props }) {
   )
 }
 
+// Stasher News price carousel: XMR fiat price, XMR-per-fiat inverse, and the
+// monerod block height. The BTC-era modes (1sat=1sat, sat/vB chain fee, halving
+// countdown) are gone — Monero has no discrete halving and no Lightning fee rate.
 export default function Price ({ className }) {
   const [selection, handleClick] = usePriceCarousel()
 
   const { price, fiatSymbol } = usePrice()
-  const { height: blockHeight, halving } = useBlockHeight()
-  const { fee: chainFee } = useChainFee()
+  const { height: blockHeight } = useBlockHeight()
 
   const compClassName = (className || '') + ' text-reset pointer'
 
-  if (selection === 'yep') {
+  if (selection === 'fiat') {
     if (!price || price < 0) return null
     return (
-      <AccessibleButton id='yep-hint' description='Show 1 satoshi equals 1 satoshi' className={compClassName} onClick={handleClick} variant='link'>
-        {fixedDecimal(100000000 / price, 0) + ` sats/${fiatSymbol}`}
+      <AccessibleButton id='fiat-hint' description='Show XMR per fiat unit' className={compClassName} onClick={handleClick} variant='link'>
+        {fiatSymbol + fixedDecimal(price, 2)}
       </AccessibleButton>
     )
   }
 
-  if (selection === '1btc') {
+  if (selection === 'yep') {
+    if (!price || price < 0) return null
     return (
-      <AccessibleButton id='1btc-hint' description='Show blockheight' className={compClassName} onClick={handleClick} variant='link'>
-        1sat=1sat
+      <AccessibleButton id='yep-hint' description='Show fiat price' className={compClassName} onClick={handleClick} variant='link'>
+        {fixedDecimal(1 / price, 4) + ` XMR/${fiatSymbol}`}
       </AccessibleButton>
     )
   }
@@ -82,35 +83,8 @@ export default function Price ({ className }) {
   if (selection === 'blockHeight') {
     if (blockHeight <= 0) return null
     return (
-      <AccessibleButton id='blockHeight-hint' description='Show fee rate' className={compClassName} onClick={handleClick} variant='link'>
+      <AccessibleButton id='blockHeight-hint' description='Show fiat price' className={compClassName} onClick={handleClick} variant='link'>
         {blockHeight}
-      </AccessibleButton>
-    )
-  }
-
-  if (selection === 'halving') {
-    if (!halving) return null
-    return (
-      <AccessibleButton id='halving-hint' description='Show fiat price' className={compClassName} onClick={handleClick} variant='link'>
-        <CompactLongCountdown date={halving} />
-      </AccessibleButton>
-    )
-  }
-
-  if (selection === 'chainFee') {
-    if (chainFee <= 0) return null
-    return (
-      <AccessibleButton id='chainFee-hint' description='Show time until halving' className={compClassName} onClick={handleClick} variant='link'>
-        {chainFee} sat/vB
-      </AccessibleButton>
-    )
-  }
-
-  if (selection === 'fiat') {
-    if (!price || price < 0) return null
-    return (
-      <AccessibleButton id='fiat-hint' description='Show price in satoshis per fiat unit' className={compClassName} onClick={handleClick} variant='link'>
-        {fiatSymbol + fixedDecimal(price, 0)}
       </AccessibleButton>
     )
   }
