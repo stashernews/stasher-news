@@ -30,7 +30,7 @@ describe('xmrToPiconeros', () => {
     for (const xmr of ['0.001', '0.01', '0.025', '1', '0.0001']) {
       const pico = xmrToPiconeros(xmr)
       // piconerosToXmrDecimal is in api/monero/uri.js; re-imported here for the round-trip
-      // (lib/format re-exports piconerosToXmr which appends ' XMR', so trim it)
+      // (lib/format re-exports piconerosToXmr which appends ' XMR', so compare with ' XMR' appended)
       expect(piconerosToXmr(pico)).toBe(xmr + ' XMR')
     }
   })
