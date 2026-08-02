@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import payInTypeModules from './types'
 import { isPessimistic, isProxyPayment, isWithdrawal } from './lib/is'
 import { payInCreate } from './lib/payInCreate'
+import { obtainRowLevelLocks } from './lib/obtainRowLevelLocks'
 import { payInClone } from './lib/payInPrisma'
 
 // grab a greedy connection for the payIn system on any server
@@ -54,13 +55,6 @@ export default async function pay (payInType, payInArgs, { me, custodialOnly, se
 // alternative approaches:
 // 1. do NOT lock all users, but use NOWAIT on users locks so that we can catch AND retry transactions that fail with a deadlock error
 // anything we can do to minimize the time spent in these interactive txs would also help
-async function obtainRowLevelLocks (tx, payIn) {
-  const payOutUserIds = [...new Set(payIn.payOutCustodialTokens.map(t => t.userId)).add(payIn.userId)]
-  if (payIn.payOutBolt11) {
-    payOutUserIds.push(payIn.payOutBolt11.userId)
-  }
-  await tx.$executeRaw`SELECT * FROM users WHERE id IN (${Prisma.join(payOutUserIds)}) ORDER BY id ASC FOR NO KEY UPDATE`
-}
 
 // after begin and retry, we want to double check that the invoice we're assuming will be created is actually created
 // so this is inserted atomically with the payIn creation
