@@ -21,6 +21,7 @@ import { gql } from 'graphql-tag'
 export default gql`
   extend type Query {
     myMoneroAccount: MoneroAccount
+    tipStatus(paymentId: String!): TipStatus
   }
 
   extend type Mutation {
@@ -59,5 +60,21 @@ export default gql`
   enum PrivacyMode {
     AUTO_INDEX
     MANUAL_PROOF
+  }
+
+  # Polled by the tip modal while the user's wallet payment is pending.
+  # Auth is capability-style: the paymentId (postId + nonce) is the unguessable token.
+  type TipStatus {
+    state: ObservedState!
+    piconeros: BigInt!
+    confirmations: Int!
+  }
+
+  enum ObservedState {
+    PENDING
+    DETECTED
+    CONFIRMED
+    REORGED
+    EXPIRED
   }
 `
