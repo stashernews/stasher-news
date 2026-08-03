@@ -1,16 +1,11 @@
 import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_MAX_RETRIES, WALLET_RETRY_BEFORE_MS } from '@/lib/constants'
-import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
-import { payInCancel, payInFailed } from '../payIn/transitions'
+import { GqlAuthenticationError } from '@/lib/error'
 import { retry } from '../payIn'
 import { payInTypesSql } from '../payIn/lib/sql'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
 import { getItem, getItemsById } from './item'
 import { getSub } from './sub'
 import { Prisma } from '@prisma/client'
-
-function verifyHmac (hash, hmac) {
-  return false
-}
 
 function payInResultType (payInType) {
   switch (payInType) {
@@ -65,8 +60,7 @@ export async function getPayIn (parent, { id }, { me, models }) {
 
   const meId = me?.id ?? USER_ID.anon
   if (Number(payIn.userId) !== Number(meId) &&
-    !payIn.payOutCustodialTokens.some(token => Number(token.userId) === Number(meId)) &&
-    Number(payIn.payOutBolt11?.userId) !== Number(meId)) {
+    !payIn.payOutCustodialTokens.some(token => Number(token.userId) === Number(meId))) {
     throw new GqlAuthenticationError()
   }
   return payIn
@@ -80,8 +74,7 @@ export default {
         throw new GqlAuthenticationError()
       }
       const userId = me.id
-      // StealthNews: per-wallet filtering (WalletProtocol + PayInBolt11/PayOutBolt11
-      // protocolId matching) was removed with the Lightning strip.
+      // StealthNews: per-wallet filtering was removed with the Lightning strip.
       if (walletId != null) {
         return { payIns: [], cursor: null }
       }
@@ -92,9 +85,9 @@ export default {
       const walletSendFilter = Prisma.empty
       const walletReceiveFilter = Prisma.empty
       // StealthNews: the receive side of the activity feed was backed by the custodial
-      // payout tables (PayOutBolt11, PayOutCustodialToken, RefundCustodialToken), which
-      // are gone. Monero tips are P2P and don't produce custodial receive-side payIns,
-      // so only the user's own (send-side) payIns are surfaced here.
+      // payout tables (PayOutCustodialToken, RefundCustodialToken), which are gone.
+      // Monero tips are P2P and don't produce custodial receive-side payIns, so only the
+      // user's own (send-side) payIns are surfaced here.
       const receivePredicate = Prisma.sql`AND FALSE`
 
       // why we need the union:
@@ -162,32 +155,6 @@ export default {
     }
   },
   Mutation: {
-    cancelPayInBolt11: async (parent, { hash, hmac, userCancel }, { models, me, boss }) => {
-      const payInBolt11 = await models.PayInBolt11.findUnique({ where: { hash } })
-      if (me && !hmac) {
-        if (!payInBolt11) throw new GqlInputError('invoice not found')
-        if (payInBolt11.userId !== me.id) throw new GqlInputError('not ur invoice')
-      } else {
-        verifyHmac(hash, hmac)
-      }
-      await payInCancel({
-        data: {
-          payInId: payInBolt11.payInId,
-          payInFailureReason: userCancel ? 'USER_CANCELLED' : 'SYSTEM_CANCELLED'
-        },
-        models,
-        me,
-        boss
-      })
-      return await payInFailed({
-        data: {
-          payInId: payInBolt11.payInId
-        },
-        models,
-        me,
-        boss
-      })
-    },
     retryPayIn: async (parent, { payInId, sendProtocolId }, { models, me }) => {
       return await retry(payInId, { me, sendProtocolId })
     }
@@ -195,25 +162,6 @@ export default {
   PayIn: {
     payerPrivates: (payIn, args, { models, me }) => {
       if (!isMine(payIn, { me })) {
-        return null
-      }
-      return payIn
-    },
-    payInBolt11Public: (payIn, args, { models, me }) => {
-      if (!payIn.payInBolt11) {
-        return null
-      }
-      return { msats: payIn.payInBolt11?.msatsReceived ?? payIn.payInBolt11?.msatsRequested }
-    },
-    payOutBolt11Public: (payIn, args, { models, me }) => {
-      if (!payIn.payOutBolt11) {
-        return null
-      }
-      return { msats: payIn.payOutBolt11?.msats }
-    },
-    payeePrivates: (payIn, args, { models, me }) => {
-      // if I'm logged in, and the payOutBolt11 is mine, let them see it
-      if (!me || !payIn.payOutBolt11 || Number(payIn.payOutBolt11.userId) !== Number(me.id)) {
         return null
       }
       return payIn
@@ -228,60 +176,13 @@ export default {
       }
       return await getItem(payIn, { id: payIn.itemPayIn.itemId }, { me, models })
     },
-    walletInfo: async (payIn, args, { models, me }) => {
-      if (typeof payIn.walletInfo !== 'undefined') {
-        return payIn.walletInfo
-      }
-      if (!me || Number(me.id) === USER_ID.anon) {
-        return null
-      }
-
-      const protocolCandidates = [
-        { protocolId: payIn.payInBolt11?.protocolId, role: 'SEND' },
-        { protocolId: payIn.payOutBolt11?.protocolId, role: 'RECEIVE' }
-      ]
-        .filter(({ protocolId }) => protocolId)
-        .map(({ protocolId, role }) => ({ protocolId: Number(protocolId), role }))
-
-      if (!protocolCandidates.length) {
-        return null
-      }
-
-      const protocols = await models.walletProtocol.findMany({
-        where: {
-          id: {
-            in: protocolCandidates.map(({ protocolId }) => protocolId)
-          },
-          wallet: {
-            userId: Number(me.id)
-          }
-        },
-        include: {
-          wallet: {
-            include: {
-              template: true
-            }
-          }
-        }
-      })
-
-      for (const { protocolId, role } of protocolCandidates) {
-        const protocol = protocols.find(protocol => protocol.id === protocolId)
-        if (!protocol) continue
-
-        return {
-          walletId: protocol.wallet.id,
-          walletName: protocol.wallet.template.name,
-          protocolId: protocol.id,
-          protocolName: protocol.name,
-          role
-        }
-      }
-
+    walletInfo: () => {
+      // StealthNews: walletInfo was backed by Lightning wallet protocols, which are
+      // gone with the Monero strip — there is never a wallet to report.
       return null
     },
     payOutCustodialTokens: async (payIn, args, { models, me }) => {
-      let payOutCustodialTokens = [
+      const payOutCustodialTokens = [
         ...(payIn.payOutCustodialTokens ?? []),
         ...(payIn.beneficiaries ?? []).reduce((acc, beneficiary) => {
           if (beneficiary.payOutCustodialTokens) {
@@ -311,31 +212,10 @@ export default {
         return visibleRewards
       }
 
-      // if this is a zap, we can see the routing fee and rewards pool
-      if (!payIn.payOutBolt11 || isMine(payIn.payOutBolt11, { me })) {
-        return payOutCustodialTokens
-      }
-
-      // if it's not mine, we need to hide the routing fee
-      // by removing the routing fee and adding the amount to the rewards pool
-      const routingFee = payOutCustodialTokens.find(t => t.payOutType === 'ROUTING_FEE')
-      const rewardsPool = payOutCustodialTokens.find(t => t.payOutType === 'REWARDS_POOL')
-      if (routingFee && rewardsPool) {
-        const withoutRoutingFee = payOutCustodialTokens.filter(t => t.payOutType !== 'ROUTING_FEE')
-        rewardsPool.mtokens = BigInt(routingFee.mtokens) + BigInt(rewardsPool.mtokens)
-        payOutCustodialTokens = withoutRoutingFee
-      }
-
+      // StealthNews: the routing-fee hiding branch was driven by Lightning pay-out
+      // membership, which is gone with the Monero strip — there is nothing to obscure,
+      // so the full custodial token list is always visible.
       return payOutCustodialTokens
-    }
-  },
-  PayInBolt11: {
-    preimage: (payInBolt11, args, { models, me }) => {
-      // do not reveal the preimage if the invoice is not confirmed
-      if (!payInBolt11.confirmedAt) {
-        return null
-      }
-      return payInBolt11.preimage
     }
   },
   PayOutCustodialToken: {
@@ -365,7 +245,6 @@ export default {
     }
   },
   PayerPrivates: {
-    payInBolt11: (payIn) => payIn.payInBolt11 ?? null,
     payInCustodialTokens: (payIn, args, { me }) =>
       (payIn.payInCustodialTokens ?? []).map(token => ({
         ...token,
@@ -399,9 +278,6 @@ export default {
       }
       return await getSub(payIn, { name: payIn.subPayIn.subName }, { models, me })
     }
-  },
-  PayeePrivates: {
-    payOutBolt11: (payIn) => payIn.payOutBolt11 ?? null
   }
 }
 
@@ -425,18 +301,6 @@ export default {
   }
 
   const INCLUDE = {
-    payInBolt11: {
-      include: {
-        lud18Data: true,
-        nostrNote: true,
-        comment: true
-      }
-    },
-    payOutBolt11: {
-      include: {
-        user: true
-      }
-    },
     pessimisticEnv: true,
     payInCustodialTokens: true,
     payOutCustodialTokens: INCLUDE_PAYOUT_CUSTODIAL_TOKENS,
@@ -451,13 +315,13 @@ export default {
 */
 
 async function getPayInFull ({ models, query, orderBy = Prisma.empty }) {
-  // StealthNews: the custodial/Lightning pay-in/out tables (PayInBolt11, PayOutBolt11,
-  // PayOutCustodialToken, PayInCustodialToken, RefundCustodialToken, PessimisticEnv,
-  // SubPayOutCustodialToken, ...) were removed in the Monero strip. The Lightning wallet
-  // history this query fed is obsolete; a Monero wallet history is a separate feature.
-  // We return the bare PayIn rows plus the surviving ItemPayIn/SubPayIn links, and default
-  // the removed relations to null/empty so the PayIn field resolvers take their fast path
-  // and never fall through to the (also removed) lazy-load Prisma models.
+  // StealthNews: the custodial/Lightning pay-in/out tables (PayOutCustodialToken,
+  // PayInCustodialToken, RefundCustodialToken, PessimisticEnv, SubPayOutCustodialToken,
+  // ...) were removed in the Monero strip. The Lightning wallet history this query fed
+  // is obsolete; a Monero wallet history is a separate feature. We return the bare PayIn
+  // rows plus the surviving ItemPayIn/SubPayIn links, and default the removed relations
+  // to null/empty so the PayIn field resolvers take their fast path and never fall
+  // through to the (also removed) lazy-load Prisma models.
   const rows = await models.$queryRaw`
     WITH payins AS (
       ${query}
@@ -488,8 +352,6 @@ async function getPayInFull ({ models, query, orderBy = Prisma.empty }) {
   return rows.map(r => ({
     ...r,
     pessimisticEnv: null,
-    payInBolt11: null,
-    payOutBolt11: null,
     payInCustodialTokens: [],
     payOutCustodialTokens: [],
     beneficiaries: [],
