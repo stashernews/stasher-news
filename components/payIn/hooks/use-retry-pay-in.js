@@ -21,7 +21,7 @@ export function useRetryPayIn (payInId, payInType, mutationOptions = {}) {
   const options = { ...restOptions, cachePhases, failOnInvoiceSetupPending: true }
 
   if (isAct) {
-    options.waitFor = actWaitFor(false)
+    options.waitFor = actWaitFor()
   }
 
   const [retryPayIn] = usePayInMutation(RETRY_PAY_IN, { ...options, variables: { payInId } })

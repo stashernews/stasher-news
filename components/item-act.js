@@ -296,7 +296,7 @@ export function useAct ({ query = ACT_MUTATION, ...options } = {}) {
   const { cachePhases: callerCachePhases = {}, ...restOptions } = options
 
   const [act] = usePayInMutation(query, {
-    waitFor: actWaitFor(false),
+    waitFor: actWaitFor(),
     ...restOptions,
     cachePhases: {
       ...callerCachePhases,
