@@ -107,7 +107,6 @@ export default gql`
     tipRandomMin: Int
     tipRandomMax: Int
     turboTipping: Boolean!
-    zapUndos: Int
   }
 
   type AuthMethods {
@@ -178,7 +177,6 @@ export default gql`
     tipRandomMin: Int
     tipRandomMax: Int
     turboTipping: Boolean!
-    zapUndos: Int
     autoWithdrawThreshold: Int
   }
 
