@@ -21,3 +21,20 @@ export function canPostFree (user, config) {
 export function postingFeePiconeros (config) {
   return config.postingFeeFloorPiconeros
 }
+
+/**
+ * Resolver-facing bundle for UserPrivates.postingFeeRequired /
+ * postingFeePiconeros. Self-view only: other viewers and logged-out requests
+ * see no-fee values. Fetches the fee config itself; never throws.
+ */
+export async function postingFeePrivatesFor (models, user, viewerId) {
+  if (!viewerId || viewerId !== user.id) {
+    return { postingFeeRequired: false, postingFeePiconeros: 0n }
+  }
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  if (!config) return { postingFeeRequired: false, postingFeePiconeros: 0n }
+  if (canPostFree(user, config)) {
+    return { postingFeeRequired: false, postingFeePiconeros: 0n }
+  }
+  return { postingFeeRequired: true, postingFeePiconeros: postingFeePiconeros(config) }
+}

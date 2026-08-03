@@ -2,6 +2,7 @@ import { readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
 import { msatsToSats } from '@/lib/format'
+import { postingFeePrivatesFor } from '@/api/monero/postingFee'
 import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/validate'
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
 import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES, SN_SYSTEM_ONLY_IDS, FREE_COMMENTS_PER_MONTH } from '@/lib/constants'
@@ -934,7 +935,11 @@ export default {
     hasSendWallet: (user) => {
       // fork has no custodial send wallet; a Monero receive address is the analog
       return !!user.moneroAddress
-    }
+    },
+    postingFeeRequired: async (user, args, { models, me }) =>
+      (await postingFeePrivatesFor(models, user, me?.id)).postingFeeRequired,
+    postingFeePiconeros: async (user, args, { models, me }) =>
+      (await postingFeePrivatesFor(models, user, me?.id)).postingFeePiconeros
   },
 
   UserOptional: {
