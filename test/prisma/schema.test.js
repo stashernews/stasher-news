@@ -73,10 +73,14 @@ test('Item keeps the ranking-trigger column names verbatim', () => {
   }
 })
 
-test('Item has the new StealthNews subaddress columns', () => {
+test('Item has the StealthNews posting-fee columns (subaddress columns dropped)', () => {
   const fields = fieldsOf('Item')
-  for (const c of ['subaddressIndexMajor', 'subaddressIndexMinor', 'subaddress', 'moneroAccountId', 'subaddresses']) {
+  for (const c of ['feeStatus', 'feePayInId', 'feePayIn', 'observedTips', 'observedBurns']) {
     expect(fields).toContain(c)
+  }
+  // dead pre-registered-subaddress columns and relation removed in Task 5
+  for (const removed of ['subaddressIndexMajor', 'subaddressIndexMinor', 'subaddress', 'moneroAccountId', 'moneroAccount', 'subaddresses']) {
+    expect(fields).not.toContain(removed)
   }
 })
 
@@ -92,14 +96,18 @@ const relationFieldsOf = (modelName) => {
 
 test('Item exposes its Monero back-relations as relation fields', () => {
   const rels = relationFieldsOf('Item')
-  for (const r of ['moneroAccount', 'subaddresses', 'observedTips', 'observedBurns']) {
+  for (const r of ['observedTips', 'observedBurns']) {
     expect(rels).toContain(r)
+  }
+  // PostSubaddress back-relation removed in Task 5
+  for (const removed of ['moneroAccount', 'subaddresses']) {
+    expect(rels).not.toContain(removed)
   }
 })
 
-test('MoneroAccount has the inverse relation for Item.moneroAccountId', () => {
+test('MoneroAccount drops the Item.posts inverse relation', () => {
   const rels = relationFieldsOf('MoneroAccount')
-  expect(rels).toContain('posts')
+  expect(rels).not.toContain('posts')
 })
 
 test('User has the StealthNews Monero fields and no custodial balance fields', () => {

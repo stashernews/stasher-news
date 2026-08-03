@@ -409,13 +409,6 @@ model Item {
   // that depends on this column unnecessarily ... remove during next maintenance window
   subName              String?               @db.Citext
 
-  // StealthNews Monero fields (§4.2): subaddress assignment for P2P tips
-  subaddressIndexMajor Int?
-  subaddressIndexMinor Int?
-  subaddress           String?
-  moneroAccountId      Int?
-  moneroAccount        MoneroAccount? @relation(fields: [moneroAccountId], references: [id])
-
   // StealthNews posting-fee gate (§6.2, Q8): a low-rep author's post is created
   // PENDING_FEE and invisible until the penaltyIndexer observes the posting fee;
   // FEE_PAID (or FEE_NOT_REQUIRED for above-threshold authors) makes it visible.
@@ -423,8 +416,6 @@ model Item {
   feePayInId  Int?           @unique
   feePayIn    PayIn?         @relation("ItemFeePayIn", fields: [feePayInId], references: [id])
 
-  // back-relation to the pre-registered subaddress pool
-  subaddresses  SubaddressIndex[] @relation("PostSubaddress")
   // back-relations for observed Monero tips/burns (ObservedTip/ObservedBurn)
   observedTips  ObservedTip[]
   observedBurns ObservedBurn[]
@@ -642,9 +633,6 @@ model Sub {
   billPaidUntil    DateTime?
   postsSatsFilter  Int         @default(10)
   nsfw             Boolean     @default(false)
-
-  // StealthNews (§4.2): territory owner's Monero address (per-territory).
-  moneroAddress String?
 
   // StealthNews territory-fee gate (§6.2): territory create/renew fees land on the
   // rewards wallet; billingStatus tracks PAID -> PENDING_FEE -> LAPSED. Reuses the
@@ -1401,7 +1389,6 @@ model MoneroAccount {
   viewKey      MoneroViewKey?
   subaddresses SubaddressIndex[]
   observedTips ObservedTip[]
-  posts        Item[]
 
   @@unique([address, network])
   @@index([ownerUserId])
@@ -1430,12 +1417,9 @@ model SubaddressIndex {
   minorIndex     Int
   address        String
   state          SubaddressState @default(AVAILABLE)
-  assignedPostId Int?
   createdAt      DateTime        @default(now())
 
   account MoneroAccount @relation(fields: [accountId], references: [id])
-  // the Item this subaddress is currently assigned to (null = available)
-  post    Item?         @relation("PostSubaddress", fields: [assignedPostId], references: [id])
 
   @@unique([accountId, majorIndex, minorIndex])
   @@index([accountId, state])
