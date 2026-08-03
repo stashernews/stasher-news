@@ -32,7 +32,7 @@ export function piconerosToXmrDecimal (piconeros) {
 // The network byte determines the leading char (mainnet '4'/'8', stagenet '5'),
 // but the body may contain any base58 char — so we validate the full charset,
 // not just the prefix.
-const MONERO_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{95,106}$/
+export const MONERO_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{95,106}$/
 
 /**
  * Build a monero: payment URI.
