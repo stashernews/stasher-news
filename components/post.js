@@ -149,7 +149,7 @@ export function PostForm ({ type, subs, children }) {
 
   return (
     <FeeButtonProvider
-      baseLineItems={postCommentBaseLineItems({ subs, me: !!me })}
+      baseLineItems={postCommentBaseLineItems({ subs, me })}
       useRemoteLineItems={postCommentUseRemoteLineItems()}
     >
       <FormType subs={subs}>{children}</FormType>

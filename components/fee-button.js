@@ -6,7 +6,7 @@ import styles from './fee-button.module.css'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
 import { ANON_FEE_MULTIPLIER, FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
-import { xmrFromSats } from '@/lib/format'
+import { piconerosToXmr, xmrFromSats } from '@/lib/format'
 import { useMe } from './me'
 import AnonIcon from '@/svgs/spy-fill.svg'
 import { useShowModal } from './modal'
@@ -30,35 +30,60 @@ export function postCommentBaseLineItems ({ subs, comment = false, bio = false, 
   // Comments and bios are eligible for freebies (posts are not)
   const allowFreebies = comment || bio
 
-  if (subs.length === 0) {
+  // Comments and bios: unchanged legacy per-turf replyCost / baseCost lines
+  if (comment || bio) {
+    if (subs.length === 0) {
+      return {
+        baseCost: {
+          term: 1,
+          label: comment ? 'comment' : 'post',
+          op: '_',
+          modifier: (cost) => cost + 1,
+          allowFreebies,
+          isComment: comment
+        },
+        ...anonCharge
+      }
+    }
+
     return {
-      baseCost: {
-        term: 1,
-        label: comment ? 'comment' : 'post',
-        op: '_',
-        modifier: (cost) => cost + 1,
-        allowFreebies,
-        isComment: comment
-      },
+      ...subs.reduce((acc, s) => ({
+        ...acc,
+        ...{
+          [`${s.name}-baseCost`]: {
+            term: `+ ${comment ? s.replyCost : s.baseCost}`,
+            label: `~${s.name} ${comment ? 'comment' : 'post'}`,
+            op: '_',
+            modifier: (cost) => cost + (comment ? s.replyCost : s.baseCost),
+            allowFreebies,
+            isComment: comment
+          }
+        }
+      }), {}),
       ...anonCharge
     }
   }
 
+  // Posts: the StealthNews posting fee is a flat on-chain Monero payment to the
+  // platform rewards wallet (spec §6.2 Q5) — 0.001 XMR for low-rep authors,
+  // nothing for established ones. Legacy per-turf baseCost lines are denominated
+  // in sats and would misquote the fee, so posts render a single postingFee line
+  // (or no lines at all when the author posts free).
+  const feePiconeros = me?.privates?.postingFeeRequired
+    ? BigInt(me.privates.postingFeePiconeros || 0)
+    : 0n
+  if (feePiconeros <= 0n) return {}
+
   return {
-    ...subs.reduce((acc, s) => ({
-      ...acc,
-      ...{
-        [`${s.name}-baseCost`]: {
-          term: `+ ${comment ? s.replyCost : s.baseCost}`,
-          label: `~${s.name} ${comment ? 'comment' : 'post'}`,
-          op: '_',
-          modifier: (cost) => cost + (comment ? s.replyCost : s.baseCost),
-          allowFreebies,
-          isComment: comment
-        }
-      }
-    }), {}),
-    ...anonCharge
+    postingFee: {
+      term: `+ ${piconerosToXmr(feePiconeros)}`,
+      label: 'posting fee',
+      op: '_',
+      // legacy line items are sats: 1 sats == 1000 piconeros (see xmrFromSats)
+      modifier: (cost) => cost + Number(feePiconeros / 1000n),
+      allowFreebies: false,
+      isComment: false
+    }
   }
 }
 
