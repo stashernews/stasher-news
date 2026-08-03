@@ -18,7 +18,7 @@
 //   docker exec -u apprunner app npx jest test/engine/payInItemCreate.test.js
 
 import { PrismaClient } from '@prisma/client'
-import { onPaid } from '@/api/payIn/types/itemCreate'
+import { onPaid, getInitial } from '@/api/payIn/types/itemCreate'
 import { performBotBehavior } from '@/api/payIn/lib/item'
 
 // itemCreate.js statically imports @/lib/lexical/server/mentions (ESM-only
@@ -38,6 +38,18 @@ jest.mock('../../lib/lexical/server/mentions', () => ({
 jest.mock('../../api/resolvers/item', () => ({
   __esModule: true,
   getItem: jest.fn()
+}))
+// Stub the fee-subaddress pool so getInitial never touches MoneroAccount /
+// SubaddressIndex rows (deterministic; the address is the stagenet primary
+// reused in downZap.test.js).
+jest.mock('../../api/monero/feePool', () => ({
+  __esModule: true,
+  reserveFeeSubaddress: jest.fn(async () => ({
+    id: 1,
+    major: 1,
+    minor: 1,
+    address: '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
+  }))
 }))
 
 const prisma = new PrismaClient()
@@ -68,6 +80,16 @@ async function createRootPost (userId) {
   return id
 }
 
+// PlatformFeeConfig id=1 exists in the dev DB with @default values; create it
+// only if absent so the tests stay self-contained on a fresh database.
+let feeConfigCreated = false
+async function ensureFeeConfig () {
+  const existing = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  if (existing) return
+  await prisma.platformFeeConfig.create({ data: { id: 1 } })
+  feeConfigCreated = true
+}
+
 // Delete pgboss jobs we inserted so the worker never executes them against test
 // rows (imgproxy startafter is only +5s; this runs in milliseconds after commit).
 async function deleteJobsForItem (itemId) {
@@ -88,6 +110,9 @@ afterAll(async () => {
   }
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } }).catch(() => {})
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } }).catch(() => {})
+  if (feeConfigCreated) {
+    await prisma.platformFeeConfig.delete({ where: { id: 1 } }).catch(() => {})
+  }
   await prisma.$disconnect()
 })
 
@@ -136,4 +161,35 @@ test('performBotBehavior creates deleteItem + reminder pgboss jobs for marked te
   const reminder = await prisma.reminder.findFirst({ where: { itemId } })
   expect(reminder).toBeTruthy()
   created.reminderIds.push(reminder.id)
+})
+
+// --- Fix 3: comments are exempt from the posting-fee gate (spec §2.2, row 826) ---
+test('getInitial returns a free prospect for comments — no fee subaddress draw', async () => {
+  // No ensureFeeConfig() here: the comment early-return precedes any
+  // PlatformFeeConfig read (and thus any feePool subaddress draw).
+  const userId = await createUser()
+  const result = await getInitial(prisma, { parentId: '999' }, { me: { id: userId } })
+  expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, mcost: 0n })
+  expect(result).not.toHaveProperty('moneroUri')
+})
+
+test('getInitial returns a posting-fee URI for low-rep post authors', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  const result = await getInitial(prisma, {}, { me: { id: userId } })
+  expect(result.mcost).toBe(0n)
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroUri).toContain('tx_amount=0.001')
+  expect(result.moneroSubaddressMajor).toBe(1)
+})
+
+test('getInitial returns a free prospect for established users', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  await prisma.$executeRaw`
+    UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days'
+    WHERE id = ${userId}::int`
+  const result = await getInitial(prisma, {}, { me: { id: userId } })
+  expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, mcost: 0n })
+  expect(result).not.toHaveProperty('moneroUri')
 })
