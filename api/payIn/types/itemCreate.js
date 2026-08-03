@@ -31,6 +31,10 @@ export async function getInitial (models, args, { me }) {
   // mcost=0 -> payInState=PAID; the post's VISIBILITY is gated independently by
   // Item.feeStatus (set in onBegin), which the penaltyIndexer flips PENDING_FEE ->
   // FEE_PAID when it observes the fee output.
+  // Comments are always free — the posting fee is per post (spec §2.2, row 826).
+  if (args.parentId) {
+    return { payInType: 'ITEM_CREATE', userId: me.id, mcost: 0n }
+  }
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
   const user = await models.user.findUnique({ where: { id: me.id } })
