@@ -3,8 +3,8 @@ import BootstrapForm from 'react-bootstrap/Form'
 import InputGroup from 'react-bootstrap/InputGroup'
 import React, { useCallback, useState } from 'react'
 import { useMutation, useApolloClient } from '@apollo/client/react'
-import Qr from './qr'
 import AccordianItem from './accordian-item'
+import MoneroPaymentView from './monero-payment-view'
 import { useAnimation } from './animation'
 import { useMe } from './me'
 import { useToast } from './toast'
@@ -148,18 +148,15 @@ function tipStatusCopy (state) {
 function TipPaymentView ({ uri, paymentId, amount, onDetected }) {
   const { state } = useWatchTip({ paymentId, onDetected })
   return (
-    <div className='d-flex flex-column align-items-center'>
-      <h6>Pay this tip</h6>
-      <p className='text-muted text-center'>
-        Scan to send {piconerosToXmr(BigInt(amount))} directly to the author.
-      </p>
-      <Qr value={uri} />
-      <div className='mt-2'>
-        <a href={uri} className='fw-bold text-decoration-underline'>Open in Cake Wallet</a>
-      </div>
+    <MoneroPaymentView
+      moneroUri={uri}
+      amountPiconeros={BigInt(amount)}
+      heading='Pay this tip'
+      description={`Scan to send ${piconerosToXmr(BigInt(amount))} directly to the author.`}
+    >
       <p className='text-muted text-center mt-2'>
         <small>{tipStatusCopy(state)}</small>
       </p>
-    </div>
+    </MoneroPaymentView>
   )
 }
