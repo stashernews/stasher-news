@@ -1,13 +1,12 @@
 import React from 'react'
 import Qr from './qr'
 import { useMe } from './me'
-import { piconerosToXmr } from '@/lib/format'
+import { moneroUriAmountPiconeros, piconerosToXmr } from '@/lib/format'
 
 export default function PostingFeeModal ({ moneroUri }) {
   const { me } = useMe()
-  const feePiconeros = me?.privates?.postingFeePiconeros
-    ? BigInt(me.privates.postingFeePiconeros)
-    : 0n
+  const feePiconeros = moneroUriAmountPiconeros(moneroUri) ??
+    (me?.privates?.postingFeePiconeros ? BigInt(me.privates.postingFeePiconeros) : 0n)
 
   return (
     <div className='d-flex flex-column align-items-center'>

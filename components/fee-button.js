@@ -78,7 +78,10 @@ export function postCommentBaseLineItems ({ subs, comment = false, bio = false, 
     postingFee: {
       term: `+ ${piconerosToXmr(feePiconeros)}`,
       label: 'posting fee',
-      op: '_',
+      // additive so the itemRepetition multiplier (op '*') can't inflate the
+      // flat on-chain fee: 0 * 10^n + fee stays fee (sortHelper runs _ first,
+      // then * and /, then + and -)
+      op: '+',
       // legacy line items are sats: 1 sats == 1000 piconeros (see xmrFromSats)
       modifier: (cost) => cost + Number(feePiconeros / 1000n),
       allowFreebies: false,

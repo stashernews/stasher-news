@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { xmrFromSats, piconerosToXmr, xmrToPiconeros } from '@/lib/format'
+import { moneroUriAmountPiconeros, xmrFromSats, piconerosToXmr, xmrToPiconeros } from '@/lib/format'
 
 describe('xmrFromSats (rebrand bridge)', () => {
   it('renders sats (floor of piconeros/1000) as XMR decimal', () => {
@@ -48,5 +48,26 @@ describe('xmrToPiconeros', () => {
     expect(() => xmrToPiconeros('abc')).toThrow()
     expect(() => xmrToPiconeros('')).toThrow()
     expect(() => xmrToPiconeros(null)).toThrow()
+  })
+})
+
+describe('moneroUriAmountPiconeros', () => {
+  it('parses a valid decimal tx_amount to piconeros', () => {
+    expect(moneroUriAmountPiconeros('monero:addr?tx_amount=0.001&description=x')).toBe(1_000_000_000n)
+  })
+
+  it('returns null when tx_amount is absent', () => {
+    expect(moneroUriAmountPiconeros('monero:addr?description=x')).toBeNull()
+    expect(moneroUriAmountPiconeros('monero:addr')).toBeNull()
+  })
+
+  it('returns null when tx_amount is malformed', () => {
+    expect(moneroUriAmountPiconeros('monero:addr?tx_amount=abc')).toBeNull()
+    expect(moneroUriAmountPiconeros('monero:addr?tx_amount=-1')).toBeNull()
+    expect(moneroUriAmountPiconeros('monero:addr?tx_amount=')).toBeNull()
+  })
+
+  it('parses tx_amount with no other params', () => {
+    expect(moneroUriAmountPiconeros('monero:addr?tx_amount=0.001')).toBe(1_000_000_000n)
   })
 })
