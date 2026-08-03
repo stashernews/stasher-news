@@ -20,6 +20,7 @@ describe('postCommentBaseLineItems — posts', () => {
       me: { privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000 } }
     })
     expect(Object.keys(lines)).toEqual(['postingFee'])
+    expect(lines.postingFee.op).toBe('+')
     expect(lines.postingFee.term).toBe('+ 0.001 XMR')
     expect(lines.postingFee.label).toBe('posting fee')
     expect(xmrFromSats(lines.postingFee.modifier(0))).toBe('0.001 XMR')
@@ -29,6 +30,14 @@ describe('postCommentBaseLineItems — posts', () => {
     const lines = postCommentBaseLineItems({
       subs: SUBS,
       me: { privates: { postingFeeRequired: false, postingFeePiconeros: 0 } }
+    })
+    expect(lines).toEqual({})
+  })
+
+  test('a zero posting fee yields no fee lines', () => {
+    const lines = postCommentBaseLineItems({
+      subs: SUBS,
+      me: { privates: { postingFeeRequired: true, postingFeePiconeros: 0 } }
     })
     expect(lines).toEqual({})
   })
