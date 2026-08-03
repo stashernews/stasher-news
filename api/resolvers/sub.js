@@ -133,11 +133,11 @@ export default {
         const showNsfw = currentUser ? currentUser.nsfwMode : false
 
         return await models.$queryRaw`
-          SELECT "Sub".*, "Sub".created_at as "createdAt", COALESCE("Sub"."postTypes", '{}') AS "postTypes", ss."userId" IS NOT NULL as "meSubscription", COALESCE(json_agg("MuteSub".*) FILTER (WHERE "MuteSub"."userId" IS NOT NULL), '[]') AS "MuteSub"
+          SELECT "Sub".*, "Sub".created_at as "createdAt", ss."userId" IS NOT NULL as "meSubscription", COALESCE(json_agg("MuteSub".*) FILTER (WHERE "MuteSub"."userId" IS NOT NULL), '[]') AS "MuteSub"
           FROM "Sub"
           LEFT JOIN "SubSubscription" ss ON "Sub".name = ss."subName" AND ss."userId" = ${me.id}::INTEGER
           LEFT JOIN "MuteSub" ON "Sub".name = "MuteSub"."subName" AND "MuteSub"."userId" = ${me.id}::INTEGER
-          WHERE status <> 'STOPPED' AND "Sub".name NOT LIKE '\\_p4downvote\\_%' ${showNsfw ? Prisma.empty : Prisma.sql`AND "Sub"."nsfw" = FALSE`}
+          WHERE status <> 'STOPPED' ${showNsfw ? Prisma.empty : Prisma.sql`AND "Sub"."nsfw" = FALSE`}
           GROUP BY "Sub".name, ss."userId", "MuteSub"."userId"
           ORDER BY "Sub".name ASC
         `
@@ -148,12 +148,7 @@ export default {
           status: {
             not: 'STOPPED'
           },
-          nsfw: false,
-          name: {
-            not: {
-              startsWith: '_p4downvote_'
-            }
-          }
+          nsfw: false
         },
         orderBy: {
           name: 'asc'
