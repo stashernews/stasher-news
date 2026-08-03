@@ -131,6 +131,8 @@ export default gql`
     hasSendWallet: Boolean!
     postingFeeRequired: Boolean!
     postingFeePiconeros: BigInt!
+    freePostThresholdPiconeros: BigInt!
+    freePostMinAgeDays: Int!
 
     """
     only relevant to user
