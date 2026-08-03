@@ -22,19 +22,29 @@ export function postingFeePiconeros (config) {
   return config.postingFeeFloorPiconeros
 }
 
-/**
- * Resolver-facing bundle for UserPrivates.postingFeeRequired /
- * postingFeePiconeros. Self-view only: other viewers and logged-out requests
- * see no-fee values. Fetches the fee config itself; never throws.
- */
+// Resolver-facing bundle for UserPrivates.postingFeeRequired /
+// postingFeePiconeros / freePostThresholdPiconeros / freePostMinAgeDays.
+// Self-view only: other viewers and logged-out requests see no-fee values and
+// zeroed thresholds. Fetches the fee config itself; never throws.
+export const POSTING_FEE_NO_FEE = {
+  postingFeeRequired: false,
+  postingFeePiconeros: 0n,
+  freePostThresholdPiconeros: 0n,
+  freePostMinAgeDays: 0
+}
+
 export async function postingFeePrivatesFor (models, user, viewerId) {
   if (!viewerId || viewerId !== user.id) {
-    return { postingFeeRequired: false, postingFeePiconeros: 0n }
+    return { ...POSTING_FEE_NO_FEE }
   }
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
-  if (!config) return { postingFeeRequired: false, postingFeePiconeros: 0n }
-  if (canPostFree(user, config)) {
-    return { postingFeeRequired: false, postingFeePiconeros: 0n }
+  if (!config) return { ...POSTING_FEE_NO_FEE }
+  const frontend = {
+    freePostThresholdPiconeros: config.freePostThresholdPiconeros,
+    freePostMinAgeDays: config.freePostMinAgeDays
   }
-  return { postingFeeRequired: true, postingFeePiconeros: postingFeePiconeros(config) }
+  if (canPostFree(user, config)) {
+    return { ...POSTING_FEE_NO_FEE, ...frontend }
+  }
+  return { ...POSTING_FEE_NO_FEE, postingFeeRequired: true, postingFeePiconeros: postingFeePiconeros(config), ...frontend }
 }
