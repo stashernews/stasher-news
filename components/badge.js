@@ -3,7 +3,6 @@ import OverlayTrigger from 'react-bootstrap/OverlayTrigger'
 import Tooltip from 'react-bootstrap/Tooltip'
 import CowboyHatIcon from '@/svgs/cowboy.svg'
 import AnonIcon from '@/svgs/spy-fill.svg'
-import GunIcon from '@/svgs/revolver.svg'
 import HorseIcon from '@/svgs/horse.svg'
 import BotIcon from '@/svgs/robot-2-fill.svg'
 import { numWithUnits } from '@/lib/format'
@@ -36,15 +35,6 @@ export default function Badges ({ user, badge, bot, showWalletBadges, className 
     badges.push({
       icon: HorseIcon,
       overlayText: 'can receive sats'
-    })
-  }
-
-  if (showWalletBadges && user.optional.hasSendWallet) {
-    badges.push({
-      icon: GunIcon,
-      sizeDelta: 2,
-      style: { marginBottom: '-2px' },
-      overlayText: 'can send sats'
     })
   }
 

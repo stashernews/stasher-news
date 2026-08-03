@@ -11,7 +11,6 @@ import { Form, SubmitButton } from './form'
 import { PAY_BOUNTY_MUTATION } from '@/fragments/payIn'
 import usePayInMutation from './payIn/hooks/use-pay-in-mutation'
 import { getPayIn } from '@/lib/pay-in'
-import { useHasSendWallet } from '@/wallets/client/hooks'
 import { toastPayError } from '@/wallets/client/errors'
 
 // add (or, on revert, remove) the paid beneficiary to the root item's bountyPaidTo list
@@ -48,7 +47,6 @@ export default function PayBounty ({ children, item }) {
   const root = useRoot()
   const animate = useAnimation()
   const toaster = useToast()
-  const hasSendWallet = useHasSendWallet()
 
   const bounty = root.bounty
   const proxyFee = Math.ceil(bounty * 3 / 100)
@@ -79,11 +77,7 @@ export default function PayBounty ({ children, item }) {
     const onPayError = (e) => toastPayError(toaster, e)
 
     const options = { cachePhases: { onPayError } }
-    if (hasSendWallet) {
-      onPaid()
-    } else {
-      options.cachePhases.onPaid = onPaid
-    }
+    options.cachePhases.onPaid = onPaid
 
     try {
       const { error } = await payBounty(options)

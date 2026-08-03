@@ -5,10 +5,6 @@ export function WalletsProvider ({ children }) {
   return children
 }
 
-export function useHasSendWallet () {
-  return false
-}
-
 export function useWalletPayment () {
   return { ready: false, sendPayment: async () => { throw new Error('Monero payments not implemented') } }
 }

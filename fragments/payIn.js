@@ -240,8 +240,8 @@ export const BUY_CREDITS = gql`
 
 export const ACT_MUTATION = gql`
   ${PAY_IN_FIELDS}
-  mutation act($id: ID!, $sats: Int!, $act: String, $sendProtocolId: Int) {
-    act(id: $id, sats: $sats, act: $act, sendProtocolId: $sendProtocolId) {
+  mutation act($id: ID!, $sats: Int!, $act: String) {
+    act(id: $id, sats: $sats, act: $act) {
       ...PayInFields
     }
   }`

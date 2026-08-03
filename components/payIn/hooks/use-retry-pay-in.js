@@ -3,7 +3,6 @@ import usePayInMutation from './use-pay-in-mutation'
 import { getActCachePhases } from '@/components/item-act'
 import { payBountyCachePhases } from '@/components/pay-bounty'
 import { useMe } from '@/components/me'
-import { useHasSendWallet } from '@/wallets/client/hooks'
 import { InvoiceCanceledError, isTransientNetworkError } from '@/wallets/client/errors'
 import { composeCallbacks } from '@/lib/compose-callbacks'
 import { PAY_IN_ACT_TYPES } from '@/lib/constants'
@@ -12,7 +11,6 @@ import { actWaitFor, getPayIn, toFailedPayIn } from '@/lib/pay-in'
 
 export function useRetryPayIn (payInId, payInType, mutationOptions = {}) {
   const { me } = useMe()
-  const hasSendWallet = useHasSendWallet()
   const { cachePhases: userCachePhases = {}, ...restOptions } = mutationOptions
 
   const isAct = PAY_IN_ACT_TYPES.includes(payInType)
@@ -23,7 +21,7 @@ export function useRetryPayIn (payInId, payInType, mutationOptions = {}) {
   const options = { ...restOptions, cachePhases, failOnInvoiceSetupPending: true }
 
   if (isAct) {
-    options.waitFor = actWaitFor(hasSendWallet)
+    options.waitFor = actWaitFor(false)
   }
 
   const [retryPayIn] = usePayInMutation(RETRY_PAY_IN, { ...options, variables: { payInId } })
