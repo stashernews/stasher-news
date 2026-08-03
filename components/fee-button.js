@@ -184,16 +184,14 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
     const baseCostLine = Object.values(lines).find(line => line.op === '_' && line.allowFreebies !== undefined)
 
     // freebies: there's only a base cost, we don't have enough sats/credits,
-    // no send wallet attached, and have free comments left (for comments only)
+    // and have free comments left (for comments only)
     const cantAfford = (me?.privates?.sats ?? 0) + (me?.privates?.credits ?? 0) < total
-    const hasSendWallet = me?.privates?.hasSendWallet
     const freeCommentsLeft = me?.privates?.freeCommentsLeft ?? 0
     const isComment = baseCostLine?.isComment
     const free = me &&
       total === baseCostLine?.modifier(0) &&
       baseCostLine?.allowFreebies &&
       cantAfford &&
-      !hasSendWallet &&
       (!isComment || freeCommentsLeft > 0)
     return {
       lines,
@@ -205,7 +203,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
       free,
       freeCommentsLeft: isComment ? freeCommentsLeft : null
     }
-  }, [me, me?.privates?.sats, me?.privates?.credits, me?.privates?.freeCommentsLeft, me?.privates?.hasSendWallet, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
+  }, [me, me?.privates?.sats, me?.privates?.credits, me?.privates?.freeCommentsLeft, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
 
   return (
     <FeeButtonContext.Provider value={value}>

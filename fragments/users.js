@@ -7,7 +7,6 @@ export const STREAK_FIELDS = gql`
   fragment StreakFields on User {
     optional {
       streak
-      hasSendWallet
       hasRecvWallet
     }
   }
@@ -34,7 +33,6 @@ ${STREAK_FIELDS}
       sats
       credits
       freeCommentsLeft
-      hasSendWallet
       postingFeeRequired
       postingFeePiconeros
       freePostThresholdPiconeros

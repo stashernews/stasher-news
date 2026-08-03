@@ -932,10 +932,6 @@ export default {
       }
       return Math.max(0, FREE_COMMENTS_PER_MONTH - (user.freeCommentCount || 0))
     },
-    hasSendWallet: (user) => {
-      // fork has no custodial send wallet; a Monero receive address is the analog
-      return !!user.moneroAddress
-    },
     postingFeeRequired: async (user, args, { models, me }) =>
       (await postingFeePrivatesFor(models, user, me?.id)).postingFeeRequired,
     postingFeePiconeros: async (user, args, { models, me }) =>
@@ -953,12 +949,6 @@ export default {
       }
 
       return user.streak
-    },
-    hasSendWallet: async (user, args, { models }) => {
-      if (user.hideCowboyHat) {
-        return false
-      }
-      return user.hasSendWallet
     },
     hasRecvWallet: async (user, args, { models }) => {
       if (user.hideCowboyHat) {

@@ -10,7 +10,6 @@ import { defaultTipIncludingRandom } from './upvote'
 import { ACT_MUTATION } from '@/fragments/payIn'
 import { actWaitFor, getPayIn } from '@/lib/pay-in'
 import { meAnonSats } from '@/lib/apollo'
-import { useHasSendWallet } from '@/wallets/client/hooks'
 import { toastPayError, isTransientNetworkError } from '@/wallets/client/errors'
 import { useAnimation } from '@/components/animation'
 import { useToast } from '@/components/toast'
@@ -58,7 +57,6 @@ const setItemMeAnonSats = ({ id, amount }) => {
 export default function ItemAct ({ onClose, item, act = 'TIP', step, children }) {
   const inputRef = useRef(null)
   const { me } = useMe()
-  const hasReadySendWallet = useHasSendWallet()
   const toaster = useToast()
   const client = useApolloClient()
   const [oValue, setOValue] = useState()
@@ -82,7 +80,7 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
     const onPayError = (e) => toastPayError(toaster, e)
 
     const options = { cachePhases: { onPayError } }
-    if (hasReadySendWallet || me?.privates?.sats > Number(amount)) {
+    if (me?.privates?.sats > Number(amount)) {
       onPaid()
     } else {
       // we want to close the modal only after paid so the modal can stack
@@ -103,7 +101,7 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
       // failed — it's processed server-side and the bump (kept by withActBump) reconciles. don't toast.
       if (!isTransientNetworkError(e)) throw e
     }
-  }, [me, actor, client, hasReadySendWallet, act, item.id, item.path, onClose, animate, toaster])
+  }, [me, actor, client, act, item.id, item.path, onClose, animate, toaster])
 
   return (
     <Form
@@ -294,12 +292,11 @@ export function getActCachePhases (me) {
 
 export function useAct ({ query = ACT_MUTATION, ...options } = {}) {
   const { me } = useMe()
-  const hasSendWallet = useHasSendWallet()
   const phases = getActCachePhases(me)
   const { cachePhases: callerCachePhases = {}, ...restOptions } = options
 
   const [act] = usePayInMutation(query, {
-    waitFor: actWaitFor(hasSendWallet),
+    waitFor: actWaitFor(false),
     ...restOptions,
     cachePhases: {
       ...callerCachePhases,

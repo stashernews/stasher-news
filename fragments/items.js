@@ -6,7 +6,6 @@ const STREAK_FIELDS = gql`
   fragment StreakFields on User {
     optional {
       streak
-      hasSendWallet
       hasRecvWallet
     }
   }

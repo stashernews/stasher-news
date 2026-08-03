@@ -852,7 +852,7 @@ export default {
 
       return await pay('POLL_VOTE', { id }, { me, models, sendProtocolId })
     },
-    act: async (parent, { id, sats, act = 'TIP', hasSendWallet, sendProtocolId }, { me, models, headers }) => {
+    act: async (parent, { id, sats, act = 'TIP' }, { me, models, headers }) => {
       assertApiKeyNotPermitted({ me })
       await validateSchema(actSchema, { sats, act })
       await assertGofacYourself({ models, headers })
@@ -871,7 +871,7 @@ export default {
         if (!me) {
           throw new GqlAuthenticationError()
         }
-        return await pay('DOWN_ZAP', { id: Number(id), piconeros: BigInt(sats) }, { me, sendProtocolId })
+        return await pay('DOWN_ZAP', { id: Number(id), piconeros: BigInt(sats) }, { me })
       }
       if (act === 'BOOST') {
         throw new GqlInputError('BOOST pays the rewards wallet — not implemented in Phase 3')
