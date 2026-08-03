@@ -11,7 +11,7 @@ export default function PayInTable ({ payIns }) {
       <div className={classNames(styles.row, styles.header)}>
         <div>type</div>
         <div>context</div>
-        <div>sats</div>
+        <div>XMR</div>
       </div>
       {payIns?.map(payIn => (
         <PayInRow key={`${payIn.id}-${payIn.isSend}`} payIn={payIn} />
@@ -50,7 +50,7 @@ export function PayInSkeleton ({ header }) {
         <div className={classNames(styles.row, styles.header, 'clouds')}>
           <div>type</div>
           <div>context</div>
-          <div>sats</div>
+          <div>XMR</div>
         </div>}
       {Array.from({ length: 21 }).map((_, index) => (
         <div className={classNames(styles.row, styles.skeleton, 'clouds')} key={index}>

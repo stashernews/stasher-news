@@ -236,10 +236,11 @@ export async function retry (payInId, { me, sendProtocolId }) {
     if (isWithdrawal(payInFailedInitial)) {
       throw new Error('Withdrawal payIns cannot be retried')
     }
-    const previousSendProtocolId = payInFailedInitial.payInBolt11?.protocolId
+    // the Bolt11 invoice that previously attributed a send protocol is gone; there is no
+    // "previous protocol" to honor on retry
     const retrySendProtocolId = sendProtocolId !== undefined
       ? requestedSendProtocolId
-      : await findOwnedEnabledSendProtocolId(previousSendProtocolId, { me })
+      : await findOwnedEnabledSendProtocolId(undefined, { me })
     if (isPessimistic(payInFailedInitial, { me })) {
       // pessimistic payIns are fully re-executed without tracking
       return await pay(

@@ -11,9 +11,6 @@ export function payInPrismaCreate (payIn) {
 
   if (Array.isArray(payIn.beneficiaries)) {
     payIn.beneficiaries = payIn.beneficiaries.map(beneficiary => {
-      if (beneficiary.payOutBolt11) {
-        throw new Error('Beneficiary payOutBolt11 not supported')
-      }
       if (beneficiary.beneficiaries) {
         throw new Error('Beneficiary beneficiaries not supported')
       }

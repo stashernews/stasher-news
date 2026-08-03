@@ -1,16 +1,13 @@
 import { useCallback } from 'react'
 import { InvoiceCanceledError } from '@/wallets/client/errors'
 import { useShowModal } from '@/components/modal'
-import usePayInHelper from '@/components/payIn/hooks/use-pay-in-helper'
 import useWatchPayIn from './use-watch-pay-in'
-import Qr, { QrSkeleton } from '@/components/qr'
+import { QrSkeleton } from '@/components/qr'
 import PayInError from '../error'
-import { msatsToSats, xmrFromSats } from '@/lib/format'
 import { paidWaitFor } from '@/lib/pay-in'
 import { PayInStatus } from '../status'
 
 export default function useQrPayIn () {
-  const payInHelper = usePayInHelper()
   const showModal = useShowModal()
 
   const waitForQrPayIn = useCallback(async (payIn, walletError,
@@ -21,31 +18,14 @@ export default function useQrPayIn () {
       waitFor = paidWaitFor
     } = {}
   ) => {
-    // WebLN removed - Monero payments not yet implemented
+    // The Lightning bolt11 QR invoice was removed with the Bolt11 surface — Monero payments are
+    // observed server-side via webhooks, so there is no invoice to render. The modal keeps polling
+    // the payIn state and resolves when it reaches the settled state.
     return await new Promise((resolve, reject) => {
       let updatedPayIn
-      const cancelAndReject = async (onClose) => {
+      const cancelAndReject = () => {
         if (!updatedPayIn && cancelOnClose) {
-          // always settle the promise, even if the cancel mutation throws (e.g. offline),
-          // else the submitting form awaits forever
-          try {
-            const cancelledPayIn = await payInHelper.cancel(payIn, { userCancel: true })
-            if (cancelledPayIn) {
-              reject(new InvoiceCanceledError(cancelledPayIn.payerPrivates.payInBolt11))
-              return
-            }
-            // cancel no-oped because the payIn already reached a terminal state — it may have
-            // been PAID in the instant before the close, in which case the action committed and
-            // the payer was charged, so reporting a cancel would invite a double pay.
-            const { payIn: latestPayIn, check } = await payInHelper.check(payIn.id, waitFor)
-            if (check) {
-              resolve(latestPayIn)
-              return
-            }
-            reject(new InvoiceCanceledError(latestPayIn?.payerPrivates?.payInBolt11 ?? payIn.payerPrivates.payInBolt11))
-          } catch (err) {
-            reject(err)
-          }
+          reject(new InvoiceCanceledError(payIn.id))
           return
         }
         resolve(updatedPayIn)
@@ -56,24 +36,20 @@ export default function useQrPayIn () {
           walletError={walletError}
           waitFor={waitFor}
           onPaymentError={err => {
-            if (err instanceof InvoiceCanceledError) {
-              onClose()
-              reject(err)
-            } else {
-              reject(err)
-            }
+            onClose()
+            reject(err)
           }}
-          onPaymentSuccess={(payIn) => {
-            updatedPayIn = payIn
+          onPaymentSuccess={(paidPayIn) => {
+            updatedPayIn = paidPayIn
             // this onClose will resolve the promise before the subsequent line runs
             // so we need to set updatedPayIn first
             onClose()
-            resolve(payIn)
+            resolve(paidPayIn)
           }}
         />,
       { keepOpen, persistOnNavigate, onClose: cancelAndReject })
     })
-  }, [payInHelper, showModal])
+  }, [showModal])
 
   return waitForQrPayIn
 }
@@ -83,29 +59,16 @@ function QrPayIn ({
 }) {
   const { data, error } = useWatchPayIn({ id, onPaymentError, onPaymentSuccess, waitFor })
 
-  const payIn = data?.payIn
-
   if (error) {
     return <div>{error.message}</div>
   }
 
-  // a creation-/wrap-failed payIn has no invoice to render (see isInvoiceSetupPending),
-  // and item-info's 'pending' link can open this modal with one
-  if (!payIn || !payIn.payerPrivates?.payInBolt11) {
-    return <QrSkeleton description />
-  }
-
-  const invoice = payIn.payerPrivates.payInBolt11.invoice
-
   return (
     <>
       <PayInError error={walletError} />
-      <Qr
-        value={invoice}
-        description={xmrFromSats(msatsToSats(payIn.payerPrivates.payInBolt11.msatsRequested))}
-      />
+      <QrSkeleton description />
       <div className='d-flex justify-content-center'>
-        <PayInStatus payIn={payIn} />
+        <PayInStatus payIn={data?.payIn} />
       </div>
     </>
   )

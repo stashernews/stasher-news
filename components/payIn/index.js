@@ -1,11 +1,8 @@
-import { msatsToSats, xmrFromSats } from '@/lib/format'
 import { FAILED_PAY_IN_STATES, getPayInFailurePresentation, describePayInType } from '@/lib/pay-in'
-import Qr from '../qr'
 import useWatchPayIn from './hooks/use-watch-pay-in'
 import { PayInStatus, PayInStatusSkeleton } from './status'
 import { PayInContext } from './context'
 import { GET_PAY_IN_FULL_WITHOUT_WALLET_INFO } from '@/fragments/payIn'
-import { PayInSankey, PayInSankeySkeleton } from './sankey'
 import { useMe } from '@/components/me'
 
 export default function PayIn ({ id, ssrData }) {
@@ -27,9 +24,6 @@ export default function PayIn ({ id, ssrData }) {
     return <PayInSkeleton />
   }
 
-  const payerInvoice = payIn.payerPrivates?.payInBolt11
-  const payerInvoicePending = payerInvoice && ['PENDING', 'PENDING_HELD'].includes(payIn.payInState)
-
   return (
     <div className='py-5'>
       <div className='d-flex justify-content-between align-items-center'>
@@ -42,26 +36,9 @@ export default function PayIn ({ id, ssrData }) {
         </div>
       </div>
       <PayInFailureMessage payIn={payIn} />
-      {payerInvoicePending && (
-        <div className='mt-3 d-flex justify-content-center'>
-          <div style={{ maxWidth: '300px' }}>
-            <Qr
-              value={payerInvoice?.invoice}
-              description={xmrFromSats(msatsToSats(payerInvoice?.msatsRequested))}
-            />
-          </div>
-        </div>
-      )}
       <div className='mt-3'>
         <PayInContext payIn={payIn} />
       </div>
-      {payIn.mcost > 0 &&
-        <div className='mt-5 d-flex flex-column'>
-          <h5 className='mb-3'>diagram</h5>
-          <div className='d-flex justify-content-center' style={{ marginRight: '-15px', marginLeft: '-15px' }}>
-            <PayInSankey payIn={payIn} />
-          </div>
-        </div>}
     </div>
   )
 }
@@ -96,15 +73,6 @@ export function PayInSkeleton () {
         </div>
         <div>
           <small className='text-muted clouds px-5' />
-        </div>
-      </div>
-      <div className='mt-3'>
-        <div className='w-100 p-5 h-25' />
-      </div>
-      <div className='mt-5 d-flex flex-column'>
-        <h5 className='mb-3'>diagram</h5>
-        <div className='d-flex justify-content-center'>
-          <PayInSankeySkeleton />
         </div>
       </div>
       <div className='mt-3'>

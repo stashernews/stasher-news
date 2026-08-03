@@ -12,8 +12,5 @@ export async function obtainRowLevelLocks (tx, payIn) {
   // to avoid "Cannot read properties of undefined (reading 'map')" — matches the
   // optional-chaining already used in api/payIn/lib/assert.js.
   const payOutUserIds = [...new Set((payIn.payOutCustodialTokens ?? []).map(t => t.userId)).add(payIn.userId)]
-  if (payIn.payOutBolt11) {
-    payOutUserIds.push(payIn.payOutBolt11.userId)
-  }
   await tx.$executeRaw`SELECT * FROM users WHERE id IN (${Prisma.join(payOutUserIds)}) ORDER BY id ASC FOR NO KEY UPDATE`
 }

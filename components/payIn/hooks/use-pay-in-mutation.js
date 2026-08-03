@@ -203,7 +203,6 @@ function addOptimisticResponseExtras (mutation, payInOptimisticResponse, me) {
     ? {
         ...payInOptimisticResponse.payerPrivates,
         result: { ...payInOptimisticResponse.payerPrivates.result, payIn: null },
-        payInBolt11: null,
         userId: me?.id ?? USER_ID.anon,
         payInFailureReason: null,
         payInCustodialTokens: [],
@@ -220,7 +219,6 @@ function addOptimisticResponseExtras (mutation, payInOptimisticResponse, me) {
       payInState: 'PENDING',
       payInStateChangedAt: new Date().toISOString(),
       payInType: payInOptimisticResponse.payInType,
-      payOutBolt11Public: null,
       payerPrivates,
       mcost: payInOptimisticResponse.mcost
     }

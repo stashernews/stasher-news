@@ -1,8 +1,8 @@
 import { USER_ID } from '@/lib/constants'
 
-export function getRedistributedPayOutCustodialTokens ({ subs = [], payOutCustodialTokens = [], payOutBolt11 = { msats: 0n }, mcost, rewardsPct }) {
+export function getRedistributedPayOutCustodialTokens ({ subs = [], payOutCustodialTokens = [], mcost, rewardsPct }) {
   // routing fee is only deducted from rewards pool, so it can be added back to the rewards pool when the actual routing fee is known
-  const remainingMtokens = mcost - payOutBolt11.msats -
+  const remainingMtokens = mcost -
     payOutCustodialTokens.filter(t => t.payOutType !== 'ROUTING_FEE').reduce((acc, token) => acc + token.mtokens, 0n)
   if (remainingMtokens < 0n) {
     throw new Error('remaining mtokens is less than 0')
@@ -51,13 +51,4 @@ export function getRedistributedPayOutCustodialTokens ({ subs = [], payOutCustod
   })
 
   return payOutCustodialTokensCopy
-}
-
-export function payOutCustodialTokenFromBolt11 (payOutBolt11) {
-  return {
-    payOutType: payOutBolt11.payOutType,
-    userId: payOutBolt11.userId,
-    mtokens: payOutBolt11.msats,
-    custodialTokenType: 'CREDITS'
-  }
 }

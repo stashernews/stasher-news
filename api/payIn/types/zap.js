@@ -54,7 +54,7 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   }
 
   // what's left goes to the rewards pool
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, mcost, payOutCustodialTokens: payOutCustodialTokensProspects, payOutBolt11: null })
+  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, mcost, payOutCustodialTokens: payOutCustodialTokensProspects })
 
   return {
     payInType: 'ZAP',
