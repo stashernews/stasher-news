@@ -84,11 +84,10 @@ test('Item has the StealthNews posting-fee columns (subaddress columns dropped)'
   }
 })
 
-// Regression guard: the scalar `moneroAccountId` must be backed by a real
-// relation (and thus a DB-level FOREIGN KEY), not left as a bare Int?.
-// Spec §4.2 annotates it as "moneroAccountId Int? (FK to MoneroAccount)".
-// Asserts the back-relations exist as relation fields via DMMF `kind`, so a
-// dropped/renamed relation is caught going forward.
+// Regression guard: the `moneroAccount` back-relation was dropped from Item
+// along with the scalar `moneroAccountId` (Task 5), so it is asserted absent.
+// The surviving Monero back-relations are asserted via DMMF `kind` as relation
+// fields, so a dropped/renamed relation is caught going forward.
 const relationFieldsOf = (modelName) => {
   const model = allModels.find(m => m.name === modelName)
   return new Set(model ? model.fields.filter(f => f.kind === 'object').map(f => f.name) : [])
