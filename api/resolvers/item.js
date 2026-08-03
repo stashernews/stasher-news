@@ -1312,7 +1312,7 @@ export default {
   }
 }
 
-export const updateItem = async (parent, { forward, sendProtocolId, ...item }, { me, models }) => {
+export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, ...item }, { me, models }) => {
   // update iff this item belongs to me
   const old = await models.item.findUnique({
     where: { id: Number(item.id) },
