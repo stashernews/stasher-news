@@ -199,16 +199,6 @@ export default function TerritoryForm ({ sub }) {
             <Col xs={4} sm='auto'>
               <Checkbox
                 inline
-                label='bounties'
-                value='BOUNTY'
-                name='postTypes'
-                id='bounties-checkbox'
-                groupClassName='ms-1 mb-0'
-              />
-            </Col>
-            <Col xs={4} sm='auto'>
-              <Checkbox
-                inline
                 label='polls'
                 value='POLL'
                 name='postTypes'
