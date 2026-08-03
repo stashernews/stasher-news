@@ -96,4 +96,9 @@ describe('moneroUriAddress', () => {
   it('returns null when the scheme prefix is missing', () => {
     expect(moneroUriAddress(`${ADDR}?tx_amount=0.001`)).toBeNull()
   })
+
+  it('returns the address for a 106-char integrated address', () => {
+    const integrated = ADDR + 'JnUv6d9e2Af'
+    expect(moneroUriAddress(`monero:${integrated}?tx_amount=0.001`)).toBe(integrated)
+  })
 })

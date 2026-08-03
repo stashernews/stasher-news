@@ -11,7 +11,7 @@ const POSTING_FEE_POLL_MS = 10_000
 
 const ITEM_FEE_STATUS = `
   query ItemFeeStatus($id: ID!) {
-    item(id: $id) { feeStatus }
+    item(id: $id) { id feeStatus }
   }
 `
 
