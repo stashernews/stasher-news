@@ -28,6 +28,8 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
 
   const phase = postingFeeModalPhase(data?.item?.feeStatus)
 
+  const canExplainPostingFee = !!me?.privates?.freePostMinAgeDays && !!me?.privates?.freePostThresholdPiconeros
+
   if (phase === 'paid') {
     return (
       <div className='d-flex flex-column align-items-center text-center'>
@@ -51,6 +53,12 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
       heading='Pay the posting fee'
       description={`Scan to send ${piconerosToXmr(feePiconeros)} to the platform rewards wallet. Your post goes live once the fee is detected on-chain.`}
     >
+      {canExplainPostingFee &&
+        <p className='text-muted text-center mt-3'>
+          <small>
+            Posting fees deter spam. Posting is free once your account is {me.privates.freePostMinAgeDays} days old and you've earned {piconerosToXmr(BigInt(me.privates.freePostThresholdPiconeros))} in upvotes and tips.
+          </small>
+        </p>}
       <p className='text-muted text-center mt-3'>
         <small>
           Posts stay hidden until the fee lands — detection takes about one block.
