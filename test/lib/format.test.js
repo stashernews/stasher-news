@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { moneroUriAmountPiconeros, xmrFromSats, piconerosToXmr, xmrToPiconeros } from '@/lib/format'
+import { moneroUriAmountPiconeros, moneroUriAddress, xmrFromSats, piconerosToXmr, xmrToPiconeros } from '@/lib/format'
 
 describe('xmrFromSats (rebrand bridge)', () => {
   it('renders sats (floor of piconeros/1000) as XMR decimal', () => {
@@ -69,5 +69,31 @@ describe('moneroUriAmountPiconeros', () => {
 
   it('parses tx_amount with no other params', () => {
     expect(moneroUriAmountPiconeros('monero:addr?tx_amount=0.001')).toBe(1_000_000_000n)
+  })
+})
+
+describe('moneroUriAddress', () => {
+  const ADDR = '5eHvZCqU7kP2fJwaDrV8mQ3gKxbEsW9nR4hLycFtXAoS5iMzdGuYBpT6jN1eHvZCqU7kP2fJwaDrV8mQ3gKxbEsW9nR4hLy'
+
+  it('extracts the raw address from a monero: URI', () => {
+    expect(moneroUriAddress(`monero:${ADDR}?tx_amount=0.001&tx_description=StealthNews+posting+fee`)).toBe(ADDR)
+  })
+
+  it('returns the address when there is no query string', () => {
+    expect(moneroUriAddress(`monero:${ADDR}`)).toBe(ADDR)
+  })
+
+  it('returns null for a non-string', () => {
+    expect(moneroUriAddress(undefined)).toBeNull()
+    expect(moneroUriAddress(null)).toBeNull()
+    expect(moneroUriAddress(123)).toBeNull()
+  })
+
+  it('returns null when the address is not base58', () => {
+    expect(moneroUriAddress('monero:not-an-address?tx_amount=0.001')).toBeNull()
+  })
+
+  it('returns null when the scheme prefix is missing', () => {
+    expect(moneroUriAddress(`${ADDR}?tx_amount=0.001`)).toBeNull()
   })
 })
