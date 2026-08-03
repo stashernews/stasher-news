@@ -84,6 +84,12 @@ export default gql`
     payIn: PayIn
   }
 
+  enum ItemFeeStatus {
+    FEE_NOT_REQUIRED
+    PENDING_FEE
+    FEE_PAID
+  }
+
   type Item {
     id: ID!
     createdAt: Date!
@@ -154,6 +160,7 @@ export default gql`
     imgproxyUrls: JSONObject
     rel: String
     apiKey: Boolean
+    feeStatus: ItemFeeStatus!
     cost: Int!
     payIn: PayIn
     meCommentsViewedAt: Date

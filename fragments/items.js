@@ -88,6 +88,7 @@ export const ITEM_FIELDS = gql`
     rel
     apiKey
     cost
+    feeStatus
     meCommentsViewedAt
   }`
 

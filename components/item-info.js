@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Badge from 'react-bootstrap/Badge'
 import Dropdown from 'react-bootstrap/Dropdown'
 import Countdown from './countdown'
+import { shouldShowItemPaidAt } from '@/lib/pay-in'
 import { abbrNum, numWithUnits, xmrFromSats } from '@/lib/format'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
 import { timeSince } from '@/lib/time'
@@ -263,7 +264,7 @@ function ItemDetails ({ item, me }) {
       <div className={styles.detailsValue}>{item.id}</div>
       <div className={styles.detailsLabel}>created at</div>
       <div className={styles.detailsValue}>{item.createdAt}</div>
-      {item.payIn?.payInState === 'PAID' &&
+      {shouldShowItemPaidAt(item) &&
         <>
           <div className={styles.detailsLabel}>paid at</div>
           <div className={styles.detailsValue}>{item.payIn?.payInStateChangedAt}</div>
