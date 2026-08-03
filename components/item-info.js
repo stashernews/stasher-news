@@ -2,9 +2,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useCallback, useEffect, useState } from 'react'
 import Badge from 'react-bootstrap/Badge'
+import Button from 'react-bootstrap/Button'
 import Dropdown from 'react-bootstrap/Dropdown'
 import Countdown from './countdown'
-import { shouldShowItemPaidAt } from '@/lib/pay-in'
+import { isPendingFeeItem, shouldShowItemPaidAt } from '@/lib/pay-in'
+import PostingFeeModal from './posting-fee-modal'
 import { abbrNum, numWithUnits, xmrFromSats } from '@/lib/format'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
 import { timeSince } from '@/lib/time'
@@ -178,6 +180,10 @@ export default function ItemInfo ({
           </SubPopover>
         )
       })}
+      {item.feeStatus === 'PENDING_FEE' &&
+        <span>
+          {' '}<Badge className={styles.newComment} bg={null}>pending payment</Badge>
+        </span>}
       {sub?.nsfw &&
         <Badge className={styles.newComment} bg={null}>nsfw</Badge>}
       {item.freebie && !item.position &&
@@ -191,6 +197,15 @@ export default function ItemInfo ({
           {' '}<Badge className={styles.newComment} bg={null}>-{abbrNum(item.downSats)} sats</Badge>
         </span>}
       {extraBadges}
+      {full && isPendingFeeItem(item) && item.payIn?.moneroUri &&
+        <>{' '}
+          <Button
+            size='sm' variant='outline-danger'
+            onClick={() => showModal((onClose) => <PostingFeeModal moneroUri={item.payIn.moneroUri} itemId={item.id} />)}
+          >
+            pay the posting fee
+          </Button>
+        </>}
       {
         showActionDropdown &&
           <>
