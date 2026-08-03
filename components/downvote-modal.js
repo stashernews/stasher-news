@@ -1,8 +1,8 @@
 import Button from 'react-bootstrap/Button'
 import BootstrapForm from 'react-bootstrap/Form'
 import React, { useCallback, useState } from 'react'
-import Qr from './qr'
 import AccordianItem from './accordian-item'
+import MoneroPaymentView from './monero-payment-view'
 import { useAct } from './item-act'
 import { useToast } from './toast'
 import { piconerosToXmr } from '@/lib/format'
@@ -141,20 +141,17 @@ function DownvotePaymentView ({ moneroUri, amount }) {
   // on-chain observation is tracked in ObservedBurn (not linked back to this PayIn),
   // so there is no clean PayIn-state transition to poll in v1.
   return (
-    <div className='d-flex flex-column align-items-center'>
-      <h6>Pay this downvote</h6>
-      <p className='text-muted text-center'>
-        Scan to send {piconerosToXmr(BigInt(amount))} to the rewards pool.
-      </p>
-      <Qr value={moneroUri} />
-      <div className='mt-2'>
-        <a href={moneroUri} className='fw-bold text-decoration-underline'>Open in Cake Wallet</a>
-      </div>
+    <MoneroPaymentView
+      moneroUri={moneroUri}
+      amountPiconeros={BigInt(amount)}
+      heading='Pay this downvote'
+      description={`Scan to send ${piconerosToXmr(BigInt(amount))} to the rewards pool.`}
+    >
       <p className='text-muted text-center mt-3'>
         <small>
           After you pay, the downvote is detected within ~2 minutes (one stagenet block).
         </small>
       </p>
-    </div>
+    </MoneroPaymentView>
   )
 }
