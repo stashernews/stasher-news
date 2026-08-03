@@ -1143,9 +1143,6 @@ export default {
           payInState: {
             not: 'FAILED'
           },
-          payOutBolt11: {
-            is: null
-          },
           itemPayIn: {
             itemId: Number(item.id)
           }
@@ -1315,7 +1312,7 @@ export default {
   }
 }
 
-export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, ...item }, { me, models }) => {
+export const updateItem = async (parent, { forward, sendProtocolId, ...item }, { me, models }) => {
   // update iff this item belongs to me
   const old = await models.item.findUnique({
     where: { id: Number(item.id) },
@@ -1328,11 +1325,7 @@ export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, 
           }
         },
         include: {
-          payIn: {
-            include: {
-              payInBolt11: true
-            }
-          }
+          payIn: true
         }
       }
     }
@@ -1351,10 +1344,6 @@ export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, 
   // anybody can edit with valid hash+hmac
   const hmacEdit = false
   const payIn = old.itemPayIns[0]?.payIn
-  // Lightning HMAC verification disabled - Monero payments not yet implemented
-  // if (payIn?.payInBolt11?.hash && hash && hmac) {
-  //   hmacEdit = payIn.payInBolt11.hash === hash && verifyHmac(hash, hmac)
-  // }
   // ownership permission check
   const ownerEdit = authorEdit || adminEdit || hmacEdit
   if (!ownerEdit) {

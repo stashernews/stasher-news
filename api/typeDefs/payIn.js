@@ -10,7 +10,6 @@ extend type Query {
 
 extend type Mutation {
   retryPayIn(payInId: Int!, sendProtocolId: Int): PayIn!
-  cancelPayInBolt11(hash: String!, hmac: String, userCancel: Boolean): PayIn
 }
 
 type Satistics {
@@ -80,42 +79,6 @@ enum PayInFailureReason {
   UNKNOWN_FAILURE
 }
 
-type PayInBolt11Lud18 {
-  id: Int!
-  name: String
-  identifier: String
-  email: String
-  pubkey: String
-}
-
-type PayInBolt11NostrNote {
-  id: Int!
-  note: JSONObject!
-}
-
-type PayInBolt11Comment {
-  id: Int!
-  comment: String!
-}
-
-type PayInBolt11 {
-  id: Int!
-  payInId: Int!
-  hash: String!
-  preimage: String
-  hmac: String
-  invoice: String!
-  description: String @deprecated(reason: "Compatibility shim; always null")
-  expiresAt: Date!
-  confirmedAt: Date
-  cancelledAt: Date
-  msatsRequested: BigInt!
-  msatsReceived: BigInt
-  lud18Data: PayInBolt11Lud18
-  nostrNote: PayInBolt11NostrNote
-  comment: PayInBolt11Comment
-}
-
 enum PayInWalletRole {
   SEND
   RECEIVE
@@ -162,43 +125,27 @@ type PayIn {
   mcost: BigInt!
   moneroUri: String
   isSend: Boolean
-  payInBolt11Public: PayInBolt11Public
-  payOutBolt11Public: PayOutBolt11Public
   payInType: PayInType!
   payInState: PayInState!
   payInStateChangedAt: Date!
   genesisId: Int
   successorId: Int
   payerPrivates: PayerPrivates
-  payeePrivates: PayeePrivates
   payOutCustodialTokens: [PayOutCustodialToken!]
   item: Item
   walletInfo: PayInWalletInfo
-}
-
-type PayOutBolt11Public {
-  msats: BigInt!
-}
-
-type PayInBolt11Public {
-  msats: BigInt!
 }
 
 type PayerPrivates {
   userId: Int!
   payInFailureReason: PayInFailureReason
   retryCount: Int
-  payInBolt11: PayInBolt11
   payInCustodialTokens: [PayInCustodialToken!]
   refundCustodialTokens: [RefundCustodialToken!]
   result: PayInResult
   pessimisticEnv: PayInPessimisticEnv
   invite: Invite
   sub: Sub
-}
-
-type PayeePrivates {
-  payOutBolt11: PayOutBolt11
 }
 
 enum PayOutType {
@@ -226,20 +173,6 @@ enum WithdrawlStatus {
   ROUTE_NOT_FOUND
   CONFIRMED
   UNKNOWN_FAILURE
-}
-
-type PayOutBolt11 {
-  id: Int!
-  userId: Int
-  payOutType: PayOutType!
-  status: WithdrawlStatus
-  msats: BigInt!
-  payInId: Int!
-  hash: String
-  preimage: String
-  invoice: String
-  description: String @deprecated(reason: "Compatibility shim; always null")
-  expiresAt: Date!
 }
 
 type PayOutCustodialToken {

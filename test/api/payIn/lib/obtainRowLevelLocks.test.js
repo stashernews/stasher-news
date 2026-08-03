@@ -42,15 +42,4 @@ describe('obtainRowLevelLocks', () => {
     await obtainRowLevelLocks(tx, payIn)
     expect(tx._calls).toHaveLength(1)
   })
-
-  test('includes payOutBolt11.userId when present', async () => {
-    const tx = makeTx()
-    const payIn = {
-      userId: 7,
-      payOutCustodialTokens: [{ userId: 2 }],
-      payOutBolt11: { userId: 9 }
-    }
-    await obtainRowLevelLocks(tx, payIn)
-    expect(tx._calls).toHaveLength(1)
-  })
 })
