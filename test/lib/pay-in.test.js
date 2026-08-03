@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { isPostingFeeSubmit, shouldShowItemPaidAt } from '@/lib/pay-in'
+import { isPostingFeeSubmit, shouldShowItemPaidAt, isPendingFeeItem, postingFeeModalPhase } from '@/lib/pay-in'
 
 describe('isPostingFeeSubmit', () => {
   test('true when the submit result carries a monero: URI', () => {
@@ -35,5 +35,24 @@ describe('shouldShowItemPaidAt', () => {
 
   test('false for undefined item', () => {
     expect(shouldShowItemPaidAt(undefined)).toBe(false)
+  })
+})
+
+describe('isPendingFeeItem', () => {
+  test('true only for PENDING_FEE items', () => {
+    expect(isPendingFeeItem({ feeStatus: 'PENDING_FEE' })).toBe(true)
+    expect(isPendingFeeItem({ feeStatus: 'FEE_PAID' })).toBe(false)
+    expect(isPendingFeeItem({ feeStatus: 'FEE_NOT_REQUIRED' })).toBe(false)
+    expect(isPendingFeeItem(undefined)).toBe(false)
+    expect(isPendingFeeItem({})).toBe(false)
+  })
+})
+
+describe('postingFeeModalPhase', () => {
+  test('paid only when FEE_PAID', () => {
+    expect(postingFeeModalPhase('FEE_PAID')).toBe('paid')
+    expect(postingFeeModalPhase('PENDING_FEE')).toBe('waiting')
+    expect(postingFeeModalPhase('FEE_NOT_REQUIRED')).toBe('waiting')
+    expect(postingFeeModalPhase(undefined)).toBe('waiting')
   })
 })
