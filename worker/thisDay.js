@@ -174,7 +174,6 @@ const THIS_DAY = gql`
           id
           optional {
             streak
-            hasSendWallet
             hasRecvWallet
           }
         }
