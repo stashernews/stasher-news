@@ -35,6 +35,8 @@ ${STREAK_FIELDS}
       credits
       freeCommentsLeft
       hasSendWallet
+      postingFeeRequired
+      postingFeePiconeros
       tipDefault
       tipRandom
       tipRandomMin

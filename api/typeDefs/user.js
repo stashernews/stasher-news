@@ -129,6 +129,8 @@ export default gql`
     freeCommentCount: Int!
     freeCommentsLeft: Int!
     hasSendWallet: Boolean!
+    postingFeeRequired: Boolean!
+    postingFeePiconeros: BigInt!
 
     """
     only relevant to user
