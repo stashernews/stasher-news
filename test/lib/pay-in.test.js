@@ -44,6 +44,7 @@ describe('isPendingFeeItem', () => {
     expect(isPendingFeeItem({ feeStatus: 'FEE_PAID' })).toBe(false)
     expect(isPendingFeeItem({ feeStatus: 'FEE_NOT_REQUIRED' })).toBe(false)
     expect(isPendingFeeItem(undefined)).toBe(false)
+    expect(isPendingFeeItem(null)).toBe(false)
     expect(isPendingFeeItem({})).toBe(false)
   })
 })
