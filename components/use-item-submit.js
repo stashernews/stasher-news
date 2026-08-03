@@ -116,7 +116,7 @@ export default function useItemSubmit (mutation,
       // display, so the early return makes that option inert for fee posts.
       if (isPostingFeeSubmit(response)) {
         resetForm?.()
-        showModal(onClose => <PostingFeeModal moneroUri={response.moneroUri} />)
+        showModal(onClose => <PostingFeeModal moneroUri={response.moneroUri} itemId={postId} />)
         if (navigateOnSubmit) {
           return
         }
