@@ -4,7 +4,6 @@ import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import useCrossposter from './use-crossposter'
 import { useCallback } from 'react'
 import { normalizeForwards, toastUpsertSuccessMessages } from '@/lib/form'
-import { USER_ID } from '@/lib/constants'
 import { composeCallbacks } from '@/lib/compose-callbacks'
 import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
 import { useMe } from './me'
@@ -34,16 +33,6 @@ export default function useItemSubmit (mutation,
       if (options) {
         // remove existing poll options since else they will be appended as duplicates
         options = options.slice(item?.poll?.options?.length || 0).filter(o => o.trim().length > 0)
-      }
-
-      const hmacEdit = item?.id && Number(item.user.id) === USER_ID.anon && !me
-      if (hmacEdit) {
-        const invParams = window.localStorage.getItem(`item:${item.id}:hash:hmac`)
-        if (invParams) {
-          const [hash, hmac] = invParams.split(':')
-          values.hash = hash
-          values.hmac = hmac
-        }
       }
 
       const subNames = submittedSubNames || item?.subNames || (sub?.name ? [sub.name] : [])
@@ -84,7 +73,6 @@ export default function useItemSubmit (mutation,
         onCompleted: (data) => {
           onSuccessfulSubmit?.(data, { resetForm })
           payInOnCompleted?.(data)
-          saveItemInvoiceHmac(data)
         }
       })
 
@@ -142,17 +130,4 @@ function nonOptimisticCache (cache) {
   return Object.create(cache, {
     modify: { value: (options) => cache.modify({ ...options, optimistic: false }) }
   })
-}
-
-function saveItemInvoiceHmac (mutationData) {
-  const response = getPayIn(mutationData)
-
-  if (!response?.payerPrivates?.payInBolt11) return
-
-  const id = response.payerPrivates.result.id
-  const { hash, hmac } = response.payerPrivates.payInBolt11
-
-  if (id && hash && hmac) {
-    window.localStorage.setItem(`item:${id}:hash:hmac`, `${hash}:${hmac}`)
-  }
 }

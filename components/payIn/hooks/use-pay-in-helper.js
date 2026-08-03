@@ -1,40 +1,17 @@
 import { useApolloClient, useMutation } from '@apollo/client/react'
 import { useCallback, useMemo } from 'react'
-import { PAY_IN_RECEIVER_FAILURE_REASONS, paidWaitFor } from '@/lib/pay-in'
-import { InvoiceCanceledError, InvoiceExpiredError, WalletReceiverError } from '@/wallets/client/errors'
-import { GET_PAY_IN_RESULT, CANCEL_PAY_IN_BOLT11, RETRY_PAY_IN } from '@/fragments/payIn'
+import { paidWaitFor } from '@/lib/pay-in'
+import { GET_PAY_IN_RESULT, RETRY_PAY_IN } from '@/fragments/payIn'
 import { FAST_POLL_INTERVAL_MS } from '@/lib/constants'
 
 export default function usePayInHelper () {
   const client = useApolloClient()
   const [retryPayIn] = useMutation(RETRY_PAY_IN)
-  const [cancelPayInBolt11] = useMutation(CANCEL_PAY_IN_BOLT11)
 
   const check = useCallback(async (id, that, { query = GET_PAY_IN_RESULT } = {}) => {
     const { data, error } = await client.query({ query, fetchPolicy: 'network-only', variables: { id } })
     if (error) {
       throw error
-    }
-
-    if (!data.payIn.payerPrivates?.payInBolt11) {
-      return { payIn: data.payIn, check: that(data.payIn) }
-    }
-
-    const { payInBolt11, payInFailureReason, pessimisticEnv } = data.payIn.payerPrivates
-    const { cancelledAt, expiresAt } = payInBolt11
-
-    const expired = cancelledAt && new Date(expiresAt) < new Date(cancelledAt)
-    if (expired) {
-      throw new InvoiceExpiredError(payInBolt11)
-    }
-
-    if (PAY_IN_RECEIVER_FAILURE_REASONS.includes(payInFailureReason)) {
-      throw new WalletReceiverError(payInBolt11)
-    }
-
-    const failed = cancelledAt || pessimisticEnv?.error
-    if (failed) {
-      throw new InvoiceCanceledError(payInBolt11, pessimisticEnv?.error)
     }
 
     return { payIn: data.payIn, check: that(data.payIn) }
@@ -43,12 +20,6 @@ export default function usePayInHelper () {
   const waitCheckController = useCallback((payInId) => {
     return waitCheckPayInController(payInId, check)
   }, [check])
-
-  const cancel = useCallback(async (payIn, { userCancel = false } = {}) => {
-    const { hash, hmac } = payIn.payerPrivates.payInBolt11
-    const { data } = await cancelPayInBolt11({ variables: { hash, hmac, userCancel } })
-    return data.cancelPayInBolt11
-  }, [cancelPayInBolt11])
 
   const retry = useCallback(async (payIn, { sendProtocolId, update } = {}) => {
     const { data, error } = await retryPayIn({ variables: { payInId: payIn.id, sendProtocolId }, update })
@@ -59,7 +30,7 @@ export default function usePayInHelper () {
     return newPayIn
   }, [retryPayIn])
 
-  return useMemo(() => ({ cancel, retry, check, waitCheckController }), [cancel, retry, check, waitCheckController])
+  return useMemo(() => ({ retry, check, waitCheckController }), [retry, check, waitCheckController])
 }
 
 export class WaitCheckControllerAbortedError extends Error {

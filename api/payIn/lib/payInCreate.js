@@ -1,4 +1,4 @@
-import { assertBelowMaxPendingPayInBolt11s, assertMcostRemaining, assertBalancedPayInAndPayOuts } from './assert'
+import { assertBelowMaxPendingPayIns, assertMcostRemaining, assertBalancedPayInAndPayOuts } from './assert'
 import { isInvoiceable, isWithdrawal } from './is'
 import { getCostBreakdown, getPayInCustodialTokens } from './payInCustodialTokens'
 import { payInPrismaCreate } from './payInPrisma'
@@ -25,7 +25,7 @@ export async function payInCreate (tx, payInProspect, payInArgs, { me }) {
 
   assertMcostRemaining(mCostRemaining)
   assertBalancedPayInAndPayOuts(fullProspect)
-  await assertBelowMaxPendingPayInBolt11s(tx, fullProspect)
+  await assertBelowMaxPendingPayIns(tx, fullProspect)
 
   const payIn = await tx.payIn.create({
     data: payInPrismaCreate(fullProspect),

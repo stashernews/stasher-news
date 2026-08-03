@@ -1,5 +1,4 @@
-import { ceilBigInt } from '@/lib/format'
-import { isP2P, isP2POnly, isPayableWithCredits, isSystemOnly, isWithdrawal } from './is'
+import { isP2POnly, isPayableWithCredits, isSystemOnly, isWithdrawal } from './is'
 import { USER_ID } from '@/lib/constants'
 
 export async function getPayInCustodialTokens (tx, mCustodialCost, payIn, { me }) {
@@ -86,11 +85,7 @@ function getP2PCost (payIn) {
   if (isP2POnly(payIn)) {
     return payIn.mcost
   }
-  // round this up to the nearest 1000msats
-  // we don't want anyone to pay fractional sats via invoice
-  if (isP2P(payIn)) {
-    return ceilBigInt(payIn.payOutBolt11?.msats ?? 0n, 1000n) * 1000n
-  }
+  // the Bolt11 invoice surface was removed: there is no bolt11 msats to round up, so P2P cost is 0
   return 0n
 }
 
