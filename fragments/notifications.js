@@ -19,25 +19,6 @@ export const PAY_INIFICATION = gql`
     }
     payIn {
       ...PayInLinkFields
-      payerPrivates {
-        payInBolt11 {
-          lud18Data {
-            id
-            name
-            identifier
-            email
-            pubkey
-          }
-          nostrNote {
-            id
-            note
-          }
-          comment {
-            id
-            comment
-          }
-        }
-      }
     }
   }`
 

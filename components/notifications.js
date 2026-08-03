@@ -12,7 +12,7 @@ import Link from 'next/link'
 import Check from '@/svgs/check-double-line.svg'
 import HandCoin from '@/svgs/hand-coin-fill.svg'
 import UserAdd from '@/svgs/user-add-fill.svg'
-import { LOST_BLURBS, FOUND_BLURBS, PAY_IN_ACT_TYPES, UNKNOWN_LINK_REL } from '@/lib/constants'
+import { LOST_BLURBS, FOUND_BLURBS, PAY_IN_ACT_TYPES } from '@/lib/constants'
 import CowboyHatIcon from '@/svgs/cowboy.svg'
 import BaldIcon from '@/svgs/bald.svg'
 import GunIcon from '@/svgs/revolver.svg'
@@ -24,9 +24,7 @@ import { useServiceWorker } from './serviceworker'
 import { Checkbox, Form } from './form'
 import { useRouter } from 'next/router'
 import { useData } from './use-data'
-import { nostrZapDetails } from '@/lib/nostr'
 import Text from '@/components/text'
-import NostrIcon from '@/svgs/nostr.svg'
 import { msatsToSats, numWithUnits, xmrFromSats } from '@/lib/format'
 import BountyIcon from '@/svgs/bounty-bag.svg'
 import { LongCountdown } from './countdown'
@@ -73,7 +71,6 @@ function Notification ({ n, fresh }) {
         (type === 'TerritoryTransfer' && <TerritoryTransfer n={n} />) ||
         (type === 'Reminder' && <Reminder n={n} />) ||
         (type === 'PayInification' && (
-          (n.payIn.payInType === 'PROXY_PAYMENT' && <PayInProxyPayment n={n} />) ||
           ((n.payIn.payInType === 'WITHDRAWAL' || n.payIn.payInType === 'AUTO_WITHDRAWAL') && <PayInWithdrawal n={n} />) ||
             <PayInFailed n={n} />
         )) ||
@@ -352,69 +349,6 @@ function Invitification ({ n }) {
         />
       </div>
     </>
-  )
-}
-
-function NostrZap ({ n }) {
-  const { nostrNote } = n.payIn.payerPrivates.payInBolt11
-  const { npub, content, note } = nostrZapDetails(nostrNote.note)
-
-  return (
-    <div className='fw-bold text-nostr'>
-      <NostrIcon width={24} height={24} className='fill-nostr me-1' />{xmrFromSats(n.earnedSats)} tip from
-      {// eslint-disable-next-line
-        <Link className='mx-1 text-reset text-underline' target='_blank' href={`https://njump.me/${npub}`} rel={UNKNOWN_LINK_REL}>
-          {npub.slice(0, 10)}...
-        </Link>
-        }
-      on {note
-          ? (
-            // eslint-disable-next-line
-            <Link className='mx-1 text-reset text-underline' target='_blank' href={`https://njump.me/${note}`} rel={UNKNOWN_LINK_REL}>
-              {note.slice(0, 12)}...
-            </Link>)
-          : 'nostr'}
-      <small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
-      {content && <small className='d-block ms-4 ps-1 mt-1 mb-1 text-muted fw-normal'><Text>{content}</Text></small>}
-    </div>
-  )
-}
-
-function getPayerSig (lud18Data) {
-  let payerSig
-  if (lud18Data) {
-    const { name, identifier, email, pubkey } = lud18Data
-    const id = identifier || email || pubkey
-    payerSig = '- '
-    if (name) {
-      payerSig += name
-      if (id) payerSig += ' \\ '
-    }
-
-    if (id) payerSig += id
-  }
-  return payerSig
-}
-
-function PayInProxyPayment ({ n }) {
-  if (n.payIn.payerPrivates.payInBolt11.nostrNote) {
-    return <NostrZap n={n} />
-  }
-
-  const payerSig = getPayerSig(n.payIn.payerPrivates.payInBolt11.lud18Data)
-  const sats = n.earnedSats
-  const actionString = 'proxied to your attached wallet'
-
-  return (
-    <div className='fw-bold text-info'>
-      <Check className='fill-info me-1' />{xmrFromSats(sats)} {actionString}
-      <small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
-      {n.payIn.payerPrivates.payInBolt11.comment &&
-        <small className='d-block ms-4 ps-1 mt-1 mb-1 text-muted fw-normal'>
-          <Text>{n.payIn.payerPrivates.payInBolt11.comment.comment}</Text>
-          {payerSig}
-        </small>}
-    </div>
   )
 }
 
