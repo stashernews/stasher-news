@@ -40,6 +40,7 @@ export const ITEM_FIELDS = gql`
       payInState
       payInType
       payInStateChangedAt
+      moneroUri
       payerPrivates {
         payInFailureReason
         retryCount
