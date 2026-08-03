@@ -45,7 +45,6 @@ ${STREAK_FIELDS}
       tipRandomMax
       tipPopover
       turboTipping
-      zapUndos
       upvotePopover
     }
     optional {
@@ -64,7 +63,6 @@ export const SETTINGS_FIELDS = gql`
       tipRandomMin
       tipRandomMax
       turboTipping
-      zapUndos
       fiatCurrency
       noteItemSats
       noteEarning
