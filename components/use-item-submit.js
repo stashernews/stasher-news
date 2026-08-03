@@ -9,6 +9,8 @@ import { composeCallbacks } from '@/lib/compose-callbacks'
 import { getPayIn } from '@/lib/pay-in'
 import { useMe } from './me'
 import { useBranding } from './territory-branding'
+import PostingFeeModal from './posting-fee-modal'
+import { useShowModal } from './modal'
 
 // this is intented to be compatible with upsert item mutations
 // so that it can be reused for all post types and comments and we don't have
@@ -25,6 +27,7 @@ export default function useItemSubmit (mutation,
   const [upsertItem] = usePayInMutation(mutation)
   const { me } = useMe()
   const branding = useBranding()
+  const showModal = useShowModal()
 
   return useCallback(
     async ({ subNames: submittedSubNames, crosspost, title, options, bounty, status, ...values }, { resetForm }) => {
@@ -98,6 +101,22 @@ export default function useItemSubmit (mutation,
 
       toastUpsertSuccessMessages(toaster, data, Object.keys(data)[0], values.text)
 
+      // StealthNews: a low-rep ITEM_CREATE returns a monero: URI for the posting
+      // fee and the post is PENDING_FEE until the penaltyIndexer observes it
+      // on-chain — surface the payment instead of redirecting to the feed.
+      // Comments never carry a moneroUri (they are exempt from the fee gate).
+      //
+      // Show the modal regardless of navigateOnSubmit (in-place submits must
+      // still surface the fee); only the redirect is gated on it. persistOnNavigate
+      // was set up for route-based QR persistence; the modal now owns the QR
+      // display, so the early return makes that option inert for fee posts.
+      if (response?.moneroUri) {
+        showModal(onClose => <PostingFeeModal moneroUri={response.moneroUri} />)
+        if (navigateOnSubmit) {
+          return
+        }
+      }
+
       // if we're not a comment, we want to redirect after the mutation
       if (navigateOnSubmit) {
         if (item) {
@@ -107,7 +126,7 @@ export default function useItemSubmit (mutation,
           await router.push(prefix + '/new')
         }
       }
-    }, [me, upsertItem, router, crossposter, item, onSuccessfulSubmit,
+    }, [me, showModal, upsertItem, router, crossposter, item, onSuccessfulSubmit,
       navigateOnSubmit, extraValues, payInMutationOptions, branding]
   )
 }
