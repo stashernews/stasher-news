@@ -40,7 +40,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       7
     )
-    expect(result).toEqual({ postingFeeRequired: true, postingFeePiconeros: 1_000_000_000n })
+    expect(result).toEqual({ postingFeeRequired: true, postingFeePiconeros: 1_000_000_000n, freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 })
   })
 
   test('established self-view reports no fee', async () => {
@@ -50,7 +50,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY) },
       7
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 })
   })
 
   test('other viewers never see fee info', async () => {
@@ -60,7 +60,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       8
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0 })
   })
 
   test('a logged-out viewer never sees fee info', async () => {
@@ -69,7 +69,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       null
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0 })
   })
 
   test('missing config reports no fee', async () => {
@@ -79,6 +79,6 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       7
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0 })
   })
 })
