@@ -6,7 +6,7 @@ import { useCallback } from 'react'
 import { normalizeForwards, toastUpsertSuccessMessages } from '@/lib/form'
 import { USER_ID } from '@/lib/constants'
 import { composeCallbacks } from '@/lib/compose-callbacks'
-import { getPayIn } from '@/lib/pay-in'
+import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
 import { useMe } from './me'
 import { useBranding } from './territory-branding'
 import PostingFeeModal from './posting-fee-modal'
@@ -106,11 +106,16 @@ export default function useItemSubmit (mutation,
       // on-chain — surface the payment instead of redirecting to the feed.
       // Comments never carry a moneroUri (they are exempt from the fee gate).
       //
+      // The submit succeeded (the item exists, PENDING_FEE), so reset the form —
+      // otherwise a dismissed modal leaves the post page with the same content,
+      // and clicking post again mints a duplicate item with a second posting fee.
+      //
       // Show the modal regardless of navigateOnSubmit (in-place submits must
       // still surface the fee); only the redirect is gated on it. persistOnNavigate
       // was set up for route-based QR persistence; the modal now owns the QR
       // display, so the early return makes that option inert for fee posts.
-      if (response?.moneroUri) {
+      if (isPostingFeeSubmit(response)) {
+        resetForm?.()
         showModal(onClose => <PostingFeeModal moneroUri={response.moneroUri} />)
         if (navigateOnSubmit) {
           return
