@@ -37,6 +37,8 @@ ${STREAK_FIELDS}
       hasSendWallet
       postingFeeRequired
       postingFeePiconeros
+      freePostThresholdPiconeros
+      freePostMinAgeDays
       tipDefault
       tipRandom
       tipRandomMin
