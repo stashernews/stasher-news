@@ -3,8 +3,6 @@
 const GHOST_KEYS = new Set([
   'payInCustodialTokens',
   'payOutCustodialTokens',
-  'payInBolt11',
-  'payOutBolt11',
   'pessimisticEnv'
 ])
 

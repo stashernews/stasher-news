@@ -21,36 +21,6 @@ export const PAY_IN_LINK_FIELDS = gql`
   }
 `
 
-export const PAY_IN_BOLT11_FIELDS = gql`
-  fragment PayInBolt11Fields on PayInBolt11 {
-    id
-    payInId
-    invoice
-    hash
-    hmac
-    msatsRequested
-    msatsReceived
-    expiresAt
-    confirmedAt
-    cancelledAt
-    lud18Data {
-      id
-      name
-      identifier
-      email
-      pubkey
-    }
-    nostrNote {
-      id
-      note
-    }
-    comment {
-      id
-      comment
-    }
-  }
-`
-
 export const PAY_IN_WALLET_INFO_FIELDS = gql`
   fragment PayInWalletInfoFields on PayInWalletInfo {
     walletId
@@ -65,7 +35,6 @@ export const PAY_IN_FIELDS = gql`
   ${SUB_FULL_FIELDS}
   ${COMMENTS}
   ${PAY_IN_LINK_FIELDS}
-  ${PAY_IN_BOLT11_FIELDS}
   fragment PayInFields on PayIn {
     id
     createdAt
@@ -75,16 +44,10 @@ export const PAY_IN_FIELDS = gql`
     payInType
     payInState
     payInStateChangedAt
-    payOutBolt11Public {
-      msats
-    }
     payerPrivates {
       userId
       payInFailureReason
       retryCount
-      payInBolt11 {
-        ...PayInBolt11Fields
-      }
       pessimisticEnv {
         id
         error
@@ -133,7 +96,6 @@ export const PAY_IN_STATISTICS_FIELDS = gql`
   ${ITEM_FULL_FIELDS}
   ${SUB_FULL_FIELDS}
   ${INVITE_FIELDS}
-  ${PAY_IN_BOLT11_FIELDS}
   fragment PayInStatisticsFields on PayIn {
     id
     createdAt
@@ -144,12 +106,6 @@ export const PAY_IN_STATISTICS_FIELDS = gql`
     payInState
     payInStateChangedAt
     genesisId
-    payInBolt11Public {
-      msats
-    }
-    payOutBolt11Public {
-      msats
-    }
     payerPrivates {
       userId
       payInFailureReason
@@ -166,23 +122,11 @@ export const PAY_IN_STATISTICS_FIELDS = gql`
         mtokensAfter
         custodialTokenType
       }
-      payInBolt11 {
-        ...PayInBolt11Fields
-      }
       invite {
         ...InviteFields
       }
       sub {
         ...SubFullFields
-      }
-    }
-    payeePrivates {
-      payOutBolt11 {
-        msats
-        hash
-        invoice
-        preimage
-        status
       }
     }
     payOutCustodialTokens {
