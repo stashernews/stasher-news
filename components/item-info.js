@@ -7,7 +7,7 @@ import Dropdown from 'react-bootstrap/Dropdown'
 import Countdown from './countdown'
 import { isPendingFeeItem, shouldShowItemPaidAt } from '@/lib/pay-in'
 import PostingFeeModal from './posting-fee-modal'
-import { abbrNum, numWithUnits, xmrFromSats } from '@/lib/format'
+import { abbrNum, numWithUnits, piconerosToXmr } from '@/lib/format'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
 import { timeSince } from '@/lib/time'
 import { DeleteDropdownItem } from './delete'
@@ -45,7 +45,7 @@ function itemTitle (item) {
     unitPlural: 'zappers'
   })
   if (Number(item.piconeros) - Number(item.credits)) {
-    title += ` \\ ${xmrFromSats(Number(item.piconeros) - Number(item.credits))} stashed`
+    title += ` \\ ${piconerosToXmr(BigInt(Number(item.piconeros) - Number(item.credits)))} stashed`
   }
   if (item.credits) {
     title += ` \\ ${numWithUnits(item.credits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })} stashed`
@@ -57,18 +57,18 @@ function itemTitle (item) {
     title += ` \\ ${numWithUnits(item.cost, { abbreviate: false, unitSingular: 'cost', unitPlural: 'cost' })}`
   }
   if (item.downPiconeros) {
-    title += ` \\ ${xmrFromSats(item.downPiconeros)}`
+    title += ` \\ ${piconerosToXmr(BigInt(item.downPiconeros))}`
   }
   if (item.mePiconeros || item.meDontLikePiconeros || item.meAnonPiconeros) {
     const satSources = []
     if (item.meAnonPiconeros || (Number(item.mePiconeros || 0) - Number(item.meCredits || 0)) > 0) {
-      satSources.push(`${xmrFromSats(Number(item.mePiconeros || 0) + Number(item.meAnonPiconeros || 0) - Number(item.meCredits || 0))}`)
+      satSources.push(`${piconerosToXmr(BigInt(Number(item.mePiconeros || 0) + Number(item.meAnonPiconeros || 0) - Number(item.meCredits || 0)))}`)
     }
     if (item.meCredits) {
       satSources.push(`${numWithUnits(item.meCredits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })}`)
     }
     if (item.meDontLikePiconeros) {
-      satSources.push(`${xmrFromSats(item.meDontLikePiconeros)}`)
+      satSources.push(`${piconerosToXmr(BigInt(item.meDontLikePiconeros))}`)
     }
     if (satSources.length) {
       title += ` (${satSources.join(' & ')} from me)`
@@ -122,7 +122,7 @@ export default function ItemInfo ({
       {!isPinnedPost && !(isPinnedSubReply && !full) &&
         <>
           <span title={itemTitle(item)}>
-            {xmrFromSats(Number(item.piconeros) + Number(item.boost) + Number(item.cost))}
+            {piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) * 1000 + Number(item.cost) * 1000))}
           </span>
           <span> \ </span>
         </>}
@@ -135,7 +135,7 @@ export default function ItemInfo ({
               `/items/${item.id}?commentsViewedAt=${viewedAt}`,
               `/items/${item.id}`)
           }
-        }} title={`${xmrFromSats(item.commentPiconeros + item.commentCost + item.commentBoost)} (${item.commentPiconeros} stashed \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
+        }} title={`${piconerosToXmr(BigInt(Number(item.commentPiconeros) + Number(item.commentCost) * 1000 + Number(item.commentBoost) * 1000))} (${item.commentPiconeros} stashed \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
       >
         {numWithUnits(item.ncomments, {
           abbreviate: false,

@@ -8,7 +8,7 @@ import TipModal from './tip-modal'
 import { useMe } from './me'
 import getColor from '@/lib/rainbow'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { xmrFromSats } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 import LongPressable from './long-pressable'
 import Overlay from 'react-bootstrap/Overlay'
 import Popover from 'react-bootstrap/Popover'
@@ -29,7 +29,7 @@ const UpvotePopover = ({ target, show, handleClose }) => {
           <button type='button' className='btn-close' onClick={handleClose}><span className='visually-hidden-focusable'>Close alert</span></button>
         </Popover.Header>
         <Popover.Body>
-          <div className='mb-2'>Press the tip button again to tip {me?.privates?.tipRandom ? 'a random amount' : `${xmrFromSats(me?.privates?.tipDefault || 1)} more`}.</div>
+          <div className='mb-2'>Press the tip button again to tip {me?.privates?.tipRandom ? 'a random amount' : `${piconerosToXmr(BigInt(me?.privates?.tipDefault || 1))} more`}.</div>
           <div>Repeatedly press the tip button to tip more.</div>
         </Popover.Body>
       </Popover>
@@ -156,7 +156,7 @@ export default function UpVote ({ item, className, collapsed }) {
     const sats = nextTip(meSats, { ...me?.privates })
     let overlayTextContent
     if (me) {
-      overlayTextContent = me.privates?.tipRandom ? 'random' : xmrFromSats(sats)
+      overlayTextContent = me.privates?.tipRandom ? 'random' : piconerosToXmr(BigInt(sats))
     } else {
       overlayTextContent = 'tip it'
     }

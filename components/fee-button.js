@@ -6,7 +6,7 @@ import styles from './fee-button.module.css'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
 import { ANON_FEE_MULTIPLIER, FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
-import { piconerosToXmr, xmrFromSats } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 import { useMe } from './me'
 import AnonIcon from '@/svgs/spy-fill.svg'
 import { useShowModal } from './modal'
@@ -82,7 +82,7 @@ export function postCommentBaseLineItems ({ subs, comment = false, bio = false, 
       // flat on-chain fee: 0 * 10^n + fee stays fee (sortHelper runs _ first,
       // then * and /, then + and -)
       op: '+',
-      // legacy line items are sats: 1 sats == 1000 piconeros (see xmrFromSats)
+      // legacy line items are sats: 1 sat == 1000 piconeros
       modifier: (cost) => cost + Number(feePiconeros / 1000n),
       allowFreebies: false,
       isComment: false
@@ -238,13 +238,13 @@ export default function FeeButton ({ ChildButton = SubmitButton, variant, text, 
   const feeText = free
     ? 'free'
     : total > 1
-      ? xmrFromSats(total)
+      ? piconerosToXmr(BigInt(total) * 1000n)
       : undefined
   disabled ||= ctxDisabled
 
   return (
     <div className={styles.feeButton}>
-      <ActionTooltip overlayText={!free && total === 1 ? xmrFromSats(1) : feeText}>
+      <ActionTooltip overlayText={!free && total === 1 ? piconerosToXmr(BigInt(1) * 1000n) : feeText}>
         <ChildButton
           variant={variant} disabled={disabled}
           appendText={feeText}
@@ -272,7 +272,7 @@ function Receipt ({ lines, total }) {
       </tbody>
       <tfoot>
         <tr>
-          <td className='fw-bold'>{xmrFromSats(total)}</td>
+          <td className='fw-bold'>{piconerosToXmr(BigInt(total) * 1000n)}</td>
           <td align='right' className='font-weight-light'>total fee</td>
         </tr>
       </tfoot>
