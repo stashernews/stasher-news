@@ -10,7 +10,7 @@ import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, DOMAIN_BETA_IDS, TERRITORY_BILLI
 import { territorySchema, filterXmrValidator } from '@/lib/validate'
 import { useMe } from './me'
 import Info from './info'
-import { abbrNum, piconerosToXmrDecimal, signedXmrToPiconeros } from '@/lib/format'
+import { abbrNum, piconerosToXmrDecimal, signedXmrToPiconeros, snapToFilterGrid } from '@/lib/format'
 import { purchasedType } from '@/lib/territory'
 import { SUB } from '@/fragments/subs'
 import TerritoryBranding, { useBranding } from './territory-branding'
@@ -128,7 +128,7 @@ export default function TerritoryForm ({ sub }) {
           baseCost: sub?.baseCost || 10,
           replyCost: sub?.replyCost || 1,
           // Default xmr filter (0.001 XMR = the posting-fee default)
-          postsPiconerosFilter: sub?.postsPiconerosFilter == null ? 0.001 : Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter))),
+          postsPiconerosFilter: sub?.postsPiconerosFilter == null ? 0.001 : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter)))),
           postTypes: sub?.postTypes || POST_TYPES,
           billingType: sub?.billingType || 'MONTHLY',
           billingAutoRenew: sub?.billingAutoRenew || false,
