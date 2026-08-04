@@ -28,10 +28,10 @@ export function computeAutoWithdrawAmount (user) {
   if (excess < Number(threshold) * 0.1) return null
 
   // floor fee to nearest sat but still denominated in piconeros
-  const maxFeePiconeros = Math.floor(Math.max(
+  const maxFeePiconeros = BigInt(Math.floor(Math.max(
     Math.ceil(excess * (user.autoWithdrawMaxFeePercent / 100.0)),
     Number(BigInt(user.autoWithdrawMaxFeeTotal) * 1000n)
-  ) / 1000) * 1000
+  ) / 1000) * 1000)
   // piconeros will be floored by createInvoice if it needs to be
   const piconeros = BigInt(excess) - maxFeePiconeros
 

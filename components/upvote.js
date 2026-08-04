@@ -73,7 +73,7 @@ export function DropdownItemUpVote ({ item }) {
 export const defaultTipIncludingRandom = ({ tipDefault, tipRandom, tipRandomMin, tipRandomMax } = {}) => {
   return tipRandom
     ? Math.floor((Math.random() * (tipRandomMax - tipRandomMin + 1)) + tipRandomMin)
-    : (tipDefault || 100)
+    : (tipDefault || 100000000)
 }
 
 export const nextTip = (meSats, { tipDefault, turboTipping, tipRandom, tipRandomMin, tipRandomMax }) => {
