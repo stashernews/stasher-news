@@ -53,7 +53,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
             height = ${height ?? null}, piconeros = ${piconeros}, confirmations = ${confirmations}
         WHERE id = ${tip.id} AND state = 'PENDING'`
       if (claimed > 0) {
-        await applyTipDetected(tip.postId, null, piconeros, tx)
+        await applyTipDetected(tip.postId, tip.tipperId, piconeros, tx)
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     return res.status(200).end()

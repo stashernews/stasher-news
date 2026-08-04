@@ -35,7 +35,11 @@ const SUB = Prisma.raw('-')
 
 function tipDeltaSql (postId, tipperId, piconeros, sign) {
   // Optional per-user attribution CTE. Omitted entirely for anonymous tips so
-  // no ItemUserAgg row is created; the rest of the chain still runs.
+  // no ItemUserAgg row is created; the rest of the chain still runs. The
+  // RETURNING first_vote is 1 when this is the tipper's FIRST tip on the post
+  // (tipPiconeros was 0 before this upsert) and 0 on repeat tips — mirroring the
+  // legacy zap.js `upvotes += first_vote` distinct-tipper count.
+  const isAdd = sign === ADD
   const zap = tipperId == null
     ? Prisma.empty
     : Prisma.sql`
@@ -44,13 +48,28 @@ function tipDeltaSql (postId, tipperId, piconeros, sign) {
           VALUES (${tipperId}::INTEGER, ${postId}::INTEGER, ${piconeros}::BIGINT)
           ON CONFLICT ("itemId", "userId") DO UPDATE
           SET "tipPiconeros" = "ItemUserAgg"."tipPiconeros" + ${piconeros}::BIGINT, updated_at = now()
+          RETURNING ("tipPiconeros" = ${piconeros}::BIGINT)::INTEGER AS first_vote
         ),`
+
+  // upvotes is the # of distinct tippers. A detected tip bumps it once per tipper
+  // via first_vote; anonymous tips have no per-user attribution so leave it
+  // unchanged. Reversal (reorg rollback) decrements by one. When the zap CTE is
+  // present it must be named in FROM for its columns to be referenceable.
+  const needZap = isAdd && tipperId != null
+  const upvotesSet = isAdd
+    ? (tipperId == null
+        ? Prisma.sql`"upvotes" = "Item"."upvotes"`
+        : Prisma.sql`"upvotes" = "Item"."upvotes" + zap.first_vote`)
+    : Prisma.sql`"upvotes" = "Item"."upvotes" - 1`
+  const fromZap = needZap ? Prisma.sql`FROM zap` : Prisma.empty
 
   return Prisma.sql`
     WITH ${zap}
     item_tipped AS (
       UPDATE "Item"
-      SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT
+      SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
+          ${upvotesSet}
+      ${fromZap}
       WHERE "Item".id = ${postId}::INTEGER
       RETURNING "Item".*
     )

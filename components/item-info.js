@@ -57,7 +57,7 @@ function itemTitle (item) {
     title += ` \\ ${numWithUnits(item.cost, { abbreviate: false, unitSingular: 'cost', unitPlural: 'cost' })}`
   }
   if (item.downPiconeros) {
-    title += ` \\ ${piconerosToXmr(BigInt(item.downPiconeros))}`
+    title += ` \\ ${piconerosToXmr(BigInt(item.downPiconeros))} downvoted`
   }
   if (item.mePiconeros || item.meDontLikePiconeros || item.meAnonPiconeros) {
     const satSources = []
@@ -124,6 +124,8 @@ export default function ItemInfo ({
           <span title={itemTitle(item)}>
             {piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) * 1000 + Number(item.cost) * 1000))}
           </span>
+          {Number(item.downPiconeros) > 0 &&
+            <span className='text-danger'> -{piconerosToXmr(BigInt(item.downPiconeros))}</span>}
           <span> \ </span>
         </>}
       <Link

@@ -61,7 +61,7 @@ async function createComment (userId, rootId, title) {
 function readItem (id) {
   return prisma.item.findUnique({
     where: { id },
-    select: { piconeros: true, ranktop: true, commentPiconeros: true }
+    select: { piconeros: true, ranktop: true, commentPiconeros: true, upvotes: true }
   })
 }
 
@@ -75,11 +75,25 @@ test('applyTipDetected bumps Item.piconeros, ranktop, and ItemUserAgg.tipPiconer
 
   expect(after.piconeros - before.piconeros).toBe(5000000n)
   expect(after.ranktop).toBeGreaterThan(before.ranktop)
+  expect(after.upvotes - before.upvotes).toBe(1)
 
   const agg = await prisma.itemUserAgg.findUnique({
     where: { itemId_userId: { itemId: p, userId: u } }
   })
   expect(agg.tipPiconeros).toBe(5000000n)
+})
+
+test('a repeat tip from the same user does not double-count the tipper', async () => {
+  const u = await createUser(); created.users.push(u)
+  const p = await createRoot(u, 'repeat-tip'); created.items.push(p)
+
+  await applyTipDetected(p, u, 3000000n)
+  const once = await readItem(p)
+  await applyTipDetected(p, u, 2000000n)
+  const twice = await readItem(p)
+
+  expect(twice.piconeros - once.piconeros).toBe(2000000n)
+  expect(twice.upvotes - once.upvotes).toBe(0)
 })
 
 test('applyTipDetected with null tipper bumps piconeros but creates no ItemUserAgg row', async () => {
@@ -92,6 +106,7 @@ test('applyTipDetected with null tipper bumps piconeros but creates no ItemUserA
 
   expect(after.piconeros - before.piconeros).toBe(3000000n)
   expect(after.ranktop).toBeGreaterThan(before.ranktop)
+  expect(after.upvotes - before.upvotes).toBe(0)
 
   const count = await prisma.itemUserAgg.count({ where: { itemId: p } })
   expect(count).toBe(0)
@@ -112,7 +127,7 @@ test('applyTipDetected on a comment propagates commentPiconeros to ancestor post
   expect(after.ranktop).toBeGreaterThan(before.ranktop)
 })
 
-test('reverseTip subtracts piconeros and lowers ranktop', async () => {
+test('reverseTip subtracts piconeros, lowers ranktop, and decrements upvotes', async () => {
   const u = await createUser(); created.users.push(u)
   const p = await createRoot(u, 'reverse'); created.items.push(p)
 
@@ -123,4 +138,5 @@ test('reverseTip subtracts piconeros and lowers ranktop', async () => {
 
   expect(before.piconeros - after.piconeros).toBe(2000000n)
   expect(after.ranktop).toBeLessThan(before.ranktop)
+  expect(before.upvotes - after.upvotes).toBe(1)
 })

@@ -12,7 +12,7 @@ import { bumpActCache } from './item-act'
 import PaymentSuccessView from './payment-success-view'
 import useWatchTip from './tip/use-watch-tip'
 import { INITIATE_TIP } from '@/fragments/monero'
-import { xmrToPiconeros, piconerosToXmr } from '@/lib/format'
+import { xmrToPiconeros, piconerosToXmr, piconerosToXmrDecimal } from '@/lib/format'
 import UpArrow from '@/svgs/up-arrow.svg'
 
 // StealthNews tip modal (spec §8.3). Mirrors components/downvote-modal.js: call a
@@ -22,6 +22,10 @@ import UpArrow from '@/svgs/up-arrow.svg'
 //   - polls tipStatus and bumps the item counter at DETECTED, then closes
 const PRESETS = ['0.001', '0.01', '0.025']
 const MIN_XMR = '0.0001' // = 1e8 piconeros, the server's minTipPiconeros floor
+// quick-slider bounds (XMR): 0.001–0.025 in 0.001 steps, in piconeros
+const TIP_SLIDER_MIN = 1000000000n
+const TIP_SLIDER_MAX = 25000000000n
+const TIP_SLIDER_STEP = 1000000000n
 
 export default function TipModal ({ item, onClose }) {
   const client = useApolloClient()
@@ -104,6 +108,14 @@ export default function TipModal ({ item, onClose }) {
           />
           <InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>
         </InputGroup>
+        <BootstrapForm.Range
+          className='mt-2'
+          min={Number(TIP_SLIDER_MIN)}
+          max={Number(TIP_SLIDER_MAX)}
+          step={Number(TIP_SLIDER_STEP)}
+          value={Math.min(Number(TIP_SLIDER_MAX), Math.max(Number(TIP_SLIDER_MIN), Number(xmrToPiconerosSafe(amount))))}
+          onChange={e => setAmount(piconerosToXmrDecimal(BigInt(e.target.value)))}
+        />
       </BootstrapForm.Group>
 
       <div className='d-flex flex-wrap gap-2 my-2'>
