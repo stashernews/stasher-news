@@ -34,7 +34,7 @@ export default function Badges ({ user, badge, bot, showWalletBadges, className 
   if (showWalletBadges && user.optional.hasRecvWallet) {
     badges.push({
       icon: HorseIcon,
-      overlayText: 'can receive sats'
+      overlayText: 'can receive XMR'
     })
   }
 

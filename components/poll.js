@@ -1,5 +1,4 @@
 import Button from 'react-bootstrap/Button'
-import { fixedDecimal, numWithUnits } from '@/lib/format'
 import { timeLeft } from '@/lib/time'
 import { useMe } from './me'
 import styles from './poll.module.css'
@@ -8,7 +7,9 @@ import ActionTooltip from './action-tooltip'
 import { useToast } from './toast'
 import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import { throwUnlessUserCancel } from '@/wallets/client/errors'
+import { piconerosToXmr, fixedDecimal, numWithUnits } from '@/lib/format'
 import { POLL_VOTE } from '@/fragments/payIn'
+import { POLL_COST } from '@/lib/constants'
 import { useState } from 'react'
 import classNames from 'classnames'
 
@@ -19,7 +20,7 @@ const PollButton = ({ v, item }) => {
   const { me } = useMe()
 
   return (
-    <ActionTooltip placement='left' notForm overlayText='1 sat'>
+    <ActionTooltip placement='left' notForm overlayText={piconerosToXmr(BigInt(POLL_COST) * 1000n)}>
       <Button
         disabled={isSubmitting}
         variant='outline-info' className={classNames(styles.pollButton, isSubmitting && 'pulse')}

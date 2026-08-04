@@ -131,7 +131,7 @@ export default function Growth ({ ssrData }) {
           <WhenAreaChart data={stashingGrowth} />
         </Col>
         <Col className='mt-3'>
-          <div className='text-center text-muted fw-bold'>sats spent</div>
+          <div className='text-center text-muted fw-bold'>XMR spent</div>
           <WhenAreaChart data={spendingGrowth} />
         </Col>
       </Row>

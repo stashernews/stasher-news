@@ -220,13 +220,13 @@ export function useFeeButton () {
 function FreebieDialog ({ freeCommentsLeft }) {
   return (
     <>
-      <div className='fw-bold'>you don't have enough sats, so this one is on us</div>
+      <div className='fw-bold'>you don't have enough XMR, so this one is on us</div>
       <ul className='mt-2'>
-        <li>Free items have limited visibility and can only earn cowboy credits.</li>
+        <li>Free items have limited visibility and can only earn credits.</li>
         {freeCommentsLeft !== null && (
           <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left this month.</li>
         )}
-        <li>To get fully visible right away, fund your account with a few sats or earn some on Stasher News.</li>
+        <li>To get fully visible right away, fund your account with a little XMR or earn some on Stasher News.</li>
       </ul>
     </>
   )
@@ -293,7 +293,7 @@ function AnonInfo () {
               <ol className='my-3'>
                 <li>You'll pay by invoice</li>
                 <li>Your content will be content-joined (get it?!) under the <Link href='/anon' target='_blank'>@anon</Link> account</li>
-                <li>Any sats your content earns will go toward <Link href='/rewards' target='_blank'>rewards</Link></li>
+                <li>Any XMR your content earns will go toward <Link href='/rewards' target='_blank'>rewards</Link></li>
                 <li>We won't be able to notify you when you receive replies</li>
               </ol>
               <small className='text-center fst-italic text-muted'>btw if you don't need to be anonymous, posting is cheaper with an account</small>
