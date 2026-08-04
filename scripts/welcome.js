@@ -180,7 +180,7 @@ function printAmount ({ welcomePost, bios }) {
 
 function printTopTenderfoots ({ bios }) {
   console.log('Top 10 Tenderfoots:\n')
-  console.log('| nym | items | sats/ccs stacked | sat standard |')
+  console.log('| nym | items | XMR/credits stashed | received ratio |')
   console.log('| --- | ----- | ---------------- | ------------ |')
 
   const topTenderfoots = bios
@@ -201,14 +201,14 @@ function printQuestions () {
   console.log('2. How difficult was it to get started? Any feedback?')
   console.log('3. How much experience do you have with lightning?')
   console.log('4. Have you read the [FAQ](https://stasher.news/faq) already?')
-  console.log('5. Have you realized that you need to attach a wallet to receive sats?')
-  console.log('6. Do you understand the difference between cowboy credits (CCs) and sats?')
+  console.log('5. Have you realized you need to attach a wallet to receive XMR?')
+  console.log('6. Do you understand the difference between credits and XMR?')
   console.log('7. How were your first weeks on SN?\n')
 }
 
 async function printAllStackers ({ bios }) {
   console.log('All new stackers:\n')
-  console.log('| nym | bio (stacking since) | items | sats/ccs stacked | sat standard |')
+  console.log('| nym | bio (stacking since) | items | XMR/credits stashed | received ratio |')
   console.log('| --- | -------------------- | ----- | ---------------- | ------------ |')
 
   for (const bio of bios) {
@@ -231,7 +231,7 @@ async function printAllStackers ({ bios }) {
 }
 
 function printSatStandardExplainer () {
-  console.log('_sat standard = ratio of received sats vs credits (`sats/(sats+credits)`)_\n')
+  console.log('_receivedRatio = ratio of received XMR vs credits (`XMR/(XMR+credits)`)_\n')
 }
 
 function printMemePlaceholder () {
