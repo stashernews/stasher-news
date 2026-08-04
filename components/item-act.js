@@ -17,7 +17,7 @@ import { useToast } from '@/components/toast'
 import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import { composeCallbacks } from '@/lib/compose-callbacks'
 
-const defaultTips = [0.001, 0.01, 0.1, 1]
+const defaultTips = ['0.001', '0.01', '0.1', '1']
 
 const Tips = ({ setOValue }) => {
   const customTips = getCustomTips().map(p => piconerosToXmrDecimal(BigInt(p)))
@@ -96,7 +96,7 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
     const result = { id: item.id, piconeros: Number(piconeros), act, path: item.path }
     try {
       const { error } = await withActBump(client.cache, result, me, () =>
-        actor({ variables: { id: item.id, piconeros, act }, ...options }))
+        actor({ variables: { id: item.id, piconeros: Number(piconeros), act }, ...options }))
       if (error) throw error
       addCustomTip(Number(piconeros))
     } catch (e) {
