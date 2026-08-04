@@ -47,7 +47,7 @@ export function PayInContext ({ payIn }) {
     case 'DONATE':
       return <small className='text-muted d-flex justify-content-center w-100'>Praise be, you donated to the rewards pool.</small>
     case 'BUY_CREDITS':
-      return <small className='text-muted d-flex justify-content-center w-100'>You topped up your cowboy credits.</small>
+      return <small className='text-muted d-flex justify-content-center w-100'>You topped up your credits.</small>
   }
   return <small className='text-muted d-flex justify-content-center w-100'>N/A</small>
 }
