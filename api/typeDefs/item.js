@@ -132,7 +132,7 @@ export default gql`
     meSubscription: Boolean!
     meForward: Boolean
     freebie: Boolean!
-    netInvestment: Int!
+    netInvestment: BigInt!
     freedFreebie: Boolean!
     bio: Boolean!
     ncomments: Int!
