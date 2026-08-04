@@ -3,7 +3,7 @@ import Comment, { CommentSkeleton } from './comment'
 import styles from './header.module.css'
 import Nav from 'react-bootstrap/Nav'
 import Navbar from 'react-bootstrap/Navbar'
-import { xmrFromSats } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 import { defaultCommentSort } from '@/lib/item'
 import { useRouter } from 'next/router'
 import MoreFooter from './more-footer'
@@ -27,8 +27,8 @@ export function CommentsHeader ({ handleSort, pinned, bio, parentCreatedAt, comm
         className={styles.navbarNav}
         activeKey={sort}
       >
-        <Nav.Item className='text-muted' title={`${xmrFromSats(commentSats + commentCost + commentBoost)} (${commentSats} stashed \\ ${commentCost} cost \\ ${commentBoost} boost)`}>
-          {xmrFromSats(commentSats + commentCost + commentBoost)}
+        <Nav.Item className='text-muted' title={`${piconerosToXmr(BigInt(Number(commentSats) + Number(commentCost) * 1000 + Number(commentBoost) * 1000))} (${commentSats} stashed \\ ${commentCost} cost \\ ${commentBoost} boost)`}>
+          {piconerosToXmr(BigInt(Number(commentSats) + Number(commentCost) * 1000 + Number(commentBoost) * 1000))}
         </Nav.Item>
         <div className='ms-auto d-flex'>
           <Nav.Item>

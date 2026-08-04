@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import { postCommentBaseLineItems } from '@/components/fee-button'
-import { xmrFromSats } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 
 // components/fee-button imports ./form, which pulls in the lexical editor whose
 // node_modules deps (github-slugger, the mdast chain) are ESM-only and
@@ -23,7 +23,7 @@ describe('postCommentBaseLineItems — posts', () => {
     expect(lines.postingFee.op).toBe('+')
     expect(lines.postingFee.term).toBe('+ 0.001 XMR')
     expect(lines.postingFee.label).toBe('posting fee')
-    expect(xmrFromSats(lines.postingFee.modifier(0))).toBe('0.001 XMR')
+    expect(piconerosToXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
   })
 
   test('established authors see no fee lines', () => {

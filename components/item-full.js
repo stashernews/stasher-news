@@ -19,7 +19,7 @@ import Toc from './table-of-contents'
 import Link from 'next/link'
 import { RootProvider } from './root'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseEmbedUrl } from '@/lib/url'
-import { xmrFromSats } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 import { useQuoteReply } from './use-quote-reply'
 import { UNKNOWN_LINK_REL, DEFAULT_POSTS_PICONEROS_FILTER } from '@/lib/constants'
 import classNames from 'classnames'
@@ -123,12 +123,12 @@ function TopLevelItem ({ item, noReply, ...props }) {
             {item.bountyPaidTo?.length
               ? (
                 <div className='px-3 py-1 d-inline-block bg-grey-medium rounded text-success'>
-                  <Check className='fill-success' /> {xmrFromSats(item.bounty)} paid
+                  <Check className='fill-success' /> {piconerosToXmr(BigInt(item.bounty) * 1000n)} paid
                   {item.bountyPaidTo.length > 1 && <small className='fw-light'> {new Set(item.bountyPaidTo).size} times</small>}
                 </div>)
               : (
                 <div className='px-3 py-1 d-inline-block bg-grey-darkmode rounded text-light'>
-                  {xmrFromSats(item.bounty)} bounty
+                  {piconerosToXmr(BigInt(item.bounty) * 1000n)} bounty
                 </div>)}
           </div>}
       </article>

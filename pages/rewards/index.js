@@ -7,7 +7,7 @@ import Layout from '@/components/layout'
 import { useQuery } from '@apollo/client/react'
 import Link from 'next/link'
 import { amountSchema } from '@/lib/validate'
-import { msatsToSats, xmrFromSats } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 import PageLoading from '@/components/page-loading'
 import { useShowModal } from '@/components/modal'
 import dynamic from 'next/dynamic'
@@ -47,7 +47,7 @@ export function RewardLine ({ total, time }) {
   return (
     <>
       <span style={{ whiteSpace: 'nowrap' }}>
-        {xmrFromSats(total)} in rewards
+        {piconerosToXmr(BigInt(total))} in rewards
       </span>
       {time &&
         <small style={{ whiteSpace: 'nowrap' }}>
@@ -72,7 +72,7 @@ export default function Rewards ({ ssrData }) {
     return {
       rewards: [{
         total: dat.rewards[0].total,
-        sources: dat.rewards[0].sources.map(source => ({ name: payTypeShortName(source.name), value: msatsToSats(source.value) })),
+        sources: dat.rewards[0].sources.map(source => ({ name: payTypeShortName(source.name), value: Number(source.value) })),
         time: dat.rewards[0].time
       }]
     }

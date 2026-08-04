@@ -5,7 +5,7 @@ import { CenterLayout } from '@/components/layout'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/router'
 import { getGetServerSideProps } from '@/api/ssrApollo'
-import { fixedDecimal, msatsToSats } from '@/lib/format'
+import { fixedDecimal } from '@/lib/format'
 import Trophy from '@/svgs/trophy-fill.svg'
 import { ListItem } from '@/components/items'
 import { dayMonthYear } from '@/lib/time'
@@ -42,7 +42,7 @@ export default function Rewards ({ ssrData }) {
 
 function RewardDay ({ total, sources, time, meRewards }) {
   const sourcesData = useMemo(() => {
-    return sources.map(({ name, value }) => ({ name: payTypeShortName(name), value: msatsToSats(value) }))
+    return sources.map(({ name, value }) => ({ name: payTypeShortName(name), value: Number(value) }))
   }, [sources])
   return (
     <div className='py-3 w-100 d-grid' key={time} style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>

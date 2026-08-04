@@ -25,7 +25,7 @@ import { Checkbox, Form } from './form'
 import { useRouter } from 'next/router'
 import { useData } from './use-data'
 import Text from '@/components/text'
-import { msatsToSats, numWithUnits, xmrFromSats } from '@/lib/format'
+import { numWithUnits, piconerosToXmr } from '@/lib/format'
 import BountyIcon from '@/svgs/bounty-bag.svg'
 import { LongCountdown } from './countdown'
 import { nextBillingWithGrace } from '@/lib/territory'
@@ -260,14 +260,14 @@ function EarnNotification ({ n }) {
       <HandCoin className='align-self-center fill-boost mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
       <div className='ms-2'>
         <NoteHeader color='boost' big>
-          you stashed {xmrFromSats(n.earnedPiconeros)} in rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{time}</small>
+          you stashed {piconerosToXmr(BigInt(n.earnedPiconeros))} in rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{time}</small>
         </NoteHeader>
         {n.sources &&
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
-            {n.sources.posts > 0 && <span>{xmrFromSats(n.sources.posts)} for top posts</span>}
-            {n.sources.comments > 0 && <span>{n.sources.posts > 0 && ' \\ '}{xmrFromSats(n.sources.comments)} for top comments</span>}
-            {n.sources.tipPosts > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0) && ' \\ '}{xmrFromSats(n.sources.tipPosts)} for tipping top posts early</span>}
-            {n.sources.tipComments > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0 || n.sources.tipPosts > 0) && ' \\ '}{xmrFromSats(n.sources.tipComments)} for tipping top comments early</span>}
+            {n.sources.posts > 0 && <span>{piconerosToXmr(BigInt(n.sources.posts))} for top posts</span>}
+            {n.sources.comments > 0 && <span>{n.sources.posts > 0 && ' \\ '}{piconerosToXmr(BigInt(n.sources.comments))} for top comments</span>}
+            {n.sources.tipPosts > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0) && ' \\ '}{piconerosToXmr(BigInt(n.sources.tipPosts))} for tipping top posts early</span>}
+            {n.sources.tipComments > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0 || n.sources.tipPosts > 0) && ' \\ '}{piconerosToXmr(BigInt(n.sources.tipComments))} for tipping top comments early</span>}
           </div>}
         <div style={{ lineHeight: '140%' }}>
           SN distributes the XMR it earns to top stashers like you daily. The top stashers make the top posts and comments or tip the top posts and comments early and generously. View the rewards pool and make a donation <Link href='/rewards'>here</Link>.
@@ -284,12 +284,12 @@ function ReferralReward ({ n }) {
       <UserAdd className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
-          you stashed {xmrFromSats(n.earnedPiconeros)} in referral rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{dayMonthYear(new Date(n.sortTime))}</small>
+          you stashed {piconerosToXmr(BigInt(n.earnedPiconeros))} in referral rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{dayMonthYear(new Date(n.sortTime))}</small>
         </NoteHeader>
         {n.sources &&
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
-            {n.sources.forever > 0 && <span>{xmrFromSats(n.sources.forever)} for stashers joining because of you</span>}
-            {n.sources.oneDay > 0 && <span>{n.sources.forever > 0 && ' \\ '}{xmrFromSats(n.sources.oneDay)} for stashers referred to content by you today</span>}
+            {n.sources.forever > 0 && <span>{piconerosToXmr(BigInt(n.sources.forever))} for stashers joining because of you</span>}
+            {n.sources.oneDay > 0 && <span>{n.sources.forever > 0 && ' \\ '}{piconerosToXmr(BigInt(n.sources.oneDay))} for stashers referred to content by you today</span>}
           </div>}
         <div style={{ lineHeight: '140%' }}>
           SN gives referral rewards to stashers like you for referring the top stashers daily. You refer stashers when they visit your posts, comments, profile, or turf, or if they visit SN through your referral links.
@@ -305,7 +305,7 @@ function RevenueNotification ({ n }) {
       <BountyIcon className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
-          you stashed {xmrFromSats(n.earnedPiconeros)} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
+          you stashed {piconerosToXmr(BigInt(n.earnedPiconeros))} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
         </NoteHeader>
         <div style={{ lineHeight: '140%' }}>
           As the founder of territory <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 70% of the post, comment, boost, and tip fees. The other 30% go to <Link href='/rewards'>rewards</Link>.
@@ -477,7 +477,7 @@ function PayInFailed ({ n }) {
     <div>
       <NoteHeader color={colorClass}>
         {actionString}
-        <span className='ms-1 text-muted fw-light'> {xmrFromSats(msatsToSats(payIn.piconeros))}</span>
+        <span className='ms-1 text-muted fw-light'> {piconerosToXmr(BigInt(payIn.piconeros))}</span>
         <span className={['FAILED'].includes(payIn.payInState) && !isAutoRetryEligiblePayIn(payIn) ? 'visible' : 'invisible'}>
           <Button
             size='sm' variant={classNames('outline-warning ms-2 border-1 rounded py-0', disableRetry && 'pulse')}
@@ -512,7 +512,7 @@ function PayInWithdrawal ({ n }) {
   return (
     <div className='fw-bold text-info'>
       <Check className='fill-info me-1' />
-      {xmrFromSats(amount)}
+      {piconerosToXmr(BigInt(amount))}
       {actionString}
       <small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
       {n.payIn.payInType === 'AUTO_WITHDRAWAL' && <Badge className={styles.badge} bg={null}>autowithdraw</Badge>}
@@ -551,7 +551,7 @@ function stackedText (item, total) {
   const credits = Number(item.piconeros) > 0 ? Math.floor(Number(total) * Number(item.credits) / Number(item.piconeros)) : total
   const sats = Number(total) - credits
   if (sats > 0) {
-    text += `${xmrFromSats(sats)}`
+    text += `${piconerosToXmr(BigInt(sats))}`
     if (credits > 0) text += ' and '
   }
   if (credits > 0) {
@@ -592,7 +592,7 @@ function BountyPayment ({ n }) {
   return (
     <>
       <NoteHeader color='success'>
-        you received a {xmrFromSats(n.earnedPiconeros)} bounty payment
+        you received a {piconerosToXmr(BigInt(n.earnedPiconeros))} bounty payment
       </NoteHeader>
       <NoteItem item={n.item} />
     </>
