@@ -53,11 +53,13 @@ export default function TipModal ({ item, onClose }) {
   }, [initiateTip, amount, item.id, toaster])
 
   const onDetected = useCallback(() => {
+    // Transition to the success state FIRST so a cosmetic side-effect below
+    // (cache bump / animation) can never prevent the success view or auto-close.
+    setTipPaid(true)
     // bump the item counter optimistically with the true piconeros; refetch reconciles
     const piconeros = Number(BigInt(tip.piconeros))
     bumpActCache(client.cache, { id: item.id, piconeros, act: 'TIP', path: item.path }, me)
     animate()
-    setTipPaid(true)
   }, [client, tip, item.id, item.path, me, animate])
 
   if (tipPaid) {

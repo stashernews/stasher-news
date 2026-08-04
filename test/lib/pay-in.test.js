@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { isPostingFeeSubmit, shouldShowItemPaidAt, isPendingFeeItem, postingFeeModalPhase } from '@/lib/pay-in'
+import { isPostingFeeSubmit, shouldShowItemPaidAt, isPendingFeeItem, postingFeeModalPhase, shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 
 describe('isPostingFeeSubmit', () => {
   test('true when the submit result carries a monero: URI', () => {
@@ -55,5 +55,26 @@ describe('postingFeeModalPhase', () => {
     expect(postingFeeModalPhase('PENDING_FEE')).toBe('waiting')
     expect(postingFeeModalPhase('FEE_NOT_REQUIRED')).toBe('waiting')
     expect(postingFeeModalPhase(undefined)).toBe('waiting')
+  })
+})
+
+describe('shouldTriggerPaymentSuccess', () => {
+  test('true on DETECTED (0-conf detection)', () => {
+    expect(shouldTriggerPaymentSuccess('DETECTED')).toBe(true)
+  })
+
+  test('true on CONFIRMED — a confirmed tip/downvote must still trigger success (not a silent terminal)', () => {
+    expect(shouldTriggerPaymentSuccess('CONFIRMED')).toBe(true)
+  })
+
+  test('false for the states that must keep the modal waiting', () => {
+    expect(shouldTriggerPaymentSuccess('PENDING')).toBe(false)
+    expect(shouldTriggerPaymentSuccess(null)).toBe(false)
+    expect(shouldTriggerPaymentSuccess(undefined)).toBe(false)
+  })
+
+  test('false for failure terminals', () => {
+    expect(shouldTriggerPaymentSuccess('REORGED')).toBe(false)
+    expect(shouldTriggerPaymentSuccess('EXPIRED')).toBe(false)
   })
 })

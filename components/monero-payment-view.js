@@ -26,6 +26,11 @@ export default function MoneroPaymentView ({ moneroUri, amountPiconeros, heading
       <div className='mt-2'>
         <a href={moneroUri} className='fw-bold text-decoration-underline'>Open in Desktop Monero Wallet</a>
       </div>
+      <p className='text-muted text-center mt-3'>
+        <small>
+          You can close this window right after sending, your payment is detected on-chain automatically.
+        </small>
+      </p>
       {children}
     </div>
   )
