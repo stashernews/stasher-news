@@ -1142,6 +1142,7 @@ model PayIn {
 
   // StealthNews (§4.2): Monero URI / observed-tip / observed-burn linkage
   moneroUri      String?
+  paymentId      String?
   observedTipId  BigInt?
   observedBurnId BigInt?
   // StealthNews fee linkage (§6.2): the rewards-wallet fee subaddress this PayIn

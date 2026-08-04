@@ -41,6 +41,7 @@ export const PAY_IN_FIELDS = gql`
     updatedAt
     piconeros
     moneroUri
+    paymentId
     payInType
     payInState
     payInStateChangedAt

@@ -71,6 +71,7 @@ export async function getInitial (models, { id, piconeros }, { me }) {
     userId: me.id,
     piconeros: 0n,
     moneroUri,
+    paymentId,
     itemPayIn: { itemId: parseInt(id) }
   }
 }

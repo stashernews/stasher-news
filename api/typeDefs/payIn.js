@@ -115,6 +115,7 @@ type PayIn {
   updatedAt: Date!
   piconeros: BigInt!
   moneroUri: String
+  paymentId: String
   isSend: Boolean
   payInType: PayInType!
   payInState: PayInState!

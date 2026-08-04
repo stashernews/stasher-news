@@ -115,6 +115,17 @@ export default {
         where: { paymentId },
         select: { state: true, piconeros: true, confirmations: true }
       })
+    },
+
+    // Capability-style: no `me` gate. The paymentId (postId + nonce) is the
+    // unguessable token the downvote modal already holds, so polling survives a
+    // session change. paymentId is NOT unique-constrained on ObservedBurn, so
+    // findFirst. Returns null while the payment is not yet observed (waiting).
+    async downvoteStatus (parent, { paymentId }, { models }) {
+      return models.observedBurn.findFirst({
+        where: { paymentId },
+        select: { state: true, piconeros: true, confirmations: true }
+      })
     }
   },
 
