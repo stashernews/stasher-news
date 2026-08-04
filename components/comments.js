@@ -27,7 +27,7 @@ export function CommentsHeader ({ handleSort, pinned, bio, parentCreatedAt, comm
         className={styles.navbarNav}
         activeKey={sort}
       >
-        <Nav.Item className='text-muted' title={`${piconerosToXmr(BigInt(Number(commentSats) + Number(commentCost) * 1000 + Number(commentBoost) * 1000))} (${commentSats} stashed \\ ${commentCost} cost \\ ${commentBoost} boost)`}>
+        <Nav.Item className='text-muted' title={`${piconerosToXmr(BigInt(Number(commentSats) + Number(commentCost) * 1000 + Number(commentBoost) * 1000))} (${piconerosToXmr(BigInt(commentSats))} stashed \\ ${piconerosToXmr(BigInt(commentCost) * 1000n)} cost \\ ${piconerosToXmr(BigInt(commentBoost) * 1000n)} boost)`}>
           {piconerosToXmr(BigInt(Number(commentSats) + Number(commentCost) * 1000 + Number(commentBoost) * 1000))}
         </Nav.Item>
         <div className='ms-auto d-flex'>
