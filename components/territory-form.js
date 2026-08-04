@@ -19,6 +19,8 @@ import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import { UNARCHIVE_TERRITORY, UPSERT_SUB } from '@/fragments/payIn'
 import LinkExternal from '@/svgs/link-external.svg'
 import { isAbortError } from '@/lib/error'
+import { useShowModal } from './modal'
+import TerritoryPendingFeeModal from './territory-pending-fee-modal'
 
 function SatFilterRanges () {
   return (
@@ -46,6 +48,7 @@ export default function TerritoryForm ({ sub }) {
   const client = useApolloClient()
   const { me } = useMe()
   const branding = useBranding()
+  const showModal = useShowModal()
   const [upsertSub] = usePayInMutation(UPSERT_SUB)
   const [unarchiveTerritory] = usePayInMutation(UNARCHIVE_TERRITORY)
 
@@ -71,7 +74,7 @@ export default function TerritoryForm ({ sub }) {
       variables.postsPiconerosFilter = variables.postsPiconerosFilter == null
         ? null
         : Number(signedXmrToPiconeros(variables.postsPiconerosFilter))
-      const { error, payError } = archived
+      const { data, error, payError } = archived
         ? await unarchiveTerritory({ variables })
         : await upsertSub({ variables: { oldName: sub?.name, ...variables } })
 
@@ -97,8 +100,17 @@ export default function TerritoryForm ({ sub }) {
         }
       })
 
+      // territory created PENDING_FEE — surface the fee payment before navigating.
+      // persistOnNavigate keeps the modal open across the redirect below so the
+      // founder can actually pay (navigating would otherwise close it immediately).
+      const response = data?.upsertSub ?? data?.unarchiveTerritory
+      if (response?.moneroUri) {
+        showModal(onClose => (
+          <TerritoryPendingFeeModal moneroUri={response.moneroUri} subName={variables.name} />
+        ), { persistOnNavigate: true })
+      }
       await router.push(`/~${variables.name}`)
-    }, [client, upsertSub, unarchiveTerritory, router, archived]
+    }, [client, upsertSub, unarchiveTerritory, router, archived, showModal]
   )
 
   const [billing, setBilling] = useState((sub?.billingType || 'MONTHLY').toLowerCase())
