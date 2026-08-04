@@ -9,6 +9,7 @@ import { useAnimation } from './animation'
 import { useMe } from './me'
 import { useToast } from './toast'
 import { bumpActCache } from './item-act'
+import PaymentSuccessView from './payment-success-view'
 import useWatchTip from './tip/use-watch-tip'
 import { INITIATE_TIP } from '@/fragments/monero'
 import { xmrToPiconeros, piconerosToXmr } from '@/lib/format'
@@ -30,6 +31,7 @@ export default function TipModal ({ item, onClose }) {
   const [initiateTip] = useMutation(INITIATE_TIP)
   const [amount, setAmount] = useState('')
   const [tip, setTip] = useState(null) // { uri, paymentId, piconeros }
+  const [tipPaid, setTipPaid] = useState(false)
 
   const onSubmit = useCallback(async (e) => {
     e?.preventDefault?.()
@@ -55,8 +57,18 @@ export default function TipModal ({ item, onClose }) {
     const piconeros = Number(BigInt(tip.piconeros))
     bumpActCache(client.cache, { id: item.id, piconeros, act: 'TIP', path: item.path }, me)
     animate()
-    onClose?.()
-  }, [client, tip, item.id, item.path, me, animate, onClose])
+    setTipPaid(true)
+  }, [client, tip, item.id, item.path, me, animate])
+
+  if (tipPaid) {
+    return (
+      <PaymentSuccessView
+        title='Payment detected — your tip is on its way!'
+        autoCloseMs={5000}
+        onAutoClose={onClose}
+      />
+    )
+  }
 
   if (tip) {
     return (
@@ -138,7 +150,7 @@ function tipStatusCopy (state) {
     case 'CONFIRMED':
       return 'status: CONFIRMED'
     default: {
-      // DETECTED bumps + closes via onDetected; PENDING/null keeps the waiting copy
+      // DETECTED bumps + flips to the success view via onDetected; PENDING/null keeps the waiting copy
       const label = state ?? 'PENDING'
       return `status: ${label} — waiting for your payment (usually < 2 min)`
     }
