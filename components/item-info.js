@@ -7,7 +7,7 @@ import Dropdown from 'react-bootstrap/Dropdown'
 import Countdown from './countdown'
 import { isPendingFeeItem, shouldShowItemPaidAt } from '@/lib/pay-in'
 import PostingFeeModal from './posting-fee-modal'
-import { abbrNum, numWithUnits, piconerosToXmr } from '@/lib/format'
+import { numWithUnits, piconerosToXmr } from '@/lib/format'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
 import { timeSince } from '@/lib/time'
 import { DeleteDropdownItem } from './delete'
@@ -48,7 +48,7 @@ function itemTitle (item) {
     title += ` \\ ${piconerosToXmr(BigInt(Number(item.piconeros) - Number(item.credits)))} stashed`
   }
   if (item.credits) {
-    title += ` \\ ${numWithUnits(item.credits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })} stashed`
+    title += ` \\ ${numWithUnits(item.credits, { abbreviate: false, unitSingular: 'credit', unitPlural: 'credits' })} stashed`
   }
   if (item.boost) {
     title += ` \\ ${numWithUnits(item.boost, { abbreviate: false, unitSingular: 'boost', unitPlural: 'boost' })}`
@@ -194,7 +194,7 @@ export default function ItemInfo ({
         <span
           role='button' onClick={() => showModal((onClose) => <ItemDetails item={item} me={me} />)}
         >
-          {' '}<Badge className={styles.newComment} bg={null}>-{abbrNum(item.downPiconeros)} sats</Badge>
+          {' '}<Badge className={styles.newComment} bg={null}>-{piconerosToXmr(item.downPiconeros)}</Badge>
         </span>}
       {extraBadges}
       {full && isPendingFeeItem(item) && item.payIn?.moneroUri &&
@@ -285,36 +285,36 @@ function ItemDetails ({ item, me }) {
           <div className={styles.detailsValue}>{item.payIn?.payInStateChangedAt}</div>
         </>}
       <div className={styles.detailsSection}>this item</div>
-      <div className={styles.detailsLabel}>zappers</div>
+      <div className={styles.detailsLabel}>tippers</div>
       <div className={styles.detailsValue}>{item.upvotes}</div>
       <div className={styles.detailsLabel}>cost</div>
-      <div className={styles.detailsValue}>{item.cost} sats</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.cost) * 1000n)}</div>
       <div className={styles.detailsLabel}>boost</div>
-      <div className={styles.detailsValue}>{item.boost} sats</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.boost) * 1000n)}</div>
       <div className={styles.detailsLabel}>stashed</div>
-      <div className={styles.detailsValue}>{Number(item.piconeros) - Number(item.credits)} sats / {item.credits} ccs</div>
-      <div className={styles.detailsLabel}>downsats</div>
-      <div className={styles.detailsValue}>{item.downPiconeros} sats</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.piconeros) - Number(item.credits)))} / {item.credits} credits</div>
+      <div className={styles.detailsLabel}>downvotes</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(item.downPiconeros)}</div>
       <div className={styles.detailsLabel}>invested</div>
-      <div className={styles.detailsValue}>{Number(item.piconeros) + Number(item.boost) + Number(item.cost)} sats</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost)))}</div>
       <div className={styles.detailsSection}>comments</div>
       <div className={styles.detailsLabel}>cost</div>
-      <div className={styles.detailsValue}>{item.commentCost} sats</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentCost) * 1000n)}</div>
       <div className={styles.detailsLabel}>boost</div>
-      <div className={styles.detailsValue}>{item.commentBoost} sats</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentBoost) * 1000n)}</div>
       <div className={styles.detailsLabel}>stashed</div>
-      <div className={styles.detailsValue}>{item.commentPiconeros - item.commentCredits} sats / {item.commentCredits} ccs</div>
-      <div className={styles.detailsLabel}>downsats</div>
-      <div className={styles.detailsValue}>{item.commentDownPiconeros} sats</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.commentPiconeros) - Number(item.commentCredits)))} / {item.commentCredits} credits</div>
+      <div className={styles.detailsLabel}>downvotes</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(item.commentDownPiconeros)}</div>
       <div className={styles.detailsLabel}>invested</div>
-      <div className={styles.detailsValue}>{item.commentPiconeros + item.commentCost + item.commentBoost} sats</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.commentPiconeros) + Number(item.commentBoost) + Number(item.commentCost)))}</div>
       {me && (
         <>
           <div className={styles.detailsSection}>from me</div>
-          <div className={styles.detailsLabel}>zapped</div>
-          <div className={styles.detailsValue}>{Number(item.mePiconeros) - Number(item.meCredits)} sats / {item.meCredits} ccs</div>
-          <div className={styles.detailsLabel}>downzapped</div>
-          <div className={styles.detailsValue}>{item.meDontLikePiconeros} sats</div>
+          <div className={styles.detailsLabel}>tipped</div>
+          <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.mePiconeros) - Number(item.meCredits)))} / {item.meCredits} credits</div>
+          <div className={styles.detailsLabel}>downvoted</div>
+          <div className={styles.detailsValue}>{piconerosToXmr(item.meDontLikePiconeros)}</div>
         </>
       )}
     </div>
