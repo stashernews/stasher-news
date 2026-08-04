@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { abbrNum, numWithUnits } from '@/lib/format'
+import { abbrNum, numWithUnits, piconerosToXmr } from '@/lib/format'
 import styles from './item.module.css'
 import React, { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@apollo/client/react'
@@ -12,7 +12,7 @@ import { TerritoryInfo, ToggleSubSubscriptionDropdownItem, MuteSubDropdownItem }
 
 // all of this nonsense is to show the stat we are sorting by first
 const Revenue = ({ sub }) => (sub.optional.revenue !== null && <span>{abbrNum(sub.optional.revenue)} revenue</span>)
-const Stacked = ({ sub }) => (sub.optional.stacked !== null && <span>{abbrNum(sub.optional.stacked)} stashed</span>)
+const Stacked = ({ sub }) => (sub.optional.stacked !== null && <span>{piconerosToXmr(BigInt(sub.optional.stacked))} stashed</span>)
 const Spent = ({ sub }) => (sub.optional.spent !== null && <span>{abbrNum(sub.optional.spent)} spent</span>)
 const Items = ({ sub }) => (
   <span>
