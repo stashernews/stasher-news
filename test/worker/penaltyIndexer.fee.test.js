@@ -94,15 +94,21 @@ test('penaltyIndexer attributes a posting fee by subaddress, creates FeeObservat
 
   const live = await prisma.item.findUnique({ where: { id: item.id } })
   expect(live.feeStatus).toBe('FEE_PAID')
+  expect(live.feeInvestmentPiconeros).toBe(1_000_000_000n)
+  expect(live.netInvestment).toBe(1_000_000_000n) // trigger folds the fee in
 })
 
 test('penaltyIndexer is idempotent across re-polls', async () => {
-  const { payIn, major, minor } = await seedPendingFeePost(102)
+  const { item, payIn, major, minor } = await seedPendingFeePost(102)
   const tx = lwsFeeTx('b2' + 'cd'.repeat(31), '1000000000', major, minor)
   await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
   await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
   const count = await prisma.feeObservation.count({ where: { payInId: payIn.id } })
   expect(count).toBe(1)
+  const live = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(live.feeStatus).toBe('FEE_PAID')
+  expect(live.feeInvestmentPiconeros).toBe(1_000_000_000n)
+  expect(live.netInvestment).toBe(1_000_000_000n)
 })
 
 test('penaltyIndexer ignores outputs whose subaddress matches no pending fee (Phase 4 downvote path)', async () => {
