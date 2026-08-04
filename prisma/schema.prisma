@@ -44,8 +44,8 @@ model User {
   noteForwardedPiconeros Boolean          @default(true)
   photoId             Int?
   hideUriDesc         Boolean              @default(false)
-  postsPiconerosFilter Int?                @default(10)
-  commentsPiconerosFilter Int?             @default(1)
+  postsPiconerosFilter BigInt?                 @default(1000000000)
+  commentsPiconerosFilter BigInt?              @default(0)
   freeCommentCount    Int                  @default(0)
   freeCommentResetAt  DateTime?
   nsfwMode            Boolean              @default(false)
@@ -388,7 +388,8 @@ model Item {
   itemForwards         ItemForward[]
   itemUploads          ItemUpload[]
   uploadId             Int?
-  netInvestment        Int                   @default(0)
+  netInvestment        BigInt                  @default(0)
+  feeInvestmentPiconeros BigInt                @default(0)
   apiKey               Boolean               @default(false)
   pollExpiresAt        DateTime?
   Ancestors            Reply[]               @relation("AncestorReplyItem")
@@ -630,7 +631,7 @@ model Sub {
   billingAutoRenew Boolean     @default(false)
   billedLastAt     DateTime    @default(now())
   billPaidUntil    DateTime?
-  postsPiconerosFilter Int      @default(10)
+  postsPiconerosFilter BigInt                   @default(1000000000)
   nsfw             Boolean     @default(false)
 
   // StealthNews territory-fee gate (§6.2): territory create/renew fees land on the
