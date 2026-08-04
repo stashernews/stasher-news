@@ -109,8 +109,8 @@ function AssetField ({ label, name, subName, hint, defaultAsset, brand, width = 
 
 // SN defaults from styles/globals.scss
 const SN_DEFAULTS = {
-  primaryColor: '#FADA5E',
-  secondaryColor: '#F6911D',
+  primaryColor: '#FF6600',
+  secondaryColor: '#6c757d',
   linkColor: '#007cbe'
 }
 
