@@ -183,15 +183,16 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
     // Find base cost line item (could be 'baseCost' or '*-baseCost' for territories)
     const baseCostLine = Object.values(lines).find(line => line.op === '_' && line.allowFreebies !== undefined)
 
-    // freebies: there's only a base cost, we don't have enough sats/credits,
-    // and have free comments left (for comments only)
-    const cantAfford = (Number(me?.privates?.piconeros ?? 0) + Number(me?.privates?.credits ?? 0)) < total
+    // Freebies: there's only a base cost (no extra line items), the item type
+    // allows freebies (comments/bios), and — for comments — the user has free
+    // comments left this month. Posting free is the default; the user's balance
+    // is irrelevant because the platform is non-custodial with no credits,
+    // so there is no "can't afford" gate.
     const freeCommentsLeft = me?.privates?.freeCommentsLeft ?? 0
     const isComment = baseCostLine?.isComment
     const free = me &&
       total === baseCostLine?.modifier(0) &&
       baseCostLine?.allowFreebies &&
-      cantAfford &&
       (!isComment || freeCommentsLeft > 0)
     return {
       lines,
@@ -203,7 +204,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
       free,
       freeCommentsLeft: isComment ? freeCommentsLeft : null
     }
-  }, [me, me?.privates?.piconeros, me?.privates?.credits, me?.privates?.freeCommentsLeft, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
+  }, [me, me?.privates?.freeCommentsLeft, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
 
   return (
     <FeeButtonContext.Provider value={value}>
@@ -220,13 +221,13 @@ export function useFeeButton () {
 function FreebieDialog ({ freeCommentsLeft }) {
   return (
     <>
-      <div className='fw-bold'>you don't have enough XMR, so this one is on us</div>
+      <div className='fw-bold'>this one is on us</div>
       <ul className='mt-2'>
         <li>Free items have limited visibility and can only earn credits.</li>
         {freeCommentsLeft !== null && (
           <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left this month.</li>
         )}
-        <li>To get fully visible right away, fund your account with a little XMR or earn some on Stasher News.</li>
+        <li>To get fully visible right away, fund your account with a little XMR.</li>
       </ul>
     </>
   )
