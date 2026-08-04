@@ -78,15 +78,15 @@ export default gql`
   input SettingsInput {
     noReferralLinks: Boolean!
     fiatCurrency: String!
-    postsSatsFilter: Int
-    commentsSatsFilter: Int
+    postsPiconerosFilter: Int
+    commentsPiconerosFilter: Int
     hideBookmarks: Boolean!
     hideCowboyHat: Boolean!
     hideGithub: Boolean!
     hideNostr: Boolean!
     hideTwitter: Boolean!
     hideFromTopUsers: Boolean!
-    hideInvoiceDesc: Boolean!
+    hideUriDesc: Boolean!
     imgproxyOnly: Boolean!
     showImagesAndVideos: Boolean!
     nostrCrossposting: Boolean!
@@ -97,9 +97,9 @@ export default gql`
     noteDeposits: Boolean!,
     noteWithdrawals: Boolean!,
     noteEarning: Boolean!
-    noteForwardedSats: Boolean!
+    noteForwardedPiconeros: Boolean!
     noteInvites: Boolean!
-    noteItemSats: Boolean!
+    noteItemPiconeros: Boolean!
     noteMentions: Boolean!
     noteItemMentions: Boolean!
     nsfwMode: Boolean!
@@ -122,7 +122,7 @@ export default gql`
     """
     extremely sensitive
     """
-    sats: Int!
+    piconeros: BigInt!
     credits: Int!
     authMethods: AuthMethods!
     freeCommentCount: Int!
@@ -146,15 +146,15 @@ export default gql`
     """
     noReferralLinks: Boolean!
     fiatCurrency: String!
-    postsSatsFilter: Int
-    commentsSatsFilter: Int
+    postsPiconerosFilter: Int
+    commentsPiconerosFilter: Int
     hideBookmarks: Boolean!
     hideCowboyHat: Boolean!
     hideGithub: Boolean!
     hideNostr: Boolean!
     hideTwitter: Boolean!
     hideFromTopUsers: Boolean!
-    hideInvoiceDesc: Boolean!
+    hideUriDesc: Boolean!
     imgproxyOnly: Boolean!
     showImagesAndVideos: Boolean!
     nostrCrossposting: Boolean!
@@ -165,9 +165,9 @@ export default gql`
     noteDeposits: Boolean!
     noteWithdrawals: Boolean!
     noteEarning: Boolean!
-    noteForwardedSats: Boolean!
+    noteForwardedPiconeros: Boolean!
     noteInvites: Boolean!
-    noteItemSats: Boolean!
+    noteItemPiconeros: Boolean!
     noteMentions: Boolean!
     noteItemMentions: Boolean!
     nsfwMode: Boolean!
@@ -183,8 +183,8 @@ export default gql`
     """
     conditionally private
     """
-    stacked(when: String, from: String, to: String): Int
-    spent(when: String, from: String, to: String): Int
+    stacked(when: String, from: String, to: String): BigInt
+    spent(when: String, from: String, to: String): BigInt
     referrals(when: String, from: String, to: String): Int
     streak: Int
     gunStreak: Int

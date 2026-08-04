@@ -3,7 +3,7 @@ import { obtainRowLevelLocks } from '@/api/payIn/lib/obtainRowLevelLocks'
 
 // Regression test for the "Cannot read properties of undefined (reading 'map')"
 // crash that blocked every StealthNews fee-based payIn (territory create, posting,
-// territory billing, downvote). Those payIns return mcost=0n with NO
+// territory billing, downvote). Those payIns return piconeros=0n with NO
 // payOutCustodialTokens key, so obtainRowLevelLocks must tolerate its absence.
 
 function makeTx () {
@@ -19,7 +19,7 @@ function makeTx () {
 }
 
 describe('obtainRowLevelLocks', () => {
-  test('does not throw when payOutCustodialTokens is undefined (mcost:0 fee prospect)', async () => {
+  test('does not throw when payOutCustodialTokens is undefined (piconeros:0 fee prospect)', async () => {
     const tx = makeTx()
     const payIn = { userId: 7 }
     await expect(obtainRowLevelLocks(tx, payIn)).resolves.toBeUndefined()

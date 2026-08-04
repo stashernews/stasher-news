@@ -18,7 +18,7 @@ import BookmarkDropdownItem from './bookmark'
 import SubscribeDropdownItem from './subscribe'
 import { CopyLinkDropdownItem, CrosspostDropdownItem } from './share'
 import Badges from './badge'
-import { DEFAULT_POSTS_SATS_FILTER, DEFAULT_COMMENTS_SATS_FILTER } from '@/lib/constants'
+import { DEFAULT_POSTS_PICONEROS_FILTER, DEFAULT_COMMENTS_PICONEROS_FILTER } from '@/lib/constants'
 import ActionDropdown from './action-dropdown'
 import MuteDropdownItem from './mute'
 import { DropdownItemUpVote } from './upvote'
@@ -44,8 +44,8 @@ function itemTitle (item) {
     unitSingular: 'zapper',
     unitPlural: 'zappers'
   })
-  if (item.sats - item.credits) {
-    title += ` \\ ${xmrFromSats(item.sats - item.credits)} stashed`
+  if (Number(item.piconeros) - Number(item.credits)) {
+    title += ` \\ ${xmrFromSats(Number(item.piconeros) - Number(item.credits))} stashed`
   }
   if (item.credits) {
     title += ` \\ ${numWithUnits(item.credits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })} stashed`
@@ -56,19 +56,19 @@ function itemTitle (item) {
   if (item.cost) {
     title += ` \\ ${numWithUnits(item.cost, { abbreviate: false, unitSingular: 'cost', unitPlural: 'cost' })}`
   }
-  if (item.downSats) {
-    title += ` \\ ${xmrFromSats(item.downSats)}`
+  if (item.downPiconeros) {
+    title += ` \\ ${xmrFromSats(item.downPiconeros)}`
   }
-  if (item.meSats || item.meDontLikeSats || item.meAnonSats) {
+  if (item.mePiconeros || item.meDontLikePiconeros || item.meAnonPiconeros) {
     const satSources = []
-    if (item.meAnonSats || (item.meSats || 0) - (item.meCredits || 0) > 0) {
-      satSources.push(`${xmrFromSats((item.meSats || 0) + (item.meAnonSats || 0) - (item.meCredits || 0))}`)
+    if (item.meAnonPiconeros || (Number(item.mePiconeros || 0) - Number(item.meCredits || 0)) > 0) {
+      satSources.push(`${xmrFromSats(Number(item.mePiconeros || 0) + Number(item.meAnonPiconeros || 0) - Number(item.meCredits || 0))}`)
     }
     if (item.meCredits) {
       satSources.push(`${numWithUnits(item.meCredits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })}`)
     }
-    if (item.meDontLikeSats) {
-      satSources.push(`${xmrFromSats(item.meDontLikeSats)}`)
+    if (item.meDontLikePiconeros) {
+      satSources.push(`${xmrFromSats(item.meDontLikePiconeros)}`)
     }
     if (satSources.length) {
       title += ` (${satSources.join(' & ')} from me)`
@@ -110,11 +110,11 @@ export default function ItemInfo ({
   const canPin = (isPost && mySub) || (myPost && rootReply)
   const isPinnedPost = isPost && item.position && (pinnable || !item.subNames)
   const isPinnedSubReply = !isPost && item.position && !item.subNames
-  const meSats = (me ? item.meSats : item.meAnonSats) || 0
+  const meSats = (me ? item.mePiconeros : item.meAnonPiconeros) || 0
   const satsFilter = me
-    ? (isPost ? me.privates?.postsSatsFilter : me.privates?.commentsSatsFilter)
-    : (isPost ? DEFAULT_POSTS_SATS_FILTER : DEFAULT_COMMENTS_SATS_FILTER)
-  const isDesperado = !item.mine && item.downSats > 0 &&
+    ? (isPost ? me.privates?.postsPiconerosFilter : me.privates?.commentsPiconerosFilter)
+    : (isPost ? DEFAULT_POSTS_PICONEROS_FILTER : DEFAULT_COMMENTS_PICONEROS_FILTER)
+  const isDesperado = !item.mine && item.downPiconeros > 0 &&
     satsFilter != null && (item.netInvestment ?? 0) < satsFilter
 
   return (
@@ -122,7 +122,7 @@ export default function ItemInfo ({
       {!isPinnedPost && !(isPinnedSubReply && !full) &&
         <>
           <span title={itemTitle(item)}>
-            {xmrFromSats(item.sats + item.boost + item.cost)}
+            {xmrFromSats(Number(item.piconeros) + Number(item.boost) + Number(item.cost))}
           </span>
           <span> \ </span>
         </>}
@@ -135,7 +135,7 @@ export default function ItemInfo ({
               `/items/${item.id}?commentsViewedAt=${viewedAt}`,
               `/items/${item.id}`)
           }
-        }} title={`${xmrFromSats(item.commentSats + item.commentCost + item.commentBoost)} (${item.commentSats} stashed \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
+        }} title={`${xmrFromSats(item.commentPiconeros + item.commentCost + item.commentBoost)} (${item.commentPiconeros} stashed \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
       >
         {numWithUnits(item.ncomments, {
           abbreviate: false,
@@ -194,7 +194,7 @@ export default function ItemInfo ({
         <span
           role='button' onClick={() => showModal((onClose) => <ItemDetails item={item} me={me} />)}
         >
-          {' '}<Badge className={styles.newComment} bg={null}>-{abbrNum(item.downSats)} sats</Badge>
+          {' '}<Badge className={styles.newComment} bg={null}>-{abbrNum(item.downPiconeros)} sats</Badge>
         </span>}
       {extraBadges}
       {full && isPendingFeeItem(item) && item.payIn?.moneroUri &&
@@ -233,7 +233,7 @@ export default function ItemInfo ({
               {item && item.mine && !item.noteId && !item.isJob && !item.parentId &&
                 <CrosspostDropdownItem item={item} />}
               {me && !item.mine && !item.deletedAt &&
-            (item.meDontLikeSats > meSats
+            (item.meDontLikePiconeros > meSats
               ? <DropdownItemUpVote item={item} />
               : <DontLikeThisDropdownItem item={item} />)}
               {item.mine && item.payIn?.id &&
@@ -292,29 +292,29 @@ function ItemDetails ({ item, me }) {
       <div className={styles.detailsLabel}>boost</div>
       <div className={styles.detailsValue}>{item.boost} sats</div>
       <div className={styles.detailsLabel}>stashed</div>
-      <div className={styles.detailsValue}>{item.sats - item.credits} sats / {item.credits} ccs</div>
+      <div className={styles.detailsValue}>{Number(item.piconeros) - Number(item.credits)} sats / {item.credits} ccs</div>
       <div className={styles.detailsLabel}>downsats</div>
-      <div className={styles.detailsValue}>{item.downSats} sats</div>
+      <div className={styles.detailsValue}>{item.downPiconeros} sats</div>
       <div className={styles.detailsLabel}>invested</div>
-      <div className={styles.detailsValue}>{item.sats + item.boost + item.cost} sats</div>
+      <div className={styles.detailsValue}>{Number(item.piconeros) + Number(item.boost) + Number(item.cost)} sats</div>
       <div className={styles.detailsSection}>comments</div>
       <div className={styles.detailsLabel}>cost</div>
       <div className={styles.detailsValue}>{item.commentCost} sats</div>
       <div className={styles.detailsLabel}>boost</div>
       <div className={styles.detailsValue}>{item.commentBoost} sats</div>
       <div className={styles.detailsLabel}>stashed</div>
-      <div className={styles.detailsValue}>{item.commentSats - item.commentCredits} sats / {item.commentCredits} ccs</div>
+      <div className={styles.detailsValue}>{item.commentPiconeros - item.commentCredits} sats / {item.commentCredits} ccs</div>
       <div className={styles.detailsLabel}>downsats</div>
-      <div className={styles.detailsValue}>{item.commentDownSats} sats</div>
+      <div className={styles.detailsValue}>{item.commentDownPiconeros} sats</div>
       <div className={styles.detailsLabel}>invested</div>
-      <div className={styles.detailsValue}>{item.commentSats + item.commentCost + item.commentBoost} sats</div>
+      <div className={styles.detailsValue}>{item.commentPiconeros + item.commentCost + item.commentBoost} sats</div>
       {me && (
         <>
           <div className={styles.detailsSection}>from me</div>
           <div className={styles.detailsLabel}>zapped</div>
-          <div className={styles.detailsValue}>{item.meSats - item.meCredits} sats / {item.meCredits} ccs</div>
+          <div className={styles.detailsValue}>{Number(item.mePiconeros) - Number(item.meCredits)} sats / {item.meCredits} ccs</div>
           <div className={styles.detailsLabel}>downzapped</div>
-          <div className={styles.detailsValue}>{item.meDontLikeSats} sats</div>
+          <div className={styles.detailsValue}>{item.meDontLikePiconeros} sats</div>
         </>
       )}
     </div>

@@ -27,7 +27,7 @@ const GROWTH_QUERY = gql`
   {
     growthTotals(when: $when, from: $from, to: $to, mine: true) {
       spending
-      stacking
+      stashing
       items
     }
     itemGrowth(when: $when, from: $from, to: $to, mine: true) {
@@ -44,7 +44,7 @@ const GROWTH_QUERY = gql`
         value
       }
     }
-    stackingGrowth(when: $when, from: $from, to: $to, mine: true) {
+    stashingGrowth(when: $when, from: $from, to: $to, mine: true) {
       time
       data {
         name
@@ -62,7 +62,7 @@ function UserGrowthTotals ({ totals }) {
     <Row className='my-4'>
       <Col xs={6} md={4} className='text-center mb-3'>
         <div className='text-muted small'>total stashed</div>
-        <div className='fw-bold fs-5'>{xmrFromSats(Math.floor(totals.stacking))}</div>
+        <div className='fw-bold fs-5'>{xmrFromSats(Math.floor(totals.stashing))}</div>
       </Col>
       <Col xs={6} md={4} className='text-center mb-3'>
         <div className='text-muted small'>total spent</div>
@@ -87,7 +87,7 @@ export default function Growth ({ ssrData }) {
     growthTotals,
     itemGrowth,
     spendingGrowth,
-    stackingGrowth
+    stashingGrowth
   } = data || ssrData
 
   return (
@@ -98,7 +98,7 @@ export default function Growth ({ ssrData }) {
       <Row>
         <Col className='mt-3'>
           <div className='text-center text-muted fw-bold'>XMR stashed</div>
-          <WhenAreaChart data={stackingGrowth} />
+          <WhenAreaChart data={stashingGrowth} />
         </Col>
         <Col className='mt-3'>
           <div className='text-center text-muted fw-bold'>sats spent</div>

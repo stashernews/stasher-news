@@ -16,7 +16,7 @@ export function PayInStatus ({ payIn }) {
 
   return (
     <div className='d-flex align-items-center'>
-      {(payIn.payInState === 'PAID' && <><Check width={statusIconSize} height={statusIconSize} className='fill-success' /><StatusText color='success'>{payIn.mcost > 0 ? 'paid' : 'free'}</StatusText></>) ||
+      {(payIn.payInState === 'PAID' && <><Check width={statusIconSize} height={statusIconSize} className='fill-success' /><StatusText color='success'>{payIn.piconeros > 0 ? 'paid' : 'free'}</StatusText></>) ||
         (FAILED_PAY_IN_STATES.includes(payIn.payInState) && <><ThumbDown width={statusIconSize} height={statusIconSize} className='fill-danger' /><StatusText color='danger'>failed</StatusText></>) ||
         (settling && <><Moon width={statusIconSize} height={statusIconSize} className='spin fill-grey' /><StatusText color='muted'>settling</StatusText></>)}
     </div>

@@ -157,7 +157,7 @@ export default function usePayInMutation (mutation, { onCompleted, ...options } 
 
 function isClientPessimisticPayIn (payIn, me) {
   return !me ||
-    (payIn.payInState === 'PENDING_HELD' && payIn.payInType !== 'ZAP' && payIn.payInType !== 'BOUNTY_PAYMENT')
+    (payIn.payInState === 'PENDING_HELD' && payIn.payInType !== 'TIP' && payIn.payInType !== 'BOUNTY_PAYMENT')
 }
 
 function mergePayInWithFallbackResult (paidPayIn, fallbackResult) {
@@ -220,7 +220,7 @@ function addOptimisticResponseExtras (mutation, payInOptimisticResponse, me) {
       payInStateChangedAt: new Date().toISOString(),
       payInType: payInOptimisticResponse.payInType,
       payerPrivates,
-      mcost: payInOptimisticResponse.mcost
+      piconeros: payInOptimisticResponse.piconeros
     }
   }
 }

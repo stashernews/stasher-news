@@ -1,7 +1,6 @@
 import { gql } from 'graphql-tag'
 import search from '@/api/search/index'
 import removeMd from 'remove-markdown'
-import { msatsToSats } from '@/lib/format'
 
 const ITEM_SEARCH_FIELDS = gql`
   fragment ItemSearchFields on Item {
@@ -31,11 +30,11 @@ const ITEM_SEARCH_FIELDS = gql`
     location
     remote
     upvotes
-    sats
+    piconeros
     credits
     boost
     lastCommentAt
-    commentSats
+    commentPiconeros
     commentCredits
     path
     ncomments
@@ -125,7 +124,7 @@ async function _indexItem (item, { models, updatedAt }) {
 export async function indexItem ({ data: { id, updatedAt }, apollo, models }) {
   // 1. grab item from database
   // could use apollo to avoid duping logic
-  // when grabbing sats and user name, etc
+  // when grabbing piconeros and user name, etc
   const { data: { item } } = await apollo.query({
     query: gql`
         ${ITEM_SEARCH_FIELDS}
@@ -203,10 +202,10 @@ export async function indexAllItems ({ models, boss }) {
           lastCommentAt: true,
           ncomments: true,
           rootId: true,
-          msats: true,
-          mcredits: true,
-          commentMsats: true,
-          commentMcredits: true,
+          piconeros: true,
+          credits: true,
+          commentPiconeros: true,
+          commentCredits: true,
           cost: true,
           commentCost: true,
           commentBoost: true,
@@ -225,10 +224,10 @@ export async function indexAllItems ({ models, boss }) {
       const docs = items.map(item => {
         const doc = {
           ...item,
-          sats: msatsToSats(item.msats),
-          credits: msatsToSats(item.mcredits),
-          commentSats: msatsToSats(item.commentMsats),
-          commentCredits: msatsToSats(item.commentMcredits),
+          piconeros: item.piconeros,
+          credits: item.credits,
+          commentPiconeros: item.commentPiconeros,
+          commentCredits: item.commentCredits,
           wvotes: item.weightedVotes - item.weightedDownVotes,
           subNames: item.subNames?.length > 0
             ? item.subNames
@@ -249,10 +248,6 @@ export async function indexAllItems ({ models, boss }) {
         // clean up relation/raw fields not needed in the index
         delete doc.Bookmark
         delete doc.root
-        delete doc.msats
-        delete doc.mcredits
-        delete doc.commentMsats
-        delete doc.commentMcredits
 
         return { id: item.id, doc }
       })

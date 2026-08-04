@@ -1,3 +1,3 @@
-export function getBeneficiariesMcost (beneficiaries) {
-  return beneficiaries?.reduce((acc, beneficiary) => acc + beneficiary.mcost, 0n) ?? 0n
+export function getBeneficiariesPiconeros (beneficiaries) {
+  return beneficiaries?.reduce((acc, beneficiary) => acc + beneficiary.piconeros, 0n) ?? 0n
 }

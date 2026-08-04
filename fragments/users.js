@@ -23,14 +23,14 @@ ${STREAK_FIELDS}
     privates {
       noReferralLinks
       fiatCurrency
-      postsSatsFilter
-      commentsSatsFilter
+      postsPiconerosFilter
+      commentsPiconerosFilter
       hideFromTopUsers
       imgproxyOnly
       showImagesAndVideos
       nostrCrossposting
       nsfwMode
-      sats
+      piconeros
       credits
       freeCommentsLeft
       postingFeeRequired
@@ -62,7 +62,7 @@ export const SETTINGS_FIELDS = gql`
       tipRandomMax
       turboTipping
       fiatCurrency
-      noteItemSats
+      noteItemPiconeros
       noteEarning
       noteAllDescendants
       noteMentions
@@ -71,8 +71,8 @@ export const SETTINGS_FIELDS = gql`
       noteWithdrawals
       noteInvites
       noteCowboyHat
-      noteForwardedSats
-      hideInvoiceDesc
+      noteForwardedPiconeros
+      hideUriDesc
       hideFromTopUsers
       hideCowboyHat
       hideBookmarks
@@ -85,8 +85,8 @@ export const SETTINGS_FIELDS = gql`
       nostrPubkey
       nostrCrossposting
       nostrRelays
-      postsSatsFilter
-      commentsSatsFilter
+      postsPiconerosFilter
+      commentsPiconerosFilter
       nsfwMode
       authMethods {
         lightning

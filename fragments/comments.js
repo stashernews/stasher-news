@@ -37,23 +37,23 @@ export const COMMENT_FIELDS = gql`
         retryCount
       }
     }
-    sats
+    piconeros
     credits
-    meAnonSats @client
+    meAnonPiconeros @client
     upvotes
     freedFreebie
     boost
-    downSats
-    commentDownSats
-    meSats
+    downPiconeros
+    commentDownPiconeros
+    mePiconeros
     meCredits
-    meDontLikeSats
+    meDontLikePiconeros
     meBookmark
     meSubscription
     freebie
     netInvestment
     path
-    commentSats
+    commentPiconeros
     commentCredits
     commentCost
     commentBoost
@@ -96,23 +96,23 @@ export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
         retryCount
       }
     }
-    sats
+    piconeros
     credits
-    meAnonSats @client
+    meAnonPiconeros @client
     upvotes
     freedFreebie
     boost
-    downSats
-    commentDownSats
-    meSats
+    downPiconeros
+    commentDownPiconeros
+    mePiconeros
     meCredits
-    meDontLikeSats
+    meDontLikePiconeros
     meBookmark
     meSubscription
     freebie
     netInvestment
     path
-    commentSats
+    commentPiconeros
     commentCredits
     commentCost
     commentBoost

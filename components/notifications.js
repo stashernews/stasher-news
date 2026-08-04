@@ -260,7 +260,7 @@ function EarnNotification ({ n }) {
       <HandCoin className='align-self-center fill-boost mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
       <div className='ms-2'>
         <NoteHeader color='boost' big>
-          you stashed {xmrFromSats(n.earnedSats)} in rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{time}</small>
+          you stashed {xmrFromSats(n.earnedPiconeros)} in rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{time}</small>
         </NoteHeader>
         {n.sources &&
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
@@ -284,7 +284,7 @@ function ReferralReward ({ n }) {
       <UserAdd className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
-          you stashed {xmrFromSats(n.earnedSats)} in referral rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{dayMonthYear(new Date(n.sortTime))}</small>
+          you stashed {xmrFromSats(n.earnedPiconeros)} in referral rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{dayMonthYear(new Date(n.sortTime))}</small>
         </NoteHeader>
         {n.sources &&
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
@@ -305,7 +305,7 @@ function RevenueNotification ({ n }) {
       <BountyIcon className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
-          you stashed {xmrFromSats(n.earnedSats)} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
+          you stashed {xmrFromSats(n.earnedPiconeros)} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
         </NoteHeader>
         <div style={{ lineHeight: '140%' }}>
           As the founder of territory <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 70% of the post, comment, boost, and tip fees. The other 30% go to <Link href='/rewards'>rewards</Link>.
@@ -371,7 +371,7 @@ function PayInFailed ({ n }) {
         fragment _ on PayInification {
           payIn {
             id
-            mcost
+            piconeros
             payInType
             payInState
             payInStateChangedAt
@@ -417,13 +417,13 @@ function PayInFailed ({ n }) {
   const actResult = isAct
     ? {
         id: item.id,
-        sats: msatsToSats(payIn.mcost),
-        act: payIn.payInType === 'ZAP' ? 'TIP' : payIn.payInType === 'DOWN_ZAP' ? 'DONT_LIKE_THIS' : 'BOOST',
+        piconeros: payIn.piconeros,
+        act: payIn.payInType === 'TIP' ? 'TIP' : payIn.payInType === 'DOWNVOTE' ? 'DONT_LIKE_THIS' : 'BOOST',
         path: item.path
       }
     : null
   const optimisticResponse = payIn.payInType === 'BOUNTY_PAYMENT'
-    ? { payInType: 'BOUNTY_PAYMENT', mcost: payIn.mcost, payerPrivates: { result: { id: item.id, path: item.path, __typename: 'Item' } } }
+    ? { payInType: 'BOUNTY_PAYMENT', piconeros: payIn.piconeros, payerPrivates: { result: { id: item.id, path: item.path, __typename: 'Item' } } }
     : undefined
   // only retry once (protocolLimit = 1) with wallets since we want to show the QR code on failures that end up in the notifications
   const mutationOptions = {
@@ -447,9 +447,9 @@ function PayInFailed ({ n }) {
     } else if (payIn.payInType === 'BOUNTY_PAYMENT') {
       actionString = `bounty payment on ${itemType} `
     } else {
-      if (payIn.payInType === 'ZAP') {
+      if (payIn.payInType === 'TIP') {
         actionString = 'tip'
-      } else if (payIn.payInType === 'DOWN_ZAP') {
+      } else if (payIn.payInType === 'DOWNVOTE') {
         actionString = 'downvote'
       } else if (payIn.payInType === 'BOOST') {
         actionString = 'boost'
@@ -477,7 +477,7 @@ function PayInFailed ({ n }) {
     <div>
       <NoteHeader color={colorClass}>
         {actionString}
-        <span className='ms-1 text-muted fw-light'> {xmrFromSats(msatsToSats(payIn.mcost))}</span>
+        <span className='ms-1 text-muted fw-light'> {xmrFromSats(msatsToSats(payIn.piconeros))}</span>
         <span className={['FAILED'].includes(payIn.payInState) && !isAutoRetryEligiblePayIn(payIn) ? 'visible' : 'invisible'}>
           <Button
             size='sm' variant={classNames('outline-warning ms-2 border-1 rounded py-0', disableRetry && 'pulse')}
@@ -502,7 +502,7 @@ function PayInFailed ({ n }) {
 }
 
 function PayInWithdrawal ({ n }) {
-  const amount = n.earnedSats
+  const amount = n.earnedPiconeros
   let actionString = 'withdrawn from your account'
 
   if (n.payIn.payInType === 'AUTO_WITHDRAWAL') {
@@ -546,10 +546,10 @@ function Referral ({ n }) {
 }
 
 function stackedText (item, total) {
-  if (total === undefined) total = item.sats
+  if (total === undefined) total = Number(item.piconeros)
   let text = ''
-  const credits = item.sats > 0 ? Math.floor(total * item.credits / item.sats) : total
-  const sats = total - credits
+  const credits = Number(item.piconeros) > 0 ? Math.floor(Number(total) * Number(item.credits) / Number(item.piconeros)) : total
+  const sats = Number(total) - credits
   if (sats > 0) {
     text += `${xmrFromSats(sats)}`
     if (credits > 0) text += ' and '
@@ -566,7 +566,7 @@ function Votification ({ n }) {
 
   let stackedTextString
   if (n.item.forwards?.length) {
-    stackedTextString = stackedText(n.item, n.earnedSats)
+    stackedTextString = stackedText(n.item, n.earnedPiconeros)
   } else {
     stackedTextString = stackedText(n.item)
   }
@@ -592,7 +592,7 @@ function BountyPayment ({ n }) {
   return (
     <>
       <NoteHeader color='success'>
-        you received a {xmrFromSats(n.earnedSats)} bounty payment
+        you received a {xmrFromSats(n.earnedPiconeros)} bounty payment
       </NoteHeader>
       <NoteItem item={n.item} />
     </>

@@ -40,7 +40,7 @@ export default gql`
       randPollOptions: Boolean, hash: String, hmac: String, sendProtocolId: Int): PayIn!
     updateNoteId(id: ID!, noteId: String!): Item!
     upsertComment(id: ID, text: String!, parentId: ID, hash: String, hmac: String, sendProtocolId: Int): PayIn!
-    act(id: ID!, sats: Int, act: String): PayIn!
+    act(id: ID!, piconeros: BigInt, act: String): PayIn!
     payBounty(id: ID!, sendProtocolId: Int): PayIn!
     pollVote(id: ID!, sendProtocolId: Int): PayIn!
     updateCommentsViewAt(id: ID!, meCommentsViewedAt: Date!): Date
@@ -73,7 +73,7 @@ export default gql`
 
   type ItemAct {
     id: ID!
-    sats: Int!
+    piconeros: BigInt!
     act: String!
     path: String
     payIn: PayIn
@@ -115,19 +115,19 @@ export default gql`
     bounty: Int
     bountyPaidTo: [Int]
     noteId: String
-    sats: Int!
-    downSats: Int!
+    piconeros: BigInt!
+    downPiconeros: BigInt!
     credits: Int!
-    commentSats: Int!
+    commentPiconeros: BigInt!
     commentCredits: Int!
     commentCost: Int!
     commentBoost: Int!
-    commentDownSats: Int!
+    commentDownPiconeros: BigInt!
     lastCommentAt: Date
     upvotes: Int!
-    meSats: Int!
+    mePiconeros: BigInt!
     meCredits: Int!
-    meDontLikeSats: Int!
+    meDontLikePiconeros: BigInt!
     meBookmark: Boolean!
     meSubscription: Boolean!
     meForward: Boolean

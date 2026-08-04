@@ -12,11 +12,10 @@ import {
   ITEM_EDIT_SECONDS,
   WALLET_RETRY_BEFORE_MS,
   WALLET_MAX_RETRIES,
-  DEFAULT_POSTS_SATS_FILTER,
-  DEFAULT_COMMENTS_SATS_FILTER,
-  HOMEPAGE_POSTS_SATS_FILTER
+  DEFAULT_POSTS_PICONEROS_FILTER,
+  DEFAULT_COMMENTS_PICONEROS_FILTER,
+  HOMEPAGE_POSTS_PICONEROS_FILTER
 } from '@/lib/constants'
-import { msatsToSats } from '@/lib/format'
 import uu from 'url-unshort'
 import { actSchema, bountySchema, commentSchema, discussionSchema, jobSchema, linkSchema, pollSchema, validateSchema } from '@/lib/validate'
 import { defaultCommentSort, isJob, deleteItemByAuthor } from '@/lib/item'
@@ -64,7 +63,7 @@ const orderByClause = (by, me, models, type, sub) => {
     case 'sats':
       return 'ORDER BY "Item".ranktop DESC, "Item".id DESC'
     case 'downsats':
-      return 'ORDER BY "Item"."downMsats" DESC'
+      return 'ORDER BY "Item"."downPiconeros" DESC'
     default:
       return `ORDER BY ${type === 'bookmarks' ? '"bookmarkCreatedAt"' : '"Item".created_at'} DESC`
   }
@@ -127,13 +126,13 @@ export async function itemQueryWithMeta ({ me, models, query, orderBy = '' }, ..
       ) "subs" ON true
       LEFT JOIN LATERAL (
         SELECT "itemId",
-          sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInType" = 'ZAP') AS "meMsats",
+          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInType" = 'TIP') AS "meMsats",
           NULL::bigint AS "meMcredits",
-          sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayIn"."payInType" = 'ZAP') AS "mePendingMsats",
+          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayIn"."payInType" = 'TIP') AS "mePendingMsats",
           NULL::bigint AS "mePendingMcredits",
-          sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInType" = 'DOWN_ZAP') AS "meDontLikeMsats",
-          sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInType" = 'DOWN_ZAP' AND "PayIn"."payInState" <> 'PAID') AS "mePendingDontLikeMsats",
-          sum("PayIn".mcost) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayIn"."payInType" = 'BOOST') AS "mePendingBoostMsats"
+          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInType" = 'DOWNVOTE') AS "meDontLikeMsats",
+          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInType" = 'DOWNVOTE' AND "PayIn"."payInState" <> 'PAID') AS "mePendingDontLikeMsats",
+          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayIn"."payInType" = 'BOOST') AS "mePendingBoostMsats"
         FROM "ItemPayIn"
         JOIN "PayIn" ON "PayIn".id = "ItemPayIn"."payInId"
         WHERE "PayIn"."userId" = ${me.id}
@@ -246,18 +245,18 @@ const subClause = (sub, num, table = 'Item', me, showNsfw) => {
 }
 
 // Inverted filter: show items BELOW the threshold (for desperados)
-function invertedInvestmentClause (postsSatsFilter, commentsSatsFilter) {
+function invertedInvestmentClause (postsPiconerosFilter, commentsPiconerosFilter) {
   // null means "show all" — nothing is below -infinity, so return no results
-  if (postsSatsFilter == null && commentsSatsFilter == null) {
+  if (postsPiconerosFilter == null && commentsPiconerosFilter == null) {
     return 'FALSE'
   }
 
-  const postsExpr = postsSatsFilter == null
+  const postsExpr = postsPiconerosFilter == null
     ? 'FALSE'
-    : `"Item"."netInvestment" < ${postsSatsFilter}`
-  const commentsExpr = commentsSatsFilter == null
+    : `"Item"."netInvestment" < ${postsPiconerosFilter}`
+  const commentsExpr = commentsPiconerosFilter == null
     ? 'FALSE'
-    : `"Item"."netInvestment" < ${commentsSatsFilter}`
+    : `"Item"."netInvestment" < ${commentsPiconerosFilter}`
 
   return `(
     CASE WHEN "Item"."parentId" IS NULL
@@ -269,19 +268,19 @@ function invertedInvestmentClause (postsSatsFilter, commentsSatsFilter) {
 
 // Uses the indexed netInvestment column for efficient filtering
 // ownerBypass: if true, always show the user's own items regardless of filter
-function investmentClause (postsSatsFilter, commentsSatsFilter, meId, ownerBypass) {
+function investmentClause (postsPiconerosFilter, commentsPiconerosFilter, meId, ownerBypass) {
   // null means "show all" — no filter for that dimension
-  if (postsSatsFilter == null && commentsSatsFilter == null) {
+  if (postsPiconerosFilter == null && commentsPiconerosFilter == null) {
     return ''
   }
 
   const ownerClause = ownerBypass && meId ? ` OR "Item"."userId" = ${meId}` : ''
-  const postsExpr = postsSatsFilter == null
+  const postsExpr = postsPiconerosFilter == null
     ? 'TRUE'
-    : `"Item"."netInvestment" >= ${postsSatsFilter}${ownerClause}`
-  const commentsExpr = commentsSatsFilter == null
+    : `"Item"."netInvestment" >= ${postsPiconerosFilter}${ownerClause}`
+  const commentsExpr = commentsPiconerosFilter == null
     ? 'TRUE'
-    : `"Item"."netInvestment" >= ${commentsSatsFilter}${ownerClause}`
+    : `"Item"."netInvestment" >= ${commentsPiconerosFilter}${ownerClause}`
 
   return `(
     CASE WHEN "Item"."parentId" IS NULL
@@ -298,14 +297,14 @@ export async function filterClause (type, sub, sort, { me, userLoader, subLoader
 
   const isDesperados = type === 'desperados'
 
-  let postsSatsFilter = DEFAULT_POSTS_SATS_FILTER
-  let commentsSatsFilter = DEFAULT_COMMENTS_SATS_FILTER
+  let postsPiconerosFilter = DEFAULT_POSTS_PICONEROS_FILTER
+  let commentsPiconerosFilter = DEFAULT_COMMENTS_PICONEROS_FILTER
   const isCurated = sort === 'lit' || sort === 'top'
 
   if (me) {
     const user = await userLoader.load(me.id)
-    commentsSatsFilter = user.commentsSatsFilter
-    postsSatsFilter = user.postsSatsFilter
+    commentsPiconerosFilter = user.commentsPiconerosFilter
+    postsPiconerosFilter = user.postsPiconerosFilter
   }
 
   const territory = sub ? await subLoader.load(sub) : null
@@ -314,27 +313,27 @@ export async function filterClause (type, sub, sort, { me, userLoader, subLoader
     // top sort, logged in: user's own filter, no overrides
   } else if (territory && isCurated) {
     // lit (or top logged-out) in territory: territory is authoritative
-    postsSatsFilter = territory.postsSatsFilter
+    postsPiconerosFilter = territory.postsPiconerosFilter
   } else if (territory) {
     // non-curated in territory: most permissive of user/territory
     // null (show all) beats any number since it's conceptually -infinity
-    postsSatsFilter = me
-      ? (postsSatsFilter == null ? null : Math.min(postsSatsFilter, territory.postsSatsFilter))
-      : territory.postsSatsFilter
+    postsPiconerosFilter = me
+      ? (postsPiconerosFilter == null ? null : Math.min(postsPiconerosFilter, territory.postsPiconerosFilter))
+      : territory.postsPiconerosFilter
   } else if (isCurated) {
     // homepage curated: enforce homepage minimum
     // null (show all) defers to the homepage threshold
-    postsSatsFilter = postsSatsFilter == null
-      ? HOMEPAGE_POSTS_SATS_FILTER
-      : Math.max(postsSatsFilter, HOMEPAGE_POSTS_SATS_FILTER)
+    postsPiconerosFilter = postsPiconerosFilter == null
+      ? HOMEPAGE_POSTS_PICONEROS_FILTER
+      : Math.max(postsPiconerosFilter, HOMEPAGE_POSTS_PICONEROS_FILTER)
   }
 
   // On curated feeds (lit/top), your own items are filtered like everyone else's.
   // On new/notifications, your own items always pass the filter.
   if (isDesperados) {
-    return invertedInvestmentClause(postsSatsFilter, commentsSatsFilter)
+    return invertedInvestmentClause(postsPiconerosFilter, commentsPiconerosFilter)
   }
-  return investmentClause(postsSatsFilter, commentsSatsFilter, me?.id, !isCurated)
+  return investmentClause(postsPiconerosFilter, commentsPiconerosFilter, me?.id, !isCurated)
 }
 
 function typeClause (type) {
@@ -429,9 +428,9 @@ export default {
                 `"${table}"."userId" = $3`,
                 activeOrMine(me),
                 typeClause(type),
-                by === 'downsats' && '"Item"."downMsats" > 0',
+                by === 'downsats' && '"Item"."downPiconeros" > 0',
                 whenClause(when || 'forever', table))}
-              ${orderByClause(by, me, models, type)}
+              ${orderByClause(by, me, models, type, sub)}
               OFFSET $4
               LIMIT $5`,
             orderBy: orderByClause(by, me, models, type)
@@ -476,7 +475,7 @@ export default {
                 whenClause(when, 'Item'),
                 activeOrMine(me),
                 '"Item".status = \'ACTIVE\'',
-                by === 'downsats' && '"Item"."downMsats" > 0',
+                by === 'downsats' && '"Item"."downPiconeros" > 0',
                 await filterClause(type, sub, 'top', ctx, by),
                 muteClause(me))}
               ${orderByClause(by || 'sats', me, models, type, sub)}
@@ -852,9 +851,9 @@ export default {
 
       return await pay('POLL_VOTE', { id }, { me, models, sendProtocolId })
     },
-    act: async (parent, { id, sats, act = 'TIP' }, { me, models, headers }) => {
+    act: async (parent, { id, piconeros, act = 'TIP' }, { me, models, headers }) => {
       assertApiKeyNotPermitted({ me })
-      await validateSchema(actSchema, { sats, act })
+      await validateSchema(actSchema, { piconeros: Number(piconeros), act })
       await assertGofacYourself({ models, headers })
 
       // StealthNews: tips are ObservedTip-based (the webhook + payment-ID flow in
@@ -862,16 +861,16 @@ export default {
       // legacy SN zap path) and the frontend ACT_MUTATION spreads PayInFields, so it
       // cannot carry a TipInitiation. The tip button must call initiateTip directly;
       // act(TIP) redirects there with an actionable error. Downvotes (DONT_LIKE_THIS)
-      // are a DOWN_ZAP PayIn that returns a monero: URI to the rewards wallet; the
-      // `sats` arg carries the piconeros amount for downvotes.
-      if (act === 'TIP' || act === 'ZAP') {
+      // are a DOWNVOTE PayIn that returns a monero: URI to the rewards wallet; the
+      // `piconeros` arg carries the piconeros amount for downvotes.
+      if (act === 'TIP') {
         throw new GqlInputError('use the initiateTip mutation to tip (webhook + payment-ID flow)')
       }
       if (act === 'DONT_LIKE_THIS') {
         if (!me) {
           throw new GqlAuthenticationError()
         }
-        return await pay('DOWN_ZAP', { id: Number(id), piconeros: BigInt(sats) }, { me })
+        return await pay('DOWNVOTE', { id: Number(id), piconeros }, { me })
       }
       if (act === 'BOOST') {
         throw new GqlInputError('BOOST pays the rewards wallet — not implemented in Phase 3')
@@ -922,38 +921,38 @@ export default {
       })
       return payIn
     },
-    sats: async (item, args, { models, me }) => {
+    piconeros: async (item, args, { models, me }) => {
       if (me?.id === item.userId) {
-        return msatsToSats(BigInt(item.msats))
+        return item.piconeros
       }
-      return msatsToSats(BigInt(item.msats) + BigInt(item.mePendingMsats || 0) + BigInt(item.mePendingMcredits || 0))
+      return BigInt(item.piconeros) + BigInt(item.mePendingMsats || 0) + BigInt(item.mePendingMcredits || 0)
     },
-    downSats: async (item, args, { models, me }) => {
+    downPiconeros: async (item, args, { models, me }) => {
       if (me?.id === item.userId) {
-        return msatsToSats(BigInt(item.downMsats))
+        return item.downPiconeros
       }
-      return msatsToSats(BigInt(item.downMsats) + BigInt(item.mePendingDontLikeMsats || 0))
+      return BigInt(item.downPiconeros) + BigInt(item.mePendingDontLikeMsats || 0)
     },
-    commentDownSats: async (item, args, { models }) => {
-      return msatsToSats(item.commentDownMsats)
+    commentDownPiconeros: async (item, args, { models }) => {
+      return item.commentDownPiconeros
     },
     boost: async (item, args, { models, me }) => {
       if (me?.id !== item.userId) {
         return item.boost
       }
-      return item.boost + msatsToSats(BigInt(item.mePendingBoostMsats || 0))
+      return item.boost + Number(item.mePendingBoostMsats || 0)
     },
     credits: async (item, args, { models, me }) => {
       if (me?.id === item.userId) {
-        return msatsToSats(BigInt(item.mcredits))
+        return Number(item.credits ?? 0n)
       }
-      return msatsToSats(BigInt(item.mcredits) + BigInt(item.mePendingMcredits || 0))
+      return Number(item.credits) + Number(item.mePendingMcredits || 0)
     },
-    commentSats: async (item, args, { models }) => {
-      return msatsToSats(item.commentMsats)
+    commentPiconeros: async (item, args, { models }) => {
+      return item.commentPiconeros
     },
     commentCredits: async (item, args, { models }) => {
-      return msatsToSats(item.commentMcredits)
+      return Number(item.commentCredits ?? 0n)
     },
     bountyPaidTo: (item) => item.bountyPaidTo,
     commentCost: async (item) => item.commentCost || 0,
@@ -1103,21 +1102,21 @@ export default {
       // Maintained by the item_net_investment trigger
       return item.netInvestment ?? 0
     },
-    meSats: async (item, args, { me, models }) => {
-      if (!me) return 0
+    mePiconeros: async (item, args, { me, models }) => {
+      if (!me) return 0n
       if (typeof item.meMsats !== 'undefined' && typeof item.meMcredits !== 'undefined') {
-        return msatsToSats(BigInt(item.meMsats) + BigInt(item.meMcredits))
+        return BigInt(item.meMsats) + BigInt(item.meMcredits)
       }
 
-      const { _sum: { mcost } } = await models.payIn.aggregate({
+      const { _sum: { piconeros } } = await models.payIn.aggregate({
         _sum: {
-          mcost: true
+          piconeros: true
         },
         where: {
           itemPayIn: {
             itemId: Number(item.id)
           },
-          payInType: 'ZAP',
+          payInType: 'TIP',
           userId: me.id,
           payInState: {
             not: 'FAILED'
@@ -1125,20 +1124,20 @@ export default {
         }
       })
 
-      return (mcost && msatsToSats(mcost)) || 0
+      return piconeros ?? 0n
     },
     meCredits: async (item, args, { me, models }) => {
       if (!me) return 0
       if (typeof item.meMcredits !== 'undefined') {
-        return msatsToSats(item.meMcredits)
+        return Number(item.meMcredits ?? 0n)
       }
 
-      const { _sum: { mcost } } = await models.payIn.aggregate({
+      const { _sum: { piconeros } } = await models.payIn.aggregate({
         _sum: {
-          mcost: true
+          piconeros: true
         },
         where: {
-          payInType: 'ZAP',
+          payInType: 'TIP',
           userId: me.id,
           payInState: {
             not: 'FAILED'
@@ -1149,20 +1148,20 @@ export default {
         }
       })
 
-      return (mcost && msatsToSats(mcost)) || 0
+      return Number(piconeros ?? 0n)
     },
-    meDontLikeSats: async (item, args, { me, models }) => {
-      if (!me) return 0
+    meDontLikePiconeros: async (item, args, { me, models }) => {
+      if (!me) return 0n
       if (typeof item.meDontLikeMsats !== 'undefined') {
-        return msatsToSats(item.meDontLikeMsats)
+        return BigInt(item.meDontLikeMsats ?? 0n)
       }
 
-      const { _sum: { mcost } } = await models.payIn.aggregate({
+      const { _sum: { piconeros } } = await models.payIn.aggregate({
         _sum: {
-          mcost: true
+          piconeros: true
         },
         where: {
-          payInType: 'DOWN_ZAP',
+          payInType: 'DOWNVOTE',
           userId: me.id,
           payInState: {
             not: 'FAILED'
@@ -1173,7 +1172,7 @@ export default {
         }
       })
 
-      return (mcost && msatsToSats(mcost)) || 0
+      return piconeros ?? 0n
     },
     meBookmark: async (item, args, { me, models }) => {
       if (!me) return false

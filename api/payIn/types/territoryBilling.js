@@ -29,7 +29,7 @@ export async function getInitial (models, { name }, { me }) {
   return {
     payInType: 'TERRITORY_BILLING',
     userId: me?.id,
-    mcost: 0n,
+    piconeros: 0n,
     moneroUri,
     moneroSubaddressMajor: reserved.major,
     moneroSubaddressMinor: reserved.minor

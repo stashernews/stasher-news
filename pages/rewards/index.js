@@ -125,7 +125,7 @@ export function DonateButton () {
             onSubmit={async ({ amount }) => {
               const { error, payError } = await donateToRewards({
                 variables: {
-                  sats: Number(amount)
+                  piconeros: Number(amount)
                 },
                 onCompleted: () => {
                   animate()

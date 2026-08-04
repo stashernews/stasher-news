@@ -7,15 +7,15 @@ export default gql`
   }
 
   extend type Mutation {
-    donateToRewards(sats: Int!, sendProtocolId: Int): PayIn!
+    donateToRewards(piconeros: BigInt!, sendProtocolId: Int): PayIn!
   }
 
   type DonateResult {
-    sats: Int!
+    piconeros: BigInt!
   }
 
   type Rewards {
-    total: Int!
+    total: BigInt!
     time: Date!
     sources: [NameValue!]!
   }
@@ -23,12 +23,12 @@ export default gql`
   type Reward {
     type: String
     rank: Int
-    sats: Int!
+    piconeros: BigInt!
     item: Item
   }
 
   type MeRewards {
-    total: Int!
+    total: BigInt!
     rewards: [Reward!]
   }
 `

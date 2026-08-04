@@ -5,7 +5,7 @@
 // INSERTs in itemCreate.onPaid (timestampItem + imgproxy) and in
 // performBotBehavior (deleteItem + reminder) must supply gen_random_uuid().
 // Before the fix these threw "null value in column \"id\" of relation \"job\""
-// and rolled back the entire begin() tx. ITEM_CREATE is mcost:0n -> payInState
+// and rolled back the entire begin() tx. ITEM_CREATE is piconeros:0n -> payInState
 // PAID, so begin() runs onPaid synchronously — i.e. posting crashed on submit.
 //
 // This is a real-DB integration test: it drives the actual onPaid and
@@ -121,7 +121,7 @@ test('onPaid creates timestampItem + imgproxy pgboss jobs without throwing', asy
   const userId = await createUser()
   const itemId = await createRootPost(userId)
   const payIn = await prisma.payIn.create({
-    data: { userId, payInType: 'ITEM_CREATE', payInState: 'PAID', mcost: 0n }
+    data: { userId, payInType: 'ITEM_CREATE', payInState: 'PAID', piconeros: 0n }
   })
   created.payIns.push(payIn.id)
   await prisma.itemPayIn.create({ data: { itemId, payInId: payIn.id } })
@@ -169,7 +169,7 @@ test('getInitial returns a free prospect for comments — no fee subaddress draw
   // PlatformFeeConfig read (and thus any feePool subaddress draw).
   const userId = await createUser()
   const result = await getInitial(prisma, { parentId: '999' }, { me: { id: userId } })
-  expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, mcost: 0n })
+  expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
   expect(result).not.toHaveProperty('moneroUri')
 })
 
@@ -177,7 +177,7 @@ test('getInitial returns a posting-fee URI for low-rep post authors', async () =
   const userId = await createUser()
   await ensureFeeConfig()
   const result = await getInitial(prisma, {}, { me: { id: userId } })
-  expect(result.mcost).toBe(0n)
+  expect(result.piconeros).toBe(0n)
   expect(result.moneroUri).toMatch(/^monero:/)
   expect(result.moneroUri).toContain('tx_amount=0.001')
   expect(result.moneroSubaddressMajor).toBe(1)
@@ -190,6 +190,6 @@ test('getInitial returns a free prospect for established users', async () => {
     UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days'
     WHERE id = ${userId}::int`
   const result = await getInitial(prisma, {}, { me: { id: userId } })
-  expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, mcost: 0n })
+  expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
   expect(result).not.toHaveProperty('moneroUri')
 })

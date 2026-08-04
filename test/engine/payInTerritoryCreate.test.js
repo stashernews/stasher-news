@@ -2,7 +2,7 @@
 
 // Engine-level regression for the StealthNews payIn engine (Tasks 1-4).
 //
-// TERRITORY_CREATE is an mcost:0 fee payIn: getInitial builds a rewards-wallet
+// TERRITORY_CREATE is an piconeros:0 fee payIn: getInitial builds a rewards-wallet
 // fee URI (no custodial sats), begin() -> payInCreate() yields payInState=PAID,
 // then onBegin() creates the territory Sub (billingStatus=PENDING_FEE) and
 // onPaid() runs the ghost-free streak/module path. This test drives the full

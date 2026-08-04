@@ -11,8 +11,8 @@ export default gql`
     itemGrowth(when: String, from: String, to: String, sub: String, mine: Boolean): [TimeData!]!
     spendingGrowth(when: String, from: String, to: String, sub: String, mine: Boolean): [TimeData!]!
     spenderGrowth(when: String, from: String, to: String, sub: String, mine: Boolean): [TimeData!]!
-    stackingGrowth(when: String, from: String, to: String, sub: String, mine: Boolean): [TimeData!]!
-    stackerGrowth(when: String, from: String, to: String, sub: String, mine: Boolean): [TimeData!]!
+    stashingGrowth(when: String, from: String, to: String, sub: String, mine: Boolean): [TimeData!]!
+    stasherGrowth(when: String, from: String, to: String, sub: String, mine: Boolean): [TimeData!]!
     growthTotals(when: String, from: String, to: String, sub: String, mine: Boolean): GrowthTotals
   }
 
@@ -23,7 +23,7 @@ export default gql`
 
   type GrowthTotals {
     spending: Float!
-    stacking: Float!
+    stashing: Float!
     items: Int!
     registrations: Int
   }

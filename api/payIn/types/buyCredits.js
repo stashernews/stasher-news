@@ -12,7 +12,7 @@ export async function getInitial (models, { credits }, { me }) {
   return {
     payInType: 'BUY_CREDITS',
     userId: me?.id,
-    mcost: satsToMsats(credits),
+    piconeros: satsToMsats(credits),
     payOutCustodialTokens: [
       {
         payOutType: 'BUY_CREDITS',
@@ -26,5 +26,5 @@ export async function getInitial (models, { credits }, { me }) {
 
 export async function describe (models, payInId) {
   const payIn = await models.payIn.findUnique({ where: { id: payInId } })
-  return `SN: buy ${numWithUnits(msatsToSats(payIn.mcost), { abbreviate: false, unitSingular: 'credit', unitPlural: 'credits' })}`
+  return `SN: buy ${numWithUnits(msatsToSats(payIn.piconeros), { abbreviate: false, unitSingular: 'credit', unitPlural: 'credits' })}`
 }

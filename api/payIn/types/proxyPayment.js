@@ -3,7 +3,7 @@ export const anonable = false
 // P2P payments removed - Monero integration pending
 export const paymentMethods = []
 
-export async function getInitial (models, { msats, description, descriptionHash, expiry }, { me }) {
+export async function getInitial (models, { piconeros, description, descriptionHash, expiry }, { me }) {
   throw new Error('Monero payments not implemented')
 }
 

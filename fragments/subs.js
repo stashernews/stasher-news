@@ -26,7 +26,7 @@ export const SUB_FIELDS = gql`
     billPaidUntil
     baseCost
     replyCost
-    postsSatsFilter
+    postsPiconerosFilter
     userId
     desc
     status

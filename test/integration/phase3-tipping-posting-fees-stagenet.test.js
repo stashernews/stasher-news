@@ -146,7 +146,7 @@ async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
     const sub = await reserveFeeSubaddress(prisma, 'POSTING')
     const userId = await createUser()
     const payIn = await prisma.payIn.create({
-      data: { userId, payInType: 'ITEM_CREATE', payInState: 'PAID', mcost: 0n, moneroSubaddressMajor: sub.major, moneroSubaddressMinor: sub.minor }
+      data: { userId, payInType: 'ITEM_CREATE', payInState: 'PAID', piconeros: 0n, moneroSubaddressMajor: sub.major, moneroSubaddressMinor: sub.minor }
     })
     created.payIns.push(payIn.id)
     const item = await prisma.item.create({
@@ -185,7 +185,7 @@ async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
     const sub = await reserveFeeSubaddress(prisma, 'TERRITORY_CREATE')
     const userId = await createUser()
     const payIn = await prisma.payIn.create({
-      data: { userId, payInType: 'TERRITORY_CREATE', payInState: 'PAID', mcost: 0n, moneroSubaddressMajor: sub.major, moneroSubaddressMinor: sub.minor }
+      data: { userId, payInType: 'TERRITORY_CREATE', payInState: 'PAID', piconeros: 0n, moneroSubaddressMajor: sub.major, moneroSubaddressMinor: sub.minor }
     })
     created.payIns.push(payIn.id)
     const name = `_phase3territory_${payIn.id}`

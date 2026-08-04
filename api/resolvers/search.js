@@ -3,7 +3,7 @@ import { whenToFrom } from '@/lib/time'
 import { getItem, itemQueryWithMeta, SELECT } from './item'
 import { parse } from 'tldts'
 import { searchSchema, validateSchema } from '@/lib/validate'
-import { DEFAULT_POSTS_SATS_FILTER, DEFAULT_COMMENTS_SATS_FILTER, HOMEPAGE_POSTS_SATS_FILTER } from '@/lib/constants'
+import { DEFAULT_POSTS_PICONEROS_FILTER, DEFAULT_COMMENTS_PICONEROS_FILTER, HOMEPAGE_POSTS_PICONEROS_FILTER } from '@/lib/constants'
 import { resolveOpensearchModelId } from '../search/model-id'
 import removeMd from 'remove-markdown'
 
@@ -109,19 +109,19 @@ function timeRangeFilter (when, whenFrom, whenTo, cursorTime) {
   return { range: { createdAt: range } }
 }
 
-// Returns a sat-investment filter clause, or null to skip.
+// Returns a piconeros-investment filter clause, or null to skip.
 // Handles owner bypass and type-aware thresholds.
-function satsInvestmentFilter ({ what, postsSatsFilter, commentsSatsFilter, meId }) {
+function piconerosInvestmentFilter ({ what, postsPiconerosFilter, commentsPiconerosFilter, meId }) {
   // owner bypass: always show the logged-in user's own items
   const ownerBypass = meId ? [{ match: { userId: meId } }] : []
 
   if (what === 'comments') {
     // comments only: use the comment threshold
-    if (commentsSatsFilter == null) return null
+    if (commentsPiconerosFilter == null) return null
     return {
       bool: {
         should: [
-          { range: { ranktop: { gte: commentsSatsFilter * 1000 } } },
+          { range: { ranktop: { gte: commentsPiconerosFilter } } },
           ...ownerBypass
         ]
       }
@@ -130,11 +130,11 @@ function satsInvestmentFilter ({ what, postsSatsFilter, commentsSatsFilter, meId
 
   if (what === 'posts') {
     // posts only: use the post threshold
-    if (postsSatsFilter == null) return null
+    if (postsPiconerosFilter == null) return null
     return {
       bool: {
         should: [
-          { range: { ranktop: { gte: postsSatsFilter * 1000 } } },
+          { range: { ranktop: { gte: postsPiconerosFilter } } },
           ...ownerBypass
         ]
       }
@@ -142,7 +142,7 @@ function satsInvestmentFilter ({ what, postsSatsFilter, commentsSatsFilter, meId
   }
 
   // default (all items): apply the appropriate threshold per item type
-  if (postsSatsFilter == null && commentsSatsFilter == null) return null
+  if (postsPiconerosFilter == null && commentsPiconerosFilter == null) return null
 
   return {
     bool: {
@@ -151,8 +151,8 @@ function satsInvestmentFilter ({ what, postsSatsFilter, commentsSatsFilter, meId
         {
           bool: {
             must_not: { exists: { field: 'parentId' } },
-            ...(postsSatsFilter != null
-              ? { filter: { range: { ranktop: { gte: postsSatsFilter * 1000 } } } }
+            ...(postsPiconerosFilter != null
+              ? { filter: { range: { ranktop: { gte: postsPiconerosFilter } } } }
               : {})
           }
         },
@@ -160,8 +160,8 @@ function satsInvestmentFilter ({ what, postsSatsFilter, commentsSatsFilter, meId
         {
           bool: {
             must: { exists: { field: 'parentId' } },
-            ...(commentsSatsFilter != null
-              ? { filter: { range: { ranktop: { gte: commentsSatsFilter * 1000 } } } }
+            ...(commentsPiconerosFilter != null
+              ? { filter: { range: { ranktop: { gte: commentsPiconerosFilter } } } }
               : {})
           }
         },
@@ -172,15 +172,15 @@ function satsInvestmentFilter ({ what, postsSatsFilter, commentsSatsFilter, meId
   }
 }
 
-async function loadSatsFilters (me, userLoader) {
-  let postsSatsFilter = DEFAULT_POSTS_SATS_FILTER
-  let commentsSatsFilter = DEFAULT_COMMENTS_SATS_FILTER
+async function loadPiconerosFilters (me, userLoader) {
+  let postsPiconerosFilter = DEFAULT_POSTS_PICONEROS_FILTER
+  let commentsPiconerosFilter = DEFAULT_COMMENTS_PICONEROS_FILTER
   if (me) {
     const user = await userLoader.load(me.id)
-    postsSatsFilter = user.postsSatsFilter
-    commentsSatsFilter = user.commentsSatsFilter
+    postsPiconerosFilter = user.postsPiconerosFilter
+    commentsPiconerosFilter = user.commentsPiconerosFilter
   }
-  return { postsSatsFilter, commentsSatsFilter }
+  return { postsPiconerosFilter, commentsPiconerosFilter }
 }
 
 // ---- Query-part builders ----
@@ -795,15 +795,15 @@ export default {
         return { items: [], cursor: null }
       }
 
-      const postsSatsFilter = HOMEPAGE_POSTS_SATS_FILTER
+      const postsPiconerosFilter = HOMEPAGE_POSTS_PICONEROS_FILTER
       const like = id ? [{ _index: process.env.OPENSEARCH_INDEX, _id: id }] : [title]
 
       const mustNot = [{ exists: { field: 'parentId' } }]
       if (id) mustNot.push({ term: { id } })
 
       const filters = [statusFilter(mustNot)]
-      if (postsSatsFilter != null) {
-        filters.push({ range: { ranktop: { gte: minMatch ? 0 : postsSatsFilter * 1000 } } })
+      if (postsPiconerosFilter != null) {
+        filters.push({ range: { ranktop: { gte: minMatch ? 0 : postsPiconerosFilter } } })
       }
 
       const modelId = await resolveOpensearchModelId(search)
@@ -857,7 +857,7 @@ export default {
       const spellCorrected = await spellCheckQuery(search, query)
       const neuralText = [(spellCorrected || query), ...quotes].filter(Boolean).join(' ').trim().slice(0, MAX_NEURAL_TEXT_LENGTH)
 
-      const { postsSatsFilter, commentsSatsFilter } = await loadSatsFilters(me, userLoader)
+      const { postsPiconerosFilter, commentsPiconerosFilter } = await loadPiconerosFilters(me, userLoader)
       const nymParts = nymClauses(nym)
       const territoryParts = territoryClauses(territory)
       const quoteParts = quoteClauses(quotes)
@@ -867,7 +867,7 @@ export default {
         typeFilter(what, me?.id),
         statusFilter(),
         timeRangeFilter(when, whenFrom, whenTo, decodedCursor.time),
-        satsInvestmentFilter({ what, postsSatsFilter, commentsSatsFilter, meId: me?.id }),
+        piconerosInvestmentFilter({ what, postsPiconerosFilter, commentsPiconerosFilter, meId: me?.id }),
         ...nymParts.filters,
         ...territoryParts.filters,
         ...quoteParts.filters
@@ -987,7 +987,7 @@ export default {
         }
       }
       const items = attachHighlights(
-        await hitsToItems(hits, { me, models, orderBy: 'ORDER BY rank ASC, msats DESC' }),
+        await hitsToItems(hits, { me, models, orderBy: 'ORDER BY rank ASC, piconeros DESC' }),
         hits
       )
 

@@ -1,6 +1,6 @@
 import Nostr, { getNostrProfile } from '@/lib/nostr'
 import { TwitterApi } from 'twitter-api-v2'
-import { msatsToSats, numWithUnits } from '@/lib/format'
+import { numWithUnits } from '@/lib/format'
 
 const isProd = process.env.NODE_ENV === 'production'
 const WEIGHTED_VOTE_THRESHOLD = 3
@@ -97,7 +97,7 @@ async function itemToMessage ({ item, postAuthorNostrProfile }) {
   return `${item.title}
 
 by ${postAuthorNostrProfile ? `nostr:${postAuthorNostrProfile}` : `${item.userName}`} in ${item.subNames?.map(sub => `~${sub}`).join(', ')}
-${numWithUnits(msatsToSats(item.msats), { abbreviate: false })} and ${numWithUnits(item.ncomments, { abbreviate: false, unitSingular: 'comment', unitPlural: 'comments' })} so far
+${numWithUnits(item.piconeros, { abbreviate: false })} and ${numWithUnits(item.ncomments, { abbreviate: false, unitSingular: 'comment', unitPlural: 'comments' })} so far
 
 https://stasher.news/items/${item.id}`
 }

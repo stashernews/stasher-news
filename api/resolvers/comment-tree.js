@@ -2,7 +2,7 @@ import {
   COMMENT_DEPTH_LIMIT,
   COMMENTS_LIMIT,
   COMMENTS_OF_COMMENT_LIMIT,
-  DEFAULT_COMMENTS_SATS_FILTER,
+  DEFAULT_COMMENTS_PICONEROS_FILTER,
   FULL_COMMENTS_THRESHOLD
 } from '@/lib/constants'
 import { decodeCursor, nextCursorEncoded } from '@/lib/cursor'
@@ -39,12 +39,12 @@ export function buildCommentTree (rows, { rootId }) {
   return comments
 }
 
-function commentsSortClause (sort, commentsSatsFilter = DEFAULT_COMMENTS_SATS_FILTER) {
+function commentsSortClause (sort, commentsPiconerosFilter = DEFAULT_COMMENTS_PICONEROS_FILTER) {
   const sharedSorts = [
     '("Item"."pinId" IS NOT NULL) DESC',
     '("Item"."deletedAt" IS NULL) DESC',
-    commentsSatsFilter != null &&
-      `(CASE WHEN "Item"."netInvestment" < ${commentsSatsFilter} THEN 1 ELSE 0 END) ASC`
+    commentsPiconerosFilter != null &&
+      `(CASE WHEN "Item"."netInvestment" < ${commentsPiconerosFilter} THEN 1 ELSE 0 END) ASC`
   ].filter(Boolean).join(', ')
 
   const sortExpr = sort === 'new'
@@ -140,13 +140,13 @@ async function fetchComments ({ item, me, models, sortClause, decodedCursor, ite
 }
 
 export async function resolveItemComments (item, sort, cursor, { me, models, userLoader, itemQueryWithMeta, payInJoinFilter, select }) {
-  let commentsSatsFilter = DEFAULT_COMMENTS_SATS_FILTER
+  let commentsPiconerosFilter = DEFAULT_COMMENTS_PICONEROS_FILTER
   if (me) {
     const user = await userLoader.load(me.id)
-    if (user) commentsSatsFilter = user.commentsSatsFilter
+    if (user) commentsPiconerosFilter = user.commentsPiconerosFilter
   }
 
-  const sortClause = commentsSortClause(sort, commentsSatsFilter)
+  const sortClause = commentsSortClause(sort, commentsPiconerosFilter)
 
   if (!me && item.nDirectComments === 0) {
     return {

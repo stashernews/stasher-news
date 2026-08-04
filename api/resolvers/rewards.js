@@ -26,7 +26,7 @@ async function getActiveRewards (models) {
     WITH source_totals AS (
       SELECT
         "payInType",
-        sum("msats") as "msats"
+        sum("piconeros") as "piconeros"
       FROM "AggRewards"
       WHERE "timeBucket" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'
       AND "payInType" IS NOT NULL
@@ -34,9 +34,9 @@ async function getActiveRewards (models) {
       GROUP BY "payInType"
     )
     SELECT
-      (sum("msats") / 1000)::INT as total,
+      sum("piconeros")::BIGINT as total,
       date_trunc('day', (now() AT TIME ZONE 'America/Chicago') + interval '1 day') AT TIME ZONE 'America/Chicago' as time,
-      array_agg(json_build_object('name', "payInType", 'value', "msats")) as sources
+      array_agg(json_build_object('name', "payInType", 'value', "piconeros")) as sources
     FROM source_totals`
 }
 
@@ -56,9 +56,9 @@ async function getRewards (when, models) {
   }
 
   const results = await models.$queryRaw`
-    SELECT (sum("msats") / 1000)::INT as total,
+    SELECT sum("piconeros")::BIGINT as total,
       "AggRewards"."timeBucket" + interval '1 day' as time,
-      array_agg(json_build_object('name', "payInType", 'value', "msats")) as sources
+      array_agg(json_build_object('name', "payInType", 'value', "piconeros")) as sources
     FROM "AggRewards"
     WHERE "AggRewards"."timeBucket" = date_trunc('day', ${when?.[0]}::text::timestamp - interval '1 day') AT TIME ZONE 'America/Chicago'
     AND "AggRewards"."granularity" = 'DAY'
@@ -94,15 +94,15 @@ export default {
             ${when[when.length - 1]}::text::timestamp,
             interval '1 day') AS t
         )
-        SELECT coalesce(sum(sats), 0) as total, json_agg("Earn".*) as rewards
+        SELECT coalesce(sum(piconeros), 0) as total, json_agg("Earn".*) as rewards
         FROM days_cte
         CROSS JOIN LATERAL (
-          (SELECT FLOOR("Earn".msats / 1000.0) as sats, type, rank, "typeId"
+          (SELECT "Earn".piconeros as piconeros, type, rank, "typeId"
             FROM "Earn"
             WHERE "Earn"."userId" = ${me.id}
             AND (type IS NULL OR type NOT IN ('FOREVER_REFERRAL', 'ONE_DAY_REFERRAL'))
             AND date_trunc('day', "Earn".created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago') = days_cte.day
-            ORDER BY "Earn".msats DESC)
+            ORDER BY "Earn".piconeros DESC)
         ) "Earn"
         GROUP BY days_cte.day
         ORDER BY days_cte.day ASC`
@@ -121,10 +121,10 @@ export default {
     sources: (parent) => parent.sources ?? []
   },
   Mutation: {
-    donateToRewards: async (parent, { sats, sendProtocolId }, { me, models }) => {
-      await validateSchema(amountSchema, { amount: sats })
+    donateToRewards: async (parent, { piconeros, sendProtocolId }, { me, models }) => {
+      await validateSchema(amountSchema, { amount: piconeros })
 
-      return await pay('DONATE', { sats }, { me, models, sendProtocolId })
+      return await pay('DONATE', { piconeros }, { me, models, sendProtocolId })
     }
   },
   Reward: {

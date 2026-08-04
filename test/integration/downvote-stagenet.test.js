@@ -10,20 +10,20 @@
 //     full payIn engine — the unit under test is the penaltyIndexer detection +
 //     ranking, mirroring how phase3 calls reserveFeeSubaddress directly)
 //   - send a REAL stagenet downvote to the integrated address
-//   - the penaltyIndexer observes it -> ObservedBurn DETECTED + Item.downMsats +
+//   - the penaltyIndexer observes it -> ObservedBurn DETECTED + Item.downPiconeros +
 //     weightedDownVotes (LOG ranking penalty applied at DETECTION)
 //   - confirmFinalizer matures ObservedBurn -> CONFIRMED at 10 confs
 //
 // The exit-gate invariants asserted:
 //   1. ObservedBurn appears DETECTED then CONFIRMED (within the poll timeouts).
-//   2. Item.downMsats increases by exactly the sent piconeros (PRIMARY, unconditional).
+//   2. Item.downPiconeros increases by exactly the sent piconeros (PRIMARY, unconditional).
 //   3. The post AUTHOR is NOT charged: stackedPiconeros unchanged at DETECTION and
 //      again at CONFIRMATION (downvotes fund the rewards pool, never the poster).
 //   4. ObservedBurn.piconeros === the sent amount (the rewards pool accrual record).
 //   5. weightedDownVotes increases: the downvoter is seeded a nonzero zapPostTrust
 //      for the post's territory so the LOG penalty registers a real ranking weight.
 //      (A trust-less downvoter correctly yields 0 — SN semantics — and is NOT a
-//      gate failure; downMsats (invariant 2) is the reliable primary.)
+//      gate failure; downPiconeros (invariant 2) is the reliable primary.)
 //
 // -----------------------------------------------------------------------------
 // SKIP GUARD: NEVER runs under `./sndev test`. Gated on RUN_STAGENET_INTEGRATION=1
@@ -190,7 +190,7 @@ async function chainHeight () {
     return rows[0].id
   }
 
-  test('downvote -> ObservedBurn DETECTED (downMsats + weightedDownVotes; poster NOT charged) -> CONFIRMED', async () => {
+  test('downvote -> ObservedBurn DETECTED (downPiconeros + weightedDownVotes; poster NOT charged) -> CONFIRMED', async () => {
     // ---- 1. seed a poster, a downvoter, a territory + the downvoter's trust ---
     const posterId = await createUser()
     const downvoterId = await createUser()
@@ -200,7 +200,7 @@ async function chainHeight () {
     })
     created.subs.push(subName)
     // nonzero zapPostTrust => weightedDownVotes receives a real LOG delta (a
-    // trust-less downvoter correctly yields 0; downMsats is the primary invariant).
+    // trust-less downvoter correctly yields 0; downPiconeros is the primary invariant).
     await prisma.userSubTrust.create({
       data: { subName, userId: downvoterId, zapPostTrust: 1.0, subZapPostTrust: 1.0 }
     })
@@ -224,9 +224,9 @@ async function chainHeight () {
     console.log(`  downvote: postId=${postId} paymentId=${paymentId} downvoterId=${downvoterId} integrated=${integratedAddress.slice(0, 16)}...(${integratedAddress.length})`)
 
     // ---- 4. baselines --------------------------------------------------------
-    const baseItem = await prisma.item.findUnique({ where: { id: postId }, select: { downMsats: true, weightedDownVotes: true } })
+    const baseItem = await prisma.item.findUnique({ where: { id: postId }, select: { downPiconeros: true, weightedDownVotes: true } })
     const basePoster = await prisma.user.findUnique({ where: { id: posterId }, select: { stackedPiconeros: true } })
-    console.log(`  baseline: downMsats=${baseItem.downMsats.toString()} weightedDownVotes=${baseItem.weightedDownVotes} poster.stackedPiconeros=${basePoster.stackedPiconeros.toString()}`)
+    console.log(`  baseline: downPiconeros=${baseItem.downPiconeros.toString()} weightedDownVotes=${baseItem.weightedDownVotes} poster.stackedPiconeros=${basePoster.stackedPiconeros.toString()}`)
 
     // ---- 5. send a REAL stagenet downvote to the integrated rewards address --
     const hash = await sendDownvote(integratedAddress, DOWNVOTE_PICONEROS)
@@ -246,14 +246,14 @@ async function chainHeight () {
     expect(detected.piconeros).toBe(DOWNVOTE_PICONEROS) // rewards pool accrual record
     expect(detected.downvoterId).toBe(downvoterId)
 
-    const detItem = await prisma.item.findUnique({ where: { id: postId }, select: { downMsats: true, weightedDownVotes: true } })
-    expect(detItem.downMsats - baseItem.downMsats).toBe(DOWNVOTE_PICONEROS) // PRIMARY invariant
+    const detItem = await prisma.item.findUnique({ where: { id: postId }, select: { downPiconeros: true, weightedDownVotes: true } })
+    expect(detItem.downPiconeros - baseItem.downPiconeros).toBe(DOWNVOTE_PICONEROS) // PRIMARY invariant
     expect(detItem.weightedDownVotes).toBeGreaterThan(baseItem.weightedDownVotes) // trust-seeded LOG penalty
 
     // poster NOT charged: downvotes fund the rewards pool, never the poster
     const detPoster = await prisma.user.findUnique({ where: { id: posterId }, select: { stackedPiconeros: true } })
     expect(detPoster.stackedPiconeros).toBe(basePoster.stackedPiconeros)
-    console.log('  DETECTED assertions passed (downMsats + weightedDownVotes bumped; poster stackedPiconeros unchanged)')
+    console.log('  DETECTED assertions passed (downPiconeros + weightedDownVotes bumped; poster stackedPiconeros unchanged)')
 
     // ---- 8. poll for ObservedBurn CONFIRMED ----------------------------------
     const confirmed = await pollUntil('ObservedBurn CONFIRMED', async () => {

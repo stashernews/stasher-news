@@ -185,7 +185,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
 
     // freebies: there's only a base cost, we don't have enough sats/credits,
     // and have free comments left (for comments only)
-    const cantAfford = (me?.privates?.sats ?? 0) + (me?.privates?.credits ?? 0) < total
+    const cantAfford = (Number(me?.privates?.piconeros ?? 0) + Number(me?.privates?.credits ?? 0)) < total
     const freeCommentsLeft = me?.privates?.freeCommentsLeft ?? 0
     const isComment = baseCostLine?.isComment
     const free = me &&
@@ -203,7 +203,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
       free,
       freeCommentsLeft: isComment ? freeCommentsLeft : null
     }
-  }, [me, me?.privates?.sats, me?.privates?.credits, me?.privates?.freeCommentsLeft, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
+  }, [me, me?.privates?.piconeros, me?.privates?.credits, me?.privates?.freeCommentsLeft, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
 
   return (
     <FeeButtonContext.Provider value={value}>

@@ -1,8 +1,8 @@
 import { USER_ID } from '@/lib/constants'
 
-export function getRedistributedPayOutCustodialTokens ({ subs = [], payOutCustodialTokens = [], mcost, rewardsPct }) {
+export function getRedistributedPayOutCustodialTokens ({ subs = [], payOutCustodialTokens = [], piconeros, rewardsPct }) {
   // routing fee is only deducted from rewards pool, so it can be added back to the rewards pool when the actual routing fee is known
-  const remainingMtokens = mcost -
+  const remainingMtokens = piconeros -
     payOutCustodialTokens.filter(t => t.payOutType !== 'ROUTING_FEE').reduce((acc, token) => acc + token.mtokens, 0n)
   if (remainingMtokens < 0n) {
     throw new Error('remaining mtokens is less than 0')
@@ -12,12 +12,12 @@ export function getRedistributedPayOutCustodialTokens ({ subs = [], payOutCustod
   let totalRevenueMtokens = 0n
   if (subs?.length > 0) {
     // total sub costs for proportional distribution
-    // uses even split if subs don't have individual mcosts
-    const totalSubMcost = subs.reduce((acc, sub) => acc + (sub.mcost ?? 0n), 0n)
-    const useProportional = totalSubMcost > 0n
+    // uses even split if subs don't have individual piconeros
+    const totalSubPiconeros = subs.reduce((acc, sub) => acc + (sub.piconeros ?? 0n), 0n)
+    const useProportional = totalSubPiconeros > 0n
     for (const sub of subs) {
       const subShare = useProportional
-        ? remainingMtokens * (sub.mcost ?? 0n) / totalSubMcost
+        ? remainingMtokens * (sub.piconeros ?? 0n) / totalSubPiconeros
         : remainingMtokens / BigInt(subs.length)
 
       const revenueMtokens = subShare * (100n - BigInt(rewardsPct ?? sub.rewardsPct)) / 100n

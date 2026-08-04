@@ -13,8 +13,8 @@ function payInResultType (payInType) {
     case 'ITEM_UPDATE':
     case 'BOUNTY_PAYMENT':
       return 'Item'
-    case 'ZAP':
-    case 'DOWN_ZAP':
+    case 'TIP':
+    case 'DOWNVOTE':
     case 'BOOST':
       return 'ItemAct'
     case 'POLL_VOTE':
@@ -34,7 +34,7 @@ function isMine (payIn, { me }) {
 
 async function hydratePayInItems (payIns, { me, models }) {
   const visibleItemPayIns = payIns.filter(payIn =>
-    payIn.itemPayIn && !(!isMine(payIn, { me }) && payIn.payInType === 'DOWN_ZAP'))
+    payIn.itemPayIn && !(!isMine(payIn, { me }) && payIn.payInType === 'DOWNVOTE'))
   if (visibleItemPayIns.length === 0) return
 
   const items = await getItemsById(
@@ -69,7 +69,7 @@ export async function getPayIn (parent, { id }, { me, models }) {
 export default {
   Query: {
     payIn: getPayIn,
-    satistics: async (parent, { cursor, walletId }, { models, me }) => {
+    statistics: async (parent, { cursor, walletId }, { models, me }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
@@ -104,7 +104,7 @@ export default {
             FROM "PayIn"
             WHERE "PayIn"."userId" = ${userId}
             AND "PayIn"."benefactorId" IS NULL
-            AND "PayIn"."mcost" > 0
+            AND "PayIn"."piconeros" > 0
             AND "PayIn"."created_at" <= ${decodedCursor.time}
             ${walletSendFilter}
             ORDER BY "sortTime" DESC
@@ -115,7 +115,7 @@ export default {
             SELECT "PayIn".*, "payInStateChangedAt" as "sortTime", false as "isSend"
             FROM "PayIn"
             WHERE "PayIn"."benefactorId" IS NULL
-            AND "PayIn"."mcost" > 0
+            AND "PayIn"."piconeros" > 0
             AND "PayIn"."payInStateChangedAt" <= ${decodedCursor.time}
             ${walletReceiveFilter}
             ${receivePredicate}
@@ -168,7 +168,7 @@ export default {
     },
     item: async (payIn, args, { models, me }) => {
       // downzaps are private to the payer
-      if (!payIn.itemPayIn || (!isMine(payIn, { me }) && payIn.payInType === 'DOWN_ZAP')) {
+      if (!payIn.itemPayIn || (!isMine(payIn, { me }) && payIn.payInType === 'DOWNVOTE')) {
         return null
       }
       if (typeof payIn.item !== 'undefined') {
@@ -199,12 +199,12 @@ export default {
         const remainingOtherReward = payOutCustodialTokens.find(t => t.payOutType === 'REWARD' && Number(t.userId) !== Number(meId))
         const visibleRewards = myReward ? [myReward] : []
         if (remainingOtherReward) {
-          const remainingRewardMtokens = BigInt(payIn.mcost) - BigInt(myReward?.mtokens ?? 0)
-          if (remainingRewardMtokens > 0) {
+          const remainingRewardPiconeros = BigInt(payIn.piconeros) - BigInt(myReward?.mtokens ?? 0)
+          if (remainingRewardPiconeros > 0n) {
             visibleRewards.push({
               id: remainingOtherReward.id,
               payOutType: 'REWARD',
-              mtokens: remainingRewardMtokens,
+              mtokens: remainingRewardPiconeros,
               custodialTokenType: 'SATS'
             })
           }
@@ -226,7 +226,7 @@ export default {
       return payOutCustodialToken
     },
     sometimesPrivates: (payOutCustodialToken, args, { models, me }) => {
-      if (!isMine(payOutCustodialToken, { me }) && payOutCustodialToken.payOutType !== 'ZAP') {
+      if (!isMine(payOutCustodialToken, { me }) && payOutCustodialToken.payOutType !== 'TIP') {
         return null
       }
       return payOutCustodialToken

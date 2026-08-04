@@ -1,5 +1,5 @@
 import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
-import { numWithUnits, msatsToSats, satsToMsats } from '@/lib/format'
+import { numWithUnits, msatsToSats } from '@/lib/format'
 
 export const anonable = true
 
@@ -9,18 +9,18 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-export async function getInitial (models, { sats }, { me }) {
+export async function getInitial (models, { piconeros }, { me }) {
   return {
     payInType: 'DONATE',
     userId: me?.id,
-    mcost: satsToMsats(sats),
+    piconeros,
     payOutCustodialTokens: [
-      { payOutType: 'REWARDS_POOL', userId: USER_ID.rewards, mtokens: satsToMsats(sats), custodialTokenType: 'SATS' }
+      { payOutType: 'REWARDS_POOL', userId: USER_ID.rewards, mtokens: piconeros, custodialTokenType: 'SATS' }
     ]
   }
 }
 
 export async function describe (models, payInId) {
   const payIn = await models.payIn.findUnique({ where: { id: payInId } })
-  return `SN: donate ${numWithUnits(msatsToSats(payIn.mcost), { abbreviate: false })} to rewards pool`
+  return `SN: donate ${numWithUnits(msatsToSats(payIn.piconeros), { abbreviate: false })} to rewards pool`
 }

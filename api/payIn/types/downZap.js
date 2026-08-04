@@ -13,9 +13,9 @@ import { buildMoneroUri } from '@/api/monero/uri'
 // recorded here so the penaltyIndexer (Task 4) can attribute the on-chain
 // payment and apply the ranking penalty when it lands.
 //
-// mcost is deliberately 0n: StealthNews downvotes are NOT paid in custodial
+// piconeros is deliberately 0n: StealthNews downvotes are NOT paid in custodial
 // sats. The on-chain Monero amount is observed externally by the penaltyIndexer
-// and recorded in ObservedBurn.piconeros (Task 4). With mcost=0n and no
+// and recorded in ObservedBurn.piconeros (Task 4). With piconeros=0n and no
 // payOuts, the PayIn engine resolves this to payInState=PAID at creation time,
 // so the monero: URI is returned straight to the client — no invoice, no throw
 // (see api/payIn/lib/payInCreate.js getPayInState).
@@ -67,9 +67,9 @@ export async function getInitial (models, { id, piconeros }, { me }) {
   )
 
   return {
-    payInType: 'DOWN_ZAP',
+    payInType: 'DOWNVOTE',
     userId: me.id,
-    mcost: 0n,
+    piconeros: 0n,
     moneroUri,
     itemPayIn: { itemId: parseInt(id) }
   }
@@ -86,7 +86,7 @@ export async function onBegin (tx, payInId, payInArgs) {
   return { id: item.id, path: item.path, act: 'DONT_LIKE_THIS' }
 }
 
-// Intentionally a no-op. With mcost=0n the PayIn is PAID at creation time, so
+// Intentionally a no-op. With piconeros=0n the PayIn is PAID at creation time, so
 // onPaid fires immediately during begin(). Applying the ranking penalty here
 // would penalise the item BEFORE the downvote is actually paid on-chain. The
 // real penalty is applied by the penaltyIndexer (Task 4) when it observes the

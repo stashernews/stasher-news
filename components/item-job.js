@@ -56,7 +56,7 @@ export default function ItemJob ({ item, toc, rank, children, ...props }) {
           </div>
           <div className={styles.other}>
             <span>
-              {xmrFromSats(item.sats + item.boost + item.cost)}
+              {xmrFromSats(Number(item.piconeros) + Number(item.boost) + Number(item.cost))}
             </span>
             <span> \ </span>
             {item.company &&

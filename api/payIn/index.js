@@ -157,13 +157,13 @@ export async function onFail (tx, payInId) {
     await tx.$executeRaw`
       WITH refunduser AS (
         UPDATE users
-        SET msats = msats + ${isSats ? payInCustodialToken.mtokens : 0},
-          mcredits = mcredits + ${!isSats ? payInCustodialToken.mtokens : 0}
+        SET "stackedPiconeros" = "stackedPiconeros" + ${isSats ? payInCustodialToken.mtokens : 0},
+          "stackedCredits" = "stackedCredits" + ${!isSats ? payInCustodialToken.mtokens : 0}
         WHERE id = ${payIn.userId}
-        RETURNING mcredits as "mcreditsAfter", msats as "msatsAfter"
+        RETURNING "stackedCredits" as "creditsAfter", "stackedPiconeros" as "piconerosAfter"
       )
       INSERT INTO "RefundCustodialToken" ("payInId", "mtokens", "mtokensAfter", "custodialTokenType")
-      SELECT ${payIn.id}, ${payInCustodialToken.mtokens}, ${isSats ? Prisma.sql`refunduser."msatsAfter"` : Prisma.sql`refunduser."mcreditsAfter"`}, ${payInCustodialToken.custodialTokenType}::"CustodialTokenType"
+      SELECT ${payIn.id}, ${payInCustodialToken.mtokens}, ${isSats ? Prisma.sql`refunduser."piconerosAfter"` : Prisma.sql`refunduser."creditsAfter"`}, ${payInCustodialToken.custodialTokenType}::"CustodialTokenType"
       FROM refunduser`
   }
 

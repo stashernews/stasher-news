@@ -2,7 +2,7 @@ import createPrisma from '@/lib/create-prisma'
 import { USER_ID } from '@/lib/constants'
 import pay from '@/api/payIn'
 
-const TOTAL_UPPER_BOUND_MSATS = 1_000_000_000
+const TOTAL_UPPER_BOUND_PICONEROS = 1_000_000_000
 const PERCENTILE_CUTOFF = 50
 const ZAP_THRESHOLD = 20
 const EACH_ZAP_PORTION = 2.0
@@ -15,31 +15,31 @@ export async function earn ({ name }) {
   const models = createPrisma({ connectionParams: { connection_limit: 1 } })
 
   try {
-    // get the total msats for the day
+    // get the total piconeros for the day
     // XXX primsa will return a Decimal (https://mikemcl.github.io/decimal.js)
     // because sum of a BIGINT returns a NUMERIC type (https://www.postgresql.org/docs/13/functions-aggregate.html)
     // and Decimal is what prisma maps it to
     // https://www.prisma.io/docs/concepts/components/prisma-client/raw-database-access#raw-query-type-mapping
     // so check it before coercing to Number
-    const [{ msats: totalMsatsDecimal }] = await models.$queryRaw`
-      SELECT sum("msats") as "msats"
+    const [{ piconeros: totalPiconerosDecimal }] = await models.$queryRaw`
+      SELECT sum("piconeros") as "piconeros"
       FROM "AggRewards"
       WHERE date_trunc('day', "timeBucket") = date_trunc('day', now() AT TIME ZONE 'America/Chicago' - interval '1 day')
       AND "payInType" IS NULL
       AND granularity = 'DAY'`
 
-    if (!totalMsatsDecimal || totalMsatsDecimal.lessThanOrEqualTo(0)) {
+    if (!totalPiconerosDecimal || totalPiconerosDecimal.lessThanOrEqualTo(0)) {
       throw new Error('no rewards to distribute')
     }
 
     // sanity check
-    if (totalMsatsDecimal.greaterThan(TOTAL_UPPER_BOUND_MSATS)) {
+    if (totalPiconerosDecimal.greaterThan(TOTAL_UPPER_BOUND_PICONEROS)) {
       throw new Error('too many rewards to distribute')
     }
 
-    const totalMsats = Number(totalMsatsDecimal)
+    const totalPiconeros = Number(totalPiconerosDecimal)
 
-    console.log('giving away', totalMsats, 'msats')
+    console.log('giving away', totalPiconeros, 'piconeros')
 
     // get the stackers reward prospects
     const rewardProspects = await models.$queryRaw`
@@ -71,12 +71,12 @@ export async function earn ({ name }) {
         -- get top item zappers of top posts and comments
         item_zapper_islands AS (
             SELECT "PayIn"."userId", item_proportions.id, item_proportions.proportion, item_proportions."parentId",
-                "PayIn".mcost as zapped_msats, "PayIn"."payInStateChangedAt" as acted_at,
+                "PayIn".piconeros as zapped_piconeros, "PayIn"."payInStateChangedAt" as acted_at,
                 ROW_NUMBER() OVER (partition by item_proportions.id order by "PayIn"."payInStateChangedAt" asc)
                 - ROW_NUMBER() OVER (partition by item_proportions.id, "PayIn"."userId" order by "PayIn"."payInStateChangedAt" asc) AS island
             FROM item_proportions
             JOIN "ItemPayIn" ON "ItemPayIn"."itemId" = item_proportions.id
-            JOIN "PayIn" ON "PayIn".id = "ItemPayIn"."payInId" AND "PayIn"."payInType" = 'ZAP' AND "PayIn"."payInState" = 'PAID'
+            JOIN "PayIn" ON "PayIn".id = "ItemPayIn"."payInId" AND "PayIn"."payInType" = 'TIP' AND "PayIn"."payInState" = 'PAID'
             WHERE date_trunc('day', "PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago') = date_trunc('day', now() AT TIME ZONE 'America/Chicago' - interval '1 day')
         ),
         -- isolate contiguous upzaps from the same user on the same item so that when we take the log
@@ -84,10 +84,10 @@ export async function earn ({ name }) {
         -- quad root of the total tipped
         item_zappers AS (
             SELECT "userId", item_zapper_islands.id, item_zapper_islands.proportion,
-                item_zapper_islands."parentId", GREATEST(power(sum(zapped_msats) / 1000, 0.25), 0) as zapped_msats, min(acted_at) as acted_at
+                item_zapper_islands."parentId", GREATEST(power(sum(zapped_piconeros), 0.25), 0) as zapped_piconeros, min(acted_at) as acted_at
             FROM item_zapper_islands
             GROUP BY "userId", item_zapper_islands.id, item_zapper_islands.proportion, item_zapper_islands."parentId", island
-            HAVING sum(zapped_msats) / 1000 > ${ZAP_THRESHOLD}
+            HAVING sum(zapped_piconeros) > ${ZAP_THRESHOLD}
         ),
         -- the relative contribution of each zapper to the post/comment
         -- early component: 1/ln(early_rank + e - 1)
@@ -95,15 +95,15 @@ export async function earn ({ name }) {
         -- multiplied by the relative rank of the item to the total items
         -- multiplied by the trust of the user
         item_zapper_ratios AS (
-            SELECT "userId", sum((2*early_multiplier+1)*zapped_msats_proportion*proportion*handicap_mult) as item_zapper_proportion,
+            SELECT "userId", sum((2*early_multiplier+1)*zapped_piconeros_proportion*proportion*handicap_mult) as item_zapper_proportion,
                 "parentId" IS NULL as "isPost", CASE WHEN "parentId" IS NULL THEN 'TIP_POST' ELSE 'TIP_COMMENT' END as type
             FROM (
                 SELECT *,
                     1.0/LN(ROW_NUMBER() OVER (partition by item_zappers.id order by acted_at asc) + EXP(1.0) - 1) AS early_multiplier,
-                    zapped_msats::float/(sum(zapped_msats) OVER (partition by item_zappers.id)) zapped_msats_proportion,
+                    zapped_piconeros::float/(sum(zapped_piconeros) OVER (partition by item_zappers.id)) zapped_piconeros_proportion,
                     CASE WHEN item_zappers."userId" = ANY(${HANDICAP_IDS}) THEN ${HANDICAP_ZAP_MULT} ELSE 1 END as handicap_mult
                 FROM item_zappers
-                WHERE zapped_msats > 0
+                WHERE zapped_piconeros > 0
             ) u
             JOIN users on "userId" = users.id
             GROUP BY "userId", "parentId" IS NULL
@@ -142,16 +142,16 @@ export async function earn ({ name }) {
 
     console.log('reward prospects #', rewardProspects.length)
 
-    return await pay('REWARDS', { totalMsats, rewardProspects }, { me: { id: USER_ID.rewards }, custodialOnly: true })
+    return await pay('REWARDS', { totalPiconeros, rewardProspects }, { me: { id: USER_ID.rewards }, custodialOnly: true })
   } finally {
     models.$disconnect().catch(console.error)
   }
 }
 
-const DAILY_STIMULUS_SATS = 1
+const DAILY_STIMULUS_PICONEROS = 1
 export async function earnRefill ({ models }) {
   return await pay('DONATE',
-    { sats: DAILY_STIMULUS_SATS },
+    { piconeros: DAILY_STIMULUS_PICONEROS },
     {
       models,
       me: { id: USER_ID.sn },

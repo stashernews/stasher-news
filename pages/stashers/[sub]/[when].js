@@ -26,7 +26,7 @@ const GROWTH_QUERY = gql`
   {
     growthTotals(when: $when, from: $from, to: $to, sub: $sub) {
       spending
-      stacking
+      stashing
       items
       registrations
     }
@@ -58,14 +58,14 @@ const GROWTH_QUERY = gql`
         value
       }
     }
-    stackingGrowth(when: $when, from: $from, to: $to, sub: $sub) {
+    stashingGrowth(when: $when, from: $from, to: $to, sub: $sub) {
       time
       data {
         name
         value
       }
     }
-    stackerGrowth(when: $when, from: $from, to: $to, sub: $sub) {
+    stasherGrowth(when: $when, from: $from, to: $to, sub: $sub) {
       time
       data {
         name
@@ -84,7 +84,7 @@ function GrowthTotals ({ totals, sub }) {
     <Row className='my-4'>
       <Col xs={6} md={3} className='text-center mb-3'>
         <div className='text-muted small'>total stashed</div>
-        <div className='fw-bold fs-5'>{xmrFromSats(Math.floor(totals.stacking))}</div>
+        <div className='fw-bold fs-5'>{xmrFromSats(Math.floor(totals.stashing))}</div>
       </Col>
       <Col xs={6} md={3} className='text-center mb-3'>
         <div className='text-muted small'>total spent</div>
@@ -117,8 +117,8 @@ export default function Growth ({ ssrData }) {
     itemGrowth,
     spendingGrowth,
     spenderGrowth,
-    stackingGrowth,
-    stackerGrowth
+    stashingGrowth,
+    stasherGrowth
   } = data || ssrData
 
   return (
@@ -128,7 +128,7 @@ export default function Growth ({ ssrData }) {
       <Row>
         <Col className='mt-3'>
           <div className='text-center text-muted fw-bold'>XMR stashed</div>
-          <WhenAreaChart data={stackingGrowth} />
+          <WhenAreaChart data={stashingGrowth} />
         </Col>
         <Col className='mt-3'>
           <div className='text-center text-muted fw-bold'>sats spent</div>
@@ -138,7 +138,7 @@ export default function Growth ({ ssrData }) {
       <Row>
         <Col className='mt-3'>
           <div className='text-center text-muted fw-bold'>unique stashers</div>
-          <WhenLineChart data={stackerGrowth} />
+          <WhenLineChart data={stasherGrowth} />
         </Col>
         <Col className='mt-3'>
           <div className='text-center text-muted fw-bold'>unique spenders</div>

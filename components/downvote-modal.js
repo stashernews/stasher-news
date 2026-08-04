@@ -49,8 +49,7 @@ export default function DownvoteModal ({ item, onClose }) {
     }
     setSubmitting(true)
     try {
-      // the `sats` arg is legacy-named but carries piconeros for DONT_LIKE_THIS
-      const res = await actor({ variables: { id: item.id, sats: amount, act: 'DONT_LIKE_THIS' } })
+      const res = await actor({ variables: { id: item.id, piconeros: amount, act: 'DONT_LIKE_THIS' } })
       const uri = res?.data?.act?.moneroUri
       if (!uri) throw new Error('downvote returned no monero URI')
       setMoneroUri(uri)

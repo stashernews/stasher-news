@@ -12,7 +12,7 @@ export const PAY_INIFICATION = gql`
   fragment PayInificationFields on PayInification {
     id
     sortTime
-    earnedSats
+    earnedPiconeros
     payInItem {
       ...ItemFullFields
       ...PollFields
@@ -53,7 +53,7 @@ export const NOTIFICATIONS = gql`
         ... on Votification {
           id
           sortTime
-          earnedSats
+          earnedPiconeros
           item {
             ...ItemFullFields
             text
@@ -62,7 +62,7 @@ export const NOTIFICATIONS = gql`
         ... on BountyPayment {
           id
           sortTime
-          earnedSats
+          earnedPiconeros
           item {
             ...ItemFullFields
             text
@@ -71,13 +71,13 @@ export const NOTIFICATIONS = gql`
         ... on Revenue {
           id
           sortTime
-          earnedSats
+          earnedPiconeros
           subName
         }
         ... on ForwardedVotification {
           id
           sortTime
-          earnedSats
+          earnedPiconeros
           item {
             ...ItemFullFields
             text
@@ -119,7 +119,7 @@ export const NOTIFICATIONS = gql`
           id
           sortTime
           minSortTime
-          earnedSats
+          earnedPiconeros
           sources {
             posts
             comments
@@ -130,7 +130,7 @@ export const NOTIFICATIONS = gql`
         ... on ReferralReward {
           id
           sortTime
-          earnedSats
+          earnedPiconeros
           sources {
             forever
             oneDay

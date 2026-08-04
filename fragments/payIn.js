@@ -10,7 +10,7 @@ const HASH_HMAC_INPUT_2 = 'hash: $hash, hmac: $hmac'
 export const PAY_IN_LINK_FIELDS = gql`
   fragment PayInLinkFields on PayIn {
     id
-    mcost
+    piconeros
     payInType
     payInState
     payInStateChangedAt
@@ -39,7 +39,7 @@ export const PAY_IN_FIELDS = gql`
     id
     createdAt
     updatedAt
-    mcost
+    piconeros
     moneroUri
     payInType
     payInState
@@ -71,7 +71,7 @@ export const PAY_IN_FIELDS = gql`
         }
         ... on ItemAct {
           id
-          sats
+          piconeros
           path
           act
           payIn {
@@ -100,7 +100,7 @@ export const PAY_IN_STATISTICS_FIELDS = gql`
     id
     createdAt
     updatedAt
-    mcost
+    piconeros
     isSend
     payInType
     payInState
@@ -152,10 +152,10 @@ export const PAY_IN_STATISTICS_FIELDS = gql`
   }
 `
 
-export const SATISTICS = gql`
+export const STATISTICS = gql`
   ${PAY_IN_STATISTICS_FIELDS}
-  query Satistics($cursor: String, $walletId: ID) {
-    satistics(cursor: $cursor, walletId: $walletId) {
+  query Statistics($cursor: String, $walletId: ID) {
+    statistics(cursor: $cursor, walletId: $walletId) {
       payIns {
         ...PayInStatisticsFields
       }
@@ -216,8 +216,8 @@ export const FAILED_PAY_INS = gql`
 
 export const DONATE = gql`
   ${PAY_IN_FIELDS}
-  mutation donateToRewards($sats: Int!, $sendProtocolId: Int) {
-    donateToRewards(sats: $sats, sendProtocolId: $sendProtocolId) {
+  mutation donateToRewards($piconeros: BigInt!, $sendProtocolId: Int) {
+    donateToRewards(piconeros: $piconeros, sendProtocolId: $sendProtocolId) {
       ...PayInFields
     }
   }`
@@ -232,8 +232,8 @@ export const BUY_CREDITS = gql`
 
 export const ACT_MUTATION = gql`
   ${PAY_IN_FIELDS}
-  mutation act($id: ID!, $sats: Int!, $act: String) {
-    act(id: $id, sats: $sats, act: $act) {
+  mutation act($id: ID!, $piconeros: BigInt!, $act: String) {
+    act(id: $id, piconeros: $piconeros, act: $act) {
       ...PayInFields
     }
   }`
@@ -335,11 +335,11 @@ export const UPDATE_COMMENT = gql`
 export const UPSERT_SUB = gql`
   ${PAY_IN_FIELDS}
   mutation upsertSub($oldName: String, $name: String!, $desc: String, $baseCost: Int!,
-    $replyCost: Int!, $postsSatsFilter: Int,
+    $replyCost: Int!, $postsPiconerosFilter: Int,
     $postTypes: [String!]!, $billingType: String!,
     $billingAutoRenew: Boolean!, $nsfw: Boolean!, $sendProtocolId: Int) {
       upsertSub(oldName: $oldName, name: $name, desc: $desc, baseCost: $baseCost,
-        replyCost: $replyCost, postsSatsFilter: $postsSatsFilter,
+        replyCost: $replyCost, postsPiconerosFilter: $postsPiconerosFilter,
         postTypes: $postTypes, billingType: $billingType,
         billingAutoRenew: $billingAutoRenew, nsfw: $nsfw, sendProtocolId: $sendProtocolId) {
       ...PayInFields
@@ -349,11 +349,11 @@ export const UPSERT_SUB = gql`
 export const UNARCHIVE_TERRITORY = gql`
   ${PAY_IN_FIELDS}
   mutation unarchiveTerritory($name: String!, $desc: String, $baseCost: Int!,
-    $replyCost: Int!, $postsSatsFilter: Int,
+    $replyCost: Int!, $postsPiconerosFilter: Int,
     $postTypes: [String!]!, $billingType: String!,
     $billingAutoRenew: Boolean!, $nsfw: Boolean!, $sendProtocolId: Int) {
       unarchiveTerritory(name: $name, desc: $desc, baseCost: $baseCost,
-        replyCost: $replyCost, postsSatsFilter: $postsSatsFilter,
+        replyCost: $replyCost, postsPiconerosFilter: $postsPiconerosFilter,
         postTypes: $postTypes, billingType: $billingType,
         billingAutoRenew: $billingAutoRenew, nsfw: $nsfw, sendProtocolId: $sendProtocolId) {
       ...PayInFields

@@ -17,13 +17,13 @@ export async function getInitial (models, { uploadIds }, { me, subs }) {
 
   const { totalFeesMsats } = await uploadFees(uploadIds, { models, me })
 
-  const mcost = totalFeesMsats
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, mcost })
+  const piconeros = totalFeesMsats
+  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs: subs ?? [], piconeros })
 
   return {
     payInType: 'MEDIA_UPLOAD',
     userId: me?.id,
-    mcost,
+    piconeros,
     payOutCustodialTokens,
     uploadPayIns: uploadIds.map(id => ({ uploadId: id }))
   }

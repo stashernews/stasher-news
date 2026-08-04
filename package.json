@@ -1,8 +1,8 @@
 {
-  "name": "stealthnews",
+  "name": "stashernews",
   "version": "0.1.0",
   "private": true,
-  "description": "Non-custodial Monero link aggregator (fork of Stacker.news)",
+  "description": "Stasher News — digital cash content curation",
   "repository": {
     "type": "git",
     "url": "https://github.com/stackernews/stacker.news.git"

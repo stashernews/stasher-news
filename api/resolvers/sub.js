@@ -56,7 +56,7 @@ export async function topSubs (parent, { query, cursor, when, from, to, limit, b
     sub_outgoing AS (
       SELECT user_subs.name,
         COALESCE(floor(sum("AggPayOut"."sumMtokens") FILTER (WHERE "AggPayOut"."payOutType" = 'TERRITORY_REVENUE') / 1000), 0) as revenue,
-        COALESCE(floor(sum("AggPayOut"."sumMtokens") FILTER (WHERE "AggPayOut"."payOutType" = 'ZAP') / 1000), 0) as stacked
+        COALESCE(floor(sum("AggPayOut"."sumMtokens") FILTER (WHERE "AggPayOut"."payOutType" = 'TIP') / 1000), 0) as stacked
       FROM user_subs
       LEFT JOIN "AggPayOut" ON "AggPayOut"."subId" = user_subs.id
       WHERE "AggPayOut"."timeBucket" >= ${fromDate}

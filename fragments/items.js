@@ -47,20 +47,20 @@ export const ITEM_FIELDS = gql`
     }
     otsHash
     position
-    sats
+    piconeros
     credits
-    meAnonSats @client
+    meAnonPiconeros @client
     boost
     bounty
     bountyPaidTo
     noteId
     path
     upvotes
-    meSats
+    mePiconeros
     meCredits
-    meDontLikeSats
-    downSats
-    commentDownSats
+    meDontLikePiconeros
+    downPiconeros
+    commentDownPiconeros
     meBookmark
     meSubscription
     meForward
@@ -69,7 +69,7 @@ export const ITEM_FIELDS = gql`
     bio
     ncomments
     nDirectComments
-    commentSats
+    commentPiconeros
     commentCredits
     commentCost
     commentBoost
