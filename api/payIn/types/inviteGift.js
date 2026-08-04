@@ -1,5 +1,4 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
-import { satsToMsats } from '@/lib/format'
 import { notifyInvite } from '@/lib/webPush'
 
 export const anonable = false
@@ -14,7 +13,7 @@ export async function getInitial (models, { id, userId }, { me }) {
   if (!invite) {
     throw new Error('invite not found')
   }
-  const piconeros = satsToMsats(invite.gift)
+  const piconeros = BigInt(invite.gift) * 1000n
   return {
     payInType: 'INVITE_GIFT',
     userId: me?.id,

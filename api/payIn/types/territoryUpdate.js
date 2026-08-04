@@ -1,5 +1,4 @@
 import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST, USER_ID } from '@/lib/constants'
-import { satsToMsats } from '@/lib/format'
 import { proratedBillingCost } from '@/lib/territory'
 import { datePivot } from '@/lib/time'
 import * as MEDIA_UPLOAD from './mediaUpload'
@@ -20,7 +19,7 @@ export async function getInitial (models, { oldName, billingType, uploadIds }, {
     }
   })
 
-  const piconeros = satsToMsats(proratedBillingCost(oldSub, billingType) ?? 0)
+  const piconeros = BigInt(proratedBillingCost(oldSub, billingType) ?? 0) * 1000n
   const beneficiaries = []
   if (uploadIds.length > 0) {
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))

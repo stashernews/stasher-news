@@ -1,5 +1,4 @@
 import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST, USER_ID } from '@/lib/constants'
-import { satsToMsats } from '@/lib/format'
 import { nextBilling } from '@/lib/territory'
 import { initialTrust } from '../lib/territory'
 import * as MEDIA_UPLOAD from './mediaUpload'
@@ -19,7 +18,7 @@ export async function getInitial (models, { billingType, uploadIds }, { me }) {
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
   }
 
-  const piconeros = satsToMsats(TERRITORY_PERIOD_COST(billingType))
+  const piconeros = BigInt(TERRITORY_PERIOD_COST(billingType)) * 1000n
   return {
     payInType: 'TERRITORY_UNARCHIVE',
     userId: me?.id,

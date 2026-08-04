@@ -1,5 +1,5 @@
 import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
-import { numWithUnits, msatsToSats } from '@/lib/format'
+import { numWithUnits } from '@/lib/format'
 
 export const anonable = true
 
@@ -22,5 +22,5 @@ export async function getInitial (models, { piconeros }, { me }) {
 
 export async function describe (models, payInId) {
   const payIn = await models.payIn.findUnique({ where: { id: payInId } })
-  return `SN: donate ${numWithUnits(msatsToSats(payIn.piconeros), { abbreviate: false })} to rewards pool`
+  return `SN: donate ${numWithUnits(Number(BigInt(payIn.piconeros) / 1000n), { abbreviate: false })} to rewards pool`
 }

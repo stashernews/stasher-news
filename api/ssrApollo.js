@@ -13,7 +13,6 @@ import { BLOCK_HEIGHT } from '@/fragments/blockHeight'
 import { getServerSession } from 'next-auth/next'
 import { getAuthOptions } from '@/pages/api/auth/[...nextauth]'
 import { NOFOLLOW_LIMIT } from '@/lib/constants'
-import { satsToMsats } from '@/lib/format'
 import { MULTI_AUTH_ANON, MULTI_AUTH_LIST, MULTI_AUTH_POINTER, multiAuthMiddleware } from '@/lib/auth'
 import { lexicalStateLoader } from '@/lib/lexical/server/loader'
 import { createUserLoader, createSubLoader } from '@/api/loaders'
@@ -87,8 +86,9 @@ function oneDayReferral (request, { me }) {
       prismaPromise = models.item.findUnique({
         where: {
           id: parseInt(referrer.slice(5)),
-          msats: {
-            gt: satsToMsats(NOFOLLOW_LIMIT)
+          piconeros: {
+            // NOFOLLOW_LIMIT is denominated in the fork's legacy sats (1 sats == 1000 piconeros)
+            gt: BigInt(NOFOLLOW_LIMIT) * 1000n
           },
           weightedVotes: {
             gt: 0

@@ -8,7 +8,7 @@
 // Phase 4's DOWNVOTE is a separate payIn type that targets the rewards wallet.
 
 import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
-import { numWithUnits, msatsToSats, satsToMsats } from '@/lib/format'
+import { numWithUnits } from '@/lib/format'
 import { notifyZapped } from '@/lib/webPush'
 import { Prisma } from '@prisma/client'
 import { getItemResult, getSubs } from '../lib/item'
@@ -34,7 +34,7 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   const item = await models.item.findUnique({ where: { id: parseInt(payInArgs.id) }, include: { itemForwards: { include: { user: true } }, user: true } })
   const { subNames, parentId, itemForwards, userId, user } = item
   const subs = await getSubs(models, { subNames, parentId })
-  const piconeros = satsToMsats(payInArgs.sats)
+  const piconeros = BigInt(payInArgs.piconeros)
 
   const zapMtokens = piconeros * 70n / 100n
   const payOutCustodialTokensProspects = []
@@ -67,13 +67,13 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
 
 export async function onBegin (tx, payInId, payInArgs) {
   const item = await getItemResult(tx, { id: payInArgs.id })
-  return { id: item.id, path: item.path, sats: payInArgs.sats, act: 'TIP' }
+  return { id: item.id, path: item.path, piconeros: BigInt(payInArgs.piconeros), act: 'TIP' }
 }
 
 export async function onRetry (tx, oldPayInId, newPayInId) {
   const { itemId, payIn } = await tx.itemPayIn.findUnique({ where: { payInId: oldPayInId }, include: { payIn: true } })
   const item = await getItemResult(tx, { id: itemId })
-  return { id: item.id, path: item.path, sats: msatsToSats(payIn.piconeros), act: 'TIP' }
+  return { id: item.id, path: item.path, piconeros: payIn.piconeros, act: 'TIP' }
 }
 
 export async function onPaid (tx, payInId) {
@@ -86,7 +86,6 @@ export async function onPaid (tx, payInId) {
   })
 
   const piconeros = payIn.piconeros
-  const sats = msatsToSats(piconeros)
   const userId = payIn.userId
   const item = payIn.itemPayIn.item
   // P2P removed - Monero integration pending
@@ -124,11 +123,11 @@ export async function onPaid (tx, payInId) {
         AND ust."userId" = ${userId}::INTEGER
     ), zap AS (
       INSERT INTO "ItemUserAgg" ("userId", "itemId", "tipPiconeros")
-      VALUES (${userId}::INTEGER, ${item.id}::INTEGER, ${sats}::INTEGER)
+      VALUES (${userId}::INTEGER, ${item.id}::INTEGER, ${piconeros}::BIGINT)
       ON CONFLICT ("itemId", "userId") DO UPDATE
-      SET "tipPiconeros" = "ItemUserAgg"."tipPiconeros" + ${sats}::INTEGER, updated_at = now()
-      RETURNING ("tipPiconeros" = ${sats}::INTEGER)::INTEGER as first_vote,
-        LOG("tipPiconeros" / GREATEST("tipPiconeros" - ${sats}::INTEGER, 1)::FLOAT) AS log_sats
+      SET "tipPiconeros" = "ItemUserAgg"."tipPiconeros" + ${piconeros}::BIGINT, updated_at = now()
+      RETURNING ("tipPiconeros" = ${piconeros}::BIGINT)::INTEGER as first_vote,
+        LOG("tipPiconeros" / GREATEST("tipPiconeros" - ${piconeros}::BIGINT, 1)::FLOAT) AS log_sats
     ), item_zapped AS (
       UPDATE "Item"
       SET
@@ -178,5 +177,5 @@ export async function onPaidSideEffects (models, payInId) {
 
 export async function describe (models, payInId) {
   const payIn = await models.payIn.findUnique({ where: { id: payInId }, include: { itemPayIn: true } })
-  return `SN: zap ${numWithUnits(msatsToSats(payIn.piconeros), { abbreviate: false })} #${payIn.itemPayIn.itemId}`
+  return `SN: zap ${numWithUnits(Number(BigInt(payIn.piconeros) / 1000n), { abbreviate: false })} #${payIn.itemPayIn.itemId}`
 }
