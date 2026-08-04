@@ -5,8 +5,9 @@ import { useApolloClient } from '@apollo/client/react'
 import { Form, Input, SubmitButton } from './form'
 import { useMe } from './me'
 import UpBolt from '@/svgs/bolt.svg'
-import { amountSchema } from '@/lib/validate'
+import { xmrAmountSchema } from '@/lib/validate'
 import { defaultTipIncludingRandom } from './upvote'
+import { xmrToPiconeros, piconerosToXmrDecimal } from '@/lib/format'
 import { ACT_MUTATION } from '@/fragments/payIn'
 import { actWaitFor, getPayIn } from '@/lib/pay-in'
 import { meAnonPiconeros } from '@/lib/apollo'
@@ -16,12 +17,12 @@ import { useToast } from '@/components/toast'
 import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import { composeCallbacks } from '@/lib/compose-callbacks'
 
-const defaultTips = [100, 1000, 10_000, 100_000]
+const defaultTips = [0.001, 0.01, 0.1, 1]
 
 const Tips = ({ setOValue }) => {
-  const customTips = getCustomTips()
+  const customTips = getCustomTips().map(p => piconerosToXmrDecimal(BigInt(p)))
   const defaultNoCustom = defaultTips.filter(d => !customTips.includes(d))
-  const tips = [...customTips, ...defaultNoCustom].slice(0, 7).sort((a, b) => a - b)
+  const tips = [...customTips, ...defaultNoCustom].slice(0, 7).sort((a, b) => Number(a) - Number(b))
 
   return tips.map((num, i) =>
     <Button
@@ -69,36 +70,36 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
   const animate = useAnimation()
 
   const onSubmit = useCallback(async ({ amount }) => {
+    let piconeros
+    try {
+      piconeros = xmrToPiconeros(String(amount))
+    } catch {
+      toaster.danger('enter a valid XMR amount (min 0.0001)')
+      return
+    }
+
     const onPaid = (cache, { data } = {}) => {
       animate()
       onClose?.()
-      if (!me) setItemMeAnonSats({ id: item.id, amount })
+      if (!me) setItemMeAnonSats({ id: item.id, amount: Number(piconeros) })
     }
 
-    // onPayError only fires for failures that won't be auto-retried; e is undefined when it's
-    // invoked purely to revert a retry successor's cache, and a user-canceled QR isn't news
     const onPayError = (e) => toastPayError(toaster, e)
 
     const options = { cachePhases: { onPayError } }
-    if (me?.privates?.piconeros > Number(amount)) {
+    if (me?.privates?.piconeros > piconeros) {
       onPaid()
     } else {
-      // we want to close the modal only after paid so the modal can stack
       options.cachePhases.onPaid = onPaid
     }
 
-    // instant feedback: bump the item's counters directly in the root cache (monero tips are 100%
-    // P2P, so TIP adds credits here; the act cache phases only reconcile ancestors on payment)
-    const result = { id: item.id, piconeros: Number(amount), act, path: item.path }
+    const result = { id: item.id, piconeros: Number(piconeros), act, path: item.path }
     try {
       const { error } = await withActBump(client.cache, result, me, () =>
-        // don't close modal immediately because we want the QR modal to stack
-        actor({ variables: { id: item.id, piconeros: Number(amount), act }, ...options }))
+        actor({ variables: { id: item.id, piconeros, act }, ...options }))
       if (error) throw error
-      addCustomTip(Number(amount))
+      addCustomTip(Number(piconeros))
     } catch (e) {
-      // a gateway timeout (e.g. the recipient's wallet was slow to invoice) doesn't mean the zap
-      // failed — it's processed server-side and the bump (kept by withActBump) reconciles. don't toast.
       if (!isTransientNetworkError(e)) throw e
     }
   }, [me, actor, client, act, item.id, item.path, onClose, animate, toaster])
@@ -106,9 +107,9 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
   return (
     <Form
       initial={{
-        amount: defaultTipIncludingRandom(me?.privates) || defaultTips[0]
+        amount: piconerosToXmrDecimal(BigInt(defaultTipIncludingRandom(me?.privates) || 100000000))
       }}
-      schema={amountSchema}
+      schema={xmrAmountSchema}
       onSubmit={onSubmit}
     >
       <Input
@@ -120,7 +121,7 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
         step={step}
         required
         autoFocus
-        append={<InputGroup.Text className='text-monospace'>sats</InputGroup.Text>}
+        append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
       />
 
       <div className='d-flex flex-wrap gap-2'>

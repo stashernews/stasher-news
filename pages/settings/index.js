@@ -17,6 +17,7 @@ import { SUPPORTED_CURRENCIES } from '@/lib/currency'
 import PageLoading from '@/components/page-loading'
 import { useToast } from '@/components/toast'
 import { useMe } from '@/components/me'
+import { piconerosToXmrDecimal, xmrToPiconeros } from '@/lib/format'
 import { DEFAULT_COMMENTS_PICONEROS_FILTER, DEFAULT_POSTS_PICONEROS_FILTER } from '@/lib/constants'
 import { useField } from 'formik'
 import styles from '@/styles/nav.module.css'
@@ -96,10 +97,10 @@ export default function Settings ({ ssrData }) {
         <Form
           enableReinitialize
           initial={{
-            tipDefault: settings?.tipDefault || 21,
+            tipDefault: piconerosToXmrDecimal(BigInt(settings?.tipDefault ?? 100000000)),
             tipRandom: settings?.tipRandom,
-            tipRandomMin: settings?.tipRandomMin || 1,
-            tipRandomMax: settings?.tipRandomMax || 10,
+            tipRandomMin: piconerosToXmrDecimal(BigInt(settings?.tipRandomMin ?? 1)),
+            tipRandomMax: piconerosToXmrDecimal(BigInt(settings?.tipRandomMax ?? 10)),
             turboTipping: settings?.turboTipping,
             fiatCurrency: settings?.fiatCurrency || 'USD',
             noteItemPiconeros: settings?.noteItemPiconeros,
@@ -152,9 +153,9 @@ export default function Settings ({ ssrData }) {
               await setSettings({
                 variables: {
                   settings: {
-                    tipDefault: Number(tipDefault),
-                    tipRandomMin: tipRandom ? Number(tipRandomMin) : null,
-                    tipRandomMax: tipRandom ? Number(tipRandomMax) : null,
+                    tipDefault: Number(xmrToPiconeros(String(tipDefault))),
+                    tipRandomMin: tipRandom ? Number(xmrToPiconeros(String(tipRandomMin))) : null,
+                    tipRandomMax: tipRandom ? Number(xmrToPiconeros(String(tipRandomMax))) : null,
                     postsPiconerosFilter: postsPiconerosFilter == null ? null : Number(postsPiconerosFilter),
                     commentsPiconerosFilter: commentsPiconerosFilter == null ? null : Number(commentsPiconerosFilter),
                     nostrPubkey,
@@ -176,7 +177,7 @@ export default function Settings ({ ssrData }) {
             groupClassName='mb-0'
             required
             autoFocus
-            append={<InputGroup.Text className='text-monospace'>sats</InputGroup.Text>}
+            append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
             hint={<small className='text-muted'>note: you can also press and hold the money button to tip custom amounts</small>}
           />
           <div className='pb-4'>
@@ -192,12 +193,12 @@ export default function Settings ({ ssrData }) {
                         <Info>
                           <ul>
                             <li>Makes every additional click raise your total tip to another 10x multiple of your default tip</li>
-                            <li>e.g. if your tip default is 10 sats
+                            <li>e.g. if your tip default is 0.001 XMR
                               <ul>
-                                <li>1st click: 10 sats total tipped</li>
-                                <li>2nd click: 100 sats total tipped</li>
-                                <li>3rd click: 1000 sats total tipped</li>
-                                <li>4th click: 10000 sats total tipped</li>
+                                <li>1st click: 0.001 XMR total tipped</li>
+                                <li>2nd click: 0.01 XMR total tipped</li>
+                                <li>3rd click: 0.1 XMR total tipped</li>
+                                <li>4th click: 1 XMR total tipped</li>
                                 <li>and so on ...</li>
                               </ul>
                             </li>
@@ -227,12 +228,12 @@ export default function Settings ({ ssrData }) {
           />
           <div className='form-label'>notify me when ...</div>
           <Checkbox
-            label='I stack sats from posts and comments'
+            label='I stash XMR from posts and comments'
             name='noteItemPiconeros'
             groupClassName='mb-0'
           />
           <Checkbox
-            label='I get forwarded sats from a post'
+            label='I get forwarded XMR from a post'
             name='noteForwardedPiconeros'
             groupClassName='mb-0'
           />
@@ -252,12 +253,12 @@ export default function Settings ({ ssrData }) {
             groupClassName='mb-0'
           />
           <Checkbox
-            label='sats are proxied to my attached wallet'
+            label='XMR land in my attached wallet'
             name='noteDeposits'
             groupClassName='mb-0'
           />
           <Checkbox
-            label='sats are withdrawn from my account'
+            label='XMR leaves my account'
             name='noteWithdrawals'
             groupClassName='mb-0'
           />
@@ -526,7 +527,7 @@ const TipRandomField = () => {
             <Info>
               <ul>
                 <li>Set a minimum and maximum tip amount</li>
-                <li>Each time you tip something, a random amount of sats between your minimum and maximum will be tipped</li>
+                <li>Each time you tip something, a random amount of XMR between your minimum and maximum will be tipped</li>
                 <li>If this setting is enabled, it will ignore your default tip amount</li>
               </ul>
             </Info>
@@ -544,7 +545,7 @@ const TipRandomField = () => {
             required
             autoFocus
             max={tipRandomMaxField.value ? tipRandomMaxField.value - 1 : undefined}
-            append={<InputGroup.Text className='text-monospace'>sats</InputGroup.Text>}
+            append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
           />
           <Input
             type='number'
@@ -554,7 +555,7 @@ const TipRandomField = () => {
             required
             autoFocus
             min={tipRandomMinField.value ? tipRandomMinField.value + 1 : undefined}
-            append={<InputGroup.Text className='text-monospace'>sats</InputGroup.Text>}
+            append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
           />
         </>}
     </>
