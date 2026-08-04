@@ -58,7 +58,7 @@ function topPosts (days) {
     if (post) {
       text += `
 - [${post.title}](${process.env.NEXT_PUBLIC_URL}/items/${post.id})
-    - ${piconerosToXmr(post.piconeros)} \\ ${numWithUnits(post.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })} \\ @${post.user.name} \\ ~${post.subName} \\ \`${day}\``
+    - ${piconerosToXmr(BigInt(post.piconeros ?? 0))} \\ ${numWithUnits(post.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })} \\ @${post.user.name} \\ ~${post.subName} \\ \`${day}\``
     } else {
       text += `
 - no top post for \`${day}\``
@@ -90,7 +90,7 @@ function topComments (days) {
     if (comment) {
       text += `
 - ${process.env.NEXT_PUBLIC_URL}/items/${comment.root.id}?commentId=${comment.id} on [${comment.root.title}](${process.env.NEXT_PUBLIC_URL}/items/${comment.root.id})
-    - ${piconerosToXmr(comment.piconeros)} \\ ${numWithUnits(comment.ncomments, { unitSingular: 'reply', unitPlural: 'replies' })} \\ @${comment.user.name} \\ \`${day}\`
+    - ${piconerosToXmr(BigInt(comment.piconeros ?? 0))} \\ ${numWithUnits(comment.ncomments, { unitSingular: 'reply', unitPlural: 'replies' })} \\ @${comment.user.name} \\ \`${day}\`
         > ${comment.text.trim().split('\n')[0]} [...]`
     } else {
       text += `

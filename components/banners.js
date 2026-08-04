@@ -8,7 +8,7 @@ export function MadnessBanner ({ handleClose }) {
   return (
     <Alert className={styles.banner} key='info' variant='info' onClose={handleClose} dismissible>
       <Alert.Heading>
-        ⚡️ Million Sat Madness Is Here!
+        ⚡️ Rewards Madness Is Here!
       </Alert.Heading>
       {me
         ? (
@@ -17,7 +17,7 @@ export function MadnessBanner ({ handleClose }) {
               We're giving away 3 XMR to the top Stasher News contributors. <Alert.Link href='/rewards'>See the leaderboard!</Alert.Link>
             </div>
             <div>
-              How does Million Sat Madness work? <Alert.Link href='/items/444168'>Click here</Alert.Link>.
+              How does Rewards Madness work? <Alert.Link href='/items/444168'>Click here</Alert.Link>.
             </div>
           </div>
           )
