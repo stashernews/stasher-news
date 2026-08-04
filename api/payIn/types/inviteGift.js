@@ -14,16 +14,16 @@ export async function getInitial (models, { id, userId }, { me }) {
   if (!invite) {
     throw new Error('invite not found')
   }
-  const mcost = satsToMsats(invite.gift)
+  const piconeros = satsToMsats(invite.gift)
   return {
     payInType: 'INVITE_GIFT',
     userId: me?.id,
-    mcost,
+    piconeros,
     payOutCustodialTokens: [
       {
         payOutType: 'INVITE_GIFT',
         userId,
-        mtokens: mcost,
+        mtokens: piconeros,
         custodialTokenType: 'CREDITS'
       }
     ]

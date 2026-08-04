@@ -3,7 +3,7 @@ import { satsToMsats } from '@/lib/format'
 import { proratedBillingCost } from '@/lib/territory'
 import { datePivot } from '@/lib/time'
 import * as MEDIA_UPLOAD from './mediaUpload'
-import { getBeneficiariesMcost } from '../lib/beneficiaries'
+import { getBeneficiariesPiconeros } from '../lib/beneficiaries'
 
 export const anonable = false
 
@@ -20,7 +20,7 @@ export async function getInitial (models, { oldName, billingType, uploadIds }, {
     }
   })
 
-  const mcost = satsToMsats(proratedBillingCost(oldSub, billingType) ?? 0)
+  const piconeros = satsToMsats(proratedBillingCost(oldSub, billingType) ?? 0)
   const beneficiaries = []
   if (uploadIds.length > 0) {
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
@@ -29,9 +29,9 @@ export async function getInitial (models, { oldName, billingType, uploadIds }, {
   return {
     payInType: 'TERRITORY_UPDATE',
     userId: me?.id,
-    mcost: mcost + getBeneficiariesMcost(beneficiaries),
+    piconeros: piconeros + getBeneficiariesPiconeros(beneficiaries),
     payOutCustodialTokens: [{
-      payOutType: 'SYSTEM_REVENUE', userId: USER_ID.sn, mtokens: mcost, custodialTokenType: 'SATS'
+      payOutType: 'SYSTEM_REVENUE', userId: USER_ID.sn, mtokens: piconeros, custodialTokenType: 'SATS'
     }],
     beneficiaries
   }

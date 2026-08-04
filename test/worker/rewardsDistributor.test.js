@@ -135,7 +135,7 @@ async function seedTip ({ postId, tipperId, piconeros, confirmedAt, recipientAcc
 
 async function seedPayIn (userId, payInType, major, minor) {
   const payIn = await prisma.payIn.create({
-    data: { userId, payInType, payInState: 'PAID', mcost: 0n, moneroSubaddressMajor: major, moneroSubaddressMinor: minor }
+    data: { userId, payInType, payInState: 'PAID', piconeros: 0n, moneroSubaddressMajor: major, moneroSubaddressMinor: minor }
   })
   created.payIns.push(payIn.id)
   return payIn

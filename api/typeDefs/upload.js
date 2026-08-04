@@ -3,9 +3,9 @@ import { gql } from 'graphql-tag'
 export default gql`
   type UploadFees {
     totalFees: Int!
-    totalFeesMsats: Int!
+    totalFeesPiconeros: Int!
     uploadFees: Int!
-    uploadFeesMsats: Int!
+    uploadFeesPiconeros: Int!
     nUnpaid: Int!
     bytesUnpaid: Int!
     bytes24h: Int!

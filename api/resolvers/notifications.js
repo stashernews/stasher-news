@@ -165,7 +165,7 @@ export default {
       queries.push(
         // Only record per item ID
         `(
-          SELECT DISTINCT ON (id) "Item".id::TEXT, "Item"."sortTime", NULL::INTEGER AS "earnedSats", "Item".type
+          SELECT DISTINCT ON (id) "Item".id::TEXT, "Item"."sortTime", NULL::INTEGER AS "earnedPiconeros", "Item".type
           FROM (
             ${itemDrivenQueries.map(q => `(${q})`).join(' UNION ALL ')}
           ) as "Item"
@@ -188,7 +188,7 @@ export default {
 
       // territory transfers
       queries.push(
-        `(SELECT "TerritoryTransfer".id::text, "TerritoryTransfer"."created_at" AS "sortTime", NULL::INTEGER as "earnedSats",
+        `(SELECT "TerritoryTransfer".id::text, "TerritoryTransfer"."created_at" AS "sortTime", NULL::INTEGER as "earnedPiconeros",
           'TerritoryTransfer' AS type
           FROM "TerritoryTransfer"
           WHERE "TerritoryTransfer"."newUserId" = $1
@@ -197,26 +197,26 @@ export default {
           LIMIT ${LIMIT})`
       )
 
-      if (meFull.noteItemSats) {
+      if (meFull.noteItemPiconeros) {
         queries.push(
-          `(SELECT "Item".id::TEXT, "Item"."lastZapAt" AS "sortTime",
-            ("Item".msats/1000)::INTEGER as "earnedSats", 'Votification' AS type
+          `(SELECT "Item".id::TEXT, "Item"."lastTipAt" AS "sortTime",
+            ("Item".piconeros)::BIGINT as "earnedPiconeros", 'Votification' AS type
             FROM "Item"
             WHERE "Item"."userId" = $1
-            AND "Item"."lastZapAt" < $2
+            AND "Item"."lastTipAt" < $2
             ORDER BY "sortTime" DESC
             LIMIT ${LIMIT})`
         )
       }
 
-      if (meFull.noteForwardedSats) {
+      if (meFull.noteForwardedPiconeros) {
         queries.push(
-          `(SELECT "Item".id::TEXT, "Item"."lastZapAt" AS "sortTime",
-            ("Item".msats / 1000 * "ItemForward".pct / 100)::INTEGER as "earnedSats", 'ForwardedVotification' AS type
+          `(SELECT "Item".id::TEXT, "Item"."lastTipAt" AS "sortTime",
+            ("Item".piconeros * "ItemForward".pct / 100)::BIGINT as "earnedPiconeros", 'ForwardedVotification' AS type
             FROM "Item"
             JOIN "ItemForward" ON "ItemForward"."itemId" = "Item".id AND "ItemForward"."userId" = $1
             WHERE "Item"."userId" <> $1
-            AND "Item"."lastZapAt" < $2
+            AND "Item"."lastTipAt" < $2
             ORDER BY "sortTime" DESC
             LIMIT ${LIMIT})`
         )
@@ -229,7 +229,7 @@ export default {
 
       if (meFull.noteInvites) {
         queries.push(
-          `(SELECT "Invite".id, MAX(users.created_at) AS "sortTime", NULL::INTEGER as "earnedSats",
+          `(SELECT "Invite".id, MAX(users.created_at) AS "sortTime", NULL::INTEGER as "earnedPiconeros",
             'Invitification' AS type
             FROM users JOIN "Invite" on users."inviteId" = "Invite".id
             WHERE "Invite"."userId" = $1
@@ -239,7 +239,7 @@ export default {
             LIMIT ${LIMIT})`
         )
         queries.push(
-          `(SELECT users.id::text, users.created_at AS "sortTime", NULL::INTEGER as "earnedSats",
+          `(SELECT users.id::text, users.created_at AS "sortTime", NULL::INTEGER as "earnedPiconeros",
             'Referral' AS type
             FROM users
             WHERE "users"."referrerId" = $1
@@ -252,7 +252,7 @@ export default {
 
       if (meFull.noteEarning) {
         queries.push(
-          `(SELECT min(id)::text, created_at AS "sortTime", FLOOR(sum(msats) / 1000)::INTEGER as "earnedSats",
+          `(SELECT min(id)::text, created_at AS "sortTime", COALESCE(sum(piconeros), 0)::BIGINT as "earnedPiconeros",
           'Earn' AS type
           FROM "Earn"
           WHERE "userId" = $1
@@ -263,7 +263,7 @@ export default {
           LIMIT ${LIMIT})`
         )
         queries.push(
-          `(SELECT min(id)::text, created_at AS "sortTime", FLOOR(sum(msats) / 1000)::INTEGER as "earnedSats",
+          `(SELECT min(id)::text, created_at AS "sortTime", COALESCE(sum(piconeros), 0)::BIGINT as "earnedPiconeros",
           'ReferralReward' AS type
           FROM "Earn"
           WHERE "userId" = $1
@@ -277,7 +277,7 @@ export default {
 
       if (meFull.noteCowboyHat) {
         queries.push(
-          `(SELECT id::text, updated_at AS "sortTime", 0::INTEGER as "earnedSats", 'CowboyHat' AS type
+          `(SELECT id::text, updated_at AS "sortTime", 0::INTEGER as "earnedPiconeros", 'CowboyHat' AS type
           FROM "Streak"
           WHERE "userId" = $1
           AND updated_at < $2
@@ -288,7 +288,7 @@ export default {
         for (const type of ['HORSE', 'GUN']) {
           const gqlType = type.charAt(0) + type.slice(1).toLowerCase()
           queries.push(
-            `(SELECT id::text, "startedAt" AS "sortTime", 0::INTEGER as "earnedSats", 'New${gqlType}' AS type
+            `(SELECT id::text, "startedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros", 'New${gqlType}' AS type
             FROM "Streak"
             WHERE "userId" = $1
             AND updated_at < $2
@@ -297,7 +297,7 @@ export default {
             LIMIT ${LIMIT})`
           )
           queries.push(
-            `(SELECT id::text AS id, "endedAt" AS "sortTime", 0::INTEGER as "earnedSats", 'Lost${gqlType}' AS type
+            `(SELECT id::text AS id, "endedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros", 'Lost${gqlType}' AS type
             FROM "Streak"
             WHERE "userId" = $1
             AND updated_at < $2
@@ -310,7 +310,7 @@ export default {
       }
 
       queries.push(
-        `(SELECT "Sub".name::text, "Sub"."statusUpdatedAt" AS "sortTime", NULL::INTEGER as "earnedSats",
+        `(SELECT "Sub".name::text, "Sub"."statusUpdatedAt" AS "sortTime", NULL::INTEGER as "earnedPiconeros",
           'SubStatus' AS type
           FROM "Sub"
           WHERE "Sub"."userId" = $1
@@ -321,7 +321,7 @@ export default {
       )
 
       queries.push(
-        `(SELECT "Reminder".id::text, "Reminder"."remindAt" AS "sortTime", NULL::INTEGER as "earnedSats", 'Reminder' AS type
+        `(SELECT "Reminder".id::text, "Reminder"."remindAt" AS "sortTime", NULL::INTEGER as "earnedPiconeros", 'Reminder' AS type
         FROM "Reminder"
         WHERE "Reminder"."userId" = $1
         AND "Reminder"."remindAt" < $2
@@ -333,7 +333,7 @@ export default {
       // are too old, or were manually cancelled
       queries.push(
         `(SELECT "PayIn".id::text,
-          "PayIn"."payInStateChangedAt" AS "sortTime", 0::INTEGER as "earnedSats", 'PayInification' AS type
+          "PayIn"."payInStateChangedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros", 'PayInification' AS type
           FROM "PayIn"
           WHERE "PayIn"."payInState" = 'FAILED'
           AND "PayIn"."payInType" IN (${PAY_IN_NOTIFICATION_TYPES_SQL})
@@ -351,7 +351,7 @@ export default {
       )
 
       queries.push(
-        `(SELECT "NotificationBulletin".id::text, "NotificationBulletin"."created_at" AS "sortTime", NULL::INTEGER as "earnedSats", 'Bulletinification' AS type
+        `(SELECT "NotificationBulletin".id::text, "NotificationBulletin"."created_at" AS "sortTime", NULL::INTEGER as "earnedPiconeros", 'Bulletinification' AS type
         FROM "NotificationBulletin"
         WHERE "NotificationBulletin"."created_at" < $2
         ORDER BY "sortTime" DESC
@@ -359,7 +359,7 @@ export default {
       )
 
       const notifications = await models.$queryRawUnsafe(
-        `SELECT id, "sortTime", "earnedSats", type,
+        `SELECT id, "sortTime", "earnedPiconeros", type,
             "sortTime" AS "minSortTime"
         FROM
         (${queries.join(' UNION ALL ')}) u
@@ -534,17 +534,17 @@ export default {
     sources: async (n, args, { me, models }) => {
       const [sources] = await models.$queryRawUnsafe(`
         SELECT
-        FLOOR(sum(msats) FILTER(WHERE type = 'POST') / 1000) AS posts,
-        FLOOR(sum(msats) FILTER(WHERE type = 'COMMENT') / 1000) AS comments,
-        FLOOR(sum(msats) FILTER(WHERE type = 'TIP_POST') / 1000) AS "tipPosts",
-        FLOOR(sum(msats) FILTER(WHERE type = 'TIP_COMMENT') / 1000) AS "tipComments"
+        COALESCE(sum(piconeros) FILTER(WHERE type = 'POST'), 0) AS posts,
+        COALESCE(sum(piconeros) FILTER(WHERE type = 'COMMENT'), 0) AS comments,
+        COALESCE(sum(piconeros) FILTER(WHERE type = 'TIP_POST'), 0) AS "tipPosts",
+        COALESCE(sum(piconeros) FILTER(WHERE type = 'TIP_COMMENT'), 0) AS "tipComments"
         FROM "Earn"
         WHERE "userId" = $1 AND created_at <= $2 AND created_at >= $3
-      `, Number(me.id), new Date(n.sortTime), new Date(n.minSortTime))
-      sources.posts ||= 0
-      sources.comments ||= 0
-      sources.tipPosts ||= 0
-      sources.tipComments ||= 0
+        `, Number(me.id), new Date(n.sortTime), new Date(n.minSortTime))
+      sources.posts = Number(sources.posts ?? 0)
+      sources.comments = Number(sources.comments ?? 0)
+      sources.tipPosts = Number(sources.tipPosts ?? 0)
+      sources.tipComments = Number(sources.tipComments ?? 0)
       if (sources.posts + sources.comments + sources.tipPosts + sources.tipComments > 0) {
         return sources
       }
@@ -556,11 +556,13 @@ export default {
     sources: async (n, args, { me, models }) => {
       const [sources] = await models.$queryRawUnsafe(`
         SELECT
-        COALESCE(FLOOR(sum(msats) FILTER(WHERE type = 'FOREVER_REFERRAL') / 1000), 0) AS forever,
-        COALESCE(FLOOR(sum(msats) FILTER(WHERE type = 'ONE_DAY_REFERRAL') / 1000), 0) AS "oneDay"
+        COALESCE(sum(piconeros) FILTER(WHERE type = 'FOREVER_REFERRAL'), 0) AS forever,
+        COALESCE(sum(piconeros) FILTER(WHERE type = 'ONE_DAY_REFERRAL'), 0) AS "oneDay"
         FROM "Earn"
         WHERE "userId" = $1 AND created_at = $2
       `, Number(me.id), new Date(n.sortTime))
+      sources.forever = Number(sources.forever ?? 0)
+      sources.oneDay = Number(sources.oneDay ?? 0)
       if (sources.forever + sources.oneDay > 0) {
         return sources
       }

@@ -37,7 +37,7 @@ function SatFilterRanges () {
           </Info>
         </div>
       }
-      name='postsSatsFilter'
+      name='postsPiconerosFilter'
       min={baseCost}
       max={1000}
       suffix=' sats'
@@ -128,7 +128,7 @@ export default function TerritoryForm ({ sub }) {
           baseCost: sub?.baseCost || 10,
           replyCost: sub?.replyCost || 1,
           // Default sat filter to match the post cost
-          postsSatsFilter: sub?.postsSatsFilter ?? sub?.baseCost ?? 10,
+          postsPiconerosFilter: sub?.postsPiconerosFilter ?? sub?.baseCost ?? 10,
           postTypes: sub?.postTypes || POST_TYPES,
           billingType: sub?.billingType || 'MONTHLY',
           billingAutoRenew: sub?.billingAutoRenew || false,

@@ -17,14 +17,14 @@ export async function getInitial (models, { id }, { me }) {
     include: { item: { include: { subs: { include: { sub: true } } } } }
   })
 
-  const mcost = satsToMsats(pollOption.item.pollCost)
+  const piconeros = satsToMsats(pollOption.item.pollCost)
   const subs = pollOption.item.subs.map(subItem => subItem.sub)
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, mcost })
+  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, piconeros })
 
   return {
     payInType: 'POLL_VOTE',
     userId: me?.id,
-    mcost,
+    piconeros,
     payOutCustodialTokens,
     pollVote: {
       pollOptionId: pollOption.id,

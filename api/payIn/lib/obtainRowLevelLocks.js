@@ -8,7 +8,7 @@ import { Prisma } from '@prisma/client'
 // anything we can do to minimize the time spent in these interactive txs would also help
 export async function obtainRowLevelLocks (tx, payIn) {
   // StealthNews fee-based payIns (territory create/billing, posting, downvote) return
-  // mcost=0n with no custodial pay-outs, so payOutCustodialTokens is undefined. Guard it
+  // piconeros=0n with no custodial pay-outs, so payOutCustodialTokens is undefined. Guard it
   // to avoid "Cannot read properties of undefined (reading 'map')" — matches the
   // optional-chaining already used in api/payIn/lib/assert.js.
   const payOutUserIds = [...new Set((payIn.payOutCustodialTokens ?? []).map(t => t.userId)).add(payIn.userId)]

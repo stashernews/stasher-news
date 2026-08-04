@@ -122,7 +122,7 @@ export default function UpVote ({ item, className, collapsed }) {
     if (!me) return
 
     // if they haven't seen the walkthrough and they have sats
-    if (yes && !me.privates?.upvotePopover && me.privates?.sats) {
+    if (yes && !me.privates?.upvotePopover && me.privates?.piconeros) {
       _setVoteShow(true)
     }
 
@@ -135,7 +135,7 @@ export default function UpVote ({ item, className, collapsed }) {
     if (!me) return
 
     // if we want to show it, yet we still haven't shown
-    if (yes && !me.privates?.tipPopover && me.privates?.sats) {
+    if (yes && !me.privates?.tipPopover && me.privates?.piconeros) {
       _setTipShow(true)
     }
 
@@ -150,7 +150,7 @@ export default function UpVote ({ item, className, collapsed }) {
     [collapsed, item?.mine, item?.meForward, item?.deletedAt])
 
   const [meSats, overlayText, color, nextColor] = useMemo(() => {
-    const meSats = (me ? item?.meSats : item?.meAnonSats) || 0
+    const meSats = Number(me ? item?.mePiconeros : item?.meAnonPiconeros) || 0
 
     // what should our next tip be?
     const sats = nextTip(meSats, { ...me?.privates })
@@ -165,7 +165,7 @@ export default function UpVote ({ item, className, collapsed }) {
       meSats, overlayTextContent,
       getColor(meSats), getColor(meSats + sats)]
   }, [
-    me, item?.meSats, item?.meAnonSats, me?.privates?.tipDefault, me?.privates?.turboDefault,
+    me, item?.mePiconeros, item?.meAnonPiconeros, me?.privates?.tipDefault, me?.privates?.turboDefault,
     me?.privates?.tipRandom, me?.privates?.tipRandomMin, me?.privates?.tipRandomMax])
 
   const handleLongPress = (e) => {

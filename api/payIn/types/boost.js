@@ -15,13 +15,13 @@ export async function getInitial (models, { sats, id }, { me }) {
   const { subNames, parentId } = await models.item.findUnique({ where: { id: parseInt(id) } })
   const subs = await getSubs(models, { subNames, parentId })
 
-  const mcost = satsToMsats(sats)
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, mcost })
+  const piconeros = satsToMsats(sats)
+  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, piconeros })
 
   return {
     payInType: 'BOOST',
     userId: me?.id,
-    mcost,
+    piconeros,
     itemPayIn: { itemId: parseInt(id) },
     payOutCustodialTokens
   }
@@ -30,7 +30,7 @@ export async function getInitial (models, { sats, id }, { me }) {
 export async function onRetry (tx, oldPayInId, newPayInId) {
   const { itemId, payIn } = await tx.itemPayIn.findUnique({ where: { payInId: oldPayInId }, include: { payIn: true } })
   const item = await getItemResult(tx, { id: itemId })
-  return { id: item.id, path: item.path, sats: msatsToSats(payIn.mcost), act: 'BOOST' }
+  return { id: item.id, path: item.path, sats: msatsToSats(payIn.piconeros), act: 'BOOST' }
 }
 
 export async function onBegin (tx, payInId, { sats, id }) {
@@ -41,7 +41,7 @@ export async function onBegin (tx, payInId, { sats, id }) {
 export async function onPaid (tx, payInId) {
   const payIn = await tx.payIn.findUnique({ where: { id: payInId }, include: { itemPayIn: { include: { item: true } } } })
 
-  const boostSats = msatsToSats(payIn.mcost)
+  const boostSats = msatsToSats(payIn.piconeros)
   const item = payIn.itemPayIn.item
 
   if (item.parentId) {
@@ -76,5 +76,5 @@ export async function onPaid (tx, payInId) {
 
 export async function describe (models, payInId) {
   const payIn = await models.payIn.findUnique({ where: { id: payInId }, include: { itemPayIn: true } })
-  return `SN: boost #${payIn.itemPayIn.itemId} by ${numWithUnits(msatsToSats(payIn.mcost), { abbreviate: false })}`
+  return `SN: boost #${payIn.itemPayIn.itemId} by ${numWithUnits(msatsToSats(payIn.piconeros), { abbreviate: false })}`
 }

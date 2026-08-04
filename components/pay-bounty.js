@@ -55,7 +55,7 @@ export default function PayBounty ({ children, item }) {
   const variables = { id: item.id }
   const optimisticResponse = {
     payInType: 'BOUNTY_PAYMENT',
-    mcost: satsToMsats(totalCost),
+    piconeros: satsToMsats(totalCost),
     payerPrivates: { result: { path: item.path, id: item.id, __typename: 'Item' } }
   }
 

@@ -34,11 +34,11 @@ function apportionment (prospects, totalMtokens, proportionFieldName) {
   return apportionedProspects
 }
 
-export async function getInitial (models, { totalMsats, rewardProspects }) {
+export async function getInitial (models, { totalPiconeros, rewardProspects }) {
   const payOutCustodialTokens = []
 
-  let totalRewardedMsats = 0
-  const apportionedProspects = apportionment(rewardProspects, totalMsats, 'total_proportion')
+  let totalRewardedPiconeros = 0
+  const apportionedProspects = apportionment(rewardProspects, totalPiconeros, 'total_proportion')
   for (const prospect of apportionedProspects) {
     // referrer, if it exists, gets 10% of the earner's mtokens
     const referrerId = prospect.foreverReferrerId ?? prospect.oneDayReferrerId
@@ -50,9 +50,9 @@ export async function getInitial (models, { totalMsats, rewardProspects }) {
     const earnerMtokens = prospect.apportionedMtokens - referrerMtokens
 
     // sanity check
-    totalRewardedMsats += earnerMtokens + referrerMtokens
-    if (totalRewardedMsats > totalMsats) {
-      throw new Error('total rewarded msats exceeds total msats')
+    totalRewardedPiconeros += earnerMtokens + referrerMtokens
+    if (totalRewardedPiconeros > totalPiconeros) {
+      throw new Error('total rewarded piconeros exceeds total piconeros')
     }
 
     // apportion the earner's mtokens to the earns
@@ -65,7 +65,7 @@ export async function getInitial (models, { totalMsats, rewardProspects }) {
       custodialTokenType: 'SATS',
       earns: apportionedEarns.map(earn => ({
         userId: prospect.userId,
-        msats: BigInt(earn.apportionedMtokens),
+        piconeros: BigInt(earn.apportionedMtokens),
         type: earn.type,
         typeId: earn.typeId,
         typeProportion: earn.typeProportion,
@@ -81,7 +81,7 @@ export async function getInitial (models, { totalMsats, rewardProspects }) {
         custodialTokenType: 'SATS',
         earns: [{
           userId: referrerId,
-          msats: BigInt(referrerMtokens),
+          piconeros: BigInt(referrerMtokens),
           type: 'FOREVER_REFERRAL'
         }]
       })
@@ -92,7 +92,7 @@ export async function getInitial (models, { totalMsats, rewardProspects }) {
 
   return {
     payInType: 'REWARDS',
-    mcost: BigInt(totalMsats),
+    piconeros: BigInt(totalPiconeros),
     userId: USER_ID.rewards,
     payOutCustodialTokens
   }
@@ -104,18 +104,18 @@ export async function onPaidSideEffects (models, payInId) {
   const notifications = {}
   for (const payOutCustodialToken of payIn.payOutCustodialTokens) {
     const userN = notifications[payOutCustodialToken.userId] || {}
-    const msats = payOutCustodialToken.mtokens + (userN.msats || 0n)
+    const piconeros = payOutCustodialToken.mtokens + (userN.piconeros || 0n)
     for (const earn of payOutCustodialToken.earns) {
-      const earnTypeMsats = earn.msats + (userN[earn.type]?.msats || 0n)
+      const earnTypePiconeros = earn.piconeros + (userN[earn.type]?.piconeros || 0n)
       const prevEarnTypeBestRank = userN[earn.type]?.bestRank
       const earnTypeBestRank = prevEarnTypeBestRank
         ? Math.min(prevEarnTypeBestRank, Number(earn.rank))
         : Number(earn.rank)
       notifications[payOutCustodialToken.userId] = {
         ...userN,
-        msats,
+        piconeros,
         [earn.type]: {
-          msats: earnTypeMsats,
+          piconeros: earnTypePiconeros,
           bestRank: earnTypeBestRank
         }
       }

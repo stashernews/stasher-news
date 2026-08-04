@@ -9,8 +9,8 @@ const MIN_SUCCESS = 0
 // https://en.wikipedia.org/wiki/Normal_distribution#Quantile_function
 const Z_CONFIDENCE = 1.959963984540 // 95% confidence
 const SEED_WEIGHT = 0.83
-const AGAINST_MSAT_MIN = 1000
-const MSAT_MIN = 1001 // 20001 is the minimum for a tip to be counted in trust
+const AGAINST_PICO_MIN = 1000
+const PICO_MIN = 1001 // 20001 is the minimum for a tip to be counted in trust
 const IRRELEVANT_CUMULATIVE_TRUST = 0.001 // if a user has less than this amount of cumulative trust, they are irrelevant
 
 // for each subName, we'll need to get two graphs
@@ -174,12 +174,12 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
     FROM (
       WITH user_votes AS (
         SELECT "PayIn"."userId" AS user_id, users.name AS name, "ItemPayIn"."itemId" AS item_id, max("PayIn"."payInStateChangedAt") AS act_at,
-            users.created_at AS user_at, "PayIn"."payInType" = 'DOWN_ZAP' AS against,
+            users.created_at AS user_at, "PayIn"."payInType" = 'DOWNVOTE' AS against,
             count(*) OVER (partition by "PayIn"."userId") AS user_vote_count,
-            sum("PayIn"."mcost") as user_msats
+            sum("PayIn"."piconeros") as user_piconeros
         FROM "PayIn"
         JOIN "ItemPayIn" ON "ItemPayIn"."payInId" = "PayIn"."id"
-        JOIN "Item" ON "Item".id = "ItemPayIn"."itemId" AND "PayIn"."payInType" IN ('ZAP', 'DOWN_ZAP')
+        JOIN "Item" ON "Item".id = "ItemPayIn"."itemId" AND "PayIn"."payInType" IN ('TIP', 'DOWNVOTE')
           AND "PayIn"."payInState" = 'PAID'
           AND NOT "Item".bio AND "Item"."userId" <> "PayIn"."userId"
           AND ${postTrust
@@ -192,13 +192,13 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
         JOIN users ON "PayIn"."userId" = users.id AND users.id <> ${USER_ID.anon}
         GROUP BY user_id, users.name, item_id, user_at, against
         HAVING CASE WHEN
-          "PayIn"."payInType" = 'DOWN_ZAP' THEN sum("PayIn"."mcost") > ${AGAINST_MSAT_MIN}
-          ELSE sum("PayIn"."mcost") > ${MSAT_MIN} END
+          "PayIn"."payInType" = 'DOWNVOTE' THEN sum("PayIn"."piconeros") > ${AGAINST_PICO_MIN}
+          ELSE sum("PayIn"."piconeros") > ${PICO_MIN} END
       ),
       user_pair AS (
         SELECT a.user_id AS a_id, b.user_id AS b_id,
-            sum(CASE WHEN b.user_msats > a.user_msats THEN a.user_msats / b.user_msats::FLOAT ELSE b.user_msats / a.user_msats::FLOAT END) FILTER(WHERE a.act_at > b.act_at AND a.against = b.against) AS before,
-            sum(CASE WHEN b.user_msats > a.user_msats THEN a.user_msats / b.user_msats::FLOAT ELSE b.user_msats / a.user_msats::FLOAT END) FILTER(WHERE b.act_at > a.act_at AND a.against = b.against) AS after,
+            sum(CASE WHEN b.user_piconeros > a.user_piconeros THEN a.user_piconeros / b.user_piconeros::FLOAT ELSE b.user_piconeros / a.user_piconeros::FLOAT END) FILTER(WHERE a.act_at > b.act_at AND a.against = b.against) AS before,
+            sum(CASE WHEN b.user_piconeros > a.user_piconeros THEN a.user_piconeros / b.user_piconeros::FLOAT ELSE b.user_piconeros / a.user_piconeros::FLOAT END) FILTER(WHERE b.act_at > a.act_at AND a.against = b.against) AS after,
             count(*) FILTER(WHERE a.against <> b.against) AS disagree,
             b.user_vote_count AS b_total, a.user_vote_count AS a_total
         FROM user_votes a

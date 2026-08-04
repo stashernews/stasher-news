@@ -21,7 +21,7 @@ import { Prisma } from '@prisma/client'
 //     the post/territory live.
 //   - primary address + payment_id (Phase 4): reverses the payment_id via the
 //     DownvotePidMap, idempotently records an ObservedBurn (DETECTED), and applies
-//     the LOG-scaled ranking penalty (weightedDownVotes/downMsats) at DETECTION.
+//     the LOG-scaled ranking penalty (weightedDownVotes/downPiconeros) at DETECTION.
 // The confirmFinalizer matures FeeObservation/ObservedBurn DETECTED -> CONFIRMED
 // at REQUIRED_CONFIRMATIONS (separate concern, separate job). Reorg reversal is
 // deferred (accepted v1 limitation — consistent with the tip flow).
@@ -119,8 +119,8 @@ async function attributeDownvoteByPaymentId (models, tx) {
 }
 
 // Apply the LOG-scaled ranking penalty to the downvoted item and its ancestors.
-// Mirrors the legacy downZap.js onPaid SQL, ported from sats/msats to piconeros:
-// the ItemUserAgg.downZapSats cumulative is cast ::BIGINT (not the legacy
+// Mirrors the legacy downZap.js onPaid SQL, ported from millisats to piconeros:
+// the ItemUserAgg.downvotePiconeros cumulative is cast ::BIGINT (not the legacy
 // ::INTEGER) so piconeros-scale amounts never overflow INT4. The LOG ratio gives
 // diminishing marginal weight: each additional piconero penalises less than the
 // last (standard SN ranking curve). weightedDownVotes uses the downvoter's
@@ -145,22 +145,22 @@ async function applyDownvotePenalty (models, item, userId, piconeros) {
       LEFT JOIN "UserSubTrust" ust ON ust."subName" = territory."subName"
         AND ust."userId" = ${userId}::INTEGER
     ), zap AS (
-      INSERT INTO "ItemUserAgg" ("userId", "itemId", "downZapSats")
+      INSERT INTO "ItemUserAgg" ("userId", "itemId", "downvotePiconeros")
       VALUES (${userId}::INTEGER, ${itemId}::INTEGER, ${piconeros}::BIGINT)
       ON CONFLICT ("itemId", "userId") DO UPDATE
-      SET "downZapSats" = "ItemUserAgg"."downZapSats" + ${piconeros}::BIGINT, updated_at = now()
-      RETURNING LOG("downZapSats"::FLOAT / GREATEST("downZapSats" - ${piconeros}, 1)::FLOAT) AS log_sats
+      SET "downvotePiconeros" = "ItemUserAgg"."downvotePiconeros" + ${piconeros}::BIGINT, updated_at = now()
+      RETURNING LOG("downvotePiconeros"::FLOAT / GREATEST("downvotePiconeros" - ${piconeros}, 1)::FLOAT) AS log_sats
     ), item_downzapped AS (
       UPDATE "Item"
       SET "weightedDownVotes" = "weightedDownVotes" + zapper."zapTrust" * zap.log_sats,
           "subWeightedDownVotes" = "subWeightedDownVotes" + zapper."subZapTrust" * zap.log_sats,
-          "downMsats" = "downMsats" + ${piconeros}::BIGINT
+          "downPiconeros" = "downPiconeros" + ${piconeros}::BIGINT
       FROM zap, zapper
       WHERE "Item".id = ${itemId}::INTEGER
       RETURNING "Item".*
     )
     UPDATE "Item"
-    SET "commentDownMsats" = "commentDownMsats" + ${piconeros}::BIGINT
+    SET "commentDownPiconeros" = "commentDownPiconeros" + ${piconeros}::BIGINT
     FROM (
       SELECT "Item".id FROM "Item", item_downzapped
       WHERE "Item".path @> item_downzapped.path AND "Item".id <> item_downzapped.id

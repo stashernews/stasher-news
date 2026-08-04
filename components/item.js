@@ -106,7 +106,7 @@ export default function Item ({
           ? <Pin width={24} height={24} className={styles.pin} />
           : item.mine || item.meForward
             ? null
-            : item.meDontLikeSats > item.meSats
+            : item.meDontLikePiconeros > item.mePiconeros
               ? <DownZap width={24} height={24} className={styles.dontLike} item={item} />
               : <UpVote item={item} className={styles.upvote} />}
         <div className={styles.hunk}>

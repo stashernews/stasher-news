@@ -62,11 +62,11 @@ test('stealth schema has no custodial/Lightning residue models', () => {
 test('Item keeps the ranking-trigger column names verbatim', () => {
   const fields = fieldsOf('Item')
   // These identifiers are referenced verbatim by item_ranking_trigger() SQL
-  // (migration 20260209000000_evergreen_ranking). Their units are now
-  // piconeros, but the names must not change or the trigger breaks.
+  // (migration 20260803205000_rebrand_piconeros). Units are piconeros; names
+  // must match the rewritten trigger or it breaks.
   for (const c of [
-    'msats', 'downMsats', 'boost', 'cost',
-    'commentMsats', 'commentCost', 'commentBoost', 'commentDownMsats',
+    'piconeros', 'downPiconeros', 'boost', 'cost',
+    'commentPiconeros', 'commentCost', 'commentBoost', 'commentDownPiconeros',
     'ranktop', 'litCenteredSum', 'litCenteredAt', 'ranklit'
   ]) {
     expect(fields).toContain(c)
@@ -114,18 +114,20 @@ test('User has the StealthNews Monero fields and no custodial balance fields', (
   for (const c of ['moneroAddress', 'privacyMode', 'stackedPiconeros', 'downvotePiconeros', 'tipDefaultPiconeros', 'moneroAccounts', 'rewardPayouts']) {
     expect(fields).toContain(c)
   }
-  for (const removed of ['msats', 'mcredits', 'vaultKeyHash', 'hasSendWallet', 'hasRecvWallet', 'autoWithdrawThreshold']) {
+  // stackedMsats dropped (stackedPiconeros survives) and stackedMcredits renamed
+  // to stackedCredits.
+  for (const removed of ['stackedMsats', 'stackedMcredits', 'vaultKeyHash', 'hasSendWallet', 'hasRecvWallet', 'autoWithdrawThreshold']) {
     expect(fields).not.toContain(removed)
   }
 })
 
 test('PayInType and PayInState enums are reduced to the StealthNews set', () => {
   expect(valuesOf('PayInType').sort()).toEqual([
-    'BOOST', 'DONATE', 'DOWN_ZAP', 'ITEM_CREATE', 'ITEM_UPDATE',
+    'BOOST', 'DONATE', 'DOWNVOTE', 'ITEM_CREATE', 'ITEM_UPDATE',
     'MEDIA_UPLOAD', 'POLL_VOTE', 'TERRITORY_BILLING', 'TERRITORY_CREATE',
-    'TERRITORY_UNARCHIVE', 'ZAP'
+    'TERRITORY_UNARCHIVE', 'TIP'
   ])
-  // PAID is restored for the SN payIn engine (mcost=0 / completed actions use
+  // PAID is restored for the SN payIn engine (piconeros=0 / completed actions use
   // payInState='PAID'); it was a Phase 0 reconciliation gap to drop it.
   expect(valuesOf('PayInState').sort()).toEqual(['CONFIRMED', 'DETECTED', 'FAILED', 'PAID', 'PENDING_PAYMENT'])
 })

@@ -17,7 +17,7 @@ import { SUPPORTED_CURRENCIES } from '@/lib/currency'
 import PageLoading from '@/components/page-loading'
 import { useToast } from '@/components/toast'
 import { useMe } from '@/components/me'
-import { DEFAULT_COMMENTS_SATS_FILTER, DEFAULT_POSTS_SATS_FILTER } from '@/lib/constants'
+import { DEFAULT_COMMENTS_PICONEROS_FILTER, DEFAULT_POSTS_PICONEROS_FILTER } from '@/lib/constants'
 import { useField } from 'formik'
 import styles from '@/styles/nav.module.css'
 import { AuthBanner } from '@/components/banners'
@@ -102,7 +102,7 @@ export default function Settings ({ ssrData }) {
             tipRandomMax: settings?.tipRandomMax || 10,
             turboTipping: settings?.turboTipping,
             fiatCurrency: settings?.fiatCurrency || 'USD',
-            noteItemSats: settings?.noteItemSats,
+            noteItemPiconeros: settings?.noteItemPiconeros,
             noteEarning: settings?.noteEarning,
             noteAllDescendants: settings?.noteAllDescendants,
             noteMentions: settings?.noteMentions,
@@ -111,8 +111,8 @@ export default function Settings ({ ssrData }) {
             noteWithdrawals: settings?.noteWithdrawals,
             noteInvites: settings?.noteInvites,
             noteCowboyHat: settings?.noteCowboyHat,
-            noteForwardedSats: settings?.noteForwardedSats,
-            hideInvoiceDesc: settings?.hideInvoiceDesc,
+            noteForwardedPiconeros: settings?.noteForwardedPiconeros,
+            hideUriDesc: settings?.hideUriDesc,
             hideFromTopUsers: settings?.hideFromTopUsers,
             hideCowboyHat: settings?.hideCowboyHat,
             hideGithub: settings?.hideGithub,
@@ -120,8 +120,8 @@ export default function Settings ({ ssrData }) {
             hideTwitter: settings?.hideTwitter,
             imgproxyOnly: settings?.imgproxyOnly,
             showImagesAndVideos: settings?.showImagesAndVideos,
-            postsSatsFilter: settings?.postsSatsFilter,
-            commentsSatsFilter: settings?.commentsSatsFilter,
+            postsPiconerosFilter: settings?.postsPiconerosFilter,
+            commentsPiconerosFilter: settings?.commentsPiconerosFilter,
             nsfwMode: settings?.nsfwMode,
             nostrPubkey: settings?.nostrPubkey ? bech32encode(settings.nostrPubkey) : '',
             nostrCrossposting: settings?.nostrCrossposting,
@@ -132,7 +132,7 @@ export default function Settings ({ ssrData }) {
           schema={settingsSchema}
           onSubmit={async ({
             tipDefault, tipRandom, tipRandomMin, tipRandomMax,
-            nostrPubkey, nostrRelays, postsSatsFilter, commentsSatsFilter,
+            nostrPubkey, nostrRelays, postsPiconerosFilter, commentsPiconerosFilter,
             ...values
           }) => {
             if (nostrPubkey.length === 0) {
@@ -155,8 +155,8 @@ export default function Settings ({ ssrData }) {
                     tipDefault: Number(tipDefault),
                     tipRandomMin: tipRandom ? Number(tipRandomMin) : null,
                     tipRandomMax: tipRandom ? Number(tipRandomMax) : null,
-                    postsSatsFilter: postsSatsFilter == null ? null : Number(postsSatsFilter),
-                    commentsSatsFilter: commentsSatsFilter == null ? null : Number(commentsSatsFilter),
+                    postsPiconerosFilter: postsPiconerosFilter == null ? null : Number(postsPiconerosFilter),
+                    commentsPiconerosFilter: commentsPiconerosFilter == null ? null : Number(commentsPiconerosFilter),
                     nostrPubkey,
                     nostrRelays: nostrRelaysFiltered,
                     ...values
@@ -228,12 +228,12 @@ export default function Settings ({ ssrData }) {
           <div className='form-label'>notify me when ...</div>
           <Checkbox
             label='I stack sats from posts and comments'
-            name='noteItemSats'
+            name='noteItemPiconeros'
             groupClassName='mb-0'
           />
           <Checkbox
             label='I get forwarded sats from a post'
-            name='noteForwardedSats'
+            name='noteForwardedPiconeros'
             groupClassName='mb-0'
           />
           <Checkbox
@@ -288,7 +288,7 @@ export default function Settings ({ ssrData }) {
                 </Info>
               </div>
             }
-            name='hideInvoiceDesc'
+            name='hideUriDesc'
             groupClassName='mb-0'
           />
           <div className='form-label'>privacy</div>
@@ -398,14 +398,14 @@ export default function Settings ({ ssrData }) {
                 </Info>
               </div>
             }
-            name='postsSatsFilter'
+            name='postsPiconerosFilter'
             min={-1000}
             max={1000}
             suffix=' sats'
             allOption
             labels={[
               { value: -1060, label: 'wild west' },
-              { value: DEFAULT_POSTS_SATS_FILTER, label: DEFAULT_POSTS_SATS_FILTER },
+              { value: DEFAULT_POSTS_PICONEROS_FILTER, label: DEFAULT_POSTS_PICONEROS_FILTER },
               { value: 1060, label: 'tea & crumpets' }
             ]}
           />
@@ -420,14 +420,14 @@ export default function Settings ({ ssrData }) {
                 </Info>
               </div>
             }
-            name='commentsSatsFilter'
+            name='commentsPiconerosFilter'
             min={-100}
             max={100}
             suffix=' sats'
             allOption
             labels={[
               { value: -106, label: 'wild west' },
-              { value: DEFAULT_COMMENTS_SATS_FILTER, label: DEFAULT_COMMENTS_SATS_FILTER },
+              { value: DEFAULT_COMMENTS_PICONEROS_FILTER, label: DEFAULT_COMMENTS_PICONEROS_FILTER },
               { value: 106, label: 'tea & crumpets' }
             ]}
           />

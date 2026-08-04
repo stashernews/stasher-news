@@ -4,7 +4,7 @@ export default gql`
 
 extend type Query {
   payIn(id: Int!): PayIn
-  satistics(cursor: String, walletId: ID): Satistics
+  statistics(cursor: String, walletId: ID): Statistics
   failedPayIns: [PayIn!]!
 }
 
@@ -12,7 +12,7 @@ extend type Mutation {
   retryPayIn(payInId: Int!, sendProtocolId: Int): PayIn!
 }
 
-type Satistics {
+type Statistics {
   payIns: [PayIn!]!
   cursor: String
 }
@@ -26,8 +26,8 @@ enum PayInType {
   BUY_CREDITS
   ITEM_CREATE
   ITEM_UPDATE
-  ZAP
-  DOWN_ZAP
+  TIP
+  DOWNVOTE
   BOOST
   DONATE
   POLL_VOTE
@@ -46,20 +46,11 @@ enum PayInType {
 }
 
 enum PayInState {
-  PENDING_INVOICE_CREATION
-  PENDING_INVOICE_WRAP
-  PENDING_WITHDRAWAL
-  WITHDRAWAL_PAID
-  WITHDRAWAL_FAILED
-  PENDING
-  PENDING_HELD
-  HELD
-  PAID
+  PENDING_PAYMENT
+  DETECTED
+  CONFIRMED
   FAILED
-  FORWARDING
-  FORWARDED
-  FAILED_FORWARD
-  CANCELLED
+  PAID
 }
 
 enum PayInFailureReason {
@@ -122,7 +113,7 @@ type PayIn {
   id: Int!
   createdAt: Date!
   updatedAt: Date!
-  mcost: BigInt!
+  piconeros: BigInt!
   moneroUri: String
   isSend: Boolean
   payInType: PayInType!
@@ -154,7 +145,7 @@ enum PayOutType {
   ROUTING_FEE
   ROUTING_FEE_REFUND
   PROXY_PAYMENT
-  ZAP
+  TIP
   BOUNTY_PAYMENT
   REWARD
   INVITE_GIFT

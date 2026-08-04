@@ -1,5 +1,4 @@
 import { inviteSchema, validateSchema } from '@/lib/validate'
-import { msatsToSats } from '@/lib/format'
 import assertApiKeyNotPermitted from './apiKey'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 import { Prisma } from '@prisma/client'
@@ -87,7 +86,8 @@ export default {
     },
     poor: async (invite, args, { me, models }) => {
       const user = await models.user.findUnique({ where: { id: invite.userId } })
-      return msatsToSats(user.msats) < invite.gift && msatsToSats(user.mcredits) < invite.gift
+      return (user.stackedPiconeros ?? 0n) < BigInt(invite.gift ?? 0) &&
+        (user.stackedCredits ?? 0n) < BigInt(invite.gift ?? 0)
     },
     description: (invite, args, { me }) => {
       return invite.userId === me?.id ? invite.description : undefined

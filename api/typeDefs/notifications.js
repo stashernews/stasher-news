@@ -12,14 +12,14 @@ export default gql`
 
   type Votification {
     id: ID!
-    earnedSats: Int!
+    earnedPiconeros: BigInt!
     item: Item!
     sortTime: Date!
   }
 
   type BountyPayment {
     id: ID!
-    earnedSats: Int!
+    earnedPiconeros: BigInt!
     item: Item!
     sortTime: Date!
   }
@@ -44,7 +44,7 @@ export default gql`
 
   type ForwardedVotification {
     id: ID!
-    earnedSats: Int!
+    earnedPiconeros: BigInt!
     item: Item!
     sortTime: Date!
   }
@@ -83,7 +83,7 @@ export default gql`
   type PayInification {
     id: ID!
     payIn: PayIn!
-    earnedSats: Int!
+    earnedPiconeros: BigInt!
     sortTime: Date!
     payInItem: Item
   }
@@ -96,15 +96,15 @@ export default gql`
 
   type EarnSources {
     id: ID!
-    posts: Int!
-    comments: Int!
-    tipPosts: Int!
-    tipComments: Int!
+    posts: BigInt!
+    comments: BigInt!
+    tipPosts: BigInt!
+    tipComments: BigInt!
   }
 
   type Earn {
     id: ID!
-    earnedSats: Int!
+    earnedPiconeros: BigInt!
     minSortTime: Date!
     sortTime: Date!
     sources: EarnSources
@@ -112,20 +112,20 @@ export default gql`
 
   type ReferralSources {
     id: ID!
-    forever: Int!
-    oneDay: Int!
+    forever: BigInt!
+    oneDay: BigInt!
   }
 
   type ReferralReward {
     id: ID!
-    earnedSats: Int!
+    earnedPiconeros: BigInt!
     sortTime: Date!
     sources: ReferralSources
   }
 
   type Revenue {
     id: ID!
-    earnedSats: Int!
+    earnedPiconeros: BigInt!
     sortTime: Date!
     subName: String!
   }

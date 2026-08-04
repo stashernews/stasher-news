@@ -98,7 +98,7 @@ export default {
         AND ${sliceClause(sub, mine ? me : null)}
         WHERE ${spenderPayInsExcluded(sub, mine ? me : null)}`
 
-      // Get stacking totals using same grid pattern as stackingGrowth
+      // Get stashing totals using same grid pattern as stashingGrowth
       const payOutResult = await models.$queryRaw`
         WITH series AS (
           ${series}
@@ -131,7 +131,7 @@ export default {
       return {
         spending: payInResult[0]?.spending || 0,
         items: payInResult[0]?.items || 0,
-        stacking: payOutResult[0]?.stacking || 0,
+        stashing: payOutResult[0]?.stacking || 0,
         registrations
       }
     },
@@ -238,7 +238,7 @@ export default {
 
       return result
     },
-    stackerGrowth: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
+    stasherGrowth: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
       const { me, models } = ctx
       const { granularity, series } = timeHelper(when, from, to)
 
@@ -273,7 +273,7 @@ export default {
         GROUP BY grid."timeBucket", totals.total
         ORDER BY grid."timeBucket" ASC`
     },
-    stackingGrowth: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
+    stashingGrowth: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
       const { me, models } = ctx
       const { granularity, series } = timeHelper(when, from, to)
 

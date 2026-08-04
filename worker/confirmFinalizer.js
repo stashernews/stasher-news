@@ -107,7 +107,7 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
 
   // ObservedBurn (penaltyIndexer Phase 4): mature DETECTED downvote burns to
   // CONFIRMED at the same confirmation threshold. The ranking penalty
-  // (weightedDownVotes/downMsats) was already applied at DETECTION — mirroring
+  // (weightedDownVotes/downPiconeros) was already applied at DETECTION — mirroring
   // how tips apply their effect at DETECTION — so CONFIRMED just finalizes the
   // ledger row. Reorg reversal is deferred (consistent with the tip flow: a
   // >10-block Monero reorg is negligible; consequence is minor ranking drift,

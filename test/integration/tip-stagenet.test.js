@@ -9,7 +9,7 @@
 //   -> initiateTip (generates payment ID + integrated address, registers a lws
 //      tx-confirmation webhook, creates a PENDING ObservedTip)
 //   -> send a real stagenet tip to the integrated address
-//   -> lws pushes a 0-conf webhook -> ObservedTip DETECTED, Item.msats +
+//   -> lws pushes a 0-conf webhook -> ObservedTip DETECTED, Item.piconeros +
 //      ranktop/ranklit bumped by the ranking trigger
 //   -> lws pushes a 10-conf webhook (or confirmFinalizer catches it) ->
 //      ObservedTip CONFIRMED, author's User.stackedPiconeros bumped.
@@ -116,7 +116,7 @@ async function dumpDiagnostics (postId, accountId, paymentId) {
     orderBy: { detectedAt: 'desc' }
   })
   console.log('  ObservedTip:', tip ? JSON.stringify(tip, (k, v) => typeof v === 'bigint' ? v.toString() + 'n' : v, 2) : '(none)')
-  const item = await prisma.item.findUnique({ where: { id: postId }, select: { msats: true, ranktop: true, ranklit: true, commentMsats: true } })
+  const item = await prisma.item.findUnique({ where: { id: postId }, select: { piconeros: true, ranktop: true, ranklit: true, commentPiconeros: true } })
   console.log('  Item:', item ? JSON.stringify(item, (k, v) => typeof v === 'bigint' ? v.toString() + 'n' : v) : '(missing)')
   const acct = await prisma.moneroAccount.findUnique({
     where: { id: accountId },
@@ -217,7 +217,7 @@ async function sendTipManual (integratedAddress, moneroUri, amountPiconeros) {
 
   afterAll(async () => { await prisma.$disconnect() })
 
-  test('register -> initiateTip -> send -> DETECTED (msats + ranking) -> CONFIRMED (stackedPiconeros)', async () => {
+  test('register -> initiateTip -> send -> DETECTED (piconeros + ranking) -> CONFIRMED (stackedPiconeros)', async () => {
     const address = process.env.STAGENET_AUTHOR_ADDRESS
     const viewKey = process.env.STAGENET_AUTHOR_VIEWKEY
     const network = (process.env.MONERO_NETWORK || 'stagenet').toUpperCase()
@@ -240,7 +240,7 @@ async function sendTipManual (integratedAddress, moneroUri, amountPiconeros) {
     run.accountId = account.id
     run.userId = account.ownerUserId
 
-    // ---- 2. Create a fresh post (msats starts at 0) -------------------------
+    // ---- 2. Create a fresh post (piconeros starts at 0) -------------------------
     const title = `test-stagenet-webhook-${Date.now()}`
     const inserted = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title) VALUES (${run.userId}::int, ${title}) RETURNING id::int AS id`
     const postId = inserted[0].id
@@ -259,9 +259,9 @@ async function sendTipManual (integratedAddress, moneroUri, amountPiconeros) {
     console.log(`  initiateTip: paymentId=${initiation.paymentId} integrated=${initiation.integratedAddress.slice(0, 20)}...`)
 
     // ---- 4. Capture baselines ------------------------------------------------
-    const baseItem = await prisma.item.findUnique({ where: { id: postId }, select: { msats: true, ranktop: true, ranklit: true } })
+    const baseItem = await prisma.item.findUnique({ where: { id: postId }, select: { piconeros: true, ranktop: true, ranklit: true } })
     const baseUser = await prisma.user.findUnique({ where: { id: run.userId }, select: { stackedPiconeros: true } })
-    console.log(`  baseline: Item.msats=${baseItem.msats.toString()} ranktop=${baseItem.ranktop} ranklit=${baseItem.ranklit}; User.stackedPiconeros=${baseUser.stackedPiconeros.toString()}`)
+    console.log(`  baseline: Item.piconeros=${baseItem.piconeros.toString()} ranktop=${baseItem.ranktop} ranklit=${baseItem.ranklit}; User.stackedPiconeros=${baseUser.stackedPiconeros.toString()}`)
 
     // ---- 5. Send the tip to the integrated address ---------------------------
     const sendMode = process.env.STAGENET_SENDER_SEED ? 'programmatic' : 'manual'
@@ -296,11 +296,11 @@ async function sendTipManual (integratedAddress, moneroUri, amountPiconeros) {
     const tipAmount = detected.piconeros
 
     // ---- 7. Assert DETECTED effects ------------------------------------------
-    const detItem = await prisma.item.findUnique({ where: { id: postId }, select: { msats: true, ranktop: true, ranklit: true } })
+    const detItem = await prisma.item.findUnique({ where: { id: postId }, select: { piconeros: true, ranktop: true, ranklit: true } })
     const detUser = await prisma.user.findUnique({ where: { id: run.userId }, select: { stackedPiconeros: true } })
 
     try {
-      expect(detItem.msats - baseItem.msats).toBe(tipAmount)
+      expect(detItem.piconeros - baseItem.piconeros).toBe(tipAmount)
       expect(detItem.ranktop).not.toBe(baseItem.ranktop)
       expect(detItem.ranklit).not.toBe(baseItem.ranklit)
       expect(detUser.stackedPiconeros).toBe(baseUser.stackedPiconeros)
@@ -308,7 +308,7 @@ async function sendTipManual (integratedAddress, moneroUri, amountPiconeros) {
       await dumpDiagnostics(postId, account.id, run.paymentId)
       throw err
     }
-    console.log('  DETECTED assertions passed (msats + ranking trigger fired; stackedPiconeros unchanged)')
+    console.log('  DETECTED assertions passed (piconeros + ranking trigger fired; stackedPiconeros unchanged)')
 
     // ---- 8. Poll for CONFIRMED (webhook at 10-conf, or confirmFinalizer) -----
     let confirmed = null

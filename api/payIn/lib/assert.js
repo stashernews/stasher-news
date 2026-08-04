@@ -31,39 +31,39 @@ export async function assertBelowMaxPendingPayIns (models, payIn) {
   }
 }
 
-export function assertMcostRemaining (mcost) {
-  if (mcost % 1000n !== 0n) {
-    throw new Error('mcost must be a multiple of 1000')
+export function assertPiconerosRemaining (piconeros) {
+  if (piconeros % 1000n !== 0n) {
+    throw new Error('piconeros must be a multiple of 1000')
   }
 }
 
 export function assertBalancedPayInAndPayOuts (payIn) {
-  // pay outs equal to mcost
-  // pay ins equal to mcost if paid
-  // pay ins less than mcost if not paid
-  const beneficiariesMcost = payIn.beneficiaries?.reduce((acc, beneficiary) => acc + beneficiary.mcost, 0n) ?? 0n
+  // pay outs equal to piconeros
+  // pay ins equal to piconeros if paid
+  // pay ins less than piconeros if not paid
+  const beneficiariesPiconeros = payIn.beneficiaries?.reduce((acc, beneficiary) => acc + beneficiary.piconeros, 0n) ?? 0n
   const payOutsMtokens = (payIn.payOutCustodialTokens?.reduce((acc, token) => acc + token.mtokens, 0n) ?? 0n) +
-    beneficiariesMcost
+    beneficiariesPiconeros
   const payInsMtokens = payIn.payInCustodialTokens?.reduce((acc, token) => acc + token.mtokens, 0n) ?? 0n
-  if (payOutsMtokens !== payIn.mcost) {
-    throw new Error(`pay outs must equal mcost: ${payOutsMtokens} !== ${payIn.mcost}`)
+  if (payOutsMtokens !== payIn.piconeros) {
+    throw new Error(`pay outs must equal piconeros: ${payOutsMtokens} !== ${payIn.piconeros}`)
   }
-  if (payIn.payInState === 'PAID' && payInsMtokens !== payIn.mcost) {
-    throw new Error(`pay ins must equal mcost if paid: ${payInsMtokens} !== ${payIn.mcost}`)
+  if (payIn.payInState === 'PAID' && payInsMtokens !== payIn.piconeros) {
+    throw new Error(`pay ins must equal piconeros if paid: ${payInsMtokens} !== ${payIn.piconeros}`)
   }
   // PENDING_WITHDRAWAL is an exception - custodial tokens are debited immediately for withdrawals
   if (payIn.payInState === 'PENDING_WITHDRAWAL') {
-    if (payInsMtokens !== payIn.mcost) {
-      throw new Error(`pay ins must equal mcost if pending withdrawal: ${payInsMtokens} !== ${payIn.mcost}`)
+    if (payInsMtokens !== payIn.piconeros) {
+      throw new Error(`pay ins must equal piconeros if pending withdrawal: ${payInsMtokens} !== ${payIn.piconeros}`)
     }
-  } else if (payIn.payInState !== 'PAID' && payInsMtokens >= payIn.mcost) {
-    throw new Error(`pay ins must be less than mcost if not paid: ${payInsMtokens} >= ${payIn.mcost}`)
+  } else if (payIn.payInState !== 'PAID' && payInsMtokens >= payIn.piconeros) {
+    throw new Error(`pay ins must be less than piconeros if not paid: ${payInsMtokens} >= ${payIn.piconeros}`)
   }
 
   payIn.beneficiaries?.forEach(beneficiary => {
-    const payOutsMcost = beneficiary.payOutCustodialTokens.reduce((acc, token) => acc + token.mtokens, 0n)
-    if (payOutsMcost !== beneficiary.mcost) {
-      throw new Error(`beneficiary pay outs must equal their mcost: ${payOutsMcost} !== ${beneficiary.mcost}`)
+    const payOutsPiconeros = beneficiary.payOutCustodialTokens.reduce((acc, token) => acc + token.mtokens, 0n)
+    if (payOutsPiconeros !== beneficiary.piconeros) {
+      throw new Error(`beneficiary pay outs must equal their piconeros: ${payOutsPiconeros} !== ${beneficiary.piconeros}`)
     }
   })
 }

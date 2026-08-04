@@ -17,7 +17,7 @@ test(`webhook receiver handles ${N} concurrent 0-conf callbacks within budget wi
   })
   expect(tips.length).toBeGreaterThan(0)
 
-  const postBefore = await prisma.item.findUnique({ where: { id: tips[0].postId }, select: { msats: true } })
+  const postBefore = await prisma.item.findUnique({ where: { id: tips[0].postId }, select: { piconeros: true } })
   const sumExpected = tips.reduce((s, t) => s + t.piconeros, 0n)
 
   const start = Date.now()
@@ -41,9 +41,9 @@ test(`webhook receiver handles ${N} concurrent 0-conf callbacks within budget wi
   expect(stillPending).toBe(0)
   expect(detected).toBe(tips.length)
 
-  // msats bumped by EXACTLY the sum (the atomic claim guarantees no double-count).
-  const postAfter = await prisma.item.findUnique({ where: { id: tips[0].postId }, select: { msats: true } })
-  expect(postAfter.msats - postBefore.msats).toBe(sumExpected)
+  // piconeros bumped by EXACTLY the sum (the atomic claim guarantees no double-count).
+  const postAfter = await prisma.item.findUnique({ where: { id: tips[0].postId }, select: { piconeros: true } })
+  expect(postAfter.piconeros - postBefore.piconeros).toBe(sumExpected)
 
   console.log(`webhook load: ${tips.length} callbacks in ${elapsed}ms (budget ${BUDGET_MS}ms)`)
   expect(elapsed).toBeLessThan(BUDGET_MS)

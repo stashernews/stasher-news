@@ -36,12 +36,12 @@ function makeModels ({ item = ITEM, config = CONFIG } = {}) {
 }
 
 describe('downZap.getInitial', () => {
-  test('returns mcost 0n and a monero: URI carrying a 106-char integrated address', async () => {
+  test('returns piconeros 0n and a monero: URI carrying a 106-char integrated address', async () => {
     const models = makeModels()
     const result = await getInitial(models, { id: POST_ID, piconeros: 1000000000n }, { me: ME })
 
-    expect(result.payInType).toBe('DOWN_ZAP')
-    expect(result.mcost).toBe(0n)
+    expect(result.payInType).toBe('DOWNVOTE')
+    expect(result.piconeros).toBe(0n)
     expect(result.moneroUri).toMatch(/^monero:/)
     const addr = result.moneroUri.slice('monero:'.length).split('?')[0]
     expect(addr).toMatch(/^5/)

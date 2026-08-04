@@ -133,13 +133,13 @@ export function NavNotifications ({ className }) {
 
 export function WalletSummary () {
   const { me } = useMe()
-  if (!me || me.privates?.sats === 0) return null
+  if (!me || me.privates?.piconeros === 0) return null
   return (
     <span
       className='text-monospace'
       title={`${numWithUnits(me.privates?.credits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })}`}
     >
-      {`${abbrNum(me.privates?.sats)}`}
+      {`${abbrNum(me.privates?.piconeros)}`}
     </span>
   )
 }

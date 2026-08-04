@@ -64,7 +64,7 @@ async function seedPendingFeePost (minor) {
       userId,
       payInType: 'ITEM_CREATE',
       payInState: 'PAID',
-      mcost: 0n,
+      piconeros: 0n,
       moneroSubaddressMajor: 1,
       moneroSubaddressMinor: minor
     }

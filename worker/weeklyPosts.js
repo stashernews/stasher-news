@@ -50,7 +50,7 @@ export async function payWeeklyPostBounty ({ data: { id }, models, apollo }) {
     throw new Error('No winner')
   }
 
-  await pay('ZAP',
+  await pay('TIP',
     { id: winner.id, sats: item.bounty },
     {
       me: { id: USER_ID.sn },

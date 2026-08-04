@@ -25,15 +25,15 @@ export async function getInitial (models, args, { me }) {
   // users (stacked >= 1e10 piconeros AND age >= 7d); low-rep users pay a posting fee
   // to the platform rewards wallet before their post goes live.
   //
-  // mcost is 0 in BOTH cases — StealthNews does not charge custodial sats for
+  // piconeros is 0 in BOTH cases — StealthNews does not charge custodial sats for
   // posting. The fee (when required) is on-chain Monero to a rewards-wallet fee
   // subaddress, observed by the penaltyIndexer. The SN payIn engine therefore sees
-  // mcost=0 -> payInState=PAID; the post's VISIBILITY is gated independently by
+  // piconeros=0 -> payInState=PAID; the post's VISIBILITY is gated independently by
   // Item.feeStatus (set in onBegin), which the penaltyIndexer flips PENDING_FEE ->
   // FEE_PAID when it observes the fee output.
   // Comments are always free — the posting fee is per post (spec §2.2, row 826).
   if (args.parentId) {
-    return { payInType: 'ITEM_CREATE', userId: me.id, mcost: 0n }
+    return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
   }
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
@@ -44,7 +44,7 @@ export async function getInitial (models, args, { me }) {
     return {
       payInType: 'ITEM_CREATE',
       userId: me.id,
-      mcost: 0n
+      piconeros: 0n
     }
   }
 
@@ -58,7 +58,7 @@ export async function getInitial (models, args, { me }) {
   return {
     payInType: 'ITEM_CREATE',
     userId: me.id,
-    mcost: 0n,
+    piconeros: 0n,
     moneroUri,
     moneroSubaddressMajor: sub.major,
     moneroSubaddressMinor: sub.minor
@@ -66,7 +66,7 @@ export async function getInitial (models, args, { me }) {
 }
 
 export async function validateBeforeCreate (tx, payInProspect, payInArgs, { me }) {
-  if (me.id === USER_ID.anon || payInArgs.bio || (payInArgs.parentId && payInProspect.mcost === 0n)) {
+  if (me.id === USER_ID.anon || payInArgs.bio || (payInArgs.parentId && payInProspect.piconeros === 0n)) {
     return
   }
 
@@ -124,12 +124,12 @@ export async function onBegin (tx, payInId, args) {
   const imgproxyUrls = await getTempImgproxyUrls(tx, uploadIds)
 
   // freebie is true when cost is 0 and it's a comment or bio
-  const isFreebie = payIn.mcost === 0n && !!(parentId || data.bio)
+  const isFreebie = payIn.piconeros === 0n && !!(parentId || data.bio)
 
   const itemData = {
     parentId: parentId ? parseInt(parentId) : null,
     ...data,
-    cost: msatsToSats(payIn.mcost),
+    cost: msatsToSats(payIn.piconeros),
     freebie: isFreebie,
     imgproxyUrls,
     feeStatus,

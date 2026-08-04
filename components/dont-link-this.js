@@ -8,13 +8,13 @@ import getColor from '@/lib/rainbow'
 import styles from './upvote.module.css'
 
 export function DownZap ({ item, ...props }) {
-  const { meDontLikeSats } = item
-  const style = useMemo(() => (meDontLikeSats
+  const { meDontLikePiconeros } = item
+  const style = useMemo(() => (meDontLikePiconeros
     ? {
-        fill: getColor(meDontLikeSats),
-        filter: `drop-shadow(0 0 6px ${getColor(meDontLikeSats)}90)`
+        fill: getColor(meDontLikePiconeros),
+        filter: `drop-shadow(0 0 6px ${getColor(meDontLikePiconeros)}90)`
       }
-    : undefined), [meDontLikeSats])
+    : undefined), [meDontLikePiconeros])
   return (
     <DownZapper
       item={item} As={({ ...oprops }) =>

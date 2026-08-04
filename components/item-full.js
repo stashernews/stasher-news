@@ -21,7 +21,7 @@ import { RootProvider } from './root'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseEmbedUrl } from '@/lib/url'
 import { xmrFromSats } from '@/lib/format'
 import { useQuoteReply } from './use-quote-reply'
-import { UNKNOWN_LINK_REL, DEFAULT_POSTS_SATS_FILTER } from '@/lib/constants'
+import { UNKNOWN_LINK_REL, DEFAULT_POSTS_PICONEROS_FILTER } from '@/lib/constants'
 import classNames from 'classnames'
 import { CarouselProvider } from './carousel'
 import Embed from './embed'
@@ -96,8 +96,8 @@ function TopLevelItem ({ item, noReply, ...props }) {
   const ItemComponent = item.isJob ? ItemJob : Item
   const { ref: readerRef, onRef: onReaderRef } = useCallbackRef()
   const { ref: textRef, quote, quoteReply, cancelQuote } = useQuoteReply({ text: item.text, readerRef })
-  const postsSatsFilter = me ? me.privates?.postsSatsFilter : DEFAULT_POSTS_SATS_FILTER
-  const isBelowFilter = !item.mine && postsSatsFilter != null && (item.netInvestment ?? 0) < postsSatsFilter
+  const postsPiconerosFilter = me ? me.privates?.postsPiconerosFilter : DEFAULT_POSTS_PICONEROS_FILTER
+  const isBelowFilter = !item.mine && postsPiconerosFilter != null && (item.netInvestment ?? 0) < postsPiconerosFilter
 
   return (
     <ItemComponent
@@ -196,7 +196,7 @@ export default function ItemFull ({ item, fetchMoreComments, bio, rank, ...props
               <Comments
                 parentId={item.id} parentCreatedAt={item.createdAt}
                 pinned={item.position} bio={bio}
-                commentSats={item.commentSats} commentCost={item.commentCost} commentBoost={item.commentBoost}
+                commentSats={item.commentPiconeros} commentCost={item.commentCost} commentBoost={item.commentBoost}
                 ncomments={item.ncomments}
                 comments={item.comments.comments}
                 commentsCursor={item.comments.cursor}

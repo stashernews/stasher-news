@@ -1,5 +1,5 @@
 // Relations/columns stripped from the schema. They cannot be included/create/d
-// on the real PayIn model; ignoring them keeps the mcost:0 fee path alive.
+// on the real PayIn model; ignoring them keeps the piconeros:0 fee path alive.
 const GHOST_KEYS = new Set([
   'payInCustodialTokens',
   'payOutCustodialTokens',
@@ -40,13 +40,13 @@ export function payInPrismaCreate (payIn) {
   return result
 }
 
-// from the top level PayIn and beneficiaries, we just want mcost, payIntype, userId, genesisId and arrays and objects nested within
+// from the top level PayIn and beneficiaries, we just want piconeros, payIntype, userId, genesisId and arrays and objects nested within
 // from the nested arrays and objects, we want anything but the payInId
 // do all of it recursively
 
 export function payInClone (payIn) {
   const result = {
-    mcost: payIn.mcost,
+    piconeros: payIn.piconeros,
     payInType: payIn.payInType,
     userId: payIn.userId,
     genesisId: payIn.genesisId ?? payIn.id

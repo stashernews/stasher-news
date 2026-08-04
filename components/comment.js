@@ -9,7 +9,7 @@ import Eye from '@/svgs/eye-fill.svg'
 import EyeClose from '@/svgs/eye-close-line.svg'
 import { useRouter } from 'next/router'
 import CommentEdit from './comment-edit'
-import { USER_ID, COMMENT_DEPTH_LIMIT, UNKNOWN_LINK_REL, DEFAULT_COMMENTS_SATS_FILTER } from '@/lib/constants'
+import { USER_ID, COMMENT_DEPTH_LIMIT, UNKNOWN_LINK_REL, DEFAULT_COMMENTS_PICONEROS_FILTER } from '@/lib/constants'
 import PayBounty from './pay-bounty'
 import BountyIcon from '@/svgs/bounty-bag.svg'
 import ActionTooltip from './action-tooltip'
@@ -104,9 +104,9 @@ export default function Comment ({
 }) {
   const [edit, setEdit] = useState()
   const { me } = useMe()
-  // Collapse comments that don't meet the viewer's commentsSatsFilter threshold
-  const commentsSatsFilter = me ? me.privates?.commentsSatsFilter : DEFAULT_COMMENTS_SATS_FILTER
-  const isBelowFilter = !item.mine && commentsSatsFilter != null && item.netInvestment < commentsSatsFilter
+  // Collapse comments that don't meet the viewer's commentsPiconerosFilter threshold
+  const commentsPiconerosFilter = me ? me.privates?.commentsPiconerosFilter : DEFAULT_COMMENTS_PICONEROS_FILTER
+  const isBelowFilter = !item.mine && commentsPiconerosFilter != null && item.netInvestment < commentsPiconerosFilter
   const isDeletedChildless = item?.ncomments === 0 && item?.deletedAt
   const [collapse, setCollapse] = useState(
     (isBelowFilter || isDeletedChildless || item?.user?.meMute) && !includeParent
@@ -228,7 +228,7 @@ export default function Comment ({
           ? <Pin width={22} height={22} className={styles.pin} />
           : item.mine
             ? null
-            : item.meDontLikeSats > item.meSats
+            : item.meDontLikePiconeros > item.mePiconeros
               ? <DownZap width={24} height={24} className={styles.dontLike} item={item} />
               : <UpVote item={item} className={styles.upvote} collapsed={collapse === 'yep'} />}
         <div className={`${itemStyles.hunk} ${styles.hunk}`}>

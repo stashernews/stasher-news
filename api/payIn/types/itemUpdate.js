@@ -6,7 +6,7 @@ import { notifyItemMention, notifyMention } from '@/lib/webPush'
 import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
 import { satsToMsats, msatsToSats } from '@/lib/format'
 import * as MEDIA_UPLOAD from './mediaUpload'
-import { getBeneficiariesMcost } from '../lib/beneficiaries'
+import { getBeneficiariesPiconeros } from '../lib/beneficiaries'
 import { getItem } from '@/api/resolvers/item'
 import { subsDiff } from '@/lib/subs'
 import { getTempImgproxyUrls } from '../lib/upload'
@@ -18,7 +18,7 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-async function getMcost (models, { id, uploadIds, bio, newSubs, parentId }, { me }) {
+async function getPiconeros (models, { id, uploadIds, bio, newSubs, parentId }, { me }) {
   // the only reason updating items costs anything is when it has new uploads
   const old = await models.item.findUnique({
     where: {
@@ -38,7 +38,7 @@ async function getMcost (models, { id, uploadIds, bio, newSubs, parentId }, { me
 
   const { totalFeesMsats } = await uploadFees(uploadIds, { models, me })
 
-  let mcost = 0n
+  let piconeros = 0n
   const addedSubs = subsDiff(newSubs, old.subNames)
   if (!parentId && addedSubs.length > 0) {
     if (old.boost > 0) {
@@ -46,32 +46,32 @@ async function getMcost (models, { id, uploadIds, bio, newSubs, parentId }, { me
     }
     for (const subName of addedSubs) {
       const sub = newSubs.find(sub => sub.name === subName)
-      mcost += satsToMsats(sub.baseCost)
+      piconeros += satsToMsats(sub.baseCost)
     }
   }
 
-  if ((mcost > 0 || totalFeesMsats > 0) && old.itemPayIns.length === 0) {
+  if ((piconeros > 0 || totalFeesMsats > 0) && old.itemPayIns.length === 0) {
     throw new Error('cannot increase item cost with unpaid invoice')
   }
 
-  return mcost
+  return piconeros
 }
 
 export async function getInitial (models, { id, uploadIds, bio, subNames }, { me }) {
   const old = await models.item.findUnique({ where: { id: parseInt(id) } })
   const subs = await getSubs(models, { subNames, parentId: old.parentId })
-  const mcost = await getMcost(models, { id, uploadIds, bio, newSubs: subs, parentId: old.parentId }, { me })
+  const piconeros = await getPiconeros(models, { id, uploadIds, bio, newSubs: subs, parentId: old.parentId }, { me })
 
   // for post updates, when a sub is added, it contributes to the cost
-  // we populate the mcost so that the new sub gets their proportional share of the revenue
-  // for reply updates, they can't change subs, so we don't populate the mcost
+  // we populate the piconeros so that the new sub gets their proportional share of the revenue
+  // for reply updates, they can't change subs, so we don't populate the piconeros
   const subsWithCosts = old.parentId
     ? subs
     : subs.map(sub => ({
       ...sub,
-      mcost: old.subNames?.includes(sub.name) ? 0n : satsToMsats(sub.baseCost ?? 1)
+      piconeros: old.subNames?.includes(sub.name) ? 0n : satsToMsats(sub.baseCost ?? 1)
     }))
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs: subsWithCosts, mcost })
+  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs: subsWithCosts, piconeros })
 
   const beneficiaries = []
   if (uploadIds.length > 0) {
@@ -81,7 +81,7 @@ export async function getInitial (models, { id, uploadIds, bio, subNames }, { me
   return {
     payInType: 'ITEM_UPDATE',
     userId: me?.id,
-    mcost: mcost + getBeneficiariesMcost(beneficiaries),
+    piconeros: piconeros + getBeneficiariesPiconeros(beneficiaries),
     payOutCustodialTokens,
     itemPayIn: { itemId: parseInt(id) },
     beneficiaries
@@ -120,7 +120,7 @@ export async function onBegin (tx, payInId, args) {
 
   // if it has changed concurrently
   // update cost if the update has a cost (e.g., moving to new territory ... or adding images)
-  const additionalCost = msatsToSats(payIn.mcost)
+  const additionalCost = msatsToSats(payIn.piconeros)
   await tx.item.update({
     where: { id: parseInt(id) },
     data: {

@@ -15,7 +15,7 @@ export class AutoWithdrawIneligibleError extends Error {
 }
 
 // Single source of truth for the autowithdraw amount + eligibility arithmetic. Returns
-// { threshold, excess, maxFeeMsats, msats } or null when the user is not eligible right now.
+// { threshold, excess, maxFeePiconeros, piconeros } or null when the user is not eligible right now.
 export function computeAutoWithdrawAmount (user) {
   if (
     user.autoWithdrawThreshold === null ||
@@ -23,23 +23,23 @@ export function computeAutoWithdrawAmount (user) {
     user.autoWithdrawMaxFeeTotal === null) return null
 
   const threshold = satsToMsats(user.autoWithdrawThreshold)
-  const excess = Number(user.msats - threshold)
+  const excess = Number(user.stackedPiconeros - threshold)
 
   // excess must be greater than 10% of threshold
   if (excess < Number(threshold) * 0.1) return null
 
-  // floor fee to nearest sat but still denominated in msats
-  const maxFeeMsats = msatsSatsFloor(Math.max(
+  // floor fee to nearest sat but still denominated in piconeros
+  const maxFeePiconeros = msatsSatsFloor(Math.max(
     Math.ceil(excess * (user.autoWithdrawMaxFeePercent / 100.0)),
     Number(satsToMsats(user.autoWithdrawMaxFeeTotal))
   ))
-  // msats will be floored by createInvoice if it needs to be
-  const msats = BigInt(excess) - maxFeeMsats
+  // piconeros will be floored by createInvoice if it needs to be
+  const piconeros = BigInt(excess) - maxFeePiconeros
 
-  // must be >= 100000 msats (100 sats)
-  if (msats < 100000n) return null
+  // must be >= 100000 piconeros
+  if (piconeros < 100000n) return null
 
-  return { threshold, excess: BigInt(excess), maxFeeMsats, msats }
+  return { threshold, excess: BigInt(excess), maxFeePiconeros, piconeros }
 }
 
 // Monero integration pending - autowithdraw disabled

@@ -98,7 +98,7 @@ function getStreakQuery (type, userId) {
         ${userId ? Prisma.sql`AND "PayIn"."userId" = ${userId}` : Prisma.empty}
         AND "PayIn"."payInType" NOT IN ('WITHDRAWAL', 'AUTO_WITHDRAWAL', 'PROXY_PAYMENT')
         GROUP BY "PayIn"."userId"
-        HAVING sum("PayIn"."mcost") / 1000.0 >= ${COWBOY_HAT_STREAK_THRESHOLD}`
+        HAVING sum("PayIn"."piconeros") / 1000.0 >= ${COWBOY_HAT_STREAK_THRESHOLD}`
 }
 
 function isStreakActive (type, user) {

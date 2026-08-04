@@ -1,7 +1,6 @@
 import { USER_ID, IMAGE_PIXELS_MAX, UPLOAD_SIZE_MAX, UPLOAD_SIZE_MAX_AVATAR, UPLOAD_TYPES_ALLOW, AWS_S3_URL_REGEXP, AVATAR_TYPES_ALLOW, MEDIA_URL, DOMAIN_BETA_IDS } from '@/lib/constants'
 import { createPresignedPost } from '@/api/s3'
 import { GqlAuthenticationError, GqlAuthorizationError, GqlInputError } from '@/lib/error'
-import { msatsToSats } from '@/lib/format'
 import { Prisma } from '@prisma/client'
 
 export default {
@@ -11,9 +10,9 @@ export default {
       // GraphQL doesn't support bigint
       return {
         totalFees: Number(fees.totalFees),
-        totalFeesMsats: Number(fees.totalFeesMsats),
+        totalFeesPiconeros: Number(fees.totalFeesPiconeros),
         uploadFees: Number(fees.uploadFees),
-        uploadFeesMsats: Number(fees.uploadFeesMsats),
+        uploadFeesPiconeros: Number(fees.uploadFeesPiconeros),
         nUnpaid: Number(fees.nUnpaid),
         bytesUnpaid: Number(fees.bytesUnpaid),
         bytes24h: Number(fees.bytes24h)
@@ -102,9 +101,9 @@ export async function uploadFees (s3Keys, { models, me }) {
       bytesUnpaid: 0n,
       nUnpaid: 0n,
       uploadFees: 0n,
-      uploadFeesMsats: 0n,
+      uploadFeesPiconeros: 0n,
       totalFees: 0n,
-      totalFeesMsats: 0n
+      totalFeesPiconeros: 0n
     }
   }
 
@@ -112,19 +111,19 @@ export async function uploadFees (s3Keys, { models, me }) {
     bytes24h,
     bytesUnpaid,
     nUnpaid,
-    uploadFeesMsats
+    uploadFeesPiconeros
   }] = await models.$queryRaw`
     SELECT uploadinfo.*,
       CASE
-          -- anons always pay 100 sats per upload no matter the size
+          -- anons always pay the base upload fee in piconeros no matter the size
           WHEN ${userId} = 27 THEN 100000::BIGINT
           ELSE CASE
           -- 250MB are free per stacker and 24 hours
           WHEN uploadinfo."bytes24h" + uploadinfo."bytesUnpaid" <= 250 * 1024 * 1024 THEN 0::BIGINT
-          -- 100 sats per upload
+          -- base upload fee in piconeros per upload
           ELSE 100000::BIGINT
       END
-    END AS "uploadFeesMsats"
+    END AS "uploadFeesPiconeros"
     FROM (
       SELECT
           -- how much bytes did stacker upload in last 24 hours?
@@ -138,10 +137,10 @@ export async function uploadFees (s3Keys, { models, me }) {
       AND created_at >= NOW() - interval '24 hours'
     ) uploadinfo`
 
-  const uploadFees = BigInt(msatsToSats(uploadFeesMsats))
-  const totalFeesMsats = BigInt(nUnpaid) * uploadFeesMsats
-  const totalFees = BigInt(msatsToSats(totalFeesMsats))
-  return { bytes24h, bytesUnpaid, nUnpaid, uploadFees, uploadFeesMsats, totalFees, totalFeesMsats }
+  const uploadFees = uploadFeesPiconeros
+  const totalFeesPiconeros = BigInt(nUnpaid) * uploadFeesPiconeros
+  const totalFees = totalFeesPiconeros
+  return { bytes24h, bytesUnpaid, nUnpaid, uploadFees, uploadFeesPiconeros, totalFees, totalFeesPiconeros }
 }
 
 export async function throwOnExpiredUploads (uploadIds, { tx }) {

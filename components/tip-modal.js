@@ -53,7 +53,7 @@ export default function TipModal ({ item, onClose }) {
   const onDetected = useCallback(() => {
     // bump the item counter optimistically (sats = floor(piconeros/1000)); refetch reconciles
     const sats = Number(BigInt(tip.piconeros) / 1000n)
-    bumpActCache(client.cache, { id: item.id, sats, act: 'TIP', path: item.path }, me)
+    bumpActCache(client.cache, { id: item.id, piconeros: sats, act: 'TIP', path: item.path }, me)
     animate()
     onClose?.()
   }, [client, tip, item.id, item.path, me, animate, onClose])

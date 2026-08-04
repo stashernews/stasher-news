@@ -92,7 +92,7 @@ export default function Seo ({ sub, item, user }) {
         desc = desc.replace(/\s+/g, ' ')
       }
     } else {
-      desc = `@${item.user.name} stashed ${xmrFromSats(item.sats)} ${item.url ? `posting ${item.url}` : 'with this discussion'}`
+      desc = `@${item.user.name} stashed ${xmrFromSats(item.piconeros)} ${item.url ? `posting ${item.url}` : 'with this discussion'}`
     }
     if (item.ncomments) {
       desc += ` [${numWithUnits(item.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })}`

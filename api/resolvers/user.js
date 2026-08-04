@@ -1,7 +1,6 @@
 import { readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
-import { msatsToSats } from '@/lib/format'
 import { postingFeePrivatesFor } from '@/api/monero/postingFee'
 import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/validate'
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
@@ -274,12 +273,12 @@ export default {
       }
 
       // check if any votes have been cast for them since checkedNotesAt
-      if (user.noteItemSats) {
+      if (user.noteItemPiconeros) {
         const [newSats] = await models.$queryRawUnsafe(`
           SELECT EXISTS(
             SELECT *
             FROM "Item"
-            WHERE "Item"."lastZapAt" > $2
+            WHERE "Item"."lastTipAt" > $2
             AND "Item"."userId" = $1)`, me.id, lastChecked)
         if (newSats.exists) {
           foundNotes()
@@ -392,7 +391,7 @@ export default {
         }
       }
 
-      if (user.noteForwardedSats) {
+      if (user.noteForwardedPiconeros) {
         const [newFwdSats] = await models.$queryRawUnsafe(`
         SELECT EXISTS(
           SELECT *
@@ -401,7 +400,7 @@ export default {
             "ItemForward"."itemId" = "Item".id
             AND "ItemForward"."userId" = $1
           ${whereClause(
-            '"Item"."lastZapAt" > $2',
+            '"Item"."lastTipAt" > $2',
             '"Item"."userId" <> $1',
             activeOrMine(me),
             await filterClause(null, null, null, ctx),
@@ -420,7 +419,7 @@ export default {
             createdAt: {
               gt: lastChecked
             },
-            msats: {
+            piconeros: {
               gte: 1000
             }
           }
@@ -879,18 +878,18 @@ export default {
   },
 
   UserPrivates: {
-    sats: async (user, args, { models, me }) => {
+    piconeros: async (user, args, { models, me }) => {
       if (!me || me.id !== user.id) {
-        return 0
+        return 0n
       }
-      // floor each bucket once so `sats - credits === msatsToSats(user.stackedMsats)`
-      return msatsToSats(user.stackedMsats) + msatsToSats(user.stackedMcredits)
+      // floor each bucket once so `piconeros - credits === user.stackedPiconeros`
+      return BigInt(user.stackedPiconeros ?? 0) + BigInt(user.stackedCredits ?? 0)
     },
     credits: async (user, args, { models, me }) => {
       if (!me || me.id !== user.id) {
         return 0
       }
-      return msatsToSats(user.stackedMcredits)
+      return Number(user.stackedCredits ?? 0n)
     },
     tipDefault: user => user.tipDefaultPiconeros,
     authMethods,
@@ -985,7 +984,7 @@ export default {
 
       if (!when || when === 'forever') {
         // forever
-        return ((user.stackedMsats && msatsToSats(user.stackedMsats)) || 0)
+        return user.stackedPiconeros || 0n
       }
 
       const [fromDate, toDate] = whenRange(when, from, to)
@@ -1000,7 +999,7 @@ export default {
         AND "AggPayOut"."slice" = 'USER_BY_TYPE'
         GROUP BY "AggPayOut"."userId"
       `
-      return (stacked && msatsToSats(stacked)) || 0
+      return stacked ? BigInt(stacked) : 0n
     },
     spent: async (user, { when, from, to }, { models, me }) => {
       if ((!me || me.id !== user.id) && user.hideFromTopUsers) {
@@ -1024,7 +1023,7 @@ export default {
         GROUP BY "AggPayIn"."userId"
       `
 
-      return (spentRow?.spent && msatsToSats(spentRow.spent)) || 0
+      return spentRow?.spent ? BigInt(spentRow.spent) : 0n
     },
     referrals: async (user, { when, from, to }, { models, me }) => {
       if ((!me || me.id !== user.id) && user.hideFromTopUsers) {

@@ -5,7 +5,7 @@
 // ranking equivalent of this file's onPaid. This file is KEPT (not deleted) because
 // its trust/weighted-vote SQL may be referenced by other read paths; deleting it
 // risks silent breakage. getInitial/onPaid here are dead code for the tip path.
-// Phase 4's DOWN_ZAP is a separate payIn type that targets the rewards wallet.
+// Phase 4's DOWNVOTE is a separate payIn type that targets the rewards wallet.
 
 import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { numWithUnits, msatsToSats, satsToMsats } from '@/lib/format'
@@ -34,9 +34,9 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   const item = await models.item.findUnique({ where: { id: parseInt(payInArgs.id) }, include: { itemForwards: { include: { user: true } }, user: true } })
   const { subNames, parentId, itemForwards, userId, user } = item
   const subs = await getSubs(models, { subNames, parentId })
-  const mcost = satsToMsats(payInArgs.sats)
+  const piconeros = satsToMsats(payInArgs.sats)
 
-  const zapMtokens = mcost * 70n / 100n
+  const zapMtokens = piconeros * 70n / 100n
   const payOutCustodialTokensProspects = []
 
   // build unified candidate list: explicit forwards + author's implicit remaining share
@@ -50,16 +50,16 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   // P2P removed - Monero integration pending
   // distribute CCs to all candidates
   for (const c of candidates) {
-    payOutCustodialTokensProspects.push({ payOutType: 'ZAP', userId: c.userId, mtokens: zapMtokens * BigInt(c.pct) / 100n, custodialTokenType: 'CREDITS' })
+    payOutCustodialTokensProspects.push({ payOutType: 'TIP', userId: c.userId, mtokens: zapMtokens * BigInt(c.pct) / 100n, custodialTokenType: 'CREDITS' })
   }
 
   // what's left goes to the rewards pool
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, mcost, payOutCustodialTokens: payOutCustodialTokensProspects })
+  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, piconeros, payOutCustodialTokens: payOutCustodialTokensProspects })
 
   return {
-    payInType: 'ZAP',
+    payInType: 'TIP',
     userId: me.id,
-    mcost,
+    piconeros,
     itemPayIn: { itemId: parseInt(payInArgs.id) },
     payOutCustodialTokens
   }
@@ -73,7 +73,7 @@ export async function onBegin (tx, payInId, payInArgs) {
 export async function onRetry (tx, oldPayInId, newPayInId) {
   const { itemId, payIn } = await tx.itemPayIn.findUnique({ where: { payInId: oldPayInId }, include: { payIn: true } })
   const item = await getItemResult(tx, { id: itemId })
-  return { id: item.id, path: item.path, sats: msatsToSats(payIn.mcost), act: 'TIP' }
+  return { id: item.id, path: item.path, sats: msatsToSats(payIn.piconeros), act: 'TIP' }
 }
 
 export async function onPaid (tx, payInId) {
@@ -85,21 +85,21 @@ export async function onPaid (tx, payInId) {
     }
   })
 
-  const msats = payIn.mcost
-  const sats = msatsToSats(msats)
+  const piconeros = payIn.piconeros
+  const sats = msatsToSats(piconeros)
   const userId = payIn.userId
   const item = payIn.itemPayIn.item
   // P2P removed - Monero integration pending
-  const p2pMsats = 0n
-  // actual recipient msats = p2p invoice + custodial ZAP payouts
+  const p2pPiconeros = 0n
+  // actual recipient piconeros = p2p invoice + custodial TIP payouts
   // (ineligible authors have their share redistributed, so this can be less than 70%)
-  const recipientMsats = p2pMsats + payIn.payOutCustodialTokens
-    .filter(t => t.payOutType === 'ZAP')
+  const recipientPiconeros = p2pPiconeros + payIn.payOutCustodialTokens
+    .filter(t => t.payOutType === 'TIP')
     .reduce((acc, t) => acc + t.mtokens, 0n)
-  // scale mcost by the recipient's p2p share to determine how much of the zap is credits vs sats
-  const creditMsats = recipientMsats > 0n ? msats - msats * p2pMsats / recipientMsats : msats
+  // scale piconeros by the recipient's p2p share to determine how much of the tip is credits vs sats
+  const creditPiconeros = recipientPiconeros > 0n ? piconeros - piconeros * p2pPiconeros / recipientPiconeros : piconeros
 
-  // perform denomormalized aggregates: weighted votes, upvotes, msats, lastZapAt
+  // perform denomormalized aggregates: weighted votes, upvotes, piconeros, lastTipAt
   // NOTE: for the rows that might be updated by a concurrent zap, we use UPDATE for implicit locking
   // NOTE: ancestors are ORDER BY id for consistent lock ordering to prevent deadlocks
   // XXX we base the zap weight on the first sub in the subNames array
@@ -123,21 +123,21 @@ export async function onPaid (tx, payInId) {
       LEFT JOIN "UserSubTrust" ust ON ust."subName" = territory."subName"
         AND ust."userId" = ${userId}::INTEGER
     ), zap AS (
-      INSERT INTO "ItemUserAgg" ("userId", "itemId", "zapSats")
+      INSERT INTO "ItemUserAgg" ("userId", "itemId", "tipPiconeros")
       VALUES (${userId}::INTEGER, ${item.id}::INTEGER, ${sats}::INTEGER)
       ON CONFLICT ("itemId", "userId") DO UPDATE
-      SET "zapSats" = "ItemUserAgg"."zapSats" + ${sats}::INTEGER, updated_at = now()
-      RETURNING ("zapSats" = ${sats}::INTEGER)::INTEGER as first_vote,
-        LOG("zapSats" / GREATEST("zapSats" - ${sats}::INTEGER, 1)::FLOAT) AS log_sats
+      SET "tipPiconeros" = "ItemUserAgg"."tipPiconeros" + ${sats}::INTEGER, updated_at = now()
+      RETURNING ("tipPiconeros" = ${sats}::INTEGER)::INTEGER as first_vote,
+        LOG("tipPiconeros" / GREATEST("tipPiconeros" - ${sats}::INTEGER, 1)::FLOAT) AS log_sats
     ), item_zapped AS (
       UPDATE "Item"
       SET
         "weightedVotes" = "weightedVotes" + zapper."zapTrust" * zap.log_sats,
         "subWeightedVotes" = "subWeightedVotes" + zapper."subZapTrust" * zap.log_sats,
         upvotes = upvotes + zap.first_vote,
-        msats = "Item".msats + ${msats}::BIGINT,
-        mcredits = "Item".mcredits + ${creditMsats}::BIGINT,
-        "lastZapAt" = now()
+        piconeros = "Item".piconeros + ${piconeros}::BIGINT,
+        credits = "Item".credits + ${creditPiconeros}::BIGINT,
+        "lastTipAt" = now()
       FROM zap, zapper
       WHERE "Item".id = ${item.id}::INTEGER
       RETURNING "Item".*, zapper."zapTrust" * zap.log_sats as "weightedVote"
@@ -149,8 +149,8 @@ export async function onPaid (tx, payInId) {
     )
     UPDATE "Item"
     SET "weightedComments" = "Item"."weightedComments" + item_zapped."weightedVote",
-      "commentMsats" = "Item"."commentMsats" + ${msats}::BIGINT,
-      "commentMcredits" = "Item"."commentMcredits" + ${creditMsats}::BIGINT
+      "commentPiconeros" = "Item"."commentPiconeros" + ${piconeros}::BIGINT,
+      "commentCredits" = "Item"."commentCredits" + ${creditPiconeros}::BIGINT
     FROM item_zapped, ancestors
     WHERE "Item".id = ancestors.id`
 }
@@ -166,7 +166,7 @@ export async function onPaidSideEffects (models, payInId) {
     where: {
       itemId: payIn.itemPayIn.itemId,
       payIn: {
-        payInType: 'ZAP',
+        payInType: 'TIP',
         createdAt: {
           gt: payIn.createdAt
         }
@@ -178,5 +178,5 @@ export async function onPaidSideEffects (models, payInId) {
 
 export async function describe (models, payInId) {
   const payIn = await models.payIn.findUnique({ where: { id: payInId }, include: { itemPayIn: true } })
-  return `SN: zap ${numWithUnits(msatsToSats(payIn.mcost), { abbreviate: false })} #${payIn.itemPayIn.itemId}`
+  return `SN: zap ${numWithUnits(msatsToSats(payIn.piconeros), { abbreviate: false })} #${payIn.itemPayIn.itemId}`
 }

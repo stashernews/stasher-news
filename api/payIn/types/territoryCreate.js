@@ -8,7 +8,7 @@ import { buildMoneroUri } from '@/api/monero/uri'
 // StealthNews territory creation (spec §6.2). The founder pays a territory fee to
 // the platform rewards wallet via a dedicated major-2 subaddress; the territory is
 // created billingStatus=PENDING_FEE (invisible/inactive) until the penaltyIndexer
-// observes the fee and flips it to PAID. mcost=0 (no custodial sats) so the SN
+// observes the fee and flips it to PAID. piconeros=0 (no custodial sats) so the SN
 // payIn engine yields payInState=PAID; the fee itself is on-chain.
 
 export const anonable = false
@@ -30,7 +30,7 @@ export async function getInitial (models, { billingType, name }, { me }) {
   return {
     payInType: 'TERRITORY_CREATE',
     userId: me?.id,
-    mcost: 0n,
+    piconeros: 0n,
     moneroUri,
     moneroSubaddressMajor: sub.major,
     moneroSubaddressMinor: sub.minor

@@ -4,7 +4,7 @@ import createPrisma from '@/lib/create-prisma'
 // rewardsDistributor (Phase 4 Task 7 / design spec §5). It ports Stacker.news'
 // worker/earn.js reward CTE verbatim, changing ONLY the input source: confirmed
 // ObservedTip rows (P2P Monero tips) replace the legacy PayIn ZAP records, and
-// the pool unit is piconeros (1e-12 XMR) rather than msats.
+// the pool unit is piconeros (1e-12 XMR).
 //
 // What was dropped vs earn.js (per the design spec):
 //   - the ITEM_CREATE PayIn LATERAL join + America/Chicago day filter -> a direct
@@ -115,8 +115,8 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
       ),
       -- one row per (user, item, island): quad-root of the tipped piconeros.
       -- power(sum, 0.25) gives diminishing returns (each additional piconero
-      -- rewards less than the last). The legacy /1000 (msats->sats) is dropped:
-      -- it was a constant divisor that cancels under the final normalization.
+      -- rewards less than the last). The legacy /1000 divisor is dropped: it
+      -- was a constant divisor that cancels under the final normalization.
       item_zappers AS (
         SELECT "userId",
           item_zapper_islands.id,

@@ -29,7 +29,7 @@ export const ME_REWARDS = gql`
       rewards {
         type
         rank
-        sats
+        piconeros
         item {
           ...ItemFullFields
           text

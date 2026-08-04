@@ -2,12 +2,12 @@
 
 // Integration test: the tip-detected ranking hook (api/monero/ranking.js) is
 // the bridge between an observed Monero tip and SN's retained ranking trigger.
-// applyTipDetected bumps Item.msats (+ ancestor commentMsats) + attributes to
-// ItemUserAgg.zapSats; the retained item_ranking BEFORE UPDATE trigger then
+// applyTipDetected bumps Item.piconeros (+ ancestor commentPiconeros) + attributes to
+// ItemUserAgg.tipPiconeros; the retained item_ranking BEFORE UPDATE trigger then
 // recomputes ranktop/ranklit. reverseTip is the inverse for reorg rollback.
 //
-// Mirrors api/payIn/types/zap.js onPaid, scoped to msats + ItemUserAgg.zapSats
-// + commentMsats propagation (no trust-weighting columns — see task-5-report).
+// Mirrors api/payIn/types/zap.js onPaid, scoped to piconeros + ItemUserAgg.tipPiconeros
+// + commentPiconeros propagation (no trust-weighting columns — see task-5-report).
 //
 // Requires a live, migrated database. Run via:
 //   docker exec sn-prisma npx jest test/api/monero/ranking.test.js
@@ -61,11 +61,11 @@ async function createComment (userId, rootId, title) {
 function readItem (id) {
   return prisma.item.findUnique({
     where: { id },
-    select: { msats: true, ranktop: true, commentMsats: true }
+    select: { piconeros: true, ranktop: true, commentPiconeros: true }
   })
 }
 
-test('applyTipDetected bumps Item.msats, ranktop, and ItemUserAgg.zapSats', async () => {
+test('applyTipDetected bumps Item.piconeros, ranktop, and ItemUserAgg.tipPiconeros', async () => {
   const u = await createUser(); created.users.push(u)
   const p = await createRoot(u, 'tip-bump'); created.items.push(p)
 
@@ -73,16 +73,16 @@ test('applyTipDetected bumps Item.msats, ranktop, and ItemUserAgg.zapSats', asyn
   await applyTipDetected(p, u, 5000000n)
   const after = await readItem(p)
 
-  expect(after.msats - before.msats).toBe(5000000n)
+  expect(after.piconeros - before.piconeros).toBe(5000000n)
   expect(after.ranktop).toBeGreaterThan(before.ranktop)
 
   const agg = await prisma.itemUserAgg.findUnique({
     where: { itemId_userId: { itemId: p, userId: u } }
   })
-  expect(agg.zapSats).toBe(5000000n)
+  expect(agg.tipPiconeros).toBe(5000000n)
 })
 
-test('applyTipDetected with null tipper bumps msats but creates no ItemUserAgg row', async () => {
+test('applyTipDetected with null tipper bumps piconeros but creates no ItemUserAgg row', async () => {
   const u = await createUser(); created.users.push(u)
   const p = await createRoot(u, 'anon-tip'); created.items.push(p)
 
@@ -90,14 +90,14 @@ test('applyTipDetected with null tipper bumps msats but creates no ItemUserAgg r
   await applyTipDetected(p, null, 3000000n)
   const after = await readItem(p)
 
-  expect(after.msats - before.msats).toBe(3000000n)
+  expect(after.piconeros - before.piconeros).toBe(3000000n)
   expect(after.ranktop).toBeGreaterThan(before.ranktop)
 
   const count = await prisma.itemUserAgg.count({ where: { itemId: p } })
   expect(count).toBe(0)
 })
 
-test('applyTipDetected on a comment propagates commentMsats to ancestor posts', async () => {
+test('applyTipDetected on a comment propagates commentPiconeros to ancestor posts', async () => {
   const u = await createUser(); created.users.push(u)
   const root = await createRoot(u, 'prop-root'); created.items.push(root)
   const comment = await createComment(u, root, 'prop-comment'); created.items.push(comment)
@@ -106,13 +106,13 @@ test('applyTipDetected on a comment propagates commentMsats to ancestor posts', 
   await applyTipDetected(comment, u, 4000000n)
   const after = await readItem(root)
 
-  // root is an ancestor (path @> comment.path) → commentMsats bumps by the tip
-  expect(after.commentMsats - before.commentMsats).toBe(4000000n)
-  // trigger fires on commentMsats update → ranktop rises (commentMsats*0.25)
+  // root is an ancestor (path @> comment.path) → commentPiconeros bumps by the tip
+  expect(after.commentPiconeros - before.commentPiconeros).toBe(4000000n)
+  // trigger fires on commentPiconeros update → ranktop rises (commentPiconeros*0.25)
   expect(after.ranktop).toBeGreaterThan(before.ranktop)
 })
 
-test('reverseTip subtracts msats and lowers ranktop', async () => {
+test('reverseTip subtracts piconeros and lowers ranktop', async () => {
   const u = await createUser(); created.users.push(u)
   const p = await createRoot(u, 'reverse'); created.items.push(p)
 
@@ -121,6 +121,6 @@ test('reverseTip subtracts msats and lowers ranktop', async () => {
   await reverseTip(p, 2000000n)
   const after = await readItem(p)
 
-  expect(before.msats - after.msats).toBe(2000000n)
+  expect(before.piconeros - after.piconeros).toBe(2000000n)
   expect(after.ranktop).toBeLessThan(before.ranktop)
 })

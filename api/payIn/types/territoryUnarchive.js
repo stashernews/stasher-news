@@ -3,7 +3,7 @@ import { satsToMsats } from '@/lib/format'
 import { nextBilling } from '@/lib/territory'
 import { initialTrust } from '../lib/territory'
 import * as MEDIA_UPLOAD from './mediaUpload'
-import { getBeneficiariesMcost } from '../lib/beneficiaries'
+import { getBeneficiariesPiconeros } from '../lib/beneficiaries'
 
 export const anonable = false
 
@@ -19,13 +19,13 @@ export async function getInitial (models, { billingType, uploadIds }, { me }) {
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
   }
 
-  const mcost = satsToMsats(TERRITORY_PERIOD_COST(billingType))
+  const piconeros = satsToMsats(TERRITORY_PERIOD_COST(billingType))
   return {
     payInType: 'TERRITORY_UNARCHIVE',
     userId: me?.id,
-    mcost: mcost + getBeneficiariesMcost(beneficiaries),
+    piconeros: piconeros + getBeneficiariesPiconeros(beneficiaries),
     payOutCustodialTokens: [
-      { payOutType: 'SYSTEM_REVENUE', userId: USER_ID.sn, mtokens: mcost, custodialTokenType: 'SATS' }
+      { payOutType: 'SYSTEM_REVENUE', userId: USER_ID.sn, mtokens: piconeros, custodialTokenType: 'SATS' }
     ],
     beneficiaries
   }

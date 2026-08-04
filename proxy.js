@@ -18,16 +18,16 @@ const profilePattern = new URLPattern({ pathname: '/:name([\\w_]+){/:type(\\w+)}
 const territoryPattern = new URLPattern({ pathname: '/~:name([\\w_]+){/*}?' })
 
 // key for /r/... link referrers
-const SN_REFERRER = 'sn_referrer'
+const ST_REFERRER = 'st_referrer'
 // we use this to hold /r/... referrers through the redirect
-const SN_REFERRER_NONCE = 'sn_referrer_nonce'
+const ST_REFERRER_NONCE = 'st_referrer_nonce'
 // key for referred pages
-const SN_REFEREE_LANDING = 'sn_referee_landing'
+const ST_REFEREE_LANDING = 'st_referee_landing'
 // territory paths that needs to be rewritten to ~subname
-const SN_TERRITORY_PATHS = ['/new', '/top', '/post', '/edit', '/rss']
+const ST_TERRITORY_PATHS = ['/new', '/top', '/post', '/edit', '/rss']
 
 function isTerritoryPath (pathname) {
-  return SN_TERRITORY_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
+  return ST_TERRITORY_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
 }
 
 function isPrefetchRequest (request) {
@@ -133,7 +133,7 @@ function getContentReferrer (request, url) {
 function referrerMiddleware (request) {
   // referrer cookies are read only by middleware/SSR — keep them httpOnly.
   // Secure follows isSecureRequest(req); TLS-terminating dev proxies must send
-  // X-Forwarded-Proto: https or sn_referrer stays non-Secure.
+  // X-Forwarded-Proto: https or st_referrer stays non-Secure.
   const referrerOptions = (maxAge) => cookieOptions({ req: request, maxAge })
 
   if (referrerPattern.test(request.url)) {
@@ -147,20 +147,20 @@ function referrerMiddleware (request) {
     // explicit referrers are set for a day and can only be overriden by other explicit
     // referrers. Content referrers do not override explicit referrers because
     // explicit referees might click around before signing up.
-    response.cookies.set(SN_REFERRER, referrer, referrerOptions(REFERRER_TTL_S))
+    response.cookies.set(ST_REFERRER, referrer, referrerOptions(REFERRER_TTL_S))
 
     // we record the first page the user lands on and keep it for 24 hours
     // in addition to the explicit referrer, this allows us to tell the referrer
     // which share link the user clicked on
     const contentReferrer = getContentReferrer(request, url)
     if (contentReferrer) {
-      response.cookies.set(SN_REFEREE_LANDING, contentReferrer, referrerOptions(REFERRER_TTL_S))
+      response.cookies.set(ST_REFEREE_LANDING, contentReferrer, referrerOptions(REFERRER_TTL_S))
     }
     // store the explicit referrer for one page load
     // this allows us to attribute both explicit and implicit referrers after the redirect
     // e.g. items/<num>/r/<referrer> links should attribute both the item op and the referrer
     // without this the /r/<referrer> would be lost on redirect
-    response.cookies.set(SN_REFERRER_NONCE, referrer, referrerOptions(1))
+    response.cookies.set(ST_REFERRER_NONCE, referrer, referrerOptions(1))
     return response
   }
 
@@ -168,7 +168,7 @@ function referrerMiddleware (request) {
 
   // pass the referrers to SSR in the request headers for one day referrer attribution
   const requestHeaders = new Headers(request.headers)
-  const referrers = [request.cookies.get(SN_REFERRER_NONCE)?.value, contentReferrer].filter(Boolean)
+  const referrers = [request.cookies.get(ST_REFERRER_NONCE)?.value, contentReferrer].filter(Boolean)
   if (referrers.length) {
     requestHeaders.set('x-stacker-news-referrer', referrers.join('; '))
   }
@@ -180,8 +180,8 @@ function referrerMiddleware (request) {
   })
 
   // if we don't already have an explicit referrer, give them the content referrer as one
-  if (!request.cookies.has(SN_REFERRER) && contentReferrer) {
-    response.cookies.set(SN_REFERRER, contentReferrer, referrerOptions(REFERRER_TTL_S))
+  if (!request.cookies.has(ST_REFERRER) && contentReferrer) {
+    response.cookies.set(ST_REFERRER, contentReferrer, referrerOptions(REFERRER_TTL_S))
   }
 
   return response

@@ -15,7 +15,7 @@ jest.mock('../../../../api/payIn/types', () => ({
 
 // The stripped custodial/Lightning relations must never appear in the Prisma
 // include passed to tx.payIn.findUnique — Prisma throws "Unknown argument"
-// on them, and the mcost:0 fee path runs `onPaid` synchronously inside the
+// on them, and the piconeros:0 fee path runs `onPaid` synchronously inside the
 // begin transaction (index.js:90-91), so it must not throw.
 const GHOST = ['payInCustodialTokens', 'payOutCustodialTokens', 'payInBolt11', 'payOutBolt11', 'pessimisticEnv']
 
@@ -25,7 +25,7 @@ describe('onPaid (ghost-neutralized)', () => {
       id: where.id,
       payInType: 'TERRITORY_CREATE',
       userId: 7,
-      mcost: 0n,
+      piconeros: 0n,
       payInState: 'PAID',
       beneficiaries: []
     }))

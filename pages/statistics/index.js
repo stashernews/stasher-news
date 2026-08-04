@@ -2,7 +2,7 @@ import { useQuery } from '@apollo/client/react'
 import { getGetServerSideProps } from '@/api/ssrApollo'
 import Layout from '@/components/layout'
 import MoreFooter from '@/components/more-footer'
-import { SATISTICS } from '@/fragments/payIn'
+import { STATISTICS } from '@/fragments/payIn'
 import PayInTable, { PayInSkeleton } from '@/components/payIn/table'
 import { useData } from '@/components/use-data'
 import navStyles from '@/styles/nav.module.css'
@@ -10,7 +10,7 @@ import { Nav } from 'react-bootstrap'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 
-export const getServerSideProps = getGetServerSideProps({ query: SATISTICS, authRequired: true, variables: { } })
+export const getServerSideProps = getGetServerSideProps({ query: STATISTICS, authRequired: true, variables: { } })
 
 export function SatisticsHeader () {
   const router = useRouter()
@@ -35,7 +35,7 @@ export function SatisticsHeader () {
 }
 
 export default function Satistics ({ ssrData }) {
-  const { data, fetchMore } = useQuery(SATISTICS, { variables: { } })
+  const { data, fetchMore } = useQuery(STATISTICS, { variables: { } })
   const dat = useData(data, ssrData)
   if (!dat) {
     return (
@@ -50,7 +50,7 @@ export default function Satistics ({ ssrData }) {
     )
   }
 
-  const { satistics: { payIns, cursor } } = dat
+  const { statistics: { payIns, cursor } } = dat
 
   return (
     <Layout>

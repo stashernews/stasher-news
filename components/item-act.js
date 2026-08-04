@@ -9,7 +9,7 @@ import { amountSchema } from '@/lib/validate'
 import { defaultTipIncludingRandom } from './upvote'
 import { ACT_MUTATION } from '@/fragments/payIn'
 import { actWaitFor, getPayIn } from '@/lib/pay-in'
-import { meAnonSats } from '@/lib/apollo'
+import { meAnonPiconeros } from '@/lib/apollo'
 import { toastPayError, isTransientNetworkError } from '@/wallets/client/errors'
 import { useAnimation } from '@/components/animation'
 import { useToast } from '@/components/toast'
@@ -45,7 +45,7 @@ const addCustomTip = (amount) => {
 }
 
 const setItemMeAnonSats = ({ id, amount }) => {
-  const reactiveVar = meAnonSats[id]
+  const reactiveVar = meAnonPiconeros[id]
   const existingAmount = reactiveVar()
   reactiveVar(existingAmount + amount)
 
@@ -80,7 +80,7 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
     const onPayError = (e) => toastPayError(toaster, e)
 
     const options = { cachePhases: { onPayError } }
-    if (me?.privates?.sats > Number(amount)) {
+    if (me?.privates?.piconeros > Number(amount)) {
       onPaid()
     } else {
       // we want to close the modal only after paid so the modal can stack
@@ -89,11 +89,11 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
 
     // instant feedback: bump the item's counters directly in the root cache (monero tips are 100%
     // P2P, so TIP adds credits here; the act cache phases only reconcile ancestors on payment)
-    const result = { id: item.id, sats: Number(amount), act, path: item.path }
+    const result = { id: item.id, piconeros: Number(amount), act, path: item.path }
     try {
       const { error } = await withActBump(client.cache, result, me, () =>
         // don't close modal immediately because we want the QR modal to stack
-        actor({ variables: { id: item.id, sats: Number(amount), act }, ...options }))
+        actor({ variables: { id: item.id, piconeros: Number(amount), act }, ...options }))
       if (error) throw error
       addCustomTip(Number(amount))
     } catch (e) {
@@ -139,50 +139,51 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
 function modifyActCache (cache, { payerPrivates }, me) {
   const result = payerPrivates?.result
   if (!result) return
-  const { id, sats, act } = result
+  const { id, act } = result
+  const piconeros = Number(result.piconeros)
 
   cache.modify({
     id: `Item:${id}`,
     fields: {
-      sats (existingSats = 0) {
+      piconeros (existingSats = 0) {
         if (act === 'TIP') {
-          return existingSats + sats
+          return Number(existingSats) + piconeros
         }
         return existingSats
       },
       credits (existingCredits = 0) {
         if (act === 'TIP') {
-          return existingCredits + sats
+          return Number(existingCredits) + piconeros
         }
         return existingCredits
       },
-      meSats: (existingSats = 0) => {
+      mePiconeros: (existingSats = 0) => {
         if (act === 'TIP' && me) {
-          return existingSats + sats
+          return Number(existingSats) + piconeros
         }
         return existingSats
       },
       meCredits: (existingCredits = 0) => {
         if (act === 'TIP' && me) {
-          return existingCredits + sats
+          return Number(existingCredits) + piconeros
         }
         return existingCredits
       },
-      meDontLikeSats: (existingSats = 0) => {
+      meDontLikePiconeros: (existingSats = 0) => {
         if (act === 'DONT_LIKE_THIS') {
-          return existingSats + sats
+          return Number(existingSats) + piconeros
         }
         return existingSats
       },
-      downSats: (existingSats = 0) => {
+      downPiconeros: (existingSats = 0) => {
         if (act === 'DONT_LIKE_THIS') {
-          return existingSats + sats
+          return Number(existingSats) + piconeros
         }
         return existingSats
       },
       boost: (existingBoost = 0) => {
         if (act === 'BOOST') {
-          return existingBoost + sats
+          return Number(existingBoost) + piconeros
         }
         return existingBoost
       }
@@ -195,7 +196,8 @@ function modifyActCache (cache, { payerPrivates }, me) {
 function updateAncestors (cache, { payerPrivates }) {
   const result = payerPrivates?.result
   if (!result) return
-  const { id, sats, act, path } = result
+  const { id, act, path } = result
+  const piconeros = Number(result.piconeros)
 
   if (act === 'TIP') {
     // update all ancestors
@@ -205,10 +207,10 @@ function updateAncestors (cache, { payerPrivates }) {
         id: `Item:${aId}`,
         fields: {
           commentCredits (existingCommentCredits = 0) {
-            return existingCommentCredits + sats
+            return Number(existingCommentCredits) + piconeros
           },
-          commentSats (existingCommentSats = 0) {
-            return existingCommentSats + sats
+          commentPiconeros (existingCommentSats = 0) {
+            return Number(existingCommentSats) + piconeros
           }
         }
       })
@@ -221,8 +223,8 @@ function updateAncestors (cache, { payerPrivates }) {
       cache.modify({
         id: `Item:${aId}`,
         fields: {
-          commentDownSats (existingCommentDownSats = 0) {
-            return existingCommentDownSats + sats
+          commentDownPiconeros (existingCommentDownSats = 0) {
+            return Number(existingCommentDownSats) + piconeros
           }
         }
       })
@@ -236,7 +238,7 @@ function updateAncestors (cache, { payerPrivates }) {
         id: `Item:${aId}`,
         fields: {
           commentBoost (existingCommentBoost = 0) {
-            return existingCommentBoost + sats
+            return Number(existingCommentBoost) + piconeros
           }
         }
       })
@@ -253,7 +255,7 @@ export function bumpActCache (cache, result, me) {
 
 // reverse a bump: TIP's credits are reversed alongside its sats.
 export function revertActBump (cache, result, me) {
-  modifyActCache(cache, { payerPrivates: { result: { ...result, sats: -result.sats } } }, me)
+  modifyActCache(cache, { payerPrivates: { result: { ...result, piconeros: -result.piconeros } } }, me)
 }
 
 // bump an item's counters at click time, run the act attempt, and revert the bump if the attempt

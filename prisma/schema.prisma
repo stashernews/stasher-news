@@ -32,28 +32,27 @@ model User {
   tipPopover          Boolean              @default(false)
   upvotePopover       Boolean              @default(false)
   lastSeenAt          DateTime?
-  stackedMsats        BigInt               @default(0)
-  stackedMcredits     BigInt               @default(0)
+  stackedCredits      BigInt               @default(0)
   noteAllDescendants  Boolean              @default(true)
   noteDeposits        Boolean              @default(true)
   noteWithdrawals     Boolean              @default(true)
   noteEarning         Boolean              @default(true)
   noteInvites         Boolean              @default(true)
-  noteItemSats        Boolean              @default(true)
+  noteItemPiconeros   Boolean              @default(true)
   noteMentions        Boolean              @default(true)
   noteItemMentions    Boolean              @default(true)
-  noteForwardedSats   Boolean              @default(true)
+  noteForwardedPiconeros Boolean          @default(true)
   photoId             Int?
-  hideInvoiceDesc     Boolean              @default(false)
-  postsSatsFilter     Int?                 @default(10)
-  commentsSatsFilter  Int?                 @default(1)
+  hideUriDesc         Boolean              @default(false)
+  postsPiconerosFilter Int?                @default(10)
+  commentsPiconerosFilter Int?             @default(1)
   freeCommentCount    Int                  @default(0)
   freeCommentResetAt  DateTime?
   nsfwMode            Boolean              @default(false)
   fiatCurrency        String               @default("USD")
   hideFromTopUsers    Boolean              @default(false)
   turboTipping        Boolean              @default(false)
-  zapUndos            Int?
+  tipUndos            Int?
   imgproxyOnly        Boolean              @default(false)
   showImagesAndVideos Boolean              @default(true)
   referrerId          Int?
@@ -294,7 +293,7 @@ model Earn {
   id             Int       @id @default(autoincrement())
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
-  msats          BigInt
+  piconeros      BigInt
   userId         Int
   rank           Int?
   typeProportion Float?
@@ -347,19 +346,19 @@ model Item {
   subWeightedVotes     Float                 @default(0)
   boost                Int                   @default(0)
   pollCost             Int?
-  commentMsats         BigInt                @default(0)
-  commentDownMsats     BigInt                @default(0)
-  commentMcredits      BigInt                @default(0)
+  commentPiconeros     BigInt                @default(0)
+  commentDownPiconeros BigInt                @default(0)
+  commentCredits       BigInt                @default(0)
   commentCost          Int                   @default(0)
   commentBoost         Int                   @default(0)
   weightedComments     Float                 @default(0)
   lastCommentAt        DateTime?
-  lastZapAt            DateTime?
+  lastTipAt            DateTime?
   ncomments            Int                   @default(0)
   nDirectComments      Int                   @default(0)
-  msats                BigInt                @default(0)
-  downMsats            BigInt                @default(0)
-  mcredits             BigInt                @default(0)
+  piconeros            BigInt                @default(0)
+  downPiconeros        BigInt                @default(0)
+  credits              BigInt                @default(0)
   cost                 Int                   @default(0)
   weightedDownVotes    Float                 @default(0)
   subWeightedDownVotes Float                 @default(0)
@@ -421,7 +420,7 @@ model Item {
   observedBurns ObservedBurn[]
 
   @@index([uploadId])
-  @@index([lastZapAt])
+  @@index([lastTipAt])
   @@index([bio], map: "Item.bio_index")
   @@index([createdAt], map: "Item.created_at_index")
   @@index([freebie], map: "Item.freebie_index")
@@ -436,7 +435,7 @@ model Item {
   @@index([subNames, createdAt(ops: raw("timestamp_ops"))], type: Gin)
   @@index([subNames, ranktop(ops: raw("float8_ops"))], type: Gin)
   @@index([subNames, ranklit(ops: raw("float8_ops"))], type: Gin)
-  @@index([subNames, downMsats(ops: raw("int8_ops"))], type: Gin)
+  @@index([subNames, downPiconeros(ops: raw("int8_ops"))], type: Gin)
   @@index([subNames, ncomments(ops: raw("int4_ops"))], type: Gin)
   @@index([userId], map: "Item.userId_index")
   @@index([weightedDownVotes], map: "Item.weightedDownVotes_index")
@@ -447,11 +446,11 @@ model Item {
   @@index([ranktop])
   @@index([ranklit])
   @@index([netInvestment])
-  @@index([downMsats])
+  @@index([downPiconeros])
   @@index([ncomments])
   @@index([userId, createdAt])
   @@index([userId, ranktop])
-  @@index([userId, downMsats])
+  @@index([userId, downPiconeros])
   @@index([userId, ncomments])
 }
 
@@ -497,8 +496,8 @@ model ItemUserAgg {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
   itemId      Int
   userId      Int
-  zapSats     BigInt   @default(0)
-  downZapSats BigInt   @default(0)
+  tipPiconeros     BigInt   @default(0)
+  downvotePiconeros BigInt   @default(0)
   item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -631,7 +630,7 @@ model Sub {
   billingAutoRenew Boolean     @default(false)
   billedLastAt     DateTime    @default(now())
   billPaidUntil    DateTime?
-  postsSatsFilter  Int         @default(10)
+  postsPiconerosFilter Int      @default(10)
   nsfw             Boolean     @default(false)
 
   // StealthNews territory-fee gate (§6.2): territory create/renew fees land on the
@@ -1029,7 +1028,7 @@ enum EarnType {
 enum Status {
   ACTIVE
   STOPPED
-  NOSATS
+  NO_XMR
   GRACE
 }
 
@@ -1053,8 +1052,8 @@ enum LogLevel {
 enum PayInType {
   ITEM_CREATE
   ITEM_UPDATE
-  ZAP
-  DOWN_ZAP
+  TIP
+  DOWNVOTE
   BOOST
   DONATE
   POLL_VOTE
@@ -1126,7 +1125,7 @@ model PayIn {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
-  mcost     BigInt
+  piconeros BigInt
 
   payInType           PayInType
   payInState          PayInState
@@ -1183,7 +1182,7 @@ enum PayOutType {
   ROUTING_FEE
   ROUTING_FEE_REFUND
   PROXY_PAYMENT
-  ZAP
+  TIP
   BOUNTY_PAYMENT
   REWARD
   INVITE_GIFT
@@ -1287,7 +1286,7 @@ model AggRewards {
   timeBucket  DateTime       @db.Timestamptz(3)
   granularity AggGranularity
   payInType   PayInType?
-  msats       BigInt
+  piconeros   BigInt
   countGroup  BigInt
 
   @@unique([granularity, timeBucket, payInType], map: "AggRewards_unique_key")
