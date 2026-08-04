@@ -1,17 +1,22 @@
 import { useQuery } from '@apollo/client/react'
 import { useEffect, useRef } from 'react'
 import { TIP_STATUS } from '@/fragments/monero'
+import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 
 // Polls tipStatus(paymentId) while a tip modal is open. Fires onDetected exactly
-// once when the lws indexer first sees the payment (DETECTED), then stops. CONFIRMED
-// is a silent background safety-net (confirmFinalizer) and intentionally triggers no
-// UI here. Mirrors the poll-while-open contract of components/payIn/hooks/use-watch-pay-in.js
-// but uses Apollo's idiomatic pollInterval (no wallet auto-pay controller needed).
+// once when the lws indexer first sees the payment (DETECTED) OR when the tip is
+// already CONFIRMED, then stops. CONFIRMED is normally reached via the
+// confirmFinalizer safety-net; it must ALSO trigger success because a tip that is
+// already confirmed by the time the modal first polls would otherwise be a silent
+// stop-polling terminal — leaving the modal stuck with no success message and no
+// close. REORGED/EXPIRED are failure terminals (no success). Mirrors the
+// poll-while-open contract of components/payIn/hooks/use-watch-pay-in.js but uses
+// Apollo's idiomatic pollInterval (no wallet auto-pay controller needed).
 const POLL_INTERVAL_MS = 3000
 
-// Terminal states: stop polling once the tip reaches any of these. DETECTED is
-// the success trigger (fires onDetected); CONFIRMED is the confirmFinalizer
-// safety-net; EXPIRED/REORGED are failure terminals. PENDING/null keep polling.
+// Stop polling once the tip reaches any of these. DETECTED/CONFIRMED are success
+// triggers (fire onDetected); REORGED/EXPIRED are failure terminals.
+// PENDING/null keep polling.
 const TERMINAL_STATES = new Set(['DETECTED', 'CONFIRMED', 'REORGED', 'EXPIRED'])
 
 export default function useWatchTip ({ paymentId, onDetected }) {
@@ -26,7 +31,7 @@ export default function useWatchTip ({ paymentId, onDetected }) {
   const firedRef = useRef(false)
 
   useEffect(() => {
-    if (state === 'DETECTED' && !firedRef.current) {
+    if (shouldTriggerPaymentSuccess(state) && !firedRef.current) {
       firedRef.current = true
       onDetected?.(data.tipStatus)
     }
