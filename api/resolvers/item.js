@@ -1284,7 +1284,7 @@ export default {
           rel: item.rel,
           userId: item.userId,
           parentId: item.parentId,
-          netInvestment: item.netInvestment
+          netInvestment: Number(item.netInvestment)
         }
       })
     },
@@ -1298,7 +1298,7 @@ export default {
             rel: item.rel,
             userId: item.userId,
             parentId: item.parentId,
-            netInvestment: item.netInvestment
+            netInvestment: Number(item.netInvestment)
           }
         })
         if (!lexicalState) return null
