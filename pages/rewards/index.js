@@ -6,8 +6,8 @@ import { Form, Input, SubmitButton } from '@/components/form'
 import Layout from '@/components/layout'
 import { useQuery } from '@apollo/client/react'
 import Link from 'next/link'
-import { amountSchema } from '@/lib/validate'
-import { piconerosToXmr } from '@/lib/format'
+import { xmrAmountSchema } from '@/lib/validate'
+import { piconerosToXmr, xmrToPiconeros } from '@/lib/format'
 import PageLoading from '@/components/page-loading'
 import { useShowModal } from '@/components/modal'
 import dynamic from 'next/dynamic'
@@ -119,13 +119,13 @@ export function DonateButton () {
         onClick={() => showModal(onClose => (
           <Form
             initial={{
-              amount: 10000
+              amount: '0.001'
             }}
-            schema={amountSchema}
+            schema={xmrAmountSchema}
             onSubmit={async ({ amount }) => {
               const { error, payError } = await donateToRewards({
                 variables: {
-                  piconeros: Number(amount)
+                  piconeros: Number(xmrToPiconeros(String(amount)))
                 },
                 onCompleted: () => {
                   animate()
@@ -145,7 +145,7 @@ export function DonateButton () {
               type='number'
               required
               autoFocus
-              append={<InputGroup.Text className='text-monospace'>sats</InputGroup.Text>}
+              append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
             />
             <div className='d-flex'>
               <SubmitButton variant='success' className='ms-auto mt-1 px-4' value='TIP'>donate</SubmitButton>
