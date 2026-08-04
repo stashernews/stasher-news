@@ -3,6 +3,8 @@ import BootstrapForm from 'react-bootstrap/Form'
 import React, { useCallback, useState } from 'react'
 import AccordianItem from './accordian-item'
 import MoneroPaymentView from './monero-payment-view'
+import PaymentSuccessView from './payment-success-view'
+import useWatchDownvote from './downvote/use-watch-downvote'
 import { useAct } from './item-act'
 import { useToast } from './toast'
 import { piconerosToXmr } from '@/lib/format'
@@ -37,6 +39,8 @@ export default function DownvoteModal ({ item, onClose }) {
   const toaster = useToast()
   const [amount, setAmount] = useState(DOWNVOTE_DEFAULT_PICONEROS)
   const [moneroUri, setMoneroUri] = useState(null)
+  const [paymentId, setPaymentId] = useState(null)
+  const [downvotePaid, setDownvotePaid] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   const onSubmit = useCallback(async (e) => {
@@ -51,8 +55,10 @@ export default function DownvoteModal ({ item, onClose }) {
     try {
       const res = await actor({ variables: { id: item.id, piconeros: amount, act: 'DONT_LIKE_THIS' } })
       const uri = res?.data?.act?.moneroUri
+      const paymentId = res?.data?.act?.paymentId
       if (!uri) throw new Error('downvote returned no monero URI')
       setMoneroUri(uri)
+      setPaymentId(paymentId ?? null)
     } catch (error) {
       toaster.danger('failed to create downvote')
     } finally {
@@ -60,8 +66,23 @@ export default function DownvoteModal ({ item, onClose }) {
     }
   }, [actor, amount, item.id, toaster])
 
+  if (downvotePaid) {
+    return (
+      <PaymentSuccessView
+        title='Payment detected — your downvote is on its way!'
+        autoCloseMs={5000}
+        onAutoClose={onClose}
+      />
+    )
+  }
+
   if (moneroUri) {
-    return <DownvotePaymentView moneroUri={moneroUri} amount={amount} onClose={onClose} />
+    return (
+      <DownvotePaymentView
+        moneroUri={moneroUri} amount={amount} paymentId={paymentId}
+        onDetected={() => setDownvotePaid(true)} onClose={onClose}
+      />
+    )
   }
 
   const large = isLargeDownvote(amount)
@@ -135,10 +156,8 @@ export default function DownvoteModal ({ item, onClose }) {
   )
 }
 
-function DownvotePaymentView ({ moneroUri, amount }) {
-  // TODO(v1.1): live DETECTED→CONFIRMED pill — the PayIn is PAID at creation and the
-  // on-chain observation is tracked in ObservedBurn (not linked back to this PayIn),
-  // so there is no clean PayIn-state transition to poll in v1.
+function DownvotePaymentView ({ moneroUri, amount, paymentId, onDetected, onClose }) {
+  useWatchDownvote({ paymentId, onDetected })
   return (
     <MoneroPaymentView
       moneroUri={moneroUri}
