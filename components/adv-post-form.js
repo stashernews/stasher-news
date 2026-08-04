@@ -108,12 +108,12 @@ export default function AdvPostForm ({ children, item, storageKeyPrefix }) {
         <>
           {children}
           <VariableInput
-            label='forward sats to'
+            label='forward XMR to'
             name='forward'
             min={0}
             max={MAX_FORWARDS}
             emptyItem={EMPTY_FORWARD}
-            hint={<span className='text-muted'>Forward sats to up to 5 other stashers. Any remaining sats go to you.</span>}
+            hint={<span className='text-muted'>Forward XMR to up to 5 other stashers. Any remaining XMR goes to you.</span>}
           >
             {({ index, AppendColumn }) => {
               return (

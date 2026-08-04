@@ -4,6 +4,7 @@ import { useMutation } from '@apollo/client/react'
 import { INVITE_FIELDS } from '@/fragments/invites'
 import styles from '@/styles/invites.module.css'
 import { useToast } from '@/components/toast'
+import { piconerosToXmr } from '@/lib/format'
 
 export default function Invite ({ invite, active }) {
   const [revokeInvite] = useMutation(
@@ -28,7 +29,7 @@ export default function Invite ({ invite, active }) {
         placeholder={`${process.env.NEXT_PUBLIC_URL}/invites/${invite.id}`} readOnly noForm
       />
       <div className={styles.other}>
-        <span>{invite.gift} sat gift</span>
+        <span>{piconerosToXmr(BigInt(invite.gift) * 1000n)} gift</span>
         <span> \ </span>
         <span>{invite.giftedCount ?? 0} joined{invite.limit ? ` of ${invite.limit}` : ''}</span>
         {active
