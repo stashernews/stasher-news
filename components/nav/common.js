@@ -22,7 +22,7 @@ import { useWalletIndicator } from '@/wallets/client/hooks'
 import SwitchAccountList, { nextAccount, useAccounts, useIsLurker } from '@/components/account'
 import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
-import { numWithUnits } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 import { useBranding } from '@/components/territory-branding'
 
 export function Brand ({ className }) {
@@ -137,7 +137,7 @@ export function WalletSummary () {
   return (
     <span
       className='text-monospace'
-      title={`${numWithUnits(me.privates?.credits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })}`}
+      title={`${Number(me.privates?.piconeros).toLocaleString('en-US')} piconero (${piconerosToXmr(BigInt(me.privates?.piconeros))})`}
     >
       {`${abbrNum(me.privates?.piconeros)}`}
     </span>
@@ -149,7 +149,7 @@ export function NavWalletSummary ({ className }) {
 
   return (
     <Nav.Item className={className}>
-      <Nav.Link as={Link} href='/wallets' eventKey='wallets' className='text-success text-monospace px-0 text-nowrap'>
+      <Nav.Link as={Link} href='/statistics' eventKey='statistics' className='text-success text-monospace px-0 text-nowrap'>
         <WalletSummary me={me} />
       </Nav.Link>
     </Nav.Item>
