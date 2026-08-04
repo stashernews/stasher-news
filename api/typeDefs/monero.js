@@ -22,6 +22,7 @@ export default gql`
   extend type Query {
     myMoneroAccount: MoneroAccount
     tipStatus(paymentId: String!): TipStatus
+    downvoteStatus(paymentId: String!): DownvoteStatus
   }
 
   extend type Mutation {
@@ -65,6 +66,14 @@ export default gql`
   # Polled by the tip modal while the user's wallet payment is pending.
   # Auth is capability-style: the paymentId (postId + nonce) is the unguessable token.
   type TipStatus {
+    state: ObservedState!
+    piconeros: BigInt!
+    confirmations: Int!
+  }
+
+  # Polled by the downvote modal while the user's wallet payment is pending.
+  # Auth is capability-style: the paymentId (postId + nonce) is the unguessable token.
+  type DownvoteStatus {
     state: ObservedState!
     piconeros: BigInt!
     confirmations: Int!
