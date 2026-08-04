@@ -14,7 +14,7 @@ import { useMe } from './me'
 import { NAME_MUTATION } from '@/fragments/users'
 import Avatar from './avatar'
 import { userSchema } from '@/lib/validate'
-import { numWithUnits } from '@/lib/format'
+import { numWithUnits, piconerosToXmr } from '@/lib/format'
 import Badges from './badge'
 import SubscribeUserDropdownItem from './subscribeUser'
 import ActionDropdown from './action-dropdown'
@@ -240,7 +240,7 @@ function HeaderHeader ({ user }) {
   const Satistics = () => (
     user.optional.stacked !== null &&
       <div className={`mb-2 ms-0 ms-sm-1 ${styles.username} text-success`}>
-        {numWithUnits(user.optional.stacked, { abbreviate: false, format: true })} stashed
+        {piconerosToXmr(BigInt(user.optional.stacked))} stashed
       </div>
   )
 

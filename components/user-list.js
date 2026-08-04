@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import Image from 'react-bootstrap/Image'
-import { abbrNum, numWithUnits } from '@/lib/format'
+import { abbrNum, numWithUnits, piconerosToXmr } from '@/lib/format'
 import styles from './item.module.css'
 import userStyles from './user-header.module.css'
 import React, { useEffect, useMemo, useState } from 'react'
@@ -15,7 +15,7 @@ import classNames from 'classnames'
 import CheckCircle from '@/svgs/checkbox-circle-fill.svg'
 
 // all of this nonsense is to show the stat we are sorting by first
-const Stacked = ({ user }) => (user.optional.stacked !== null && <span>{abbrNum(user.optional.stacked)} stashed</span>)
+const Stacked = ({ user }) => (user.optional.stacked !== null && <span>{piconerosToXmr(BigInt(user.optional.stacked))} stashed</span>)
 const Spent = ({ user }) => (user.optional.spent !== null && <span>{abbrNum(user.optional.spent)} spent</span>)
 const Items = ({ user }) => (
   <Link href={`/${user.name}/all`} className='text-reset'>

@@ -105,7 +105,7 @@ export default function Seo ({ sub, item, user }) {
     }
   }
   if (user) {
-    desc = `@${user.name} has [${user.optional.stacked ? `${user.optional.stacked} stashed,` : ''}${numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })}]`
+    desc = `@${user.name} has [${user.optional.stacked ? `${piconerosToXmr(BigInt(user.optional.stacked))} stashed,` : ''}${numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })}]`
   }
 
   return (
