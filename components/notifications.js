@@ -555,7 +555,7 @@ function stackedText (item, total) {
     if (credits > 0) text += ' and '
   }
   if (credits > 0) {
-    text += `${numWithUnits(credits, { abbreviate: false, unitSingular: 'CC', unitPlural: 'CCs' })}`
+    text += `${numWithUnits(credits, { abbreviate: false, unitSingular: 'credit', unitPlural: 'credits' })}`
   }
 
   return text
