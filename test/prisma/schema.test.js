@@ -131,3 +131,25 @@ test('PayInType and PayInState enums are reduced to the StealthNews set', () => 
   // payInState='PAID'); it was a Phase 0 reconciliation gap to drop it.
   expect(valuesOf('PayInState').sort()).toEqual(['CONFIRMED', 'DETECTED', 'FAILED', 'PAID', 'PENDING_PAYMENT'])
 })
+
+test('Item netInvestment and feeInvestmentPiconeros are BigInt (piconero scale)', () => {
+  const model = allModels.find(m => m.name === 'Item')
+  for (const name of ['netInvestment', 'feeInvestmentPiconeros']) {
+    const f = model.fields.find(field => field.name === name)
+    expect(f).toBeTruthy()
+    expect(f.type).toBe('BigInt')
+  }
+})
+
+test('User and Sub filter fields are BigInt piconero filters', () => {
+  const check = (modelName, names) => {
+    const model = allModels.find(m => m.name === modelName)
+    for (const name of names) {
+      const f = model.fields.find(field => field.name === name)
+      expect(f).toBeTruthy()
+      expect(f.type).toBe('BigInt')
+    }
+  }
+  check('User', ['postsPiconerosFilter', 'commentsPiconerosFilter'])
+  check('Sub', ['postsPiconerosFilter'])
+})
