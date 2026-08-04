@@ -335,7 +335,7 @@ export const UPDATE_COMMENT = gql`
 export const UPSERT_SUB = gql`
   ${PAY_IN_FIELDS}
   mutation upsertSub($oldName: String, $name: String!, $desc: String, $baseCost: Int!,
-    $replyCost: Int!, $postsPiconerosFilter: Int,
+    $replyCost: Int!, $postsPiconerosFilter: BigInt,
     $postTypes: [String!]!, $billingType: String!,
     $billingAutoRenew: Boolean!, $nsfw: Boolean!, $sendProtocolId: Int) {
       upsertSub(oldName: $oldName, name: $name, desc: $desc, baseCost: $baseCost,
@@ -349,7 +349,7 @@ export const UPSERT_SUB = gql`
 export const UNARCHIVE_TERRITORY = gql`
   ${PAY_IN_FIELDS}
   mutation unarchiveTerritory($name: String!, $desc: String, $baseCost: Int!,
-    $replyCost: Int!, $postsPiconerosFilter: Int,
+    $replyCost: Int!, $postsPiconerosFilter: BigInt,
     $postTypes: [String!]!, $billingType: String!,
     $billingAutoRenew: Boolean!, $nsfw: Boolean!, $sendProtocolId: Int) {
       unarchiveTerritory(name: $name, desc: $desc, baseCost: $baseCost,

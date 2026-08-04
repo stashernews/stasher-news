@@ -1,17 +1,16 @@
 import AccordianItem from './accordian-item'
 import { Col, InputGroup, Row, Form as BootstrapForm, Badge } from 'react-bootstrap'
 import { Checkbox, CheckboxGroup, Form, Input, SNInput, Range } from './form'
-import { useFormikContext } from 'formik'
 import FeeButton, { FeeButtonProvider } from './fee-button'
 import { gql } from '@apollo/client'
 import { useApolloClient, useLazyQuery } from '@apollo/client/react'
 import { useCallback, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
 import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, DOMAIN_BETA_IDS, TERRITORY_BILLING_OPTIONS, TERRITORY_PERIOD_COST } from '@/lib/constants'
-import { territorySchema } from '@/lib/validate'
+import { territorySchema, filterXmrValidator } from '@/lib/validate'
 import { useMe } from './me'
 import Info from './info'
-import { abbrNum } from '@/lib/format'
+import { abbrNum, piconerosToXmrDecimal, signedXmrToPiconeros } from '@/lib/format'
 import { purchasedType } from '@/lib/territory'
 import { SUB } from '@/fragments/subs'
 import TerritoryBranding, { useBranding } from './territory-branding'
@@ -22,25 +21,22 @@ import LinkExternal from '@/svgs/link-external.svg'
 import { isAbortError } from '@/lib/error'
 
 function SatFilterRanges () {
-  const { values } = useFormikContext()
-  const baseCost = values.baseCost || 1
-
   return (
     <Range
       label={
-        <div className='d-flex align-items-center'>posts sat filter
+        <div className='d-flex align-items-center'>posts xmr filter
           <Info>
             <ul>
-              <li>minimum net investment (cost + zaps + boost - downzaps) for posts to appear in lit/top</li>
-              <li>must be at least the post cost ({baseCost} sats)</li>
+              <li>minimum net investment (cost + tips + boost - downvotes) for posts to appear in lit/top</li>
             </ul>
           </Info>
         </div>
       }
       name='postsPiconerosFilter'
-      min={baseCost}
-      max={1000}
-      suffix=' sats'
+      min={-0.01}
+      max={0.01}
+      step={0.0001}
+      suffix=' XMR'
     />
   )
 }
@@ -54,6 +50,7 @@ export default function TerritoryForm ({ sub }) {
   const [unarchiveTerritory] = usePayInMutation(UNARCHIVE_TERRITORY)
 
   const schema = territorySchema({ client, me, sub })
+  const xmrSchema = schema.shape({ postsPiconerosFilter: filterXmrValidator })
 
   const [fetchSub] = useLazyQuery(SUB)
   const [archived, setArchived] = useState(false)
@@ -71,6 +68,9 @@ export default function TerritoryForm ({ sub }) {
 
   const onSubmit = useCallback(
     async ({ ...variables }) => {
+      variables.postsPiconerosFilter = variables.postsPiconerosFilter == null
+        ? null
+        : Number(signedXmrToPiconeros(variables.postsPiconerosFilter))
       const { error, payError } = archived
         ? await unarchiveTerritory({ variables })
         : await upsertSub({ variables: { oldName: sub?.name, ...variables } })
@@ -127,14 +127,14 @@ export default function TerritoryForm ({ sub }) {
           desc: sub?.desc || '',
           baseCost: sub?.baseCost || 10,
           replyCost: sub?.replyCost || 1,
-          // Default sat filter to match the post cost
-          postsPiconerosFilter: sub?.postsPiconerosFilter ?? sub?.baseCost ?? 10,
+          // Default xmr filter (0.001 XMR = the posting-fee default)
+          postsPiconerosFilter: sub?.postsPiconerosFilter == null ? 0.001 : Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter))),
           postTypes: sub?.postTypes || POST_TYPES,
           billingType: sub?.billingType || 'MONTHLY',
           billingAutoRenew: sub?.billingAutoRenew || false,
           nsfw: sub?.nsfw || false
         }}
-        schema={schema}
+        schema={xmrSchema}
         onSubmit={onSubmit}
         className='mb-5'
         storageKeyPrefix={sub ? undefined : 'territory'}
