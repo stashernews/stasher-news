@@ -1,6 +1,6 @@
 import { useRouter } from 'next/router'
 import { Form, Select, DatePicker } from './form'
-import { ITEM_SORTS, ITEM_SORT_LABELS, SUB_SORTS, USER_SORTS, WHENS } from '@/lib/constants'
+import { ITEM_SORTS, ITEM_SORT_LABELS, SUB_SORTS, USER_SORTS, WHENS, sortLabelToKey } from '@/lib/constants'
 import { whenToFrom } from '@/lib/time'
 import { usePrefix } from './territory-domains'
 
@@ -13,6 +13,7 @@ export default function TopHeader ({ sub, cat }) {
   const prefix = usePrefix(sub)
 
   const top = async values => {
+    values.by = sortLabelToKey(values.by)
     const { what, when, ...query } = values
 
     if (what === 'cowboys') {

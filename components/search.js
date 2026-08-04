@@ -17,7 +17,7 @@ import { useMe } from './me'
 import { useField } from 'formik'
 import { searchSchema } from '@/lib/validate'
 import { usePrefix } from './territory-domains'
-import { ITEM_SORT_LABELS } from '@/lib/constants'
+import { ITEM_SORT_LABELS, sortLabelToKey } from '@/lib/constants'
 
 const ITEM_SORT_KEY_BY_LABEL = Object.fromEntries(
   Object.entries(ITEM_SORT_LABELS).map(([key, label]) => [label, key])
@@ -35,6 +35,7 @@ export default function Search ({ sub }) {
   const queryWhen = typeof router.query.when === 'string' ? router.query.when : ''
 
   const search = async values => {
+    values.sort = sortLabelToKey(values.sort)
     const query = values.q?.trim()
     if (query) {
       const nextValues = { ...values, q: query }
