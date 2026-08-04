@@ -1,5 +1,5 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
-import { numWithUnits } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 import { getItemResult, getSubs } from '../lib/item'
 import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
 
@@ -77,5 +77,5 @@ export async function onPaid (tx, payInId) {
 
 export async function describe (models, payInId) {
   const payIn = await models.payIn.findUnique({ where: { id: payInId }, include: { itemPayIn: true } })
-  return `SN: boost #${payIn.itemPayIn.itemId} by ${numWithUnits(Number(BigInt(payIn.piconeros) / 1000n), { abbreviate: false })}`
+  return `SN: boost #${payIn.itemPayIn.itemId} by ${piconerosToXmr(payIn.piconeros)}`
 }

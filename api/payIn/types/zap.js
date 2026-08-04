@@ -8,7 +8,7 @@
 // Phase 4's DOWNVOTE is a separate payIn type that targets the rewards wallet.
 
 import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
-import { numWithUnits } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 import { notifyZapped } from '@/lib/webPush'
 import { Prisma } from '@prisma/client'
 import { getItemResult, getSubs } from '../lib/item'
@@ -177,5 +177,5 @@ export async function onPaidSideEffects (models, payInId) {
 
 export async function describe (models, payInId) {
   const payIn = await models.payIn.findUnique({ where: { id: payInId }, include: { itemPayIn: true } })
-  return `SN: zap ${numWithUnits(Number(BigInt(payIn.piconeros) / 1000n), { abbreviate: false })} #${payIn.itemPayIn.itemId}`
+  return `SN: tip ${piconerosToXmr(payIn.piconeros)} #${payIn.itemPayIn.itemId}`
 }
