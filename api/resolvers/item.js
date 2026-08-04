@@ -183,6 +183,16 @@ const relationClause = (type) => {
   return clause
 }
 
+// True iff the item was created as a freebie: a zero-cost comment or bio.
+// Reads the stored `Item.freebie` column, NOT `cost === 0` — a post is never a
+// freebie, even when its `cost` is 0 (e.g. a post that paid the posting fee but
+// carried no per-item cost). Keeps the badge (components/item-info.js) and the
+// `freebies` feed filter consistent with creation semantics in
+// api/payIn/types/itemCreate.js.
+export function isFreebieItem (item) {
+  return !!item.freebie
+}
+
 export const payInJoinFilter = me => {
   if (me) {
     return `
@@ -901,6 +911,7 @@ export default {
       return result.lastViewedAt
     }
   },
+
   Item: {
     payIn: async (item, args, { models }) => {
       if (typeof item.payIn !== 'undefined') {
@@ -1095,9 +1106,7 @@ export default {
     freedFreebie: async (item) => {
       return item.weightedVotes - item.weightedDownVotes > 0
     },
-    freebie: async (item) => {
-      return item.cost === 0
-    },
+    freebie: isFreebieItem,
     netInvestment: async (item) => {
       // Maintained by the item_net_investment trigger
       return BigInt(item.netInvestment ?? 0)
