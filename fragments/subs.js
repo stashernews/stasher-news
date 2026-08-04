@@ -30,6 +30,7 @@ export const SUB_FIELDS = gql`
     userId
     desc
     status
+    billingStatus
     meMuteSub
     meSubscription
     nsfw

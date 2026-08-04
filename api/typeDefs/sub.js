@@ -60,6 +60,7 @@ export default gql`
     replyCost: Int!
     postsPiconerosFilter: BigInt!
     status: String!
+    billingStatus: SubBillingStatus!
     meMuteSub: Boolean!
     nsfw: Boolean!
     nitems(when: String, from: String, to: String): Int!
@@ -70,6 +71,12 @@ export default gql`
     branding: SubBranding
 
     optional: SubOptional!
+  }
+
+  enum SubBillingStatus {
+    PAID
+    PENDING_FEE
+    LAPSED
   }
 
   type SubOptional {
