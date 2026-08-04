@@ -4,6 +4,7 @@ import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
 import { moneroUriAmountPiconeros, piconerosToXmr } from '@/lib/format'
 import MoneroPaymentView from './monero-payment-view'
+import PaymentSuccessView from './payment-success-view'
 
 const SUB_BILLING_STATUS_POLL_MS = 10_000
 
@@ -16,7 +17,7 @@ const SUB_BILLING_STATUS = gql`
   }
 `
 
-export default function TerritoryPendingFeeModal ({ moneroUri, subName }) {
+export default function TerritoryPendingFeeModal ({ moneroUri, subName, onClose }) {
   const router = useRouter()
   const feePiconeros = moneroUriAmountPiconeros(moneroUri) ?? 0n
 
@@ -31,12 +32,20 @@ export default function TerritoryPendingFeeModal ({ moneroUri, subName }) {
 
   // navigate to the live territory once the fee is observed
   useEffect(() => {
-    if (paid) {
-      router.push(`/~${subName}`)
-    }
-  }, [paid, subName, router])
+    if (!paid) return
+    router.push(`/~${subName}`)
+    const timer = setTimeout(() => onClose?.(), 1500)
+    return () => clearTimeout(timer)
+  }, [paid, subName, router, onClose])
 
-  if (paid) return null
+  if (paid) {
+    return (
+      <PaymentSuccessView
+        title='Payment detected — your territory is live!'
+        note='Redirecting…'
+      />
+    )
+  }
 
   return (
     <MoneroPaymentView

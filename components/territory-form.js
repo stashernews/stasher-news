@@ -106,7 +106,7 @@ export default function TerritoryForm ({ sub }) {
       const response = data?.upsertSub ?? data?.unarchiveTerritory
       if (response?.moneroUri) {
         showModal(onClose => (
-          <TerritoryPendingFeeModal moneroUri={response.moneroUri} subName={variables.name} />
+          <TerritoryPendingFeeModal moneroUri={response.moneroUri} subName={variables.name} onClose={onClose} />
         ), { persistOnNavigate: true })
       }
       await router.push(`/~${variables.name}`)
