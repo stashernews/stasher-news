@@ -122,7 +122,7 @@ function NoteItem ({ item, ...props }) {
         : item.title
           ? <Item item={item} itemClassName='pt-0' {...props} />
           : (
-            <RootProvider root={item.root}>
+            <RootProvider root={item.root || item}>
               <Comment item={item} noReply includeParent clickToContext {...props} />
             </RootProvider>)}
     </div>

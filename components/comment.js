@@ -89,7 +89,7 @@ export function CommentFlat ({ item, rank, siblingComments, search, ...props }) 
         href={href}
         pad
       >
-        <RootProvider root={item.root}>
+        <RootProvider root={item.root || item}>
           <Comment item={item} {...props} />
         </RootProvider>
       </LinkToContext>
