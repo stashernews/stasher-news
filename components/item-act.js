@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useApolloClient } from '@apollo/client/react'
 import { Form, Input, SubmitButton } from './form'
 import { useMe } from './me'
-import UpBolt from '@/svgs/bolt.svg'
+import UpArrow from '@/svgs/up-arrow.svg'
 import { xmrAmountSchema } from '@/lib/validate'
 import { defaultTipIncludingRandom } from './upvote'
 import { xmrToPiconeros, piconerosToXmrDecimal } from '@/lib/format'
@@ -30,7 +30,7 @@ const Tips = ({ setOValue }) => {
       key={num}
       onClick={() => { setOValue(num) }}
     >
-      <UpBolt
+      <UpArrow
         className='me-1'
         width={14}
         height={14}
