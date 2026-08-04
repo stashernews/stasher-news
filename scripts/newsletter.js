@@ -1,5 +1,6 @@
 const { ApolloClient, InMemoryCache, HttpLink, gql } = require('@apollo/client')
 const { datePivot } = require('../lib/time.js')
+const { piconerosToXmr } = require('../lib/format.js')
 
 const ITEMS = gql`
   query items ($sort: String, $when: String, $sub: String, $by: String, $from: String, $to: String, $limit: Limit) {
@@ -221,12 +222,12 @@ Have a great weekend!
 ##### Top Posts
 ${top.data.items.items.map((item, i) =>
   `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
-    - ${abbrNum(item.sats + item.boost + item.cost)} XMR \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
+    - ${piconerosToXmr(BigInt(item.sats + item.boost + item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
 ##### Top AMAs
 ${ama.data.items.items.slice(0, 10).map((item, i) =>
   `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
-    - ${abbrNum(item.sats + item.boost + item.cost)} XMR \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
+    - ${piconerosToXmr(BigInt(item.sats + item.boost + item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
 [**all of this week's AMAs**](https://stasher.news/~ama/top/posts/week)
 
@@ -255,7 +256,7 @@ ${meta.data.items.items.slice(0, 10).map((item, i) =>
 
 ##### Top Stashers
 ${topStackers.map((user, i) =>
-    `${i + 1}. [@${user.name}](https://stasher.news/${user.name}): ${abbrNum(user.optional.stacked)} XMR stashed`
+    `${i + 1}. [@${user.name}](https://stasher.news/${user.name}): ${piconerosToXmr(BigInt(user.optional.stacked))} stashed`
 ).join('\n')}
 
 ------

@@ -1,6 +1,6 @@
 import { datePivot } from '@/lib/time'
 import gql from 'graphql-tag'
-import { numWithUnits, abbrNum } from '@/lib/format'
+import { numWithUnits, abbrNum, piconerosToXmr } from '@/lib/format'
 import { USER_ID } from '@/lib/constants'
 import { getForwardUsers } from '@/api/resolvers/item'
 import { autoPost } from './weeklyPosts'
@@ -58,7 +58,7 @@ function topPosts (days) {
     if (post) {
       text += `
 - [${post.title}](${process.env.NEXT_PUBLIC_URL}/items/${post.id})
-    - ${numWithUnits(post.sats)} \\ ${numWithUnits(post.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })} \\ @${post.user.name} \\ ~${post.subName} \\ \`${day}\``
+    - ${piconerosToXmr(BigInt(post.sats) * 1000n)} \\ ${numWithUnits(post.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })} \\ @${post.user.name} \\ ~${post.subName} \\ \`${day}\``
     } else {
       text += `
 - no top post for \`${day}\``
@@ -90,7 +90,7 @@ function topComments (days) {
     if (comment) {
       text += `
 - ${process.env.NEXT_PUBLIC_URL}/items/${comment.root.id}?commentId=${comment.id} on [${comment.root.title}](${process.env.NEXT_PUBLIC_URL}/items/${comment.root.id})
-    - ${numWithUnits(comment.sats)} \\ ${numWithUnits(comment.ncomments, { unitSingular: 'reply', unitPlural: 'replies' })} \\ @${comment.user.name} \\ \`${day}\`
+    - ${piconerosToXmr(BigInt(comment.sats) * 1000n)} \\ ${numWithUnits(comment.ncomments, { unitSingular: 'reply', unitPlural: 'replies' })} \\ @${comment.user.name} \\ \`${day}\`
         > ${comment.text.trim().split('\n')[0]} [...]`
     } else {
       text += `
