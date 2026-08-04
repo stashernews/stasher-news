@@ -100,7 +100,7 @@ function PendingFeeRepay ({ sub }) {
       const response = data?.paySub
       if (response?.moneroUri) {
         showModal(onClose => (
-          <TerritoryPendingFeeModal moneroUri={response.moneroUri} subName={sub.name} />
+          <TerritoryPendingFeeModal moneroUri={response.moneroUri} subName={sub.name} onClose={onClose} />
         ))
       }
     } catch (e) {
