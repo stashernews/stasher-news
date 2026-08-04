@@ -6,7 +6,7 @@ import { truncateString } from '@/lib/format'
 
 const PWA_ICON_SIZES = [48, 72, 96, 128, 192, 384, 512]
 const black = '#121214'
-const yellow = '#FADA5E'
+const orange = '#FF6600'
 
 const defaultManifest = {
   name: 'Stasher News',
@@ -99,7 +99,7 @@ const defaultManifest = {
   ],
   display: 'standalone',
   theme_color: black,
-  background_color: yellow,
+  background_color: orange,
   id: '/',
   start_url: '/',
   url_handlers: [
