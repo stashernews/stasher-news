@@ -1,4 +1,4 @@
-import UpBolt from '@/svgs/bolt.svg'
+import UpArrow from '@/svgs/up-arrow.svg'
 import styles from './upvote.module.css'
 import { gql } from '@apollo/client'
 import { useMutation } from '@apollo/client/react'
@@ -203,7 +203,7 @@ export default function UpVote ({ item, className, collapsed }) {
       >
         <ActionTooltip notForm disable={disabled} overlayText={overlayText}>
           <div className={classNames(disabled && styles.noSelfTips, styles.upvoteWrapper)}>
-            <UpBolt
+            <UpArrow
               width={26}
               height={26}
               className={classNames(styles.upvote,

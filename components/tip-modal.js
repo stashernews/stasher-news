@@ -13,7 +13,7 @@ import PaymentSuccessView from './payment-success-view'
 import useWatchTip from './tip/use-watch-tip'
 import { INITIATE_TIP } from '@/fragments/monero'
 import { xmrToPiconeros, piconerosToXmr } from '@/lib/format'
-import UpBolt from '@/svgs/bolt.svg'
+import UpArrow from '@/svgs/up-arrow.svg'
 
 // StealthNews tip modal (spec §8.3). Mirrors components/downvote-modal.js: call a
 // mutation, get a monero: URI, render a QR view. Differences from downvote:
@@ -114,7 +114,7 @@ export default function TipModal ({ item, onClose }) {
             variant={amount === p ? 'success' : 'outline-success'}
             onClick={() => setAmount(p)}
           >
-            <UpBolt className='me-1' width={14} height={14} />{p}
+            <UpArrow className='me-1' width={14} height={14} />{p}
           </Button>
         ))}
       </div>
