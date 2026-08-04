@@ -188,6 +188,7 @@ describe('Mutation.initiateTip', () => {
     expect(tip).not.toBeNull()
     expect(tip.state).toBe('PENDING')
     expect(tip.postId).toBe(post.id)
+    expect(tip.tipperId).toBe(tipperId)
     expect(tip.piconeros).toBe(1000000000n)
     expect(tip.webhookEventId).toBe('evt-test-1')
     expect(tip.recipientAccountId).toBe(acct.id)

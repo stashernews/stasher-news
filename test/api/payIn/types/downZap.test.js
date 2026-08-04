@@ -88,12 +88,17 @@ describe('downZap.getInitial', () => {
 })
 
 describe('downZap.onBegin', () => {
-  test('returns the DONT_LIKE_THIS act shape with no sats field', async () => {
+  test('returns the DONT_LIKE_THIS act shape with the piconeros amount (keeps non-nullable ItemAct.piconeros serializable)', async () => {
     const tx = {
       $queryRaw: async () => [{ id: POST_ID, path: '42' }]
     }
     const result = await onBegin(tx, 1, { id: POST_ID, piconeros: 1000000000n })
-    expect(result).toEqual({ id: POST_ID, path: '42', act: 'DONT_LIKE_THIS' })
+    expect(result).toEqual({
+      id: POST_ID,
+      path: '42',
+      piconeros: 1000000000n,
+      act: 'DONT_LIKE_THIS'
+    })
     expect(result).not.toHaveProperty('sats')
   })
 })

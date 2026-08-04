@@ -69,7 +69,7 @@ export async function runReconcilePendingTipsOnce ({
                 height = ${tx.height ?? null}, piconeros = ${amount}, confirmations = 0
             WHERE id = ${tip.id} AND state = 'PENDING'`
           if (claimed > 0) {
-            await apply(tip.postId, null, amount, txdb)
+            await apply(tip.postId, tip.tipperId, amount, txdb)
             recovered += 1
           }
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })

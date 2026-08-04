@@ -35,7 +35,7 @@ function networkForEnv () {
 // webhook receiver (pages/api/monero/webhook.js) handles detection + confirmation
 // and calls applyTipDetected (the ranking hook). 100% P2P — no PayIn, no platform
 // output. `me` is the tipper (auth is the caller's responsibility).
-export async function initiateTipCore ({ postId, amount, models, monero }) {
+export async function initiateTipCore ({ postId, amount, models, monero, me }) {
   const id = Number(postId)
   const piconeros = BigInt(amount)
 
@@ -70,7 +70,7 @@ export async function initiateTipCore ({ postId, amount, models, monero }) {
     data: {
       txHash: 'pending-' + paymentId,
       postId: id,
-      tipperId: null,
+      tipperId: me?.id ?? null,
       recipientAccountId: account.id,
       recipientMajor: null,
       recipientMinor: null,
@@ -195,7 +195,7 @@ export default {
     // detection + confirmation and calls applyTipDetected (the ranking hook).
     async initiateTip (parent, { postId, amount }, { me, models, monero }) {
       if (!me) throw new GqlAuthenticationError()
-      return initiateTipCore({ postId, amount, models, monero })
+      return initiateTipCore({ postId, amount, models, monero, me })
     }
   },
 

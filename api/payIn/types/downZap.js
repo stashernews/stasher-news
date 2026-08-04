@@ -77,14 +77,14 @@ export async function getInitial (models, { id, piconeros }, { me }) {
 }
 
 export async function onRetry (tx, oldPayInId) {
-  const { itemId } = await tx.itemPayIn.findUnique({ where: { payInId: oldPayInId } })
+  const { itemId, payIn } = await tx.itemPayIn.findUnique({ where: { payInId: oldPayInId }, include: { payIn: true } })
   const item = await getItemResult(tx, { id: itemId })
-  return { id: item.id, path: item.path, act: 'DONT_LIKE_THIS' }
+  return { id: item.id, path: item.path, piconeros: payIn.piconeros, act: 'DONT_LIKE_THIS' }
 }
 
 export async function onBegin (tx, payInId, payInArgs) {
   const item = await getItemResult(tx, { id: payInArgs.id })
-  return { id: item.id, path: item.path, act: 'DONT_LIKE_THIS' }
+  return { id: item.id, path: item.path, piconeros: BigInt(payInArgs.piconeros), act: 'DONT_LIKE_THIS' }
 }
 
 // Intentionally a no-op. With piconeros=0n the PayIn is PAID at creation time, so
