@@ -8,6 +8,7 @@ import Sun from '@/svgs/sun-fill.svg'
 import Moon from '@/svgs/moon-fill.svg'
 import No from '@/svgs/no.svg'
 import Bolt from '@/svgs/bolt.svg'
+import MoneroMark from '@/svgs/monero.svg'
 import Live from '@/svgs/chat-unread-fill.svg'
 import NoLive from '@/svgs/chat-off-fill.svg'
 import Rewards from './footer-rewards'
@@ -193,6 +194,11 @@ export default function Footer ({ links = true }) {
                   legal
                 </div>
               </OverlayTrigger>
+              <span className='mx-2 text-muted'> \ </span>
+              <a className='nav-link p-0 d-inline-flex align-items-center' href='https://monero.org' target='_blank' rel='noreferrer' style={{ color: 'var(--bs-primary)', fontWeight: 600 }}>
+                <MoneroMark width={16} height={16} className='me-1' />
+                Powered by Monero
+              </a>
             </div>
           </>}
         <small className='d-flex justify-content-center align-items-center text-muted flex-wrap'>
