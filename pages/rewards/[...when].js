@@ -5,7 +5,7 @@ import { CenterLayout } from '@/components/layout'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/router'
 import { getGetServerSideProps } from '@/api/ssrApollo'
-import { fixedDecimal } from '@/lib/format'
+import { fixedDecimal, piconerosToXmr } from '@/lib/format'
 import Trophy from '@/svgs/trophy-fill.svg'
 import { ListItem } from '@/components/items'
 import { dayMonthYear } from '@/lib/time'
@@ -48,7 +48,7 @@ function RewardDay ({ total, sources, time, meRewards }) {
     <div className='py-3 w-100 d-grid' key={time} style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
       <h4 className='fw-bold text-muted ps-0'>
         {time && <div className='text-muted fst-italic fs-6 fw-normal pb-1'>On {dayMonthYear(time)} at 12a CT</div>}
-        {total} sats were rewarded
+        {piconerosToXmr(BigInt(total))} were rewarded
       </h4>
       <div className='my-3 w-100 justify-self-center'>
         <GrowthPieChart data={sourcesData} />
@@ -56,7 +56,7 @@ function RewardDay ({ total, sources, time, meRewards }) {
       {meRewards &&
         <div className='justify-self-center mw-100'>
           <h4 className='fw-bold text-muted'>
-            you earned {meRewards.total} sats ({fixedDecimal(meRewards.total * 100 / total, 2)}%)
+            you earned {piconerosToXmr(BigInt(meRewards.total))} ({fixedDecimal(meRewards.total * 100 / total, 2)}%)
           </h4>
           <div>
             {meRewards.rewards?.map((r, i) => <Reward key={[r.rank, r.type].join('-')} {...r} />)}
@@ -90,7 +90,7 @@ function Reward ({ rank, type, piconeros, item }) {
   return (
     <div>
       <div className={color}>
-        <Trophy height={20} width={20} /> <b>#{rank}</b> {category} for <i><b>{piconeros} sats</b></i>
+        <Trophy height={20} width={20} /> <b>#{rank}</b> {category} for <i><b>{piconerosToXmr(BigInt(piconeros))}</b></i>
       </div>
       {item &&
         <div className={item.parentId ? 'pt-0' : 'pt-2'}>
