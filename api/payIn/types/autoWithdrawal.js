@@ -1,5 +1,4 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
-import { msatsSatsFloor, satsToMsats } from '@/lib/format'
 
 export const anonable = false
 
@@ -22,17 +21,17 @@ export function computeAutoWithdrawAmount (user) {
     user.autoWithdrawMaxFeePercent === null ||
     user.autoWithdrawMaxFeeTotal === null) return null
 
-  const threshold = satsToMsats(user.autoWithdrawThreshold)
+  const threshold = BigInt(user.autoWithdrawThreshold) * 1000n
   const excess = Number(user.stackedPiconeros - threshold)
 
   // excess must be greater than 10% of threshold
   if (excess < Number(threshold) * 0.1) return null
 
   // floor fee to nearest sat but still denominated in piconeros
-  const maxFeePiconeros = msatsSatsFloor(Math.max(
+  const maxFeePiconeros = Math.floor(Math.max(
     Math.ceil(excess * (user.autoWithdrawMaxFeePercent / 100.0)),
-    Number(satsToMsats(user.autoWithdrawMaxFeeTotal))
-  ))
+    Number(BigInt(user.autoWithdrawMaxFeeTotal) * 1000n)
+  ) / 1000) * 1000
   // piconeros will be floored by createInvoice if it needs to be
   const piconeros = BigInt(excess) - maxFeePiconeros
 

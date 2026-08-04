@@ -9,7 +9,7 @@ import { useRouter } from 'next/router'
 import dynamic from 'next/dynamic'
 import PageLoading from '@/components/page-loading'
 import { WhenAreaChartSkeleton, WhenLineChartSkeleton } from '@/components/charts-skeletons'
-import { xmrFromSats } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 
 const WhenAreaChart = dynamic(() => import('@/components/charts').then(mod => mod.WhenAreaChart), {
   loading: () => <WhenAreaChartSkeleton />
@@ -84,11 +84,11 @@ function GrowthTotals ({ totals, sub }) {
     <Row className='my-4'>
       <Col xs={6} md={3} className='text-center mb-3'>
         <div className='text-muted small'>total stashed</div>
-        <div className='fw-bold fs-5'>{xmrFromSats(Math.floor(totals.stashing))}</div>
+        <div className='fw-bold fs-5'>{piconerosToXmr(BigInt(Math.floor(totals.stashing)) * 1000n)}</div>
       </Col>
       <Col xs={6} md={3} className='text-center mb-3'>
         <div className='text-muted small'>total spent</div>
-        <div className='fw-bold fs-5'>{xmrFromSats(Math.floor(totals.spending))}</div>
+        <div className='fw-bold fs-5'>{piconerosToXmr(BigInt(Math.floor(totals.spending)) * 1000n)}</div>
       </Col>
       <Col xs={6} md={3} className='text-center mb-3'>
         <div className='text-muted small'>spend actions</div>

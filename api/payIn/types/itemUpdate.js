@@ -4,7 +4,6 @@ import { getItemMentions, getMentions, getSubs, performBotBehavior } from '../li
 import { extractMentions } from '@/lib/lexical/server/mentions'
 import { notifyItemMention, notifyMention } from '@/lib/webPush'
 import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
-import { satsToMsats, msatsToSats } from '@/lib/format'
 import * as MEDIA_UPLOAD from './mediaUpload'
 import { getBeneficiariesPiconeros } from '../lib/beneficiaries'
 import { getItem } from '@/api/resolvers/item'
@@ -46,7 +45,8 @@ async function getPiconeros (models, { id, uploadIds, bio, newSubs, parentId }, 
     }
     for (const subName of addedSubs) {
       const sub = newSubs.find(sub => sub.name === subName)
-      piconeros += satsToMsats(sub.baseCost)
+      // baseCost is denominated in the fork's legacy sats (1 sats == 1000 piconeros)
+      piconeros += BigInt(sub.baseCost) * 1000n
     }
   }
 
@@ -69,7 +69,7 @@ export async function getInitial (models, { id, uploadIds, bio, subNames }, { me
     ? subs
     : subs.map(sub => ({
       ...sub,
-      piconeros: old.subNames?.includes(sub.name) ? 0n : satsToMsats(sub.baseCost ?? 1)
+      piconeros: old.subNames?.includes(sub.name) ? 0n : BigInt(sub.baseCost ?? 1) * 1000n
     }))
   const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs: subsWithCosts, piconeros })
 
@@ -120,7 +120,8 @@ export async function onBegin (tx, payInId, args) {
 
   // if it has changed concurrently
   // update cost if the update has a cost (e.g., moving to new territory ... or adding images)
-  const additionalCost = msatsToSats(payIn.piconeros)
+  // cost is denominated in the fork's legacy sats (1 sats == 1000 piconeros)
+  const additionalCost = Number(BigInt(payIn.piconeros) / 1000n)
   await tx.item.update({
     where: { id: parseInt(id) },
     data: {

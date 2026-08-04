@@ -1,5 +1,4 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
-import { satsToMsats } from '@/lib/format'
 import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
 import { GqlInputError } from '@/lib/error'
 
@@ -17,7 +16,7 @@ export async function getInitial (models, { id }, { me }) {
     include: { item: { include: { subs: { include: { sub: true } } } } }
   })
 
-  const piconeros = satsToMsats(pollOption.item.pollCost)
+  const piconeros = BigInt(pollOption.item.pollCost) * 1000n
   const subs = pollOption.item.subs.map(subItem => subItem.sub)
   const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, piconeros })
 

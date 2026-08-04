@@ -2,7 +2,6 @@ import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { notifyItemMention, notifyItemParents, notifyMention, notifyTerritorySubscribers, notifyUserSubscribers, notifyThreadSubscribers } from '@/lib/webPush'
 import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
-import { msatsToSats } from '@/lib/format'
 import { GqlInputError } from '@/lib/error'
 import { getItem } from '@/api/resolvers/item'
 import { getTempImgproxyUrls } from '../lib/upload'
@@ -129,7 +128,7 @@ export async function onBegin (tx, payInId, args) {
   const itemData = {
     parentId: parentId ? parseInt(parentId) : null,
     ...data,
-    cost: msatsToSats(payIn.piconeros),
+    cost: Number(BigInt(payIn.piconeros) / 1000n),
     freebie: isFreebie,
     imgproxyUrls,
     feeStatus,
