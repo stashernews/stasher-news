@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { settingsSchema, filterXmrValidator } from '@/lib/validate'
+import { settingsSchema, territorySchema, filterXmrValidator } from '@/lib/validate'
 
 describe('settingsSchema piconero server bounds', () => {
   it('accepts the posting-fee default and 0 comments filter', async () => {
@@ -9,6 +9,17 @@ describe('settingsSchema piconero server bounds', () => {
   it('rejects beyond ±0.01 XMR', async () => {
     await expect(settingsSchema.fields.postsPiconerosFilter.validate(10000000001)).rejects.toThrow(/at most 0.01 XMR/)
     await expect(settingsSchema.fields.commentsPiconerosFilter.validate(-10000000001)).rejects.toThrow(/at least -0.01 XMR/)
+  })
+})
+
+describe('territorySchema piconero posterior bounds', () => {
+  const schema = territorySchema({})
+  it('accepts the posting-fee default', async () => {
+    await expect(schema.fields.postsPiconerosFilter.validate(1000000000)).resolves.toBe(1000000000)
+  })
+  it('rejects beyond ±0.01 XMR', async () => {
+    await expect(schema.fields.postsPiconerosFilter.validate(10000000001)).rejects.toThrow(/at most 0.01 XMR/)
+    await expect(schema.fields.postsPiconerosFilter.validate(-10000000001)).rejects.toThrow(/at least -0.01 XMR/)
   })
 })
 
