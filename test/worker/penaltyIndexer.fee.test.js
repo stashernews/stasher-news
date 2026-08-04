@@ -115,13 +115,15 @@ test('penaltyIndexer ignores outputs whose subaddress matches no pending fee (Ph
   // major 0 / minor 0 with a payment_id -> not a fee subaddress; no FeeObservation, no throw
   const tx = lwsFeeTx('c3' + 'ef'.repeat(31), '1000000000', 0, 0)
   tx.payment_id = 'aabbccddeeff0011'
+  const before = await prisma.feeObservation.count()
   await expect(runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })).resolves.toBeUndefined()
-  expect(await prisma.feeObservation.count()).toBe(0)
+  expect(await prisma.feeObservation.count()).toBe(before)
 })
 
 test('penaltyIndexer ignores a fee subaddress with no pending PayIn (already consumed / unknown)', async () => {
   // major 1, minor 999 has no PayIn reserved -> skip silently
   const tx = lwsFeeTx('d4' + '12'.repeat(31), '1000000000', 1, 999)
+  const before = await prisma.feeObservation.count()
   await expect(runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })).resolves.toBeUndefined()
-  expect(await prisma.feeObservation.count()).toBe(0)
+  expect(await prisma.feeObservation.count()).toBe(before)
 })
