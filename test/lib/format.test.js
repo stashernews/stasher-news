@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, xmrToPiconeros, signedXmrToPiconeros } from '@/lib/format'
+import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid } from '@/lib/format'
 
 describe('piconerosToXmrDecimal re-export', () => {
   it('is re-exported from lib/format (settings + tip modal import it from here)', () => {
@@ -53,6 +53,20 @@ describe('signedXmrToPiconeros', () => {
   test('parses negative amounts', () => {
     expect(signedXmrToPiconeros('-0.001')).toBe(-1000000000n)
     expect(signedXmrToPiconeros(-0.01)).toBe(-10000000000n)
+  })
+
+  test('accepts exponent notation defensively', () => {
+    expect(signedXmrToPiconeros('1e-11')).toBe(10n)
+    expect(signedXmrToPiconeros('-1e-11')).toBe(-10n)
+  })
+})
+
+describe('snapToFilterGrid', () => {
+  test('collapses sub-step values onto the 0.0001 grid', () => {
+    expect(snapToFilterGrid(1e-11)).toBe(0)
+    expect(snapToFilterGrid(0.001)).toBe(0.001)
+    expect(snapToFilterGrid(0.0010000000001)).toBe(0.001)
+    expect(snapToFilterGrid(-0.001)).toBe(-0.001)
   })
 })
 

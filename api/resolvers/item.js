@@ -318,14 +318,14 @@ export async function filterClause (type, sub, sort, { me, userLoader, subLoader
     // non-curated in territory: most permissive of user/territory
     // null (show all) beats any number since it's conceptually -infinity
     postsPiconerosFilter = me
-      ? (postsPiconerosFilter == null ? null : Math.min(postsPiconerosFilter, territory.postsPiconerosFilter))
+      ? (postsPiconerosFilter == null ? null : Math.min(Number(postsPiconerosFilter), Number(territory.postsPiconerosFilter)))
       : territory.postsPiconerosFilter
   } else if (isCurated) {
     // homepage curated: enforce homepage minimum
     // null (show all) defers to the homepage threshold
     postsPiconerosFilter = postsPiconerosFilter == null
       ? HOMEPAGE_POSTS_PICONEROS_FILTER
-      : Math.max(postsPiconerosFilter, HOMEPAGE_POSTS_PICONEROS_FILTER)
+      : Math.max(Number(postsPiconerosFilter), Number(HOMEPAGE_POSTS_PICONEROS_FILTER))
   }
 
   // On curated feeds (lit/top), your own items are filtered like everyone else's.

@@ -17,7 +17,7 @@ import { SUPPORTED_CURRENCIES } from '@/lib/currency'
 import PageLoading from '@/components/page-loading'
 import { useToast } from '@/components/toast'
 import { useMe } from '@/components/me'
-import { piconerosToXmrDecimal, signedXmrToPiconeros, xmrToPiconeros } from '@/lib/format'
+import { piconerosToXmrDecimal, signedXmrToPiconeros, xmrToPiconeros, snapToFilterGrid } from '@/lib/format'
 import { useField } from 'formik'
 import styles from '@/styles/nav.module.css'
 import { AuthBanner } from '@/components/banners'
@@ -125,8 +125,8 @@ export default function Settings ({ ssrData }) {
             hideTwitter: settings?.hideTwitter,
             imgproxyOnly: settings?.imgproxyOnly,
             showImagesAndVideos: settings?.showImagesAndVideos,
-            postsPiconerosFilter: settings?.postsPiconerosFilter == null ? null : Number(piconerosToXmrDecimal(BigInt(settings.postsPiconerosFilter))),
-            commentsPiconerosFilter: settings?.commentsPiconerosFilter == null ? null : Number(piconerosToXmrDecimal(BigInt(settings.commentsPiconerosFilter))),
+            postsPiconerosFilter: settings?.postsPiconerosFilter == null ? null : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(settings.postsPiconerosFilter)))),
+            commentsPiconerosFilter: settings?.commentsPiconerosFilter == null ? null : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(settings.commentsPiconerosFilter)))),
             nsfwMode: settings?.nsfwMode,
             nostrPubkey: settings?.nostrPubkey ? bech32encode(settings.nostrPubkey) : '',
             nostrCrossposting: settings?.nostrCrossposting,

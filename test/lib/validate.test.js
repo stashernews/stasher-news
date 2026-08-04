@@ -12,7 +12,7 @@ describe('settingsSchema piconero server bounds', () => {
   })
 })
 
-describe('territorySchema piconero posterior bounds', () => {
+describe('territorySchema piconero bounds', () => {
   const schema = territorySchema({})
   it('accepts the posting-fee default', async () => {
     await expect(schema.fields.postsPiconerosFilter.validate(1000000000)).resolves.toBe(1000000000)
