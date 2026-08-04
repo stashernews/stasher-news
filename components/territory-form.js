@@ -10,7 +10,7 @@ import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, DOMAIN_BETA_IDS, TERRITORY_BILLI
 import { territorySchema, filterXmrValidator } from '@/lib/validate'
 import { useMe } from './me'
 import Info from './info'
-import { abbrNum, piconerosToXmrDecimal, signedXmrToPiconeros, snapToFilterGrid } from '@/lib/format'
+import { piconerosToXmrDecimal, piconerosToXmr, signedXmrToPiconeros, snapToFilterGrid } from '@/lib/format'
 import { purchasedType } from '@/lib/territory'
 import { SUB } from '@/fragments/subs'
 import TerritoryBranding, { useBranding } from './territory-branding'
@@ -122,7 +122,7 @@ export default function TerritoryForm ({ sub }) {
     if (sub?.billingType?.toLowerCase() !== billing) {
       const alreadyBilled = TERRITORY_PERIOD_COST(purchasedType(sub))
       lines.paid = {
-        term: `- ${abbrNum(alreadyBilled)} sats`,
+        term: `- ${piconerosToXmr(BigInt(alreadyBilled) * 1000n)}`,
         label: 'already paid',
         op: '-',
         modifier: cost => cost - alreadyBilled
@@ -237,7 +237,7 @@ export default function TerritoryForm ({ sub }) {
             >
               <Checkbox
                 type='radio'
-                label={`${abbrNum(TERRITORY_PERIOD_COST('MONTHLY'))} sats/month`}
+                label={`${piconerosToXmr(BigInt(TERRITORY_PERIOD_COST('MONTHLY')) * 1000n)}/month`}
                 value='MONTHLY'
                 name='billingType'
                 id='monthly-checkbox'
@@ -246,7 +246,7 @@ export default function TerritoryForm ({ sub }) {
               />
               <Checkbox
                 type='radio'
-                label={`${abbrNum(TERRITORY_PERIOD_COST('YEARLY'))} sats/year`}
+                label={`${piconerosToXmr(BigInt(TERRITORY_PERIOD_COST('YEARLY')) * 1000n)}/year`}
                 value='YEARLY'
                 name='billingType'
                 id='yearly-checkbox'
@@ -255,7 +255,7 @@ export default function TerritoryForm ({ sub }) {
               />
               <Checkbox
                 type='radio'
-                label={`${abbrNum(TERRITORY_PERIOD_COST('ONCE'))} sats once`}
+                label={`${piconerosToXmr(BigInt(TERRITORY_PERIOD_COST('ONCE')) * 1000n)} once`}
                 value='ONCE'
                 name='billingType'
                 id='once-checkbox'
