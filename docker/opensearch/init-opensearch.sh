@@ -601,12 +601,11 @@ create_neural_index () {
         },
         \"analysis\": {
           \"filter\": {
-            \"btc_synonyms\": {
+            \"monero_synonyms\": {
               \"type\": \"synonym_graph\",
               \"synonyms\": [
                 \"btc, bitcoin\",
-                \"sats, satoshi, satoshis\",
-                \"lightning, lightning network, ln\",
+                \"xmr, monero, monero network\",
                 \"utxo, unspent transaction output, utxos\",
                 \"psbt, partially signed bitcoin transaction\",
                 \"nostr, nostr protocol\",
@@ -624,7 +623,7 @@ create_neural_index () {
                 \"kyc, know your customer\",
                 \"aml, anti money laundering\",
                 \"dca, dollar cost averaging\",
-                \"sn, stacker news\",
+                \"sn, stasher news\",
                 \"op_return, opreturn\",
                 \"mempool, mem pool\",
                 \"segwit, segregated witness\",
@@ -694,13 +693,13 @@ create_neural_index () {
             \"en_possessive\": { \"type\": \"stemmer\", \"language\": \"possessive_english\" }
           },
           \"analyzer\": {
-            \"bitcoin_index\": {
+            \"monero_index\": {
               \"tokenizer\": \"standard\",
               \"filter\": [\"lowercase\", \"asciifolding\", \"en_possessive\", \"en_stop\", \"en_stemmer\"]
             },
-            \"bitcoin_search\": {
+            \"monero_search\": {
               \"tokenizer\": \"standard\",
-              \"filter\": [\"lowercase\", \"asciifolding\", \"btc_synonyms\", \"en_possessive\", \"en_stop\", \"en_stemmer\"]
+              \"filter\": [\"lowercase\", \"asciifolding\", \"monero_synonyms\", \"en_possessive\", \"en_stop\", \"en_stemmer\"]
             }
           }
         }
@@ -718,8 +717,8 @@ create_neural_index () {
 
           \"title\": {
             \"type\": \"text\",
-            \"analyzer\": \"bitcoin_index\",
-            \"search_analyzer\": \"bitcoin_search\",
+            \"analyzer\": \"monero_index\",
+            \"search_analyzer\": \"monero_search\",
             \"fields\": {
               \"exact\": { \"type\": \"text\", \"analyzer\": \"standard\" },
               \"keyword\": { \"type\": \"keyword\", \"ignore_above\": 512 }
@@ -727,8 +726,8 @@ create_neural_index () {
           },
           \"text\": {
             \"type\": \"text\",
-            \"analyzer\": \"bitcoin_index\",
-            \"search_analyzer\": \"bitcoin_search\",
+            \"analyzer\": \"monero_index\",
+            \"search_analyzer\": \"monero_search\",
             \"fields\": {
               \"exact\": { \"type\": \"text\", \"analyzer\": \"standard\" }
             }
@@ -766,8 +765,8 @@ create_neural_index () {
 
           \"title_text\": {
             \"type\": \"text\",
-            \"analyzer\": \"bitcoin_index\",
-            \"search_analyzer\": \"bitcoin_search\",
+            \"analyzer\": \"monero_index\",
+            \"search_analyzer\": \"monero_search\",
             \"fields\": {
               \"exact\": { \"type\": \"text\", \"analyzer\": \"standard\" }
             }
