@@ -78,8 +78,8 @@ export default gql`
   input SettingsInput {
     noReferralLinks: Boolean!
     fiatCurrency: String!
-    postsPiconerosFilter: Int
-    commentsPiconerosFilter: Int
+    postsPiconerosFilter: BigInt
+    commentsPiconerosFilter: BigInt
     hideBookmarks: Boolean!
     hideCowboyHat: Boolean!
     hideGithub: Boolean!
@@ -146,8 +146,8 @@ export default gql`
     """
     noReferralLinks: Boolean!
     fiatCurrency: String!
-    postsPiconerosFilter: Int
-    commentsPiconerosFilter: Int
+    postsPiconerosFilter: BigInt
+    commentsPiconerosFilter: BigInt
     hideBookmarks: Boolean!
     hideCowboyHat: Boolean!
     hideGithub: Boolean!

@@ -1100,7 +1100,7 @@ export default {
     },
     netInvestment: async (item) => {
       // Maintained by the item_net_investment trigger
-      return item.netInvestment ?? 0
+      return BigInt(item.netInvestment ?? 0)
     },
     mePiconeros: async (item, args, { me, models }) => {
       if (!me) return 0n
