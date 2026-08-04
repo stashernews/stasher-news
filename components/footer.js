@@ -195,7 +195,7 @@ export default function Footer ({ links = true }) {
                 </div>
               </OverlayTrigger>
               <span className='mx-2 text-muted'> \ </span>
-              <a className='nav-link p-0 d-inline-flex align-items-center' href='https://monero.org' target='_blank' rel='noreferrer' style={{ color: 'var(--bs-primary)', fontWeight: 600 }}>
+              <a className='nav-link p-0 d-inline-flex align-items-center' href='https://getmonero.org' target='_blank' rel='noreferrer' style={{ color: 'var(--bs-primary)', fontWeight: 600 }}>
                 <MoneroMark width={16} height={16} className='me-1' />
                 Powered by Monero
               </a>
