@@ -83,7 +83,7 @@ async function attributeFeeBySubaddress (models, tx) {
     RETURNING id`
   if (!rows || rows.length === 0) return null
 
-  await flipPendingToLive(models, payIn)
+  await flipPendingToLive(models, payIn, tx.piconeros)
   return rows[0].id
 }
 
@@ -179,12 +179,18 @@ function feeTypeFor (major, payInType) {
 
 // Flip the gated Item/Sub to live. Idempotent: the WHERE on the PENDING state
 // means a second call (or a fee already paid by another path) is a no-op.
-async function flipPendingToLive (models, payIn) {
+async function flipPendingToLive (models, payIn, feePiconeros) {
   if (payIn.payInType === 'ITEM_CREATE') {
-    await models.item.updateMany({
-      where: { feePayInId: payIn.id, feeStatus: 'PENDING_FEE' },
-      data: { feeStatus: 'FEE_PAID' }
-    })
+    // Credit the observed posting fee as the post's non-tip investment so the
+    // restored item_net_investment trigger produces netInvestment >= 0.001 XMR
+    // (the new posts-filter default). Idempotent: the WHERE PENDING_FEE guard
+    // makes re-polls a no-op. The fee NEVER touches Item.piconeros (tip total)
+    // or boost (ranking), so tip display and ranktop/ranklit are unaffected.
+    await models.$executeRaw`
+      UPDATE "Item"
+      SET "feeStatus" = 'FEE_PAID',
+          "feeInvestmentPiconeros" = GREATEST("feeInvestmentPiconeros", ${feePiconeros}::bigint)
+      WHERE "feePayInId" = ${payIn.id} AND "feeStatus" = 'PENDING_FEE'`
   } else if (['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE'].includes(payIn.payInType)) {
     await models.sub.updateMany({
       where: { billingPayInId: payIn.id, billingStatus: 'PENDING_FEE' },
