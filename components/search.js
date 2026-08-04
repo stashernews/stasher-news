@@ -17,6 +17,11 @@ import { useMe } from './me'
 import { useField } from 'formik'
 import { searchSchema } from '@/lib/validate'
 import { usePrefix } from './territory-domains'
+import { ITEM_SORT_LABELS } from '@/lib/constants'
+
+const ITEM_SORT_KEY_BY_LABEL = Object.fromEntries(
+  Object.entries(ITEM_SORT_LABELS).map(([key, label]) => [label, key])
+)
 
 export default function Search ({ sub }) {
   const router = useRouter()
@@ -102,11 +107,11 @@ export default function Search ({ sub }) {
                       by
                       <Select
                         groupClassName='mx-2 mb-0'
-                        onChange={(formik, e) => search({ ...formik?.values, sort: e.target.value })}
+                        onChange={(formik, e) => search({ ...formik?.values, sort: ITEM_SORT_KEY_BY_LABEL[e.target.value] ?? e.target.value })}
                         name='sort'
                         size='sm'
-                        overrideValue={sort}
-                        items={['relevance', 'sats', 'new', 'comments']}
+                        overrideValue={ITEM_SORT_LABELS[sort] ?? sort}
+                        items={['relevance', 'sats', 'new', 'comments'].map(v => ITEM_SORT_LABELS[v] ?? v)}
                       />
                       for
                       <Select

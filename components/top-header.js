@@ -1,8 +1,12 @@
 import { useRouter } from 'next/router'
 import { Form, Select, DatePicker } from './form'
-import { ITEM_SORTS, SUB_SORTS, USER_SORTS, WHENS } from '@/lib/constants'
+import { ITEM_SORTS, ITEM_SORT_LABELS, SUB_SORTS, USER_SORTS, WHENS } from '@/lib/constants'
 import { whenToFrom } from '@/lib/time'
 import { usePrefix } from './territory-domains'
+
+const ITEM_SORT_KEY_BY_LABEL = Object.fromEntries(
+  Object.entries(ITEM_SORT_LABELS).map(([key, label]) => [label, key])
+)
 
 export default function TopHeader ({ sub, cat }) {
   const router = useRouter()
@@ -61,10 +65,10 @@ export default function TopHeader ({ sub, cat }) {
                 by
                 <Select
                   groupClassName='mx-2 mb-0'
-                  onChange={(formik, e) => top({ ...formik?.values, by: e.target.value })}
+                  onChange={(formik, e) => top({ ...formik?.values, by: ITEM_SORT_KEY_BY_LABEL[e.target.value] ?? e.target.value })}
                   name='by'
                   size='sm'
-                  overrideValue={by}
+                  overrideValue={ITEM_SORT_LABELS[by] ?? by}
                   items={sortItemsForCategory(cat)}
                 />
                 for
@@ -107,6 +111,6 @@ function sortItemsForCategory (cat) {
     case 'territories':
       return SUB_SORTS
     default:
-      return ITEM_SORTS
+      return ITEM_SORTS.map(v => ITEM_SORT_LABELS[v] ?? v)
   }
 }
