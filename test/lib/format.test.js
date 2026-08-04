@@ -1,5 +1,12 @@
 /* eslint-env jest */
-import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, xmrToPiconeros } from '@/lib/format'
+import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, xmrToPiconeros } from '@/lib/format'
+
+describe('piconerosToXmrDecimal re-export', () => {
+  it('is re-exported from lib/format (settings + tip modal import it from here)', () => {
+    expect(typeof piconerosToXmrDecimal).toBe('function')
+    expect(piconerosToXmrDecimal(xmrToPiconeros('0.001'))).toBe('0.001')
+  })
+})
 
 describe('xmrToPiconeros', () => {
   it('converts a whole-XMR string to piconeros', () => {
