@@ -64,11 +64,11 @@ function InviteHeader ({ invite }) {
   if (invite.revoked) {
     Inner = () => <div className='text-danger'>this invite link expired</div>
   } else if (invite.full || invite.poor) {
-    Inner = () => <div className='text-danger'>this invite link has no more cowboy credits</div>
+    Inner = () => <div className='text-danger'>this invite link has no more credits</div>
   } else {
     Inner = () => (
       <div>
-        Get <span className='text-success'>{invite.gift} cowboy credits</span> from{' '}
+        Get <span className='text-success'>{invite.gift} credits</span> from{' '}
         <Link href={`/${invite.user.name}`}>@{invite.user.name}</Link>{' '}
         when you sign up
       </div>
