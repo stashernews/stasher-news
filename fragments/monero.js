@@ -22,3 +22,15 @@ export const TIP_STATUS = gql`
     }
   }
 `
+
+// Polled by the downvote modal while the user's wallet payment is pending.
+// Returns null until the ObservedBurn row exists / is found.
+export const DOWNVOTE_STATUS = gql`
+  query downvoteStatus($paymentId: String!) {
+    downvoteStatus(paymentId: $paymentId) {
+      state
+      piconeros
+      confirmations
+    }
+  }
+`
