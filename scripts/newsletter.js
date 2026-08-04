@@ -11,7 +11,7 @@ const ITEMS = gql`
         title
         url
         ncomments
-        sats
+        piconeros
         cost
         company
         status
@@ -91,7 +91,7 @@ async function bountyWinner (q) {
     query Item($id: ID!) {
       item(id: $id) {
         text
-        sats
+        piconeros
         imgproxyUrls
         user {
           name
@@ -125,10 +125,10 @@ async function topComment (q) {
   const TOP_COMMENT = gql`
     query Item($id: ID!) {
       item(id: $id) {
-        comments(sort: "top") {
+          comments(sort: "top") {
           comments {
             text
-            sats
+            piconeros
             user {
               name
             }
@@ -222,12 +222,12 @@ Have a great weekend!
 ##### Top Posts
 ${top.data.items.items.map((item, i) =>
   `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
-    - ${piconerosToXmr(BigInt(item.sats + item.boost + item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
+    - ${piconerosToXmr(BigInt(item.piconeros) + BigInt(item.boost) * 1000n + BigInt(item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
 ##### Top AMAs
 ${ama.data.items.items.slice(0, 10).map((item, i) =>
   `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
-    - ${piconerosToXmr(BigInt(item.sats + item.boost + item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
+    - ${piconerosToXmr(BigInt(item.piconeros) + BigInt(item.boost) * 1000n + BigInt(item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
 [**all of this week's AMAs**](https://stasher.news/~ama/top/posts/week)
 

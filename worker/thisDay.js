@@ -58,7 +58,7 @@ function topPosts (days) {
     if (post) {
       text += `
 - [${post.title}](${process.env.NEXT_PUBLIC_URL}/items/${post.id})
-    - ${piconerosToXmr(BigInt(post.sats) * 1000n)} \\ ${numWithUnits(post.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })} \\ @${post.user.name} \\ ~${post.subName} \\ \`${day}\``
+    - ${piconerosToXmr(post.piconeros)} \\ ${numWithUnits(post.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })} \\ @${post.user.name} \\ ~${post.subName} \\ \`${day}\``
     } else {
       text += `
 - no top post for \`${day}\``
@@ -90,7 +90,7 @@ function topComments (days) {
     if (comment) {
       text += `
 - ${process.env.NEXT_PUBLIC_URL}/items/${comment.root.id}?commentId=${comment.id} on [${comment.root.title}](${process.env.NEXT_PUBLIC_URL}/items/${comment.root.id})
-    - ${piconerosToXmr(BigInt(comment.sats) * 1000n)} \\ ${numWithUnits(comment.ncomments, { unitSingular: 'reply', unitPlural: 'replies' })} \\ @${comment.user.name} \\ \`${day}\`
+    - ${piconerosToXmr(comment.piconeros)} \\ ${numWithUnits(comment.ncomments, { unitSingular: 'reply', unitPlural: 'replies' })} \\ @${comment.user.name} \\ \`${day}\`
         > ${comment.text.trim().split('\n')[0]} [...]`
     } else {
       text += `
@@ -125,8 +125,7 @@ const THIS_DAY = gql`
         text
         url
         ncomments
-        sats
-        boost
+        piconeros
         subName
         user {
           name
@@ -139,8 +138,7 @@ const THIS_DAY = gql`
         parentId
         text
         ncomments
-        sats
-        boost
+        piconeros
         user {
           name
         }
