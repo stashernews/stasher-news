@@ -12,18 +12,22 @@ import Link from 'next/link'
 import AccordianItem from '@/components/accordian-item'
 import { bech32 } from 'bech32'
 import { NOSTR_MAX_RELAY_NUM, NOSTR_PUBKEY_BECH32, DEFAULT_CROSSPOSTING_RELAYS } from '@/lib/nostr'
-import { settingsSchema } from '@/lib/validate'
+import { settingsSchema, filterXmrValidator } from '@/lib/validate'
 import { SUPPORTED_CURRENCIES } from '@/lib/currency'
 import PageLoading from '@/components/page-loading'
 import { useToast } from '@/components/toast'
 import { useMe } from '@/components/me'
-import { piconerosToXmrDecimal, xmrToPiconeros } from '@/lib/format'
-import { DEFAULT_COMMENTS_PICONEROS_FILTER, DEFAULT_POSTS_PICONEROS_FILTER } from '@/lib/constants'
+import { piconerosToXmrDecimal, signedXmrToPiconeros, xmrToPiconeros } from '@/lib/format'
 import { useField } from 'formik'
 import styles from '@/styles/nav.module.css'
 import { AuthBanner } from '@/components/banners'
 
 export const getServerSideProps = getGetServerSideProps({ query: SETTINGS, authRequired: true })
+
+const settingsXmrSchema = settingsSchema.shape({
+  postsPiconerosFilter: filterXmrValidator,
+  commentsPiconerosFilter: filterXmrValidator
+})
 
 function bech32encode (hexString) {
   return bech32.encode('npub', bech32.toWords(Buffer.from(hexString, 'hex')))
@@ -121,8 +125,8 @@ export default function Settings ({ ssrData }) {
             hideTwitter: settings?.hideTwitter,
             imgproxyOnly: settings?.imgproxyOnly,
             showImagesAndVideos: settings?.showImagesAndVideos,
-            postsPiconerosFilter: settings?.postsPiconerosFilter,
-            commentsPiconerosFilter: settings?.commentsPiconerosFilter,
+            postsPiconerosFilter: settings?.postsPiconerosFilter == null ? null : Number(piconerosToXmrDecimal(BigInt(settings.postsPiconerosFilter))),
+            commentsPiconerosFilter: settings?.commentsPiconerosFilter == null ? null : Number(piconerosToXmrDecimal(BigInt(settings.commentsPiconerosFilter))),
             nsfwMode: settings?.nsfwMode,
             nostrPubkey: settings?.nostrPubkey ? bech32encode(settings.nostrPubkey) : '',
             nostrCrossposting: settings?.nostrCrossposting,
@@ -130,7 +134,7 @@ export default function Settings ({ ssrData }) {
             hideBookmarks: settings?.hideBookmarks,
             noReferralLinks: settings?.noReferralLinks
           }}
-          schema={settingsSchema}
+          schema={settingsXmrSchema}
           onSubmit={async ({
             tipDefault, tipRandom, tipRandomMin, tipRandomMax,
             nostrPubkey, nostrRelays, postsPiconerosFilter, commentsPiconerosFilter,
@@ -156,8 +160,8 @@ export default function Settings ({ ssrData }) {
                     tipDefault: Number(xmrToPiconeros(String(tipDefault))),
                     tipRandomMin: tipRandom ? Number(xmrToPiconeros(String(tipRandomMin))) : null,
                     tipRandomMax: tipRandom ? Number(xmrToPiconeros(String(tipRandomMax))) : null,
-                    postsPiconerosFilter: postsPiconerosFilter == null ? null : Number(postsPiconerosFilter),
-                    commentsPiconerosFilter: commentsPiconerosFilter == null ? null : Number(commentsPiconerosFilter),
+                    postsPiconerosFilter: postsPiconerosFilter == null ? null : Number(signedXmrToPiconeros(postsPiconerosFilter)),
+                    commentsPiconerosFilter: commentsPiconerosFilter == null ? null : Number(signedXmrToPiconeros(commentsPiconerosFilter)),
                     nostrPubkey,
                     nostrRelays: nostrRelaysFiltered,
                     ...values
@@ -390,7 +394,7 @@ export default function Settings ({ ssrData }) {
           <h4 className='mt-5'>content</h4>
           <Range
             label={
-              <div className='d-flex align-items-center'>posts sat filter
+              <div className='d-flex align-items-center'>posts xmr filter
                 <Info>
                   <ul>
                     <li>hide posts if net investment (cost + tips + boost - downvotes) is less than this</li>
@@ -400,19 +404,19 @@ export default function Settings ({ ssrData }) {
               </div>
             }
             name='postsPiconerosFilter'
-            min={-1000}
-            max={1000}
-            suffix=' sats'
+            min={-0.01}
+            max={0.01}
+            step={0.0001}
+            suffix=' XMR'
             allOption
             labels={[
-              { value: -1060, label: 'wild west' },
-              { value: DEFAULT_POSTS_PICONEROS_FILTER, label: DEFAULT_POSTS_PICONEROS_FILTER },
-              { value: 1060, label: 'tea & crumpets' }
+              { value: -0.01, label: 'wild west' },
+              { value: 0.01, label: 'tea & crumpets' }
             ]}
           />
           <Range
             label={
-              <div className='d-flex align-items-center'>comments sat filter
+              <div className='d-flex align-items-center'>comments xmr filter
                 <Info>
                   <ul>
                     <li>collapse comments and rank at bottom if net investment is less than this</li>
@@ -422,14 +426,14 @@ export default function Settings ({ ssrData }) {
               </div>
             }
             name='commentsPiconerosFilter'
-            min={-100}
-            max={100}
-            suffix=' sats'
+            min={-0.01}
+            max={0.01}
+            step={0.0001}
+            suffix=' XMR'
             allOption
             labels={[
-              { value: -106, label: 'wild west' },
-              { value: DEFAULT_COMMENTS_PICONEROS_FILTER, label: DEFAULT_COMMENTS_PICONEROS_FILTER },
-              { value: 106, label: 'tea & crumpets' }
+              { value: -0.01, label: 'wild west' },
+              { value: 0.01, label: 'tea & crumpets' }
             ]}
           />
           <Checkbox
