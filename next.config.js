@@ -149,7 +149,7 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
         headers: [walletImageCacheHeader]
       })),
       ...['woff', 'woff2'].map(ext => ({
-        source: `/Lightningvolt-xoqm.${ext}`,
+        source: `/alarmclock.${ext}`,
         headers: [
           ...corsHeaders,
           immutableCacheHeader
@@ -262,8 +262,8 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
               { from: 'public/maskable', to: '../maskable' },
               { from: 'public/splash', to: '../splash' },
               { from: 'public/sleeping.mp4', to: '../sleeping.mp4' },
-              { from: 'public/Lightningvolt-xoqm.woff', to: '../Lightningvolt-xoqm.woff' },
-              { from: 'public/Lightningvolt-xoqm.woff2', to: '../Lightningvolt-xoqm.woff2' }
+              { from: 'public/alarmclock.woff', to: '../alarmclock.woff' },
+              { from: 'public/alarmclock.woff2', to: '../alarmclock.woff2' }
             ]
           }),
           // this is need to allow the service worker to access these environment variables

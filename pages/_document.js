@@ -58,8 +58,8 @@ class MyDocument extends Document {
       <Html lang='en' data-scroll-behavior='smooth'>
         <Head nonce={nonce}>
           <link rel='manifest' href={manifestHref} />
-          <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/Lightningvolt-xoqm.woff2`} as='font' type='font/woff2' crossOrigin='' />
-          <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/Lightningvolt-xoqm.woff`} as='font' type='font/woff' crossOrigin='' />
+          <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff2`} as='font' type='font/woff2' crossOrigin='' />
+          <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff`} as='font' type='font/woff' crossOrigin='' />
           <style
             nonce={nonce}
             dangerouslySetInnerHTML={{
@@ -67,8 +67,8 @@ class MyDocument extends Document {
             ` @font-face {
                 font-family: 'lightning';
                 src:
-                  url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/Lightningvolt-xoqm.woff2) format('woff2'),
-                  url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/Lightningvolt-xoqm.woff) format('woff');
+                  url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff2) format('woff2'),
+                  url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff) format('woff');
                 font-display: swap;
               }`
             }}
