@@ -32,7 +32,6 @@ export const ITEM_FIELDS = gql`
       meMuteSub
       meSubscription
       nsfw
-      replyCost
     }
     payIn {
       id
@@ -121,7 +120,6 @@ export const ITEM_FULL_FIELDS = gql`
         userId
         meMuteSub
         meSubscription
-        replyCost
       }
     }
     forwards {
