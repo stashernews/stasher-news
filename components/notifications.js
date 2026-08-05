@@ -60,7 +60,6 @@ function Notification ({ n, fresh }) {
         (['NewGun', 'LostGun'].includes(type) && <Gun n={n} />) ||
         (type === 'Votification' && <Votification n={n} />) ||
         (type === 'BountyPayment' && <BountyPayment n={n} />) ||
-        (type === 'ForwardedVotification' && <ForwardedVotification n={n} />) ||
         (type === 'Mention' && <Mention n={n} />) ||
         (type === 'ItemMention' && <ItemMention n={n} />) ||
         (type === 'JobChanged' && <JobChanged n={n} />) ||
@@ -562,23 +561,12 @@ function stackedText (item, total) {
 }
 
 function Votification ({ n }) {
-  const forwardedPct = n.item.forwards?.reduce((acc, f) => acc + f.pct, 0) ?? 0
-
-  let stackedTextString
-  if (n.item.forwards?.length) {
-    stackedTextString = stackedText(n.item, n.earnedPiconeros)
-  } else {
-    stackedTextString = stackedText(n.item)
-  }
-
   return (
     <>
       <NoteHeader color='success'>
         <span className='d-inline-flex'>
           <span>
-            your {n.item.title ? 'post' : 'reply'} stashed {stackedTextString}
-            {forwardedPct > 0 &&
-              <small className='text-muted fw-light ms-1'>{forwardedPct}% forwarded</small>}
+            your {n.item.title ? 'post' : 'reply'} stashed {stackedText(n.item)}
           </span>
           {n.item.credits > 0 && <CCInfo size={16} />}
         </span>
@@ -593,25 +581,6 @@ function BountyPayment ({ n }) {
     <>
       <NoteHeader color='success'>
         you received a {piconerosToXmr(BigInt(n.earnedPiconeros))} bounty payment
-      </NoteHeader>
-      <NoteItem item={n.item} />
-    </>
-  )
-}
-
-function ForwardedVotification ({ n }) {
-  const { me } = useMe()
-  const myPct = n.item.forwards?.find(f => Number(f.userId) === Number(me?.id))?.pct
-  return (
-    <>
-      <NoteHeader color='success'>
-        <span className='d-inline-flex'>
-          <span>
-            {n.item.title ? 'post' : 'reply'} stashed {stackedText(n.item)}
-            {myPct && <small className='text-muted fw-light ms-1'>{myPct}% forwarded to you</small>}
-          </span>
-          {n.item.credits > 0 && <CCInfo size={16} />}
-        </span>
       </NoteHeader>
       <NoteItem item={n.item} />
     </>

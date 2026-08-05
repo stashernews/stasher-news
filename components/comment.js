@@ -212,9 +212,7 @@ export default function Comment ({
   // Don't show OP badge when anon user comments on anon user posts
   const op = root.user.name === item.user.name && Number(item.user.id) !== USER_ID.anon
     ? 'OP'
-    : root.forwards?.some(f => f.user.name === item.user.name) && Number(item.user.id) !== USER_ID.anon
-      ? 'fwd'
-      : null
+    : null
   const bountyPaid = root.bountyPaidTo?.includes(Number(item.id))
 
   return (
@@ -248,7 +246,7 @@ export default function Comment ({
                   commentsText='replies'
                   commentTextSingular='reply'
                   className={`${itemStyles.other} ${styles.other}`}
-                  embellishUser={op && <><span> </span><Badge bg={op === 'fwd' ? 'secondary' : 'boost'} className={`${styles.op} bg-opacity-75`}>{op}</Badge></>}
+                  embellishUser={op && <><span> </span><Badge bg='boost' className={`${styles.op} bg-opacity-75`}>{op}</Badge></>}
                   onQuoteReply={quoteReply}
                   nested={!includeParent}
                   {...props}
