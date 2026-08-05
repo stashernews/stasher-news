@@ -44,7 +44,8 @@ const REMOVED_MODELS = [
   'WalletProtocol',
   'WalletTemplate',
   'WalletLog',
-  'Vault'
+  'Vault',
+  'ItemForward'
 ]
 
 test('stealth schema has the Monero observation models', () => {
@@ -152,4 +153,8 @@ test('User and Sub filter fields are BigInt piconero filters', () => {
   }
   check('User', ['postsPiconerosFilter', 'commentsPiconerosFilter'])
   check('Sub', ['postsPiconerosFilter'])
+})
+
+test('User has no forward-notification setting residue', () => {
+  expect(fieldsOf('User')).not.toContain('noteForwardedPiconeros')
 })
