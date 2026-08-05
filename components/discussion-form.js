@@ -1,5 +1,4 @@
 import { Form, Input, SNInput } from '@/components/form'
-import AdvPostForm from './adv-post-form'
 import { discussionSchema } from '@/lib/validate'
 import { MAX_TITLE_LENGTH } from '@/lib/constants'
 import { ItemButtonBar } from './post'
@@ -41,7 +40,6 @@ export function DiscussionForm ({
         minRows={6}
         hint={EditInfo}
       />
-      <AdvPostForm storageKeyPrefix={storageKeyPrefix} item={item} />
       <ItemButtonBar itemId={item?.id} />
     </Form>
   )

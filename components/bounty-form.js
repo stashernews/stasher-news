@@ -1,5 +1,4 @@
 import { Form, Input, SNInput } from '@/components/form'
-import AdvPostForm from './adv-post-form'
 import InputGroup from 'react-bootstrap/InputGroup'
 import { bountySchema } from '@/lib/validate'
 import { MAX_TITLE_LENGTH } from '@/lib/constants'
@@ -61,7 +60,6 @@ export function BountyForm ({
         minRows={6}
         hint={EditInfo}
       />
-      <AdvPostForm storageKeyPrefix={storageKeyPrefix} item={item} />
       <ItemButtonBar itemId={item?.id} canDelete={false} />
     </Form>
   )
