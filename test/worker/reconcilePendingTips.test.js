@@ -21,7 +21,7 @@ function tip (overrides) {
 
 test('recovers a PENDING tip whose payment_id appears in the lws re-scan (PENDING->DETECTED + applyTipDetected)', async () => {
   const t = tip({ id: 1n })
-  const account = { id: 7, address: 'ADDR', viewKey: { ciphertext: Buffer.alloc(0) } }
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) } }
   const lws = {
     getAddressTxs: async () => ({
       transactions: [
@@ -58,7 +58,7 @@ test('recovers a PENDING tip whose payment_id appears in the lws re-scan (PENDIN
 test('expires a PENDING tip with no matching payment after PENDING_EXPIRY_MS (-> EXPIRED)', async () => {
   const expiredDate = new Date(Date.now() - (8 * 24 * 60 * 60 * 1000))
   const t = tip({ id: 2n, detectedAt: expiredDate })
-  const account = { id: 7, address: 'ADDR', viewKey: {} }
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: {} }
   const lws = { getAddressTxs: async () => ({ transactions: [], blockchain_height: 110 }) }
   let expiredWhere = null
   const models = {
@@ -72,6 +72,28 @@ test('expires a PENDING tip with no matching payment after PENDING_EXPIRY_MS (->
   const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => {} })
   expect(out.expired).toBe(1)
   expect(expiredWhere).toEqual({ id: 2n, state: 'PENDING' })
+})
+
+test('never calls lws for an account without a viewKey, but still expires its PENDING tips (soft-deleted account)', async () => {
+  const expiredDate = new Date(Date.now() - (8 * 24 * 60 * 60 * 1000))
+  const t = tip({ id: 4n, detectedAt: expiredDate })
+  // Soft-deleted account: viewKey wiped + status INACTIVE (unregisterMoneroAccount).
+  // Scanning it would throw in lws walletLogin and abort the whole run.
+  const account = { id: 7, address: 'ADDR', viewKey: null, status: 'INACTIVE' }
+  const lws = { getAddressTxs: jest.fn() }
+  let expiredWhere = null
+  const models = {
+    observedTip: {
+      findMany: async () => [t],
+      updateMany: async ({ where }) => { expiredWhere = where; return { count: 1 } }
+    },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async () => {}
+  }
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => {} })
+  expect(lws.getAddressTxs).not.toHaveBeenCalled()
+  expect(out).toEqual({ recovered: 0, expired: 1 })
+  expect(expiredWhere).toEqual({ id: 4n, state: 'PENDING' })
 })
 
 test('does NOT touch fresh PENDING tips (younger than RECONCILE_PENDING_AGE_MS)', async () => {

@@ -52,10 +52,17 @@ export async function runReconcilePendingTipsOnce ({
   let expired = 0
   for (const account of accounts) {
     const tips = byAccount.get(account.id) || []
-    const resp = await client.getAddressTxs(account, 0, null)
+    // Unregistered/soft-deleted accounts (view key wiped, status INACTIVE) can't be
+    // scanned — walletLogin throws on a missing viewKey relation, which would abort
+    // the entire run and strand every other account's tips. Skip the scan but still
+    // expire this account's tips below (byPid stays empty, so each tip falls to expiry).
+    const unscannable = !account.viewKey || account.status !== 'ACTIVE'
     const byPid = new Map()
-    for (const tx of (resp.transactions || [])) {
-      if (tx.payment_id) byPid.set(String(tx.payment_id).toLowerCase(), tx)
+    if (!unscannable) {
+      const resp = await client.getAddressTxs(account, 0, null)
+      for (const tx of (resp.transactions || [])) {
+        if (tx.payment_id) byPid.set(String(tx.payment_id).toLowerCase(), tx)
+      }
     }
     for (const tip of tips) {
       const tx = byPid.get(String(tip.paymentId).toLowerCase())
