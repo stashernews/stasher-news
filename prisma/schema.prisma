@@ -41,7 +41,6 @@ model User {
   noteItemPiconeros   Boolean              @default(true)
   noteMentions        Boolean              @default(true)
   noteItemMentions    Boolean              @default(true)
-  noteForwardedPiconeros Boolean          @default(true)
   photoId             Int?
   hideUriDesc         Boolean              @default(false)
   postsPiconerosFilter BigInt?                 @default(1000000000)
@@ -85,7 +84,6 @@ model User {
   referrees           User[]               @relation("referrals")
   Account             Account[]
   Session             Session[]
-  itemForwards        ItemForward[]
   hideBookmarks       Boolean              @default(false)
   hideGithub          Boolean              @default(true)
   hideNostr           Boolean              @default(true)
@@ -385,7 +383,6 @@ model Item {
   PollVote             PollVote[]
   threadSubscriptions  ThreadSubscription[]
   User                 User[]
-  itemForwards         ItemForward[]
   itemUploads          ItemUpload[]
   uploadId             Int?
   netInvestment        BigInt                  @default(0)
@@ -553,23 +550,6 @@ model Reply {
   @@index([userId])
   @@index([level])
   @@index([createdAt])
-}
-
-// TODO: make all Item's forward 100% of sats to the OP by default
-// so that forwards aren't a special case everywhere
-model ItemForward {
-  id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
-  itemId    Int // The item from which sats are forwarded
-  userId    Int // The recipient of the forwarded sats
-  pct       Int // The percentage of sats from the item to forward to this user
-  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([itemId], map: "ItemForward.itemId_index")
-  @@index([userId], map: "ItemForward.userId_index")
-  @@index([createdAt], map: "ItemForward.createdAt_index")
 }
 
 model PollOption {
