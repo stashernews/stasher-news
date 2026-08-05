@@ -4,6 +4,7 @@ import { initialTrust } from '../lib/territory'
 import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
+import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 
 // StealthNews territory creation (spec §6.2). The founder pays a territory fee to
 // the platform rewards wallet via a dedicated major-2 subaddress; the territory is
@@ -67,6 +68,8 @@ export async function onBegin (tx, payInId, { billingType, uploadIds, ...data })
   await tx.userSubTrust.createMany({
     data: initialTrust({ name: sub.name, userId: sub.userId })
   })
+
+  await scheduleTerritoryBilling(tx, sub.name, sub.billPaidUntil)
 
   return sub
 }

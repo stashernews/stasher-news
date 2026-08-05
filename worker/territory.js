@@ -1,4 +1,3 @@
-import pay from '@/api/payIn'
 import { nextBillingWithGrace } from '@/lib/territory'
 import { datePivot } from '@/lib/time'
 import { notifyTerritoryStatusChange } from '@/lib/webPush'
@@ -13,62 +12,45 @@ export async function territoryBilling ({ data: { subName }, boss, models }) {
     }
   })
 
-  async function territoryStatusUpdate () {
-    if (sub.status !== 'STOPPED') {
-      sub = await models.sub.update({
-        include: { user: true },
-        where: {
-          name: subName
-        },
-        data: {
-          status: nextBillingWithGrace(sub) >= new Date() ? 'GRACE' : 'STOPPED',
-          statusUpdatedAt: new Date()
-        }
-      })
+  // ONCE turfs are never billed (billPaidUntil is null forever)
+  if (!sub || sub.billingType === 'ONCE') return
 
-      // send push notification with the new status
+  // Unpaid fee still pending: wait for the penaltyIndexer to observe it, but
+  // lapse the turf once the grace window has fully passed.
+  if (sub.billingStatus === 'PENDING_FEE') {
+    if (nextBillingWithGrace(sub) < new Date()) {
+      sub = await models.sub.update({
+        where: { name: subName },
+        data: { billingStatus: 'LAPSED', status: 'STOPPED', statusUpdatedAt: new Date() },
+        include: { user: true }
+      })
       await notifyTerritoryStatusChange({ sub })
     }
-
-    // retry billing in one day
-    await boss.send('territoryBilling', { subName }, { startAfter: datePivot(new Date(), { days: 1 }) })
-  }
-
-  // StealthNews: if a renewal fee is still PENDING_FEE past the grace window the
-  // penaltyIndexer never observed it — lapse the territory. (A fresh renewal that
-  // sets PENDING_FEE and then gets paid is flipped to PAID by the penaltyIndexer,
-  // so this only fires on genuinely unpaid fees.)
-  if (sub.billingStatus === 'PENDING_FEE' && nextBillingWithGrace(sub) < new Date()) {
-    sub = await models.sub.update({
-      where: { name: subName },
-      data: { billingStatus: 'LAPSED', status: 'STOPPED', statusUpdatedAt: new Date() },
-      include: { user: true }
-    })
-    await notifyTerritoryStatusChange({ sub })
     await boss.send('territoryBilling', { subName }, { startAfter: datePivot(new Date(), { days: 1 }) })
     return
   }
 
-  if (!sub.billingAutoRenew) {
-    await territoryStatusUpdate()
+  // Paid up: nothing to do until the next billing boundary — one-shot, no daily churn.
+  if (sub.billPaidUntil && new Date(sub.billPaidUntil) > new Date()) {
+    await boss.send('territoryBilling', { subName }, { startAfter: new Date(sub.billPaidUntil) })
     return
   }
 
-  try {
-    const { result } = await pay('TERRITORY_BILLING',
-      { name: subName }, {
-        models,
-        me: sub.user,
-        custodialOnly: true
+  // Due: enter GRACE (or archive past grace) and remind the founder once on the
+  // ACTIVE -> GRACE transition when they opted in to reminders.
+  if (sub.status !== 'STOPPED') {
+    const nextStatus = nextBillingWithGrace(sub) >= new Date() ? 'GRACE' : 'STOPPED'
+    if (nextStatus !== sub.status) {
+      sub = await models.sub.update({
+        where: { name: subName },
+        data: { status: nextStatus, statusUpdatedAt: new Date() },
+        include: { user: true }
       })
-    if (!result) {
-      throw new Error('not enough fee credits to auto-renew territory')
-    } else if (sub.status === 'GRACE' && result.status === 'ACTIVE') {
-      // if the sub was in grace and we successfully auto-renewed it, send a push notification
-      await notifyTerritoryStatusChange({ sub: result })
+      if (nextStatus === 'STOPPED' || sub.billingAutoRenew) {
+        await notifyTerritoryStatusChange({ sub })
+      }
     }
-  } catch (e) {
-    console.error(e)
-    await territoryStatusUpdate()
   }
+
+  await boss.send('territoryBilling', { subName }, { startAfter: datePivot(new Date(), { days: 1 }) })
 }
