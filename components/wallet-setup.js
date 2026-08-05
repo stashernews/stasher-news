@@ -5,6 +5,8 @@ import { Form, Input, SubmitButton, CopyButton } from '@/components/form'
 import { gql } from '@apollo/client'
 import { useMutation, useQuery } from '@apollo/client/react'
 import { useToast } from '@/components/toast'
+import { useShowModal } from '@/components/modal'
+import { ObstacleButtons } from '@/components/obstacle'
 import Qr from '@/components/qr'
 
 // StealthNews author wallet onboarding (spec §8.2). Post-pivot there is one
@@ -22,6 +24,11 @@ const REGISTER_MONERO_ACCOUNT_MUTATION = gql`
     registerMoneroAccount(address: $address, viewKey: $viewKey) {
       id address label privacyMode
     }
+  }
+`
+const UNREGISTER_MONERO_ACCOUNT_MUTATION = gql`
+  mutation UnregisterMoneroAccount {
+    unregisterMoneroAccount
   }
 `
 
@@ -50,7 +57,52 @@ export default function WalletSetup () {
   return <WalletWizard />
 }
 
+function RemoveWalletObstacle ({ onClose, onConfirm }) {
+  return (
+    <div className='text-center'>
+      <h4 className='mb-3'>remove your wallet?</h4>
+      <p className='text-muted small'>
+        stasher news will stop scanning this wallet for incoming tips. any tip
+        already sent to this wallet that has not yet been detected will not be
+        credited. your post and tip history is kept.
+      </p>
+      <ObstacleButtons
+        onClose={onClose}
+        onConfirm={onConfirm}
+        confirmText='remove'
+        confirmVariant='danger'
+      />
+    </div>
+  )
+}
+
 function ExistingAccount ({ account }) {
+  const toaster = useToast()
+  const showModal = useShowModal()
+  const [unregister, { loading }] = useMutation(UNREGISTER_MONERO_ACCOUNT_MUTATION, {
+    update (cache) {
+      cache.writeQuery({ query: MY_MONERO_ACCOUNT, data: { myMoneroAccount: null } })
+    }
+  })
+
+  const handleRemove = () => {
+    showModal(onClose => (
+      <RemoveWalletObstacle
+        onClose={onClose}
+        onConfirm={async () => {
+          try {
+            await unregister()
+            toaster.success('wallet removed')
+          } catch (err) {
+            toaster.danger(err.message)
+          } finally {
+            onClose()
+          }
+        }}
+      />
+    ))
+  }
+
   return (
     <Card>
       <Card.Body>
@@ -58,13 +110,16 @@ function ExistingAccount ({ account }) {
         <p className='text-muted'>
           your wallet is under indexer observation. tips sent to your posts are
           detected automatically via webhooks and credited when confirmed. tips
-          are 100% peer-to-peer — stealthnews never holds your funds.
+          are 100% peer-to-peer. Stasher News never holds your funds.
         </p>
         <Input
           label='primary address' name='addressDisplay'
           placeholder={account.address} readOnly noForm groupClassName='mb-3'
           append={<CopyButton value={account.address} icon />}
         />
+        <Button variant='danger' onClick={handleRemove} disabled={loading}>
+          {loading ? 'removing…' : 'remove wallet'}
+        </Button>
       </Card.Body>
     </Card>
   )
