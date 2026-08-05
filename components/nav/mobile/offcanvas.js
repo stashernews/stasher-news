@@ -58,7 +58,7 @@ export default function OffCanvas ({ me, dropNavKey }) {
                     <Indicator show={profileIndicator} top='2px' right='-10px'>profile</Indicator>
                   </Dropdown.Item>
                   <Dropdown.Item as={Link} href={'/' + me.name + '/bookmarks'} active={me.name + '/bookmarks' === dropNavKey}>bookmarks</Dropdown.Item>
-                  <Dropdown.Item as={Link} href='/wallets' eventKey='wallets'>
+                  <Dropdown.Item as={Link} href='/settings/wallet' eventKey='wallets'>
                     <Indicator show={walletIndicator} top='2px' right='-10px'>wallets</Indicator>
                   </Dropdown.Item>
                   <Dropdown.Item as={Link} href='/statistics' eventKey='statistics'>Statistics</Dropdown.Item>
