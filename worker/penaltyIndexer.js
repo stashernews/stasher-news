@@ -175,6 +175,7 @@ function feeTypeFor (major, payInType) {
   // territory major: the PayIn's type tells us which territory fee it is
   if (payInType === 'TERRITORY_BILLING') return 'TERRITORY_BILLING'
   if (payInType === 'TERRITORY_UNARCHIVE') return 'TERRITORY_UNARCHIVE'
+  if (payInType === 'TERRITORY_UPDATE') return 'TERRITORY_UPDATE'
   return 'TERRITORY_CREATE'
 }
 
@@ -192,7 +193,7 @@ async function flipPendingToLive (models, payIn, feePiconeros) {
       SET "feeStatus" = 'FEE_PAID',
           "feeInvestmentPiconeros" = GREATEST("feeInvestmentPiconeros", ${feePiconeros}::bigint)
       WHERE "feePayInId" = ${payIn.id} AND "feeStatus" = 'PENDING_FEE'`
-  } else if (['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE'].includes(payIn.payInType)) {
+  } else if (['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE'].includes(payIn.payInType)) {
     await models.sub.updateMany({
       where: { billingPayInId: payIn.id, billingStatus: 'PENDING_FEE' },
       data: { billingStatus: 'PAID' }
