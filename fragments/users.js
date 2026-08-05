@@ -95,6 +95,7 @@ export const SETTINGS_FIELDS = gql`
         twitter
         email
         apiKey
+        enabled
       }
       apiKeyEnabled
     }

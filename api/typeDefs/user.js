@@ -116,6 +116,7 @@ export default gql`
     twitter: Boolean!
     email: Boolean!
     apiKey: Boolean
+    enabled: [String!]!
   }
 
   type UserPrivates {
