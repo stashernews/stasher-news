@@ -62,7 +62,6 @@ export const ITEM_FIELDS = gql`
     commentDownPiconeros
     meBookmark
     meSubscription
-    meForward
     freebie
     netInvestment
     bio
@@ -120,13 +119,6 @@ export const ITEM_FULL_FIELDS = gql`
         userId
         meMuteSub
         meSubscription
-      }
-    }
-    forwards {
-      userId
-      pct
-      user {
-        name
       }
     }
   }`

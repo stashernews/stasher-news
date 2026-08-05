@@ -3,7 +3,6 @@ import { gql } from 'graphql-tag'
 import user from './user'
 import message from './message'
 import item from './item'
-import itemForward from './itemForward'
 import notifications from './notifications'
 import invite from './invite'
 import sub from './sub'
@@ -38,5 +37,5 @@ const common = gql`
   scalar BigInt
 `
 
-export default [common, user, item, itemForward, message, notifications, invite,
+export default [common, user, item, message, notifications, invite,
   sub, upload, growth, rewards, referrals, price, admin, blockHeight, domain, payIn, monero, rewardsWallet]
