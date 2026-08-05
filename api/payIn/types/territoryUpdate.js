@@ -3,6 +3,7 @@ import { nextBilling } from '@/lib/territory'
 import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
+import { GqlInputError } from '@/lib/error'
 import * as MEDIA_UPLOAD from './mediaUpload'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 
@@ -46,6 +47,7 @@ export async function getInitial (models, { oldName, billingType, uploadIds }, {
   // remaining days are never double-charged (spec §4b).
   if (needsCadenceFee(oldSub, billingType)) {
     const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+    if (!config) throw new GqlInputError('fee config not initialized')
     const fee = territoryFeePiconeros(billingType, config)
     const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UPDATE') // major 2
     prospect.moneroUri = buildMoneroUri(

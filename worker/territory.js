@@ -1,3 +1,4 @@
+import { TERRITORY_GRACE_DAYS } from '@/lib/constants'
 import { nextBillingWithGrace } from '@/lib/territory'
 import { datePivot } from '@/lib/time'
 import { notifyTerritoryStatusChange } from '@/lib/webPush'
@@ -8,17 +9,21 @@ export async function territoryBilling ({ data: { subName }, boss, models }) {
       name: subName
     },
     include: {
-      user: true
+      user: true,
+      billingPayIn: true
     }
   })
 
-  // ONCE turfs are never billed (billPaidUntil is null forever)
-  if (!sub || sub.billingType === 'ONCE') return
+  // ONCE turfs are never billed again, but an unpaid PENDING_FEE ONCE fee
+  // (switch/unarchive) still lapses below.
+  if (!sub) return
+  if (sub.billingType === 'ONCE' && sub.billingStatus !== 'PENDING_FEE') return
 
   // Unpaid fee still pending: wait for the penaltyIndexer to observe it, but
   // lapse the turf once the grace window has fully passed.
   if (sub.billingStatus === 'PENDING_FEE') {
-    if (nextBillingWithGrace(sub) < new Date()) {
+    const anchor = sub.billPaidUntil || sub.billingPayIn?.createdAt
+    if (anchor && datePivot(new Date(anchor), { days: TERRITORY_GRACE_DAYS }) < new Date()) {
       sub = await models.sub.update({
         where: { name: subName },
         data: { billingStatus: 'LAPSED', status: 'STOPPED', statusUpdatedAt: new Date() },
