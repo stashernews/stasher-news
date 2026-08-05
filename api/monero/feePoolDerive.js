@@ -108,10 +108,8 @@ export async function deriveFeePoolAll (models) {
   return results
 }
 
-// Auto top-up: extend ONE major whose AVAILABLE count is below `threshold` by
-// one batch (batch size = the major's POSTING/TERRITORY_FEE_POOL_SIZE env).
-// One major per invocation keeps each poll's derivation bounded; the next low
-// major is handled on the next poll (penaltyIndexer polls every 20s).
+// Auto top-up: extend EVERY major whose AVAILABLE count is below `threshold`
+// by one batch (batch size = the major's POSTING/TERRITORY_FEE_POOL_SIZE env).
 // `account` and `derive` are injectable for tests; the defaults resolve the
 // real platform_rewards wallet and call extendFeePool. A module-level flag
 // prevents overlapping derivations (e.g. two penaltyIndexer polls racing).
@@ -153,8 +151,6 @@ export async function topUpFeePoolIfLow (models, { threshold = FEE_POOL_TOPUP_TH
         }
         throw err
       }
-      // One batch per invocation: the next low major is topped up on the next poll.
-      break
     }
     return { topUps }
   } finally {
