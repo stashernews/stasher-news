@@ -96,7 +96,7 @@ async function distribute (models) {
       tx.feeObservation.aggregate({
         _sum: { piconeros: true },
         where: {
-          feeType: { in: ['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE'] },
+          feeType: { in: ['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE'] },
           state: 'CONFIRMED',
           confirmedAt: { gte: periodStart, lt: periodEnd }
         }
