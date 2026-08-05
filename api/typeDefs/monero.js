@@ -31,6 +31,11 @@ export default gql`
       viewKey: String!
       privacyMode: PrivacyMode      # optional; defaults to AUTO_INDEX
     ): MoneroAccount!
+    # Revoke wallet observation: flips the lws account to INACTIVE, wipes the
+    # stored view key, and soft-deletes the local MoneroAccount (ownerUserId ->
+    # null). The row is retained so past ObservedTip history stays intact (FK
+    # RESTRICT) and so the same wallet can later be re-registered (upsert).
+    unregisterMoneroAccount: Boolean!
     initiateTip(
       postId: ID!
       amount: String!
