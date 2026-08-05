@@ -102,7 +102,9 @@ export default function Login ({ providers, callbackUrl, multiAuth, error, text,
       .filter(provider => multiAuth ? multiAuthProviders.includes(provider.name) : true),
   [providers, multiAuth])
 
-  if (router.query.type === 'nostr') {
+  const nostrEnabled = Object.values(providers || {}).some(p => p.id === 'nostr')
+
+  if (router.query.type === 'nostr' && nostrEnabled) {
     return <NostrAuthWithExplainer callbackUrl={callbackUrl} text={text} multiAuth={multiAuth} />
   }
 
