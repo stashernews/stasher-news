@@ -35,7 +35,7 @@ function bech32encode (hexString) {
 
 // Show alert message if user only has one auth method activated
 export const hasOnlyOneAuthMethod = (authMethods) => {
-  const providers = Object.keys(authMethods).filter(k => k !== '__typename' && k !== 'apiKey')
+  const providers = Object.keys(authMethods).filter(k => k !== '__typename' && k !== 'apiKey' && k !== 'enabled')
   const activatedAuths = providers.filter(provider => !!authMethods[provider])
   return activatedAuths.length <= 1
 }
@@ -312,66 +312,69 @@ export default function Settings ({ ssrData }) {
             name='hideBookmarks'
             groupClassName='mb-0'
           />
-          <Checkbox
-            disabled={!settings?.authMethods?.github}
-            label={
-              <div className='d-flex align-items-center'>hide my linked github profile
-                <Info>
-                  <ul>
-                    <li>Linked accounts are hidden from your profile by default</li>
-                    <li>Uncheck this to display your github on your profile</li>
-                    {!settings?.authMethods?.github &&
-                      <div className='my-2'>
-                        <li><i>You don't seem to have a linked github account</i></li>
-                        <ul><li>If this is wrong, try unlinking/relinking</li></ul>
-                      </div>}
-                  </ul>
-                </Info>
-              </div>
+          {settings?.authMethods?.enabled?.includes('github') &&
+            <Checkbox
+              disabled={!settings?.authMethods?.github}
+              label={
+                <div className='d-flex align-items-center'>hide my linked github profile
+                  <Info>
+                    <ul>
+                      <li>Linked accounts are hidden from your profile by default</li>
+                      <li>Uncheck this to display your github on your profile</li>
+                      {!settings?.authMethods?.github &&
+                        <div className='my-2'>
+                          <li><i>You don't seem to have a linked github account</i></li>
+                          <ul><li>If this is wrong, try unlinking/relinking</li></ul>
+                        </div>}
+                    </ul>
+                  </Info>
+                </div>
             }
-            name='hideGithub'
-            groupClassName='mb-0'
-          />
-          <Checkbox
-            disabled={!settings?.authMethods?.nostr}
-            label={
-              <div className='d-flex align-items-center'>hide my linked nostr profile
-                <Info>
-                  <ul>
-                    <li>Linked accounts are hidden from your profile by default</li>
-                    <li>Uncheck this to display your npub on your profile</li>
-                    {!settings?.authMethods?.nostr &&
-                      <div className='my-2'>
-                        <li>You don't seem to have a linked nostr account</li>
-                        <ul><li>If this is wrong, try unlinking/relinking</li></ul>
-                      </div>}
-                  </ul>
-                </Info>
-              </div>
+              name='hideGithub'
+              groupClassName='mb-0'
+            />}
+          {settings?.authMethods?.enabled?.includes('nostr') &&
+            <Checkbox
+              disabled={!settings?.authMethods?.nostr}
+              label={
+                <div className='d-flex align-items-center'>hide my linked nostr profile
+                  <Info>
+                    <ul>
+                      <li>Linked accounts are hidden from your profile by default</li>
+                      <li>Uncheck this to display your npub on your profile</li>
+                      {!settings?.authMethods?.nostr &&
+                        <div className='my-2'>
+                          <li>You don't seem to have a linked nostr account</li>
+                          <ul><li>If this is wrong, try unlinking/relinking</li></ul>
+                        </div>}
+                    </ul>
+                  </Info>
+                </div>
             }
-            name='hideNostr'
-            groupClassName='mb-0'
-          />
-          <Checkbox
-            disabled={!settings?.authMethods?.twitter}
-            label={
-              <div className='d-flex align-items-center'>hide my linked twitter profile
-                <Info>
-                  <ul>
-                    <li>Linked accounts are hidden from your profile by default</li>
-                    <li>Uncheck this to display your twitter on your profile</li>
-                    {!settings?.authMethods?.twitter &&
-                      <div className='my-2'>
-                        <i>You don't seem to have a linked twitter account</i>
-                        <ul><li>If this is wrong, try unlinking/relinking</li></ul>
-                      </div>}
-                  </ul>
-                </Info>
-              </div>
+              name='hideNostr'
+              groupClassName='mb-0'
+            />}
+          {settings?.authMethods?.enabled?.includes('twitter') &&
+            <Checkbox
+              disabled={!settings?.authMethods?.twitter}
+              label={
+                <div className='d-flex align-items-center'>hide my linked twitter profile
+                  <Info>
+                    <ul>
+                      <li>Linked accounts are hidden from your profile by default</li>
+                      <li>Uncheck this to display your twitter on your profile</li>
+                      {!settings?.authMethods?.twitter &&
+                        <div className='my-2'>
+                          <i>You don't seem to have a linked twitter account</i>
+                          <ul><li>If this is wrong, try unlinking/relinking</li></ul>
+                        </div>}
+                    </ul>
+                  </Info>
+                </div>
             }
-            name='hideTwitter'
-            groupClassName='mb-0'
-          />
+              name='hideTwitter'
+              groupClassName='mb-0'
+            />}
           <Checkbox
             label={
               <div className='d-flex align-items-center'>do not load images, videos, or content from external sites
