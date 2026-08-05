@@ -72,7 +72,7 @@ To make referring stashers easy, clicking on `...` next to a post or comment and
 
 **4. Turfs**
 
-The last way to earn XMR is by founding a turf since they generate revenue. However, this is not a recommended way to earn XMR for new stashers since you need to pay for the turf in advance and it requires a lot of effort to just break even.
+Founding a turf is the last way to put XMR to work, though it is not a recommended way to earn XMR for new stashers: you need to pay for the turf in advance, and turf founders currently earn no share of the fees generated in their turf.
 
 ---
 
@@ -211,7 +211,7 @@ Yes, if it was used in a post or comment. **Uploads that haven't been used withi
 
 ### I no longer want to pay for my turf. What should I do?
 
-Make sure 'auto-renew' is disabled in your turf settings. After that, simply ignore the new bill at the end of your current billing period.
+Make sure 'remind me to renew' is turned off in your turf settings. After that, simply ignore the new bill at the end of your current billing period.
 
 After the grace period of 5 days, the turf will be archived. Stashers can still see archived posts and comments, but they will not be able to create new posts or comments until someone pays for that turf again.
 
