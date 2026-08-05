@@ -29,7 +29,8 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
 
   // Comments and bios: free while the monthly freebie quota lasts (bios are
   // always freebies); beyond the quota each comment costs the flat comment fee
-  // (postingFeeFloorPiconeros) to the platform rewards wallet.
+  // (commentFeePiconeros — the postingFeeFloorPiconeros default) to the
+  // platform rewards wallet.
   if (comment || bio) {
     const freebie = !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
     const commentFee = me?.privates?.commentFeePiconeros ? BigInt(me.privates.commentFeePiconeros) : 0n

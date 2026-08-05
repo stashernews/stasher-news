@@ -39,7 +39,7 @@ async function getPiconeros (models, { id, uploadIds, bio }, { me }) {
 
   const piconeros = 0n
 
-  if ((piconeros > 0 || totalFeesMsats > 0) && old.itemPayIns.length === 0) {
+  if (totalFeesMsats > 0 && old.itemPayIns.length === 0) {
     throw new Error('cannot increase item cost with unpaid invoice')
   }
 

@@ -194,7 +194,7 @@ async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
     })
     created.subs.push(territory.name)
 
-    await sendFeeProgrammatic(sub.address, BigInt(process.env.STAGENET_TERRITORY_FEE_PICONEROS || '200000000000'))
+    await sendFeeProgrammatic(sub.address, BigInt(process.env.STAGENET_TERRITORY_FEE_PICONEROS || '20000000000'))
 
     await pollUntil('territory-fee PAID', async () => {
       const row = await prisma.sub.findUnique({ where: { name }, select: { billingStatus: true } })

@@ -120,6 +120,9 @@ export default function TerritoryForm ({ sub }) {
   // Receipt line items quote the LIVE PlatformFeeConfig amounts so the button
   // total always matches the QR invoice the payIn engine builds.
   const lineItems = useMemo(() => {
+    const newType = billing.toUpperCase()
+    const isUpgrade = sub && sub.billingType !== newType && (newType === 'YEARLY' || newType === 'ONCE')
+    if (sub && !isUpgrade) return {}
     const fee = { monthly: monthlyFee, yearly: yearlyFee, once: onceFee }[billing]
     if (fee <= 0n) return {}
     return {
@@ -130,7 +133,7 @@ export default function TerritoryForm ({ sub }) {
         modifier: cost => cost + Number(fee / 1000n)
       }
     }
-  }, [billing, monthlyFee, yearlyFee, onceFee])
+  }, [sub, billing, monthlyFee, yearlyFee, onceFee])
 
   return (
     <FeeButtonProvider baseLineItems={lineItems}>
