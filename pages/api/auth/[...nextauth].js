@@ -12,6 +12,7 @@ import { schnorr } from '@noble/curves/secp256k1'
 import { notifyReferral } from '@/lib/webPush'
 import { hashEmail } from '@/lib/crypto'
 import { multiAuthMiddleware, setMultiAuthCookies, cookieOptions } from '@/lib/auth'
+import { isAuthProviderEnabled } from '@/lib/authProviderEnv'
 import { getDomainMapping } from '@/lib/domains'
 import { isSafeRedirectPath, parseSafeHost } from '@/lib/safe-url'
 import { BECH32_CHARSET } from '@/lib/constants'
@@ -270,48 +271,56 @@ async function nostrEventAuth (event) {
 
 /** @type {import('next-auth/providers').Provider[]} */
 const getProviders = (req, res) => [
-  CredentialsProvider({
-    id: 'nostr',
-    name: 'Nostr',
-    credentials: {
-      event: { label: 'event', type: 'text' }
-    },
-    authorize: async ({ event }, req) => {
-      const credentials = await nostrEventAuth(event)
-      return await pubkeyAuth(credentials, req, res, 'nostrAuthPubkey')
-    }
-  }),
-  GitHubProvider({
-    clientId: process.env.GITHUB_ID,
-    clientSecret: process.env.GITHUB_SECRET,
-    authorization: {
-      url: 'https://github.com/login/oauth/authorize',
-      params: { scope: '' }
-    },
-    profile (profile) {
-      return {
-        id: profile.id,
-        name: profile.login
-      }
-    }
-  }),
-  TwitterProvider({
-    clientId: process.env.TWITTER_ID,
-    clientSecret: process.env.TWITTER_SECRET,
-    profile (profile) {
-      return {
-        id: profile.id,
-        name: profile.screen_name
-      }
-    }
-  }),
-  EmailProvider({
-    server: process.env.LOGIN_EMAIL_SERVER,
-    from: process.env.LOGIN_EMAIL_FROM,
-    maxAge: 5 * 60, // expires in 5 minutes
-    generateVerificationToken: generateRandomString,
-    sendVerificationRequest: (...args) => sendVerificationRequest(...args, req)
-  })
+  ...(isAuthProviderEnabled('nostr')
+    ? [CredentialsProvider({
+        id: 'nostr',
+        name: 'Nostr',
+        credentials: {
+          event: { label: 'event', type: 'text' }
+        },
+        authorize: async ({ event }, req) => {
+          const credentials = await nostrEventAuth(event)
+          return await pubkeyAuth(credentials, req, res, 'nostrAuthPubkey')
+        }
+      })]
+    : []),
+  ...(isAuthProviderEnabled('github')
+    ? [GitHubProvider({
+        clientId: process.env.GITHUB_ID,
+        clientSecret: process.env.GITHUB_SECRET,
+        authorization: {
+          url: 'https://github.com/login/oauth/authorize',
+          params: { scope: '' }
+        },
+        profile (profile) {
+          return {
+            id: profile.id,
+            name: profile.login
+          }
+        }
+      })]
+    : []),
+  ...(isAuthProviderEnabled('twitter')
+    ? [TwitterProvider({
+        clientId: process.env.TWITTER_ID,
+        clientSecret: process.env.TWITTER_SECRET,
+        profile (profile) {
+          return {
+            id: profile.id,
+            name: profile.screen_name
+          }
+        }
+      })]
+    : []),
+  ...(isAuthProviderEnabled('email')
+    ? [EmailProvider({
+        server: process.env.LOGIN_EMAIL_SERVER,
+        from: process.env.LOGIN_EMAIL_FROM,
+        maxAge: 5 * 60, // expires in 5 minutes
+        generateVerificationToken: generateRandomString,
+        sendVerificationRequest: (...args) => sendVerificationRequest(...args, req)
+      })]
+    : [])
 ]
 
 /** @returns {import('next-auth').AuthOptions} */
