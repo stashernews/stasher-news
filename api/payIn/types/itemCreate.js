@@ -122,7 +122,7 @@ export async function validateBeforeCreate (tx, payInProspect, payInArgs, { me }
 }
 
 export async function onBegin (tx, payInId, args) {
-  const { parentId, uploadIds = [], forwardUsers = [], options: pollOptions = [], subNames = [], ...data } = args
+  const { parentId, uploadIds = [], options: pollOptions = [], subNames = [], ...data } = args
   const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
 
   // StealthNews posting-fee gate: a PayIn that reserved a rewards-wallet fee
@@ -171,15 +171,7 @@ export async function onBegin (tx, payInId, args) {
     },
     threadSubscriptions: {
       createMany: {
-        data: [
-          { userId: data.userId },
-          ...forwardUsers.map(({ userId }) => ({ userId }))
-        ]
-      }
-    },
-    itemForwards: {
-      createMany: {
-        data: forwardUsers
+        data: [{ userId: data.userId }]
       }
     },
     pollOptions: {
