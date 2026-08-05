@@ -29,7 +29,10 @@ export const getServerSideProps = getGetServerSideProps({ query: SETTINGS, authR
 
 // sort to prevent hydration mismatch
 const getProviders = (authMethods) =>
-  Object.keys(authMethods).filter(k => k !== '__typename' && k !== 'apiKey').sort()
+  Object.keys(authMethods).filter(k =>
+    k !== '__typename' && k !== 'apiKey' && k !== 'enabled' &&
+    (authMethods.enabled || []).includes(k)
+  ).sort()
 
 export default function Logins ({ ssrData }) {
   const { me } = useMe()
