@@ -28,10 +28,6 @@ const RssPopover = (
         <a href='/~bitcoin/rss' className='nav-link p-0 d-inline-flex'>
           bitcoin
         </a>
-        <span className='mx-2 text-muted'> \ </span>
-        <a href='/~nostr/rss' className='nav-link p-0 d-inline-flex'>
-          nostr
-        </a>
       </div>
       <div className='d-flex justify-content-center'>
         <a href='/~tech/rss' className='nav-link p-0 d-inline-flex'>
@@ -54,48 +50,11 @@ const SocialsPopover = (
   <Popover>
     <Popover.Body style={{ fontWeight: 500, fontSize: '.9rem' }}>
       <div className='d-flex justify-content-center'>
-        <a
-          href='https://njump.me/npub1jfujw6llhq7wuvu5detycdsq5v5yqf56sgrdq8wlgrryx2a2p09svwm0gx' className='nav-link p-0 d-inline-flex'
-          target='_blank' rel='noreferrer'
-        >
-          nostr
+        {/* TODO: replace href with the real X/Twitter URL once the account exists */}
+        <a href='https://x.com/' className='nav-link p-0 d-inline-flex' target='_blank' rel='noreferrer'>
+          x
         </a>
       </div>
-      <div className='d-flex justify-content-center'>
-        <a
-          href='https://www.fountain.fm/show/Mg1AWuvkeZSFhsJZ3BW2' className='nav-link p-0 d-inline-flex'
-          target='_blank' rel='noreferrer'
-        >
-          pod
-        </a>
-        <span className='mx-2 text-muted'> \ </span>
-        <a
-          href='https://www.plebpoet.com/zines.html' className='nav-link p-0 d-inline-flex'
-          target='_blank' rel='noreferrer'
-        >
-          zines
-        </a>
-      </div>
-    </Popover.Body>
-  </Popover>
-)
-
-const ChatPopover = (
-  <Popover>
-    <Popover.Body style={{ fontWeight: 500, fontSize: '.9rem' }}>
-      <a
-        href='https://t.me/k00bideh' className='nav-link p-0 d-inline-flex'
-        target='_blank' rel='noreferrer'
-      >
-        telegram
-      </a>
-      <span className='mx-2 text-muted'> \ </span>
-      <a
-        href='https://signal.group/#CjQKIEt57YiluJoTW3lZqaqAq6echCekEYFfg7eIua2X91nLEhA__6ALI9pkaY_McQqX0jm1' className='nav-link p-0 d-inline-flex'
-        target='_blank' rel='noreferrer'
-      >
-        signal
-      </a>
     </Popover.Body>
   </Popover>
 )
@@ -158,12 +117,6 @@ export default function Footer ({ links = true }) {
                 analytics
               </Link>
               <span className='mx-2 text-muted'> \ </span>
-              <OverlayTrigger trigger='click' placement='top' overlay={ChatPopover} rootClose>
-                <div className='nav-link p-0 p-0 d-inline-flex' style={{ cursor: 'pointer' }}>
-                  chat
-                </div>
-              </OverlayTrigger>
-              <span className='mx-2 text-muted'> \ </span>
               <OverlayTrigger trigger='click' placement='top' overlay={SocialsPopover} rootClose>
                 <div className='nav-link p-0 p-0 d-inline-flex' style={{ cursor: 'pointer' }}>
                   socials
@@ -183,10 +136,6 @@ export default function Footer ({ links = true }) {
               <span className='mx-2 text-muted'> \ </span>
               <Link href='/guide' className='nav-link p-0 p-0 d-inline-flex'>
                 guide
-              </Link>
-              <span className='mx-2 text-muted'> \ </span>
-              <Link href='/story' className='nav-link p-0 p-0 d-inline-flex'>
-                story
               </Link>
               <span className='mx-2 text-muted'> \ </span>
               <OverlayTrigger trigger='click' placement='top' overlay={LegalPopover} rootClose>
