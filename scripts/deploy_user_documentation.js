@@ -85,6 +85,24 @@ export async function upsertDoc ({ id, title, sub, text }) {
     create: { itemId, subName: sub }
   })
 
+  // A visible item requires a PAID ITEM_CREATE PayIn (getItemsById joins
+  // ItemPayIn → PayIn WHERE payInType='ITEM_CREATE' AND payInState='PAID').
+  const existingPayIn = await prisma.itemPayIn.findFirst({
+    where: { itemId, payIn: { payInType: 'ITEM_CREATE', payInState: 'PAID' } },
+    select: { id: true }
+  })
+  if (!existingPayIn) {
+    const payIn = await prisma.payIn.create({
+      data: {
+        userId: AUTHOR_ID,
+        piconeros: 0n,
+        payInType: 'ITEM_CREATE',
+        payInState: 'PAID'
+      }
+    })
+    await prisma.itemPayIn.create({ data: { itemId, payInId: payIn.id } })
+  }
+
   console.log(`deployed "${title}" (id ${itemId})`)
 }
 
