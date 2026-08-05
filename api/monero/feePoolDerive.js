@@ -55,7 +55,7 @@ export async function extendFeePool (models, { account, major, targetMinor }) {
   if (!address || !viewKey || !spendKey) {
     throw configError('PLATFORM_REWARDS_ADDRESS, PLATFORM_REWARDS_VIEW_KEY, and PLATFORM_REWARDS_SPEND_KEY must be set to extend the fee pool')
   }
-  if (!account?.viewKey) throw new Error('extendFeePool: account must include its viewKey relation')
+  if (!account?.viewKey) throw configError('extendFeePool: account must include its viewKey relation (re-run sndev monero register-rewards-wallet)')
 
   const networkEnv = (process.env.MONERO_NETWORK || 'stagenet').toLowerCase()
   const net = networkEnv === 'mainnet' ? moneroTs.MoneroNetworkType.MAINNET : moneroTs.MoneroNetworkType.STAGENET
@@ -118,17 +118,17 @@ let configWarned = false
 
 export async function topUpFeePoolIfLow (models, { threshold = FEE_POOL_TOPUP_THRESHOLD, account, derive } = {}) {
   if (topUpInProgress) return { topUps: [], skipped: 'in-progress' }
-  if (!account) {
-    account = await models.moneroAccount.findFirst({
-      where: { label: 'platform_rewards', network: (process.env.MONERO_NETWORK || 'stagenet').toUpperCase() },
-      include: { viewKey: true }
-    })
-  }
-  if (!account) return { topUps: [], skipped: 'no-account' }
-
-  const doDerive = derive || (async opts => extendFeePool(models, opts))
   topUpInProgress = true
   try {
+    if (!account) {
+      account = await models.moneroAccount.findFirst({
+        where: { label: 'platform_rewards', network: (process.env.MONERO_NETWORK || 'stagenet').toUpperCase() },
+        include: { viewKey: true }
+      })
+    }
+    if (!account) return { topUps: [], skipped: 'no-account' }
+
+    const doDerive = derive || (async opts => extendFeePool(models, opts))
     const levels = await feePoolLevels(models, account.id)
     const topUps = []
     for (const major of [REWARDS_POSTING_MAJOR, REWARDS_TERRITORY_MAJOR]) {
@@ -140,6 +140,7 @@ export async function topUpFeePoolIfLow (models, { threshold = FEE_POOL_TOPUP_TH
       try {
         const added = await doDerive({ account, major, targetMinor })
         topUps.push({ major, targetMinor, added })
+        console.log('fee-pool auto top-up: major=' + major + ' extended to minor ' + targetMinor + ' (added ' + added + ')')
       } catch (err) {
         if (err?.code === 'FEE_POOL_CONFIG') {
           // Spend key not available in this process: top-up is disabled, warn once.

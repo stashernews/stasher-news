@@ -231,7 +231,7 @@ export async function penaltyIndexer ({ boss, models }) {
   // threshold (default 100). Runs on every poll; the check is a cheap count and
   // derivation only fires when a major is low. Errors are logged, never fatal.
   try {
-    await topUpFeePoolIfLow(models)
+    await topUpFeePoolIfLow(models, { account })
   } catch (err) {
     console.error('fee-pool auto top-up failed:', err?.message || err)
   }
