@@ -52,59 +52,60 @@ export function parseFrontMatter (content) {
 export function readDoc (name) {
   const content = fs.readFileSync(path.join(DOCS_DIR, name), 'utf8')
   const lines = content.split('\n')
-  const startIndex = lines.findIndex((line, i) => i > 0 && line.startsWith('---')) + 1
+  const startIndex = lines.findIndex((line, i) => i > 0 && line === '---') + 1
   return {
     ...parseFrontMatter(content),
     text: lines.slice(startIndex).join('\n')
   }
 }
 
-export async function upsertDoc ({ id, title, sub, text }) {
-  const itemId = Number(id)
-  if (!Number.isInteger(itemId) || !title || !sub || !text) {
-    throw new Error(`doc ${id} missing valid id/title/sub/text`)
-  }
-
-  await prisma.item.upsert({
-    where: { id: itemId },
-    update: { title, text },
-    create: {
-      id: itemId,
-      userId: AUTHOR_ID,
-      title,
-      text,
-      status: 'ACTIVE',
-      feeStatus: 'FEE_NOT_REQUIRED'
+export function createUpsertDoc (prisma) {
+  return async function upsertDoc ({ id, title, sub, text }) {
+    const itemId = Number(id)
+    if (!Number.isInteger(itemId) || !title || !sub || !text) {
+      throw new Error(`doc ${id} missing valid id/title/sub/text`)
     }
-  })
 
-  // the item_subnames trigger recomputes Item.subNames from this join row
-  await prisma.itemSub.upsert({
-    where: { itemId_subName: { itemId, subName: sub } },
-    update: {},
-    create: { itemId, subName: sub }
-  })
-
-  // A visible item requires a PAID ITEM_CREATE PayIn (getItemsById joins
-  // ItemPayIn → PayIn WHERE payInType='ITEM_CREATE' AND payInState='PAID').
-  const existingPayIn = await prisma.itemPayIn.findFirst({
-    where: { itemId, payIn: { payInType: 'ITEM_CREATE', payInState: 'PAID' } },
-    select: { id: true }
-  })
-  if (!existingPayIn) {
-    const payIn = await prisma.payIn.create({
-      data: {
+    await prisma.item.upsert({
+      where: { id: itemId },
+      update: { title, text, status: 'ACTIVE', feeStatus: 'FEE_NOT_REQUIRED' },
+      create: {
+        id: itemId,
         userId: AUTHOR_ID,
-        piconeros: 0n,
-        payInType: 'ITEM_CREATE',
-        payInState: 'PAID'
+        title,
+        text,
+        status: 'ACTIVE',
+        feeStatus: 'FEE_NOT_REQUIRED'
       }
     })
-    await prisma.itemPayIn.create({ data: { itemId, payInId: payIn.id } })
-  }
 
-  console.log(`deployed "${title}" (id ${itemId})`)
+    // the item_subnames trigger recomputes Item.subNames from this join row
+    await prisma.itemSub.upsert({
+      where: { itemId_subName: { itemId, subName: sub } },
+      update: {},
+      create: { itemId, subName: sub }
+    })
+
+    // A visible item requires a PAID ITEM_CREATE PayIn (getItemsById joins
+    // ItemPayIn → PayIn WHERE payInType='ITEM_CREATE' AND payInState='PAID').
+    await prisma.$transaction(async (tx) => {
+      const existingPayIn = await tx.itemPayIn.findFirst({
+        where: { itemId, payIn: { payInType: 'ITEM_CREATE', payInState: 'PAID' } },
+        select: { id: true }
+      })
+      if (!existingPayIn) {
+        const payIn = await tx.payIn.create({
+          data: { userId: AUTHOR_ID, piconeros: 0n, payInType: 'ITEM_CREATE', payInState: 'PAID' }
+        })
+        await tx.itemPayIn.create({ data: { itemId, payInId: payIn.id } })
+      }
+    })
+
+    console.log(`deployed "${title}" (id ${itemId})`)
+  }
 }
+
+export const upsertDoc = createUpsertDoc(prisma)
 
 async function main () {
   for (const name of DOCS) {
