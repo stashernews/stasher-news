@@ -1,7 +1,5 @@
 import { useMe } from './me'
-import { AdvPostInitial } from './adv-post-form'
 import { SubSelectInitial } from './sub-select'
-import { normalizeForwards } from '@/lib/form'
 import useItemSubmit from './use-item-submit'
 import { useApolloClient } from '@apollo/client/react'
 import { useRouter } from 'next/router'
@@ -33,8 +31,6 @@ export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyP
   const initial = {
     title: item?.title || shareTitle || '',
     text: item?.text || shareText || '',
-    crosspost: item ? !!item.noteId : me?.privates?.nostrCrossposting,
-    ...AdvPostInitial({ forward: normalizeForwards(item?.forwards) }),
     ...SubSelectInitial({ item, subs }),
     ...extraInitialValues
   }

@@ -3,7 +3,7 @@ import { useToast } from './toast'
 import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import useCrossposter from './use-crossposter'
 import { useCallback } from 'react'
-import { normalizeForwards, toastUpsertSuccessMessages } from '@/lib/form'
+import { toastUpsertSuccessMessages } from '@/lib/form'
 import { composeCallbacks } from '@/lib/compose-callbacks'
 import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
 import { useMe } from './me'
@@ -63,7 +63,6 @@ export default function useItemSubmit (mutation,
           title: title?.trim(),
           options,
           ...values,
-          forward: normalizeForwards(values.forward),
           ...extraValues
         },
         // if not a comment, we want the qr to persist on navigation
