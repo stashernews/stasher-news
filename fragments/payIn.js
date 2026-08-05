@@ -335,12 +335,12 @@ export const UPDATE_COMMENT = gql`
 
 export const UPSERT_SUB = gql`
   ${PAY_IN_FIELDS}
-  mutation upsertSub($oldName: String, $name: String!, $desc: String, $baseCost: Int!,
-    $replyCost: Int!, $postsPiconerosFilter: BigInt,
+  mutation upsertSub($oldName: String, $name: String!, $desc: String,
+    $postsPiconerosFilter: BigInt,
     $postTypes: [String!]!, $billingType: String!,
     $billingAutoRenew: Boolean!, $nsfw: Boolean!, $sendProtocolId: Int) {
-      upsertSub(oldName: $oldName, name: $name, desc: $desc, baseCost: $baseCost,
-        replyCost: $replyCost, postsPiconerosFilter: $postsPiconerosFilter,
+      upsertSub(oldName: $oldName, name: $name, desc: $desc,
+        postsPiconerosFilter: $postsPiconerosFilter,
         postTypes: $postTypes, billingType: $billingType,
         billingAutoRenew: $billingAutoRenew, nsfw: $nsfw, sendProtocolId: $sendProtocolId) {
       ...PayInFields
@@ -349,12 +349,12 @@ export const UPSERT_SUB = gql`
 
 export const UNARCHIVE_TERRITORY = gql`
   ${PAY_IN_FIELDS}
-  mutation unarchiveTerritory($name: String!, $desc: String, $baseCost: Int!,
-    $replyCost: Int!, $postsPiconerosFilter: BigInt,
+  mutation unarchiveTerritory($name: String!, $desc: String,
+    $postsPiconerosFilter: BigInt,
     $postTypes: [String!]!, $billingType: String!,
     $billingAutoRenew: Boolean!, $nsfw: Boolean!, $sendProtocolId: Int) {
-      unarchiveTerritory(name: $name, desc: $desc, baseCost: $baseCost,
-        replyCost: $replyCost, postsPiconerosFilter: $postsPiconerosFilter,
+      unarchiveTerritory(name: $name, desc: $desc,
+        postsPiconerosFilter: $postsPiconerosFilter,
         postTypes: $postTypes, billingType: $billingType,
         billingAutoRenew: $billingAutoRenew, nsfw: $nsfw, sendProtocolId: $sendProtocolId) {
       ...PayInFields

@@ -4,7 +4,6 @@ import { AccordianCard } from './accordian-item'
 import TerritoryPaymentDue, { TerritoryBillingLine } from './territory-payment-due'
 import Link from 'next/link'
 import Text from '@/components/text'
-import { piconerosToXmr } from '@/lib/format'
 import styles from './item.module.css'
 import Badges from './badge'
 import { useMe } from './me'
@@ -73,17 +72,6 @@ export function TerritoryInfo ({ sub, includeLink, truncated }) {
             <span> on </span>
             <span className='fw-bold' suppressHydrationWarning>{new Date(sub.createdAt).toDateString()}</span>
           </div>}
-        <div className='d-flex'>
-          <div className='text-muted'>
-            <span>post cost </span>
-            <span className='fw-bold'>{piconerosToXmr(BigInt(sub.baseCost) * 1000n)}</span>
-          </div>
-          <span className='px-1'> \ </span>
-          <div className='text-muted'>
-            <span>reply cost </span>
-            <span className='fw-bold'>{piconerosToXmr(BigInt(sub.replyCost) * 1000n)}</span>
-          </div>
-        </div>
         {/* TODO: Show custom domain if it exists */}
         <TerritoryBillingLine sub={sub} />
       </CardFooter>

@@ -24,8 +24,6 @@ export const SUB_FIELDS = gql`
     billingAutoRenew
     billedLastAt
     billPaidUntil
-    baseCost
-    replyCost
     postsPiconerosFilter
     userId
     desc
