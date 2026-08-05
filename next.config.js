@@ -164,10 +164,6 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
         destination: '/items/349'
       },
       {
-        source: '/story',
-        destination: '/items/1620'
-      },
-      {
         source: '/privacy',
         destination: '/items/338369'
       },
