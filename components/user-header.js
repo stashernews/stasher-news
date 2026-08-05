@@ -89,7 +89,7 @@ function HeaderPhoto ({ user, isMe }) {
       }
     }
   )
-  const src = user.photoId ? `${MEDIA_URL}/${user.photoId}` : '/dorian400.jpg'
+  const src = user.photoId ? `${MEDIA_URL}/${user.photoId}` : '/xmrgirl.jpg'
 
   return (
     <div className='position-relative align-self-start' style={{ width: 'fit-content' }}>
