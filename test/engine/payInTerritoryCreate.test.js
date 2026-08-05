@@ -40,7 +40,8 @@ const NETWORK = (process.env.MONERO_NETWORK || 'stagenet').toUpperCase()
 let addrSeq = 0
 function makeAddress () {
   addrSeq += 1
-  return '5' + String(addrSeq).padStart(4, '0') + 'A'.repeat(90)
+  const seq = String(addrSeq).replace(/0/g, '1')
+  return '5' + seq.padStart(4, '1') + 'A'.repeat(90)
 }
 
 // FK-safe teardown tracking. The pay() flow creates a PayIn and a Sub (the Sub
