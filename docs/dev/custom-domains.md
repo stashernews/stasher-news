@@ -73,7 +73,7 @@ A successful CNAME lookup logs a `DomainVerificationAttempt` with status `VERIFI
 In local, **dnsmasq** is used as a DNS server to mock records for the domain verification job.
 To have a dedicated IP for the `node:dns` Resolver, the `worker` container is part of a dedicated docker network that gives dnsmasq the `172.30.0.2` IP address.
 
-You can also set your machine's DNS configuration to point to 127.0.0.1:5353 and access custom rules that you might've set. For example, if you have a CNAME record www.pizza.com pointing to `local.sndev`, you can access www.pizza.com from your browser.
+You can also set your machine's DNS configuration to point to 127.0.0.1:53530 and access custom rules that you might've set. For example, if you have a CNAME record www.pizza.com pointing to `local.sndev`, you can access www.pizza.com from your browser.
 
 For more information on how to add/remove records, take a look at `README.md` on the `Custom domains` section.
 ### AWS management

@@ -5,6 +5,7 @@ import { useQuery } from '@apollo/client/react'
 import { moneroUriAmountPiconeros, piconerosToXmr } from '@/lib/format'
 import MoneroPaymentView from './monero-payment-view'
 import PaymentSuccessView from './payment-success-view'
+import { useAnimation } from './animation'
 
 const SUB_BILLING_STATUS_POLL_MS = 10_000
 
@@ -19,6 +20,7 @@ const SUB_BILLING_STATUS = gql`
 
 export default function TerritoryPendingFeeModal ({ moneroUri, subName, onClose }) {
   const router = useRouter()
+  const animate = useAnimation()
   const feePiconeros = moneroUriAmountPiconeros(moneroUri) ?? 0n
 
   const { data } = useQuery(SUB_BILLING_STATUS, {
@@ -33,10 +35,11 @@ export default function TerritoryPendingFeeModal ({ moneroUri, subName, onClose 
   // navigate to the live territory once the fee is observed
   useEffect(() => {
     if (!paid) return
+    animate()
     router.push(`/~${subName}`)
     const timer = setTimeout(() => onClose?.(), 1500)
     return () => clearTimeout(timer)
-  }, [paid, subName, router, onClose])
+  }, [paid, subName, router, onClose, animate])
 
   if (paid) {
     return (

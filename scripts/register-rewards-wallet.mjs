@@ -30,7 +30,23 @@ async function main () {
   console.log(`registering rewards wallet ${address} with lws (${network})...`)
   await lwsClient.addAccount(address, viewKey)
 
-  // persist the MoneroAccount row (idempotent on [address, network])
+  // persist the MoneroAccount row (idempotent on [address, network]).
+  // update must ALSO set label/scanFromHeight: if an 'author' row already
+  // exists for this address, the create branch is skipped and the label would
+  // otherwise stay 'author', leaving no platform_rewards row for
+  // getRewardsWalletId/penaltyIndexer to find.
+  const pending = await prisma.moneroAccount.findFirst({
+    where: { address, network },
+    select: { id: true, label: true }
+  })
+  if (pending && pending.label !== 'platform_rewards') {
+    throw new Error(
+      'refusing to reclassify an existing ' + pending.label + ' MoneroAccount ' +
+      '(id=' + pending.id + ', ' + address + ') as the rewards wallet. ' +
+      'Use a dedicated rewards address, or set the row label to platform_rewards ' +
+      'manually if this is intended.'
+    )
+  }
   const account = await prisma.moneroAccount.upsert({
     where: { address_network: { address, network } },
     create: {
@@ -40,7 +56,7 @@ async function main () {
       status: 'ACTIVE',
       scanFromHeight: BigInt(process.env.REWARDS_SCAN_FROM_HEIGHT || 0)
     },
-    update: { status: 'ACTIVE' }
+    update: { status: 'ACTIVE', label: 'platform_rewards' }
   })
 
   // store the encrypted view key (idempotent — one envelope per account)

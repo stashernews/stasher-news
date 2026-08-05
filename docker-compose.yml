@@ -1,3 +1,5 @@
+name: stashernews
+
 x-env_file: &env_file
   - path: .env.development
     required: true
@@ -234,8 +236,8 @@ services:
     container_name: dnsmasq
     restart: unless-stopped
     ports:
-      - "5353:53/tcp"
-      - "5353:53/udp"
+      - "53530:53/tcp"
+      - "53530:53/udp"
     command:
       - --no-daemon
       # Wildcard A records for dev test TLDs. Both .sndev and .test are RFC

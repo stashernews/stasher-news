@@ -6,6 +6,7 @@ import MoneroPaymentView from './monero-payment-view'
 import PaymentSuccessView from './payment-success-view'
 import useWatchDownvote from './downvote/use-watch-downvote'
 import { useAct } from './item-act'
+import { useAnimation } from './animation'
 import { useToast } from './toast'
 import { piconerosToXmr } from '@/lib/format'
 import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
@@ -45,6 +46,7 @@ const PRESETS = [
 export default function DownvoteModal ({ item, onClose }) {
   const actor = useAct()
   const toaster = useToast()
+  const animate = useAnimation()
   const [amount, setAmount] = useState(DOWNVOTE_DEFAULT_PICONEROS)
   const [moneroUri, setMoneroUri] = useState(null)
   const [paymentId, setPaymentId] = useState(null)
@@ -88,7 +90,7 @@ export default function DownvoteModal ({ item, onClose }) {
     return (
       <DownvotePaymentView
         moneroUri={moneroUri} amount={amount} paymentId={paymentId}
-        onDetected={() => setDownvotePaid(true)} onClose={onClose}
+        onDetected={() => { animate(); setDownvotePaid(true) }} onClose={onClose}
       />
     )
   }

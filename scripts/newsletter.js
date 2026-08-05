@@ -184,7 +184,7 @@ async function getTopUsers ({ by, cowboys = false, includeHidden = false, count 
         variables
       })
       cursor = result.data[cowboys ? 'topCowboys' : 'topUsers'].cursor
-      accum.push(...result.data[cowboys ? 'topCowboys' : 'topUsers'].users.filter(user => includeHidden ? true : !!user).filter(user => user.name !== 'k00b'))
+      accum.push(...result.data[cowboys ? 'topCowboys' : 'topUsers'].users.filter(user => includeHidden ? true : !!user).filter(user => user.name !== 'untraceable'))
     }
   } catch (e) {
 

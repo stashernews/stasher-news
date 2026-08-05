@@ -44,7 +44,7 @@ COMMANDS
 
 FLAGS
   --no-hosts  Skip asking to add/remove record to /etc/hosts
-              Useful if you're using dnsmasq [127.0.0.1:5353] as your DNS server.
+              Useful if you're using dnsmasq [127.0.0.1:53530] as your DNS server.
 
 EXAMPLES
   $ sndev domains dns add cname www.pizza.sndev sn.sndev
@@ -122,7 +122,7 @@ add_record() {
     # dnsmasq pamphlet 
     printf "
     While sndev will use dnsmasq DNS server, your system won't use it by default.
-    You can either manually point DNS to 127.0.0.1:5353 to access it system-wide,
+    You can either manually point DNS to 127.0.0.1:53530 to access it system-wide,
     or add this record to /etc/hosts to access it via browser.\n\n"
     
     # ask to add the record to the /etc/hosts file
