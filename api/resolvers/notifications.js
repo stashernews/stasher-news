@@ -209,19 +209,6 @@ export default {
         )
       }
 
-      if (meFull.noteForwardedPiconeros) {
-        queries.push(
-          `(SELECT "Item".id::TEXT, "Item"."lastTipAt" AS "sortTime",
-            ("Item".piconeros * "ItemForward".pct / 100)::BIGINT as "earnedPiconeros", 'ForwardedVotification' AS type
-            FROM "Item"
-            JOIN "ItemForward" ON "ItemForward"."itemId" = "Item".id AND "ItemForward"."userId" = $1
-            WHERE "Item"."userId" <> $1
-            AND "Item"."lastTipAt" < $2
-            ORDER BY "sortTime" DESC
-            LIMIT ${LIMIT})`
-        )
-      }
-
       if (meFull.noteWithdrawals) {
         // StealthNews: custodial withdrawals (PayOutBolt11) were removed with the
         // Lightning strip; the Monero P2P rail has no platform-side withdrawal to notify.
@@ -428,9 +415,6 @@ export default {
       const itemPayIn = await models.itemPayIn.findUnique({ where: { payInId: Number(n.id) } })
       return await getItem(n, { id: itemPayIn.itemId }, { models, me })
     }
-  },
-  ForwardedVotification: {
-    item: async (n, args, { models, me }) => getItem(n, { id: n.id }, { models, me })
   },
   Reply: {
     item: async (n, args, { models, me }) => getItem(n, { id: n.id }, { models, me })

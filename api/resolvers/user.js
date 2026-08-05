@@ -398,27 +398,6 @@ export default {
         }
       }
 
-      if (user.noteForwardedPiconeros) {
-        const [newFwdSats] = await models.$queryRawUnsafe(`
-        SELECT EXISTS(
-          SELECT *
-          FROM "Item"
-          JOIN "ItemForward" ON
-            "ItemForward"."itemId" = "Item".id
-            AND "ItemForward"."userId" = $1
-          ${whereClause(
-            '"Item"."lastTipAt" > $2',
-            '"Item"."userId" <> $1',
-            activeOrMine(me),
-            await filterClause(null, null, null, ctx),
-            muteClause(me)
-          )})`, me.id, lastChecked)
-        if (newFwdSats.exists) {
-          foundNotes()
-          return true
-        }
-      }
-
       if (user.noteEarning) {
         const earn = await models.earn.findFirst({
           where: {

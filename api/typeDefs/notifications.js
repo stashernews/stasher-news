@@ -42,13 +42,6 @@ export default gql`
     iconType: BulletinIconType
   }
 
-  type ForwardedVotification {
-    id: ID!
-    earnedPiconeros: BigInt!
-    item: Item!
-    sortTime: Date!
-  }
-
   type FollowActivity {
     id: ID!
     item: Item!
@@ -190,7 +183,7 @@ export default gql`
 
   union Notification = Reply | Votification | BountyPayment | Mention
     | Invitification | Earn | JobChanged | Referral
-    | FollowActivity | ForwardedVotification | Revenue | SubStatus
+    | FollowActivity | Revenue | SubStatus
     | TerritoryPost | TerritoryTransfer | Reminder | ItemMention | PayInification
     | ReferralReward | CowboyHat | NewHorse | LostHorse | NewGun | LostGun
     | Bulletinification

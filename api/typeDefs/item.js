@@ -24,19 +24,19 @@ export default gql`
     subscribeItem(id: ID): Item
     deleteItem(id: ID): Item
     upsertLink(
-      id: ID, subNames: [String!], title: String!, url: String!, text: String, forward: [ItemForwardInput],
+      id: ID, subNames: [String!], title: String!, url: String!, text: String,
       hash: String, hmac: String, sendProtocolId: Int): PayIn!
     upsertDiscussion(
-      id: ID, subNames: [String!], title: String!, text: String, forward: [ItemForwardInput],
+      id: ID, subNames: [String!], title: String!, text: String,
       hash: String, hmac: String, sendProtocolId: Int): PayIn!
     upsertBounty(
-      id: ID, subNames: [String!], title: String!, text: String, bounty: Int, forward: [ItemForwardInput],
+      id: ID, subNames: [String!], title: String!, text: String, bounty: Int,
       hash: String, hmac: String, sendProtocolId: Int): PayIn!
     upsertJob(
       id: ID, subNames: [String!], title: String!, company: String!, location: String, remote: Boolean,
       text: String!, url: String!, status: String, logo: Int, sendProtocolId: Int): PayIn!
     upsertPoll(
-      id: ID, subNames: [String!], title: String!, text: String, options: [String!]!, forward: [ItemForwardInput], pollExpiresAt: Date,
+      id: ID, subNames: [String!], title: String!, text: String, options: [String!]!, pollExpiresAt: Date,
       randPollOptions: Boolean, hash: String, hmac: String, sendProtocolId: Int): PayIn!
     updateNoteId(id: ID!, noteId: String!): Item!
     upsertComment(id: ID, text: String!, parentId: ID, hash: String, hmac: String, sendProtocolId: Int): PayIn!
@@ -130,7 +130,6 @@ export default gql`
     meDontLikePiconeros: BigInt!
     meBookmark: Boolean!
     meSubscription: Boolean!
-    meForward: Boolean
     freebie: Boolean!
     netInvestment: BigInt!
     freedFreebie: Boolean!
@@ -156,7 +155,6 @@ export default gql`
     uploadId: Int
     otsHash: String
     parentOtsHash: String
-    forwards: [ItemForward]
     imgproxyUrls: JSONObject
     rel: String
     apiKey: Boolean
@@ -164,10 +162,5 @@ export default gql`
     cost: Int!
     payIn: PayIn
     meCommentsViewedAt: Date
-  }
-
-  input ItemForwardInput {
-    nym: String!
-    pct: Int!
   }
 `

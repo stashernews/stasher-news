@@ -74,15 +74,6 @@ export const NOTIFICATIONS = gql`
           earnedPiconeros
           subName
         }
-        ... on ForwardedVotification {
-          id
-          sortTime
-          earnedPiconeros
-          item {
-            ...ItemFullFields
-            text
-          }
-        }
         ... on CowboyHat {
           id
           sortTime

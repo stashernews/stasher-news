@@ -250,9 +250,9 @@ export const PAY_BOUNTY_MUTATION = gql`
 export const UPSERT_DISCUSSION = gql`
   ${PAY_IN_FIELDS}
   mutation upsertDiscussion($subNames: [String!]!, $id: ID, $title: String!, $text: String,
-    $forward: [ItemForwardInput], ${HASH_HMAC_INPUT_1}, $sendProtocolId: Int) {
+    ${HASH_HMAC_INPUT_1}, $sendProtocolId: Int) {
     upsertDiscussion(subNames: $subNames, id: $id, title: $title, text: $text,
-      forward: $forward, ${HASH_HMAC_INPUT_2}, sendProtocolId: $sendProtocolId) {
+      ${HASH_HMAC_INPUT_2}, sendProtocolId: $sendProtocolId) {
       ...PayInFields
     }
   }`
@@ -272,9 +272,9 @@ export const UPSERT_JOB = gql`
 export const UPSERT_LINK = gql`
   ${PAY_IN_FIELDS}
   mutation upsertLink($subNames: [String!]!, $id: ID, $title: String!, $url: String!,
-    $text: String, $forward: [ItemForwardInput], ${HASH_HMAC_INPUT_1}, $sendProtocolId: Int) {
+    $text: String, ${HASH_HMAC_INPUT_1}, $sendProtocolId: Int) {
     upsertLink(subNames: $subNames, id: $id, title: $title, url: $url, text: $text,
-      forward: $forward, ${HASH_HMAC_INPUT_2}, sendProtocolId: $sendProtocolId) {
+      ${HASH_HMAC_INPUT_2}, sendProtocolId: $sendProtocolId) {
       ...PayInFields
     }
   }`
@@ -282,10 +282,10 @@ export const UPSERT_LINK = gql`
 export const UPSERT_POLL = gql`
   ${PAY_IN_FIELDS}
   mutation upsertPoll($subNames: [String!]!, $id: ID, $title: String!, $text: String,
-    $options: [String!]!, $forward: [ItemForwardInput], $pollExpiresAt: Date,
+    $options: [String!]!, $pollExpiresAt: Date,
     $randPollOptions: Boolean, ${HASH_HMAC_INPUT_1}, $sendProtocolId: Int) {
     upsertPoll(subNames: $subNames, id: $id, title: $title, text: $text,
-      options: $options, forward: $forward, pollExpiresAt: $pollExpiresAt,
+      options: $options, pollExpiresAt: $pollExpiresAt,
       randPollOptions: $randPollOptions, ${HASH_HMAC_INPUT_2}, sendProtocolId: $sendProtocolId) {
       ...PayInFields
     }
@@ -294,9 +294,9 @@ export const UPSERT_POLL = gql`
 export const UPSERT_BOUNTY = gql`
   ${PAY_IN_FIELDS}
   mutation upsertBounty($subNames: [String!]!, $id: ID, $title: String!, $bounty: Int!,
-    $text: String, $forward: [ItemForwardInput], $sendProtocolId: Int) {
+    $text: String, $sendProtocolId: Int) {
     upsertBounty(subNames: $subNames, id: $id, title: $title, bounty: $bounty, text: $text,
-      forward: $forward, sendProtocolId: $sendProtocolId) {
+      sendProtocolId: $sendProtocolId) {
       ...PayInFields
     }
   }`

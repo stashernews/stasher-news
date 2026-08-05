@@ -97,7 +97,6 @@ export default gql`
     noteDeposits: Boolean!,
     noteWithdrawals: Boolean!,
     noteEarning: Boolean!
-    noteForwardedPiconeros: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!
     noteMentions: Boolean!
@@ -170,7 +169,6 @@ export default gql`
     noteDeposits: Boolean!
     noteWithdrawals: Boolean!
     noteEarning: Boolean!
-    noteForwardedPiconeros: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!
     noteMentions: Boolean!

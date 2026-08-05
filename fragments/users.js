@@ -75,7 +75,6 @@ export const SETTINGS_FIELDS = gql`
       noteWithdrawals
       noteInvites
       noteCowboyHat
-      noteForwardedPiconeros
       hideUriDesc
       hideFromTopUsers
       hideCowboyHat
