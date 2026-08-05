@@ -31,7 +31,6 @@ export default forwardRef(function Reply ({
   const { ref: replyEditorRef, onRef: onReplyEditorRef } = useCallbackRef()
   const showModal = useShowModal()
   const root = useRoot()
-  const subs = item?.subs || root?.subs || []
   const { markCommentViewedAt } = useCommentsView(root?.id)
 
   useEffect(() => {
@@ -146,7 +145,7 @@ export default forwardRef(function Reply ({
       {reply &&
         <div className={styles.reply}>
           <FeeButtonProvider
-            baseLineItems={postCommentBaseLineItems({ subs, comment: true, me: !!me })}
+            baseLineItems={postCommentBaseLineItems({ comment: true, me })}
             useRemoteLineItems={postCommentUseRemoteLineItems({ parentId: item.id, me: !!me })}
           >
             <Form

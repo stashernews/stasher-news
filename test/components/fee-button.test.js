@@ -11,12 +11,9 @@ jest.mock('../../components/editor', () => ({
   SNEditor: 'textarea'
 }))
 
-const SUBS = [{ name: 'monero', baseCost: 1, replyCost: 1 }]
-
 describe('postCommentBaseLineItems — posts', () => {
   test('low-rep authors see a single posting-fee line quoting 0.001 XMR', () => {
     const lines = postCommentBaseLineItems({
-      subs: SUBS,
       me: { privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000 } }
     })
     expect(Object.keys(lines)).toEqual(['postingFee'])
@@ -28,7 +25,6 @@ describe('postCommentBaseLineItems — posts', () => {
 
   test('established authors see no fee lines', () => {
     const lines = postCommentBaseLineItems({
-      subs: SUBS,
       me: { privates: { postingFeeRequired: false, postingFeePiconeros: 0 } }
     })
     expect(lines).toEqual({})
@@ -36,29 +32,40 @@ describe('postCommentBaseLineItems — posts', () => {
 
   test('a zero posting fee yields no fee lines', () => {
     const lines = postCommentBaseLineItems({
-      subs: SUBS,
       me: { privates: { postingFeeRequired: true, postingFeePiconeros: 0 } }
     })
     expect(lines).toEqual({})
   })
 
   test('anonymous authors see no fee lines', () => {
-    expect(postCommentBaseLineItems({ subs: SUBS, me: null })).toEqual({})
+    expect(postCommentBaseLineItems({ me: null })).toEqual({})
   })
 })
 
-describe('postCommentBaseLineItems — comments and bios (unchanged)', () => {
-  test('comments keep per-turf replyCost lines', () => {
-    const lines = postCommentBaseLineItems({ subs: SUBS, comment: true, me: { privates: {} } })
-    expect(lines['monero-baseCost'].term).toBe('+ 1')
-    expect(lines['monero-baseCost'].label).toBe('~monero comment')
-    expect(lines['monero-baseCost'].isComment).toBe(true)
+describe('postCommentBaseLineItems — comments and bios', () => {
+  test('comments within the freebie quota show the free base line', () => {
+    const lines = postCommentBaseLineItems({ comment: true, me: { privates: { freeCommentsLeft: 3 } } })
+    expect(lines.baseCost.term).toBe(1)
+    expect(lines.baseCost.label).toBe('comment')
+    expect(lines.baseCost.isComment).toBe(true)
     expect(lines).not.toHaveProperty('postingFee')
   })
 
-  test('comments without subs keep the single baseCost line', () => {
-    const lines = postCommentBaseLineItems({ subs: [], comment: true, me: { privates: {} } })
-    expect(lines.baseCost.term).toBe(1)
-    expect(lines.baseCost.isComment).toBe(true)
+  test('comments beyond the freebie quota show the flat comment fee', () => {
+    const lines = postCommentBaseLineItems({
+      comment: true,
+      me: { privates: { freeCommentsLeft: 0, commentFeePiconeros: 1000000000 } }
+    })
+    expect(Object.keys(lines)).toEqual(['commentFee'])
+    expect(lines.commentFee.term).toBe('+ 0.001 XMR')
+    expect(lines.commentFee.label).toBe('comment fee')
+    expect(lines.commentFee.isComment).toBe(true)
+    expect(piconerosToXmr(BigInt(lines.commentFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+  })
+
+  test('bios stay free', () => {
+    const lines = postCommentBaseLineItems({ bio: true, me: { privates: { freeCommentsLeft: 0 } } })
+    expect(lines.baseCost).toBeTruthy()
+    expect(lines.baseCost.allowFreebies).toBe(true)
   })
 })

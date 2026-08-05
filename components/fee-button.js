@@ -15,7 +15,7 @@ import { SubmitButton } from './form'
 
 const FeeButtonContext = createContext()
 
-export function postCommentBaseLineItems ({ subs, comment = false, bio = false, me }) {
+export function postCommentBaseLineItems ({ comment = false, bio = false, me }) {
   const anonCharge = me
     ? {}
     : {
@@ -27,39 +27,35 @@ export function postCommentBaseLineItems ({ subs, comment = false, bio = false, 
         }
       }
 
-  // Comments and bios are eligible for freebies (posts are not)
-  const allowFreebies = comment || bio
-
-  // Comments and bios: unchanged legacy per-turf replyCost / baseCost lines
+  // Comments and bios: free while the monthly freebie quota lasts (bios are
+  // always freebies); beyond the quota each comment costs the flat comment fee
+  // (postingFeeFloorPiconeros) to the platform rewards wallet.
   if (comment || bio) {
-    if (subs.length === 0) {
+    const freebie = !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
+    const commentFee = me?.privates?.commentFeePiconeros ? BigInt(me.privates.commentFeePiconeros) : 0n
+    if (freebie) {
       return {
         baseCost: {
           term: 1,
           label: comment ? 'comment' : 'post',
           op: '_',
           modifier: (cost) => cost + 1,
-          allowFreebies,
+          allowFreebies: true,
           isComment: comment
         },
         ...anonCharge
       }
     }
-
+    if (commentFee <= 0n) return { ...anonCharge }
     return {
-      ...subs.reduce((acc, s) => ({
-        ...acc,
-        ...{
-          [`${s.name}-baseCost`]: {
-            term: `+ ${comment ? s.replyCost : s.baseCost}`,
-            label: `~${s.name} ${comment ? 'comment' : 'post'}`,
-            op: '_',
-            modifier: (cost) => cost + (comment ? s.replyCost : s.baseCost),
-            allowFreebies,
-            isComment: comment
-          }
-        }
-      }), {}),
+      commentFee: {
+        term: `+ ${piconerosToXmr(commentFee)}`,
+        label: 'comment fee',
+        op: '+',
+        modifier: (cost) => cost + Number(commentFee / 1000n),
+        allowFreebies: false,
+        isComment: comment
+      },
       ...anonCharge
     }
   }
