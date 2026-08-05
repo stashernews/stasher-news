@@ -1,8 +1,10 @@
-import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST, USER_ID } from '@/lib/constants'
+import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST } from '@/lib/constants'
 import { nextBilling } from '@/lib/territory'
 import { initialTrust } from '../lib/territory'
 import * as MEDIA_UPLOAD from './mediaUpload'
-import { getBeneficiariesPiconeros } from '../lib/beneficiaries'
+import { territoryFeePiconeros } from '@/api/monero/territoryFee'
+import { reserveFeeSubaddress } from '@/api/monero/feePool'
+import { buildMoneroUri } from '@/api/monero/uri'
 
 export const anonable = false
 
@@ -13,19 +15,26 @@ export const paymentMethods = [
 ]
 
 export async function getInitial (models, { billingType, uploadIds }, { me }) {
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const fee = territoryFeePiconeros(billingType, config)
+  const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UNARCHIVE') // major 2
+  const moneroUri = buildMoneroUri(
+    [{ address: reserved.address, amount: fee }],
+    { description: `StealthNews turf reactivation (${billingType})` }
+  )
+
   const beneficiaries = []
   if (uploadIds.length > 0) {
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
   }
 
-  const piconeros = BigInt(TERRITORY_PERIOD_COST(billingType)) * 1000n
   return {
     payInType: 'TERRITORY_UNARCHIVE',
     userId: me?.id,
-    piconeros: piconeros + getBeneficiariesPiconeros(beneficiaries),
-    payOutCustodialTokens: [
-      { payOutType: 'SYSTEM_REVENUE', userId: USER_ID.sn, mtokens: piconeros, custodialTokenType: 'SATS' }
-    ],
+    piconeros: 0n,
+    moneroUri,
+    moneroSubaddressMajor: reserved.major,
+    moneroSubaddressMinor: reserved.minor,
     beneficiaries
   }
 }
@@ -82,6 +91,8 @@ export async function onBegin (tx, payInId, { name, billingType, uploadIds, ...d
   const updatedSub = await tx.sub.update({
     data: {
       ...data,
+      billingStatus: 'PENDING_FEE',
+      billingPayInId: payInId,
       billingType,
       subPayIn: { create: [{ payInId }] }
     },
