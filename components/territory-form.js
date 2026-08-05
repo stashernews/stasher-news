@@ -6,12 +6,11 @@ import { gql } from '@apollo/client'
 import { useApolloClient, useLazyQuery } from '@apollo/client/react'
 import { useCallback, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
-import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, DOMAIN_BETA_IDS, TERRITORY_BILLING_OPTIONS, TERRITORY_PERIOD_COST } from '@/lib/constants'
+import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, DOMAIN_BETA_IDS } from '@/lib/constants'
 import { territorySchema, filterXmrValidator } from '@/lib/validate'
 import { useMe } from './me'
 import Info from './info'
 import { piconerosToXmrDecimal, piconerosToXmr, signedXmrToPiconeros, snapToFilterGrid } from '@/lib/format'
-import { purchasedType } from '@/lib/territory'
 import { SUB } from '@/fragments/subs'
 import TerritoryBranding, { useBranding } from './territory-branding'
 import Link from 'next/link'
@@ -114,22 +113,24 @@ export default function TerritoryForm ({ sub }) {
   )
 
   const [billing, setBilling] = useState((sub?.billingType || 'MONTHLY').toLowerCase())
-  const lineItems = useMemo(() => {
-    const lines = { territory: TERRITORY_BILLING_OPTIONS('first')[billing] }
-    if (!sub) return lines
+  const monthlyFee = BigInt(me?.privates?.territoryMonthlyPiconeros || 0)
+  const yearlyFee = BigInt(me?.privates?.territoryYearlyPiconeros || 0)
+  const onceFee = BigInt(me?.privates?.territoryOncePiconeros || 0)
 
-    // we are changing billing type so prorate the change
-    if (sub?.billingType?.toLowerCase() !== billing) {
-      const alreadyBilled = TERRITORY_PERIOD_COST(purchasedType(sub))
-      lines.paid = {
-        term: `- ${piconerosToXmr(BigInt(alreadyBilled) * 1000n)}`,
-        label: 'already paid',
-        op: '-',
-        modifier: cost => cost - alreadyBilled
+  // Receipt line items quote the LIVE PlatformFeeConfig amounts so the button
+  // total always matches the QR invoice the payIn engine builds.
+  const lineItems = useMemo(() => {
+    const fee = { monthly: monthlyFee, yearly: yearlyFee, once: onceFee }[billing]
+    if (fee <= 0n) return {}
+    return {
+      territory: {
+        term: `+ ${piconerosToXmr(fee)}`,
+        label: `${billing} turf fee`,
+        op: '+',
+        modifier: cost => cost + Number(fee / 1000n)
       }
-      return lines
     }
-  }, [sub, billing])
+  }, [billing, monthlyFee, yearlyFee, onceFee])
 
   return (
     <FeeButtonProvider baseLineItems={lineItems}>
@@ -216,11 +217,6 @@ export default function TerritoryForm ({ sub }) {
             <CheckboxGroup
               label={
                 <span className='d-flex align-items-center'>billing
-                  {sub && sub.billingType !== 'ONCE' &&
-                    <Info>
-                      You will be credited what you paid for your current billing period when you change your billing period to a longer duration.
-                      If you change from yearly to monthly, when your year ends, your monthly billing will begin.
-                    </Info>}
                 </span>
               }
               name='billing'
@@ -228,7 +224,7 @@ export default function TerritoryForm ({ sub }) {
             >
               <Checkbox
                 type='radio'
-                label={`${piconerosToXmr(BigInt(TERRITORY_PERIOD_COST('MONTHLY')) * 1000n)}/month`}
+                label={`${piconerosToXmr(monthlyFee)}/month`}
                 value='MONTHLY'
                 name='billingType'
                 id='monthly-checkbox'
@@ -237,7 +233,7 @@ export default function TerritoryForm ({ sub }) {
               />
               <Checkbox
                 type='radio'
-                label={`${piconerosToXmr(BigInt(TERRITORY_PERIOD_COST('YEARLY')) * 1000n)}/year`}
+                label={`${piconerosToXmr(yearlyFee)}/year`}
                 value='YEARLY'
                 name='billingType'
                 id='yearly-checkbox'
@@ -246,7 +242,7 @@ export default function TerritoryForm ({ sub }) {
               />
               <Checkbox
                 type='radio'
-                label={`${piconerosToXmr(BigInt(TERRITORY_PERIOD_COST('ONCE')) * 1000n)} once`}
+                label={`${piconerosToXmr(onceFee)} once`}
                 value='ONCE'
                 name='billingType'
                 id='once-checkbox'
@@ -256,7 +252,7 @@ export default function TerritoryForm ({ sub }) {
             </CheckboxGroup>
             {billing !== 'once' &&
               <Checkbox
-                label='auto-renew'
+                label='remind me to renew'
                 name='billingAutoRenew'
                 groupClassName='ms-1 mt-2'
               />}
