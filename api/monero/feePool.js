@@ -7,7 +7,7 @@
 //
 // Account-index convention on the rewards wallet:
 //   major 1 = posting fees
-//   major 2 = territory fees (create / billing / unarchive)
+//   major 2 = territory fees (create / billing / unarchive / update)
 // (Major 0 is the wallet's primary address; Phase 4's downvotes use payment IDs,
 //  not subaddresses, so they do not consume this pool.)
 
@@ -20,7 +20,8 @@ const FEE_TYPE_TO_MAJOR = {
   POSTING: REWARDS_POSTING_MAJOR,
   TERRITORY_CREATE: REWARDS_TERRITORY_MAJOR,
   TERRITORY_BILLING: REWARDS_TERRITORY_MAJOR,
-  TERRITORY_UNARCHIVE: REWARDS_TERRITORY_MAJOR
+  TERRITORY_UNARCHIVE: REWARDS_TERRITORY_MAJOR,
+  TERRITORY_UPDATE: REWARDS_TERRITORY_MAJOR
 }
 
 /** Resolve the platform_rewards wallet id for the active network. */
