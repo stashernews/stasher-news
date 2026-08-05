@@ -19,4 +19,6 @@ RUN npm ci --legacy-peer-deps --loglevel verbose
 USER apprunner
 
 # run npm ci again because we're mounting node_modules in local dev
-CMD ["sh","-c","npm ci --legacy-peer-deps --loglevel verbose && npx prisma migrate dev && npm run dev"]
+# migrate deploy is non-interactive (migrate dev prompts on drift and hangs in a
+# non-tty container); run migrate dev manually via `./sndev prisma migrate dev`
+CMD ["sh","-c","npm ci --legacy-peer-deps --loglevel verbose && npx prisma migrate deploy && npm run dev"]

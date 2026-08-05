@@ -6,6 +6,7 @@ import { signIn } from 'next-auth/react'
 import ActionTooltip from './action-tooltip'
 import { useToast } from './toast'
 import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
+import { useAnimation } from './animation'
 import { throwUnlessUserCancel } from '@/wallets/client/errors'
 import { piconerosToXmr, fixedDecimal, numWithUnits } from '@/lib/format'
 import { POLL_VOTE } from '@/fragments/payIn'
@@ -89,8 +90,10 @@ function PollResult ({ v, progress }) {
 }
 
 export function usePollVote ({ query = POLL_VOTE, itemId }) {
+  const animate = useAnimation()
   // Poll vote mutations are pessimistic, so apply vote counts on paid-phase only.
   const onPaid = (cache, { data: { pollVote } }) => {
+    animate()
     if (!pollVote?.payerPrivates.result) return
     const { payerPrivates: { result } } = pollVote
     const { id } = result

@@ -55,7 +55,7 @@ Available branding options include:
 
 Setting up a custom domain for your turf is very simple, requiring very little beyond editing a few DNS records.
 
-If you are interested in being part of our private beta, reach out to k00b [email here?] or scoresby [email here?]. After you have been added to the beta, do the following:
+If you are interested in being part of our private beta, reach out to untraceable [email here?]. After you have been added to the beta, do the following:
 
 1. Go to your turf settings.
 2. Open the advanced settings section.

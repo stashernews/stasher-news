@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
+import { useEffect } from 'react'
 import { useMe } from './me'
+import { useAnimation } from './animation'
 import { moneroUriAmountPiconeros, piconerosToXmr } from '@/lib/format'
 import { postingFeeModalPhase } from '@/lib/pay-in'
 import MoneroPaymentView from './monero-payment-view'
@@ -17,6 +19,7 @@ const ITEM_FEE_STATUS = `
 
 export default function PostingFeeModal ({ moneroUri, itemId }) {
   const { me } = useMe()
+  const animate = useAnimation()
   const feePiconeros = moneroUriAmountPiconeros(moneroUri) ??
     (me?.privates?.postingFeePiconeros ? BigInt(me.privates.postingFeePiconeros) : 0n)
 
@@ -27,6 +30,11 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
   })
 
   const phase = postingFeeModalPhase(data?.item?.feeStatus)
+
+  // strike the lightning once the posting fee is detected on-chain
+  useEffect(() => {
+    if (phase === 'paid') animate()
+  }, [phase, animate])
 
   const canExplainPostingFee = !!me?.privates?.freePostMinAgeDays && !!me?.privates?.freePostThresholdPiconeros
 

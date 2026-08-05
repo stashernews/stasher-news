@@ -505,7 +505,7 @@ To list all DNS records present in the dnsmasq config: `./sndev domains dns list
 #### Access a local custom domain added via dnsmasq
 sndev will use the dnsmasq DNS server by default, but chances are that you might want to access the domain via your browser.
 
-For every edit on dnsmasq, it will give you the option to either edit the `/etc/hosts` file or use the dnsmasq DNS server which can be reached on `127.0.0.1:5353`. You can avoid getting asked to edit the `/etc/hosts` file by adding the `--no-hosts` parameter.
+For every edit on dnsmasq, it will give you the option to either edit the `/etc/hosts` file or use the dnsmasq DNS server which can be reached on `127.0.0.1:53530`. You can avoid getting asked to edit the `/etc/hosts` file by adding the `--no-hosts` parameter.
 
 # Internals
 
