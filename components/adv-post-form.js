@@ -4,8 +4,7 @@ import { useRouter } from 'next/router'
 import { useFormikContext } from 'formik'
 
 const FormStatus = {
-  DIRTY: 'dirty',
-  ERROR: 'error'
+  DIRTY: 'dirty'
 }
 
 export default function AdvPostForm ({ children }) {

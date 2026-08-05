@@ -7,7 +7,7 @@
 // risks silent breakage. getInitial/onPaid here are dead code for the tip path.
 // Phase 4's DOWNVOTE is a separate payIn type that targets the rewards wallet.
 
-import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
+import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { piconerosToXmr } from '@/lib/format'
 import { notifyZapped } from '@/lib/webPush'
 import { Prisma } from '@prisma/client'
@@ -39,12 +39,10 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   const zapMtokens = piconeros * 70n / 100n
 
   // forward recipients were removed; the full receiver share goes to the post author
-  const payOutCustodialTokensProspects = [{
-    payOutType: 'TIP',
-    userId,
-    mtokens: zapMtokens,
-    custodialTokenType: 'CREDITS'
-  }]
+  const eligible = ![USER_ID.anon, USER_ID.rewards, USER_ID.saloon].includes(userId)
+  const payOutCustodialTokensProspects = eligible
+    ? [{ payOutType: 'TIP', userId, mtokens: zapMtokens, custodialTokenType: 'CREDITS' }]
+    : []
 
   // what's left goes to the rewards pool
   const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, piconeros, payOutCustodialTokens: payOutCustodialTokensProspects })
