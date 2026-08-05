@@ -2,6 +2,7 @@ import { readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
 import { postingFeePrivatesFor } from '@/api/monero/postingFee'
+import { territoryFeePrivatesFor } from '@/api/monero/territoryFee'
 import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/validate'
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
 import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES, SN_SYSTEM_ONLY_IDS, FREE_COMMENTS_PER_MONTH } from '@/lib/constants'
@@ -943,7 +944,15 @@ export default {
     freePostThresholdPiconeros: async (user, args, { models, me }) =>
       (await postingFeePrivatesFor(models, user, me?.id)).freePostThresholdPiconeros,
     freePostMinAgeDays: async (user, args, { models, me }) =>
-      (await postingFeePrivatesFor(models, user, me?.id)).freePostMinAgeDays
+      (await postingFeePrivatesFor(models, user, me?.id)).freePostMinAgeDays,
+    territoryMonthlyPiconeros: async (user, args, { models, me }) =>
+      (await territoryFeePrivatesFor(models, me?.id)).territoryMonthlyPiconeros,
+    territoryYearlyPiconeros: async (user, args, { models, me }) =>
+      (await territoryFeePrivatesFor(models, me?.id)).territoryYearlyPiconeros,
+    territoryOncePiconeros: async (user, args, { models, me }) =>
+      (await territoryFeePrivatesFor(models, me?.id)).territoryOncePiconeros,
+    commentFeePiconeros: async (user, args, { models, me }) =>
+      (await territoryFeePrivatesFor(models, me?.id)).commentFeePiconeros
   },
 
   UserOptional: {

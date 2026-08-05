@@ -37,6 +37,10 @@ ${STREAK_FIELDS}
       postingFeePiconeros
       freePostThresholdPiconeros
       freePostMinAgeDays
+      territoryMonthlyPiconeros
+      territoryYearlyPiconeros
+      territoryOncePiconeros
+      commentFeePiconeros
       tipDefault
       tipRandom
       tipRandomMin

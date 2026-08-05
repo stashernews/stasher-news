@@ -132,6 +132,10 @@ export default gql`
     postingFeePiconeros: BigInt!
     freePostThresholdPiconeros: BigInt!
     freePostMinAgeDays: Int!
+    territoryMonthlyPiconeros: BigInt!
+    territoryYearlyPiconeros: BigInt!
+    territoryOncePiconeros: BigInt!
+    commentFeePiconeros: BigInt!
 
     """
     only relevant to user
