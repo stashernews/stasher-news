@@ -16,7 +16,6 @@ import PastBounties from './past-bounties'
 import Check from '@/svgs/check-double-line.svg'
 import Share from './share'
 import Toc from './table-of-contents'
-import Link from 'next/link'
 import { RootProvider } from './root'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseEmbedUrl } from '@/lib/url'
 import { piconerosToXmr } from '@/lib/format'
@@ -75,22 +74,6 @@ function ItemEmbed ({ url, imgproxyUrls }) {
   return null
 }
 
-function FwdUsers ({ forwards }) {
-  return (
-    <div className={styles.other}>
-      tips forwarded to {' '}
-      {forwards.map((fwd, index, arr) => (
-        <span key={fwd.user.name}>
-          <Link href={`/${fwd.user.name}`}>
-            @{fwd.user.name}
-          </Link>
-          {` (${fwd.pct}%)`}{index !== arr.length - 1 && ' '}
-        </span>))}
-
-    </div>
-  )
-}
-
 function TopLevelItem ({ item, noReply, ...props }) {
   const { me } = useMe()
   const ItemComponent = item.isJob ? ItemJob : Item
@@ -111,7 +94,6 @@ function TopLevelItem ({ item, noReply, ...props }) {
             <Share title={item?.title} path={`/items/${item?.id}`} />
           </>
       }
-      belowTitle={item.forwards && item.forwards.length > 0 && <FwdUsers forwards={item.forwards} />}
       {...props}
     >
       <article className={classNames(styles.fullItemContainer, 'topLevel')} ref={textRef}>

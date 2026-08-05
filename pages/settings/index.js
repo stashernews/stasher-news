@@ -116,7 +116,6 @@ export default function Settings ({ ssrData }) {
             noteWithdrawals: settings?.noteWithdrawals,
             noteInvites: settings?.noteInvites,
             noteCowboyHat: settings?.noteCowboyHat,
-            noteForwardedPiconeros: settings?.noteForwardedPiconeros,
             hideUriDesc: settings?.hideUriDesc,
             hideFromTopUsers: settings?.hideFromTopUsers,
             hideCowboyHat: settings?.hideCowboyHat,
@@ -234,11 +233,6 @@ export default function Settings ({ ssrData }) {
           <Checkbox
             label='I stash XMR from posts and comments'
             name='noteItemPiconeros'
-            groupClassName='mb-0'
-          />
-          <Checkbox
-            label='I get forwarded XMR from a post'
-            name='noteForwardedPiconeros'
             groupClassName='mb-0'
           />
           <Checkbox
