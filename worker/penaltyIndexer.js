@@ -4,6 +4,7 @@ import {
   REWARDS_TERRITORY_MAJOR
 } from '@/api/monero/feePool'
 import { reverseMapPaymentId } from '@/api/monero/penalty'
+import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
 import { MONERO_POLL_INTERVAL_MS } from '@/lib/constants'
 import { Prisma } from '@prisma/client'
 
@@ -225,6 +226,14 @@ export async function penaltyIndexer ({ boss, models }) {
     if (txs.length > 0) {
       await models.moneroAccount.update({ where: { id: account.id }, data: { lastTxId: BigInt(maxId) } })
     }
+  }
+  // Auto top-up: extend the fee subaddress pool when AVAILABLE dips below the
+  // threshold (default 100). Runs on every poll; the check is a cheap count and
+  // derivation only fires when a major is low. Errors are logged, never fatal.
+  try {
+    await topUpFeePoolIfLow(models)
+  } catch (err) {
+    console.error('fee-pool auto top-up failed:', err?.message || err)
   }
   await boss.send('penaltyIndexer', {}, { startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
 }

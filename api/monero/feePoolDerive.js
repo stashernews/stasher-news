@@ -3,7 +3,7 @@
 // The rewards-wallet fee pool is pre-derived subaddresses (major 1 = posting,
 // major 2 = territory) stored as SubaddressIndex rows and watched via lws.
 // Derivation needs the rewards SPEND key, so this module is imported ONLY by
-// worker/penaltyIndexer.js (auto top-up) and scripts/derive-rewards-fee-subaddresses.mjs
+// worker/penaltyIndexer.js (auto top-up) and scripts/derive-rewards-fee-subaddresses.js
 // (manual CLI) — never by an api/ payIn path. The running app never reads the
 // spend key; the worker reads it only to extend a pool that has run low.
 
