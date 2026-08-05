@@ -138,7 +138,7 @@ function AuthMethods ({ methods, apiKeyEnabled }) {
                 ...existing,
                 privates: {
                   ...existing.privates,
-                  authMethods: { ...unlinkAuth }
+                  authMethods: { ...existing.privates.authMethods, ...unlinkAuth }
                 }
               }
             }
