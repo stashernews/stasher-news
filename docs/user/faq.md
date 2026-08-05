@@ -8,7 +8,7 @@ sub: meta
 
 _To quickly browse through this FAQ page, click the chapters icon in the top-right corner. This will let you scroll through all chapters or search for a particular topic within this page._
 
-last updated: December 17, 2025
+last updated: August 5, 2026
 
 ---
 
@@ -30,7 +30,7 @@ Stasher News never takes custody of stashers' money to send it to someone else.
 
 To help new stashers get started without requiring them to [attach a monero wallet](#how-do-i-attach-a-wallet), stashers without an attached wallet will earn credits when other stashers tip their content. Stasher News will accept credits instead of XMR for any payment on the site at a 1:1 ratio. This means new stashers can use these earned credits to pay for posts, comments, tips, jobs, boosts, donations or even turfs, but credits cannot be withdrawn.
 
-If you need additional credits beyond what you've earned through tips, you can always purchase them with XMR at a 1:1 ratio [here](/wallets/cowboy-credits).
+If you need additional credits beyond what you've earned through tips, you can always purchase them with XMR at a 1:1 ratio.
 
 ### What are tips?
 
@@ -60,7 +60,7 @@ To earn XMR via [tips](#tips) from fellow stashers peer-to-peer, you need to [at
 
 **2. Daily rewards**
 
-Stashers can also earn XMR via daily rewards. Stasher News uses the revenue it generates from post, comment, tip and boost fees, the job board and donations to reward stashers that contributed to the site with even more XMR beyond the tips they already received. Contributions also include tipping content since they are used as a signal for ranking. **You do not need to attach a wallet to receive daily rewards in XMR. They are automatically deposited into your account.** You can find and withdraw your reward balance [here](/wallets/reward-sats/send).
+Stashers can also earn XMR via daily rewards. Stasher News uses the revenue it generates from post, comment, tip and boost fees, the job board and donations to reward stashers that contributed to the site with even more XMR beyond the tips they already received. Contributions also include tipping content since they are used as a signal for ranking. **You do not need to attach a wallet to receive daily rewards in XMR. They are automatically deposited into your account.** You can see your rewards on the [rewards page](/rewards).
 
 **3. Referrals**
 
@@ -80,9 +80,7 @@ Stasher News is non-custodial. To send and receive XMR, you need to attach a wal
 
 ### How do I attach a wallet?
 
-Click [here](/wallets) or click on your name and select 'wallets'. You should then see this:
-
-![](https://m.stasher.news/112907)
+Click [here](/settings/wallet) or click on your name and select 'wallets'.
 
 ### I can't find my wallet. Can I not attach one?
 
@@ -92,11 +90,9 @@ You can also let us know in the [saloon](/daily) that your wallet isn't listed s
 
 ### I receive notifications about failed tips. What do I do?
 
-This means your wallet isn't working properly. You can retry the payment or check your [wallet logs](/wallets/logs) for errors. A retry usually works.
+This means your wallet isn't working properly. You can retry the payment. A retry usually works.
 
-If the retry didn't work, you can't find an error or don't understand it, let us know in the [saloon](/daily) or reply to this FAQ.
-
-The link to the wallet logs can be found on the [wallet page](/wallets).
+If the retry didn't work, let us know in the [saloon](/daily) or reply to this FAQ.
 
 ### Why do I provide my address and sometimes a view key?
 
@@ -168,7 +164,7 @@ When Stasher News first launched without turfs, much of the discussion focused e
 
 ### How do I found a turf?
 
-Click [here](/turf) or scroll to the bottom in the turf dropdown menu and click on 'create'.
+Click [here](/territory) or scroll to the bottom in the turf dropdown menu and click on 'create'.
 
 ### How much does it cost to found a turf?
 
@@ -221,9 +217,7 @@ After the grace period of 5 days, the turf will be archived. Stashers can still 
 
 ### How do I bring back a turf?
 
-Enter the name of the turf you want to bring back in the [turf form](/turf). If the turf indeed existed before, you will see a hint below the input field like this:
-
-![](https://m.stasher.news/76254)
+Enter the name of the turf you want to bring back in the [turf form](/territory). If the turf indeed existed before, you will see a hint below the input field.
 
 The info text mentions that you will inherit all existing content.
 
@@ -235,16 +229,12 @@ You can't do that yet but this is planned. Currently, turfs can only have a sing
 
 ### What do the turf stats in my profile mean?
 
-![](https://m.stasher.news/76546)
-
 The stats for each turf are the following:
 
 - stashed: how much XMR stashers stashed in this turf
 - revenue: how much revenue went to the founder
 - spent: how many XMR have been spent in this turf on posts, comments, boosts, tips, downvotes, jobs and poll votes
 - items: the total number of items in the turf
-
-You can filter the same stats by different periods in [top turfs](/top/territories/day).
 
 ---
 
@@ -377,7 +367,7 @@ If you found a security or privacy issue, please consider a [responsible disclos
 
 If you found a vulnerability on Stasher News, we would greatly appreciate it if you report it on Github [here](https://github.com/stackernews/stacker.news/security/advisories/new).
 
-You can also contact us via security@stasher.news or [t.me/k00bideh](https://t.me/k00bideh). Our PGP key can be found [here](/pgp.txt).
+You can also contact us via security@stasher.news. Our PGP key can be found [here](/pgp.txt).
 
 ### Where can I ask more questions?
 
