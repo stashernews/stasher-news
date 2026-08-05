@@ -3,6 +3,7 @@ import { nextBilling } from '@/lib/territory'
 import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
+import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 
 // StealthNews territory billing/renewal (spec §6.2). Same shape as territoryCreate
 // but for an existing Sub at renewal: reserves a major-2 fee subaddress, emits the
@@ -57,7 +58,7 @@ export async function onBegin (tx, payInId, { name }) {
   // StealthNews: mark PENDING_FEE until the penaltyIndexer observes the renewal fee.
   // The territory stays ACTIVE during the grace period; the territory worker lapses
   // it if PENDING_FEE persists past the grace window.
-  return await tx.sub.update({
+  const updated = await tx.sub.update({
     // optimistic concurrency control
     where: {
       ...sub,
@@ -75,6 +76,10 @@ export async function onBegin (tx, payInId, { name }) {
       subPayIn: { create: [{ payInId }] }
     }
   })
+
+  await scheduleTerritoryBilling(tx, updated.name, updated.billPaidUntil)
+
+  return updated
 }
 
 export async function describe (models, payInId) {

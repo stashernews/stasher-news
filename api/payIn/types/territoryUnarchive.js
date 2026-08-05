@@ -5,6 +5,7 @@ import * as MEDIA_UPLOAD from './mediaUpload'
 import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
+import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 
 export const anonable = false
 
@@ -116,6 +117,8 @@ export async function onBegin (tx, payInId, { name, billingType, uploadIds, ...d
       create: t
     })
   }
+
+  await scheduleTerritoryBilling(tx, updatedSub.name, updatedSub.billPaidUntil)
 
   return updatedSub
 }

@@ -4,6 +4,7 @@ import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import * as MEDIA_UPLOAD from './mediaUpload'
+import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 
 export const anonable = false
 
@@ -95,7 +96,7 @@ export async function onBegin (tx, payInId, { oldName, billingType, uploadIds, .
     data.billingPayInId = payInId
   }
 
-  return await tx.sub.update({
+  const updatedSub = await tx.sub.update({
     data: {
       ...data,
       billingType,
@@ -114,6 +115,10 @@ export async function onBegin (tx, payInId, { oldName, billingType, uploadIds, .
       userId: payIn.userId
     }
   })
+
+  await scheduleTerritoryBilling(tx, updatedSub.name, updatedSub.billPaidUntil)
+
+  return updatedSub
 }
 
 export async function describe (models, payInId) {
