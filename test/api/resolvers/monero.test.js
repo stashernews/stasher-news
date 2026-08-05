@@ -31,7 +31,9 @@ const STAGENET_VIEWKEY = '5580e0440c77c9b720950defd0bcfbd87b6a10f098ed345fac290c
 function makeMockLws () {
   return {
     addAccount: jest.fn().mockResolvedValue({}),
-    addWebhook: jest.fn().mockResolvedValue({ event_id: 'evt-test-1' })
+    addWebhook: jest.fn().mockResolvedValue({ event_id: 'evt-test-1' }),
+    modifyAccountStatus: jest.fn().mockResolvedValue({ updated: [] }),
+    deleteAddressWebhooks: jest.fn().mockResolvedValue({})
   }
 }
 
@@ -146,6 +148,64 @@ describe('Mutation.registerMoneroAccount', () => {
 
     const user = await prisma.user.findUnique({ where: { id: userId } })
     expect(user.privacyMode).toBe('AUTO_INDEX')
+  })
+
+  test('re-registers a wallet that was unregistered (upsert reuses the soft-deleted row)', async () => {
+    const userId = await createUser()
+    const { acct: first } = await registerFor(userId)
+
+    // Unregister soft-deletes the row (ownerUserId -> null, status INACTIVE).
+    await resolvers.Mutation.unregisterMoneroAccount(null, {}, { me: { id: userId }, models: prisma, monero: makeMockLws() })
+
+    // Re-registering the same address must reuse the existing row, not collide
+    // with the @@unique([address, network]) constraint.
+    const { acct: second } = await registerFor(userId)
+    expect(second.id).toBe(first.id)
+
+    const stored = await prisma.moneroAccount.findUnique({ where: { id: second.id } })
+    expect(stored.ownerUserId).toBe(userId)
+    expect(stored.status).toBe('ACTIVE')
+
+    const viewKey = await prisma.moneroViewKey.findUnique({ where: { accountId: second.id } })
+    expect(viewKey).not.toBeNull()
+  })
+})
+
+describe('Mutation.unregisterMoneroAccount', () => {
+  test('flips lws account to inactive, deletes webhooks, wipes the view key, and detaches the row', async () => {
+    const userId = await createUser()
+    const { acct, lws } = await registerFor(userId)
+
+    const result = await resolvers.Mutation.unregisterMoneroAccount(null, {}, { me: { id: userId }, models: prisma, monero: lws })
+    expect(result).toBe(true)
+
+    // lws FIRST: account set inactive, address webhooks deleted.
+    expect(lws.modifyAccountStatus).toHaveBeenCalledWith([acct.address], 'inactive')
+    expect(lws.deleteAddressWebhooks).toHaveBeenCalledWith(acct.address)
+
+    // View key envelope wiped.
+    expect(await prisma.moneroViewKey.findUnique({ where: { accountId: acct.id } })).toBeNull()
+
+    // Soft-deleted: row retained, detached + inactive.
+    const stored = await prisma.moneroAccount.findUnique({ where: { id: acct.id } })
+    expect(stored.ownerUserId).toBeNull()
+    expect(stored.status).toBe('INACTIVE')
+
+    // myMoneroAccount now reports no account.
+    expect(await resolvers.Query.myMoneroAccount(null, {}, { me: { id: userId }, models: prisma })).toBeNull()
+  })
+
+  test('returns false when the user has no registered account', async () => {
+    const userId = await createUser()
+    const lws = makeMockLws()
+    const result = await resolvers.Mutation.unregisterMoneroAccount(null, {}, { me: { id: userId }, models: prisma, monero: lws })
+    expect(result).toBe(false)
+    expect(lws.modifyAccountStatus).not.toHaveBeenCalled()
+  })
+
+  test('rejects if no me (GqlAuthenticationError)', async () => {
+    await expect(resolvers.Mutation.unregisterMoneroAccount(null, {}, { models: prisma, monero: makeMockLws() }))
+      .rejects.toThrow(/you must be logged in/i)
   })
 })
 

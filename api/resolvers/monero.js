@@ -154,22 +154,36 @@ export default {
       if (!vkOk) throw new GqlInputError('invalid Monero private view key')
 
       // 2. lws admin registration FIRST (plaintext view key over TLS — spec §5).
+      //    addAccount is idempotent on address: re-registering a wallet that was
+      //    previously unregistered (lws INACTIVE) reactivates it.
       await monero.addAccount(address, viewKey)
 
       // 3. Persist locally in a transaction (atomic). encryptViewKey (Task 2)
       //    returns the spread-safe AES-256-GCM envelope; the plaintext is
-      //    never written.
+      //    never written. Upsert on (address, network) so a wallet that was
+      //    soft-deleted by unregisterMoneroAccount (ownerUserId -> null,
+      //    status INACTIVE) can be re-registered by its owner.
       const created = await models.$transaction(async (tx) => {
-        const account = await tx.moneroAccount.create({
-          data: {
+        const account = await tx.moneroAccount.upsert({
+          where: { address_network: { address, network: net.prisma } },
+          create: {
             ownerUserId: me.id,
             address,
             label: 'author',
             network: net.prisma,
             status: 'ACTIVE',
             lwsRegisteredAt: new Date()
+          },
+          update: {
+            ownerUserId: me.id,
+            label: 'author',
+            status: 'ACTIVE',
+            lwsRegisteredAt: new Date()
           }
         })
+        // Re-registration may carry a different view key: wipe any prior
+        // envelope before writing the fresh one.
+        await tx.moneroViewKey.deleteMany({ where: { accountId: account.id } })
         await tx.moneroViewKey.create({
           data: { accountId: account.id, ...encryptViewKey(viewKey) }
         })
@@ -196,6 +210,41 @@ export default {
     async initiateTip (parent, { postId, amount }, { me, models, monero }) {
       if (!me) throw new GqlAuthenticationError()
       return initiateTipCore({ postId, amount, models, monero, me })
+    },
+
+    // Revoke wallet observation. Mirrors registerMoneroAccount's "lws FIRST"
+    // ordering (controller #4): an lws failure aborts here so NOTHING local
+    // changes — if we soft-deleted locally while lws kept scanning, the wallet
+    // would keep receiving tip credits the owner believes they removed, which
+    // is a privacy leak. deleteAddressWebhooks is best-effort (an INACTIVE lws
+    // account stops firing webhooks anyway).
+    async unregisterMoneroAccount (parent, args, { me, models, monero }) {
+      if (!me) throw new GqlAuthenticationError()
+
+      const account = await models.moneroAccount.findFirst({ where: { ownerUserId: me.id } })
+      if (!account) return false
+
+      await monero.modifyAccountStatus([account.address], 'inactive')
+      try {
+        await monero.deleteAddressWebhooks(account.address)
+      } catch (err) {
+        console.warn(`unregisterMoneroAccount: lws deleteAddressWebhooks failed (best-effort): ${err && err.message}`)
+      }
+
+      // Soft-delete: wipe the encrypted view key + subaddresses, then detach the
+      // account from this user and mark it INACTIVE. The row is retained so
+      // past ObservedTip history (FK RESTRICT, public ranking data) stays intact
+      // and so registerMoneroAccount's upsert can re-attach the same wallet.
+      await models.$transaction(async (tx) => {
+        await tx.moneroViewKey.deleteMany({ where: { accountId: account.id } })
+        await tx.subaddressIndex.deleteMany({ where: { accountId: account.id } })
+        await tx.moneroAccount.update({
+          where: { id: account.id },
+          data: { ownerUserId: null, status: 'INACTIVE' }
+        })
+      })
+
+      return true
     }
   },
 
