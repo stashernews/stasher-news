@@ -13,6 +13,7 @@ import PageLoading from '@/components/page-loading'
 import { SubMultiSelect } from '@/components/sub-select'
 import useCanEdit from '@/components/use-can-edit'
 import Countdown from '@/components/countdown'
+import { FeeButtonProvider } from '@/components/fee-button'
 
 export const getServerSideProps = getGetServerSideProps({
   query: ITEM,
@@ -50,18 +51,20 @@ export default function PostEdit ({ ssrData }) {
 
   return (
     <CenterLayout>
-      <FormType item={item} subs={subs} EditInfo={EditInfo}>
-        {!item.isJob &&
-          <SubMultiSelect
-            placeholder='pick turfs'
-            className='d-flex'
-            size='md'
-            label='turf'
-            filterSubs={s => s.name !== 'jobs' && s.postTypes?.includes(itemType)}
-            onChange={(_, e) => setSubs(e)}
-            subs={subs}
-          />}
-      </FormType>
+      <FeeButtonProvider>
+        <FormType item={item} subs={subs} EditInfo={EditInfo}>
+          {!item.isJob &&
+            <SubMultiSelect
+              placeholder='pick turfs'
+              className='d-flex'
+              size='md'
+              label='turf'
+              filterSubs={s => s.name !== 'jobs' && s.postTypes?.includes(itemType)}
+              onChange={(_, e) => setSubs(e)}
+              subs={subs}
+            />}
+        </FormType>
+      </FeeButtonProvider>
     </CenterLayout>
   )
 }
