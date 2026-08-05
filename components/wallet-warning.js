@@ -13,16 +13,22 @@ const MY_MONERO_ACCOUNT = gql`
 
 // Global nudge: logged-in users with no registered Monero wallet cannot receive
 // tips on their posts. Dismissed per-session (local state); reappears on reload.
-// Shares the MyMoneroAccount cache entry with WalletSetup so registering/
-// unregistering a wallet on the settings page hides/shows this immediately.
+// Rendered client-side only (ssr: false): the SSR render client is cache-only
+// and can never resolve this orphan query, so running it on the server would
+// flash a false-positive banner in the initial HTML for users WITH a wallet.
+// cache-and-network re-verifies against the server on every mount so a stale
+// cached null can never pin the banner on, while the register/unregister
+// cache writes on the settings page still take effect immediately.
 export default function WalletWarning () {
   const { me } = useMe()
   const [dismissed, setDismissed] = useState(false)
-  const { data, loading } = useQuery(MY_MONERO_ACCOUNT, {
-    skip: !me
+  const { data } = useQuery(MY_MONERO_ACCOUNT, {
+    skip: !me,
+    ssr: false,
+    fetchPolicy: 'cache-and-network'
   })
 
-  if (!me || loading || dismissed) return null
+  if (!me || data === undefined || dismissed) return null
   if (data?.myMoneroAccount) return null
 
   return (
@@ -32,8 +38,8 @@ export default function WalletWarning () {
       onClose={() => setDismissed(true)}
       dismissible
     >
-      you haven't registered a monero wallet — posts you make can't receive tips.{' '}
-      <Link href='/settings/wallet'>register a wallet</Link> to start earning.
+      you haven't registered a Monero wallet yet. posts you make can't receive tips{' '}
+      or weekly rewards. <Link href='/settings/wallet'>register a wallet</Link> to start earning.
     </Alert>
   )
 }
