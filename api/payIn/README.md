@@ -386,38 +386,38 @@ In practice, this most often occurs when selecting multiple rows for update in d
 ## Incorrect
 
 ```sql
-WITH forwardees AS (
-    SELECT "userId", (($1::BIGINT * pct) / 100)::BIGINT AS msats
-    FROM "ItemForward"
+WITH subscribers AS (
+    SELECT "userId"
+    FROM "ThreadSubscription"
     WHERE "itemId" = $2::INTEGER
 ),
 UPDATE users
     SET
-    msats = users.msats + forwardees.msats,
-    "stackedMsats" = users."stackedMsats" + forwardees.msats
-    FROM forwardees
-    WHERE users.id = forwardees."userId";
+    msats = users.msats + $1::BIGINT,
+    "stackedMsats" = users."stackedMsats" + $1::BIGINT
+    FROM subscribers
+    WHERE users.id = subscribers."userId";
 ```
 
-If forwardees are selected in a different order in two concurrent transactions, e.g. (1,2) in tx 1 and (2,1) in tx 2, a deadlock can occur. To avoid this, always select rows for update in the same order.
+If subscribers are selected in a different order in two concurrent transactions, e.g. (1,2) in tx 1 and (2,1) in tx 2, a deadlock can occur. To avoid this, always select rows for update in the same order.
 
 ## Correct
 
-We fixed the deadlock by selecting the forwardees in the same order in these transactions.
+We fixed the deadlock by selecting the subscribers in the same order in these transactions.
 
 ```sql
-WITH forwardees AS (
-    SELECT "userId", (($1::BIGINT * pct) / 100)::BIGINT AS msats
-    FROM "ItemForward"
+WITH subscribers AS (
+    SELECT "userId"
+    FROM "ThreadSubscription"
     WHERE "itemId" = $2::INTEGER
     ORDER BY "userId" ASC
 ),
 UPDATE users
     SET
-    msats = users.msats + forwardees.msats,
-    "stackedMsats" = users."stackedMsats" + forwardees.msats
-    FROM forwardees
-    WHERE users.id = forwardees."userId";
+    msats = users.msats + $1::BIGINT,
+    "stackedMsats" = users."stackedMsats" + $1::BIGINT
+    FROM subscribers
+    WHERE users.id = subscribers."userId";
 ```
 
 ## Locking the same row with compatible locks then taking interleaved incompatible locks

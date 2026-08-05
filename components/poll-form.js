@@ -52,7 +52,7 @@ export function PollForm ({ item, subs, EditInfo, children }) {
         hint={EditInfo}
         maxLength={MAX_POLL_CHOICE_LENGTH}
       />
-      <AdvPostForm storageKeyPrefix={storageKeyPrefix} item={item}>
+      <AdvPostForm>
         <DateTimeInput
           isClearable
           label='poll expiration'

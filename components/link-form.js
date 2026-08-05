@@ -183,7 +183,7 @@ export function LinkForm ({ item, subs, EditInfo, children }) {
           })
         }}
       />
-      <AdvPostForm storageKeyPrefix={storageKeyPrefix} item={item}>
+      <AdvPostForm>
         <SNInput
           label='context'
           name='text'
