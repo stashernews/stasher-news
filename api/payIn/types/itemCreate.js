@@ -5,7 +5,7 @@ import { extractMentions } from '@/lib/lexical/server/mentions'
 import { GqlInputError } from '@/lib/error'
 import { getItem } from '@/api/resolvers/item'
 import { getTempImgproxyUrls } from '../lib/upload'
-import { incrementFreeCommentCount } from '../lib/freebie'
+import { incrementFreeCommentCount, commentsFreeLeft } from '../lib/freebie'
 import { canPostFree, postingFeePiconeros } from '@/api/monero/postingFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
@@ -30,9 +30,37 @@ export async function getInitial (models, args, { me }) {
   // piconeros=0 -> payInState=PAID; the post's VISIBILITY is gated independently by
   // Item.feeStatus (set in onBegin), which the penaltyIndexer flips PENDING_FEE ->
   // FEE_PAID when it observes the fee output.
-  // Comments are always free — the posting fee is per post (spec §2.2, row 826).
+  // Comments are free within the 15/month freebie quota; beyond it each comment
+  // costs the flat comment fee (see below).
   if (args.parentId) {
-    return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
+    // StealthNews comment fee (spec §6.2): comments are free while the author has
+    // freebies left (15/month for all users); beyond the quota each comment costs
+    // the flat comment fee (postingFeeFloorPiconeros) to the platform rewards
+    // wallet, observed by the penaltyIndexer like the posting fee. Anon comments
+    // stay free — anon has no personal quota.
+    if (me.id === USER_ID.anon) {
+      return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
+    }
+    const commenter = await models.user.findUnique({ where: { id: me.id } })
+    if (commentsFreeLeft(commenter) > 0) {
+      return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
+    }
+    const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+    if (!config) throw new GqlInputError('fee config not initialized')
+    const fee = postingFeePiconeros(config)
+    const sub = await reserveFeeSubaddress(models, 'POSTING')
+    const moneroUri = buildMoneroUri(
+      [{ address: sub.address, amount: fee }],
+      { description: 'StealthNews comment fee' }
+    )
+    return {
+      payInType: 'ITEM_CREATE',
+      userId: me.id,
+      piconeros: 0n,
+      moneroUri,
+      moneroSubaddressMajor: sub.major,
+      moneroSubaddressMinor: sub.minor
+    }
   }
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
@@ -122,8 +150,8 @@ export async function onBegin (tx, payInId, args) {
 
   const imgproxyUrls = await getTempImgproxyUrls(tx, uploadIds)
 
-  // freebie is true when cost is 0 and it's a comment or bio
-  const isFreebie = payIn.piconeros === 0n && !!(parentId || data.bio)
+  // freebie is true when no on-chain fee is required and it's a comment or bio
+  const isFreebie = payIn.moneroSubaddressMajor == null && !!(parentId || data.bio)
 
   const itemData = {
     parentId: parentId ? parseInt(parentId) : null,
