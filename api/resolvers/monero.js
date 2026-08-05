@@ -164,6 +164,18 @@ export default {
       //    soft-deleted by unregisterMoneroAccount (ownerUserId -> null,
       //    status INACTIVE) can be re-registered by its owner.
       const created = await models.$transaction(async (tx) => {
+        // Ownership guard: the upsert below keys on (address, network), so without
+        // a check it would re-attach ANY matching row — a user holding a leaked view
+        // key could steal the association of an ACTIVE wallet owned by someone else.
+        // Inside the transaction for race safety with concurrent registrations.
+        // Orphaned rows (ownerUserId null, soft-deleted) and the caller's own rows
+        // fall through to the upsert, which re-attaches/updates them.
+        const existing = await tx.moneroAccount.findFirst({
+          where: { address, network: net.prisma }
+        })
+        if (existing && existing.ownerUserId !== null && existing.ownerUserId !== me.id) {
+          throw new GqlInputError('address is registered to another account')
+        }
         const account = await tx.moneroAccount.upsert({
           where: { address_network: { address, network: net.prisma } },
           create: {
