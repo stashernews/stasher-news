@@ -11,7 +11,7 @@
 //   MONERO_NETWORK            stagenet | mainnet
 //   VIEWKEY_MASTER_KEY        envelope master key (already required by the app)
 //
-// The spend key is NEVER read by this script — only by derive-rewards-fee-subaddresses.mjs.
+// The spend key is NEVER read by this script — only by derive-rewards-fee-subaddresses.js.
 import { PrismaClient } from '@prisma/client'
 import { lwsClient } from '../api/monero/lwsClient.js'
 import { encryptViewKey } from '../api/monero/viewkey.js'
