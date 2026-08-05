@@ -104,6 +104,7 @@ test('topUpFeePoolIfLow derives an empty territory pool too (available 0 < thres
 
 test('topUpFeePoolIfLow skips while a previous top-up is still in progress', async () => {
   await seedSubs(1, [1, 2, 3])
+  await seedSubs(2, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy, keeps derive at exactly one call
   let release
   const gate = new Promise(resolve => { release = resolve })
   const derive = jest.fn(() => gate)
