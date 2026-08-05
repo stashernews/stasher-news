@@ -12,6 +12,7 @@ import { GqlAuthenticationError, GqlAuthorizationError, GqlInputError } from '@/
 import { processCrop } from '@/lib/imgproxy'
 import { payInTypesSql } from '../payIn/lib/sql'
 import { Prisma } from '@prisma/client'
+import { enabledAuthMethods } from '@/lib/authProviderEnv'
 
 const contributors = new Set()
 
@@ -39,12 +40,15 @@ function clampNameSimilarity (similarity = DEFAULT_NAME_SIMILARITY) {
 }
 
 async function authMethods (user, args, { models, me }) {
+  const enabled = enabledAuthMethods()
+
   if (!me || me.id !== user.id) {
     return {
       lightning: false,
       twitter: false,
       github: false,
-      nostr: false
+      nostr: false,
+      enabled
     }
   }
 
@@ -62,7 +66,8 @@ async function authMethods (user, args, { models, me }) {
     twitter: oauth.indexOf('twitter') >= 0,
     github: oauth.indexOf('github') >= 0,
     nostr: !!user.nostrAuthPubkey,
-    apiKey: user.apiKeyEnabled ? !!user.apiKeyHash : null
+    apiKey: user.apiKeyEnabled ? !!user.apiKeyHash : null,
+    enabled
   }
 }
 
