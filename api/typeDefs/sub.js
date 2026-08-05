@@ -19,8 +19,7 @@ export default gql`
   }
 
   extend type Mutation {
-    upsertSub(oldName: String, name: String!, desc: String, baseCost: Int!,
-      replyCost: Int!,
+    upsertSub(oldName: String, name: String!, desc: String,
       postsPiconerosFilter: BigInt,
       postTypes: [String!]!,
       billingType: String!, billingAutoRenew: Boolean!,
@@ -30,8 +29,7 @@ export default gql`
     toggleMuteSub(name: String!): Boolean!
     toggleSubSubscription(name: String!): Boolean!
     transferTerritory(subName: String!, userName: String!): Sub
-    unarchiveTerritory(name: String!, desc: String, baseCost: Int!,
-      replyCost: Int!, postsPiconerosFilter: BigInt,
+    unarchiveTerritory(name: String!, desc: String, postsPiconerosFilter: BigInt,
       postTypes: [String!]!,
       billingType: String!, billingAutoRenew: Boolean!,
       sendProtocolId: Int,
@@ -56,8 +54,6 @@ export default gql`
     rankingType: String!
     billedLastAt: Date!
     billPaidUntil: Date
-    baseCost: Int!
-    replyCost: Int!
     postsPiconerosFilter: BigInt!
     status: String!
     billingStatus: SubBillingStatus!

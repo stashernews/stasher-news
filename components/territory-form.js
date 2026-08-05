@@ -137,8 +137,6 @@ export default function TerritoryForm ({ sub }) {
         initial={{
           name: sub?.name || '',
           desc: sub?.desc || '',
-          baseCost: sub?.baseCost || 10,
-          replyCost: sub?.replyCost || 1,
           // Default xmr filter (0.001 XMR = the posting-fee default)
           postsPiconerosFilter: sub?.postsPiconerosFilter == null ? 0.001 : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter)))),
           postTypes: sub?.postTypes || POST_TYPES,
@@ -178,13 +176,6 @@ export default function TerritoryForm ({ sub }) {
           required
           minRows={3}
           topLevel
-        />
-        <Input
-          label='post cost'
-          name='baseCost'
-          type='number'
-          required
-          append={<InputGroup.Text className='text-monospace'>sats</InputGroup.Text>}
         />
         <CheckboxGroup label='post types' name='postTypes'>
           <Row>
@@ -274,13 +265,6 @@ export default function TerritoryForm ({ sub }) {
           header={<div style={{ fontWeight: 'bold', fontSize: '92%' }}>options</div>}
           body={
             <>
-              <Input
-                label='reply cost'
-                name='replyCost'
-                type='number'
-                required
-                append={<InputGroup.Text className='text-monospace'>sats</InputGroup.Text>}
-              />
               <SatFilterRanges />
               <BootstrapForm.Label>nsfw</BootstrapForm.Label>
               <Checkbox
