@@ -40,13 +40,15 @@ Tips are micropayments on the Monero Network commonly used as tips.
 
 Every post on Stasher News belongs to a turf. Turfs are communities where stashers gather to discuss shared interests and help them grow and thrive.
 
-They are founded by stashers who pay us to receive the revenue they generate (some would call that a business model). Turfs generate revenue because 70% of post, comment and boost fees and 21% of tips go to the founder.
+They are founded by stashers who pay a small monthly, yearly, or one-time fee.
 
 See the [section about turfs](#turfs) for details.
 
 ### Do I need Monero to use Stasher News?
 
 No. You don't need Monero to get started. You can create your bio for free (with limited visibility) and earn credits from tips to cover fees. Posts and comments incur a small fee to prevent spam and to encourage quality contributions. Many stashers earn enough from their posts and comments to continue posting on the site indefinitely without ever buying credits with XMR.
+
+Comments are free for the first 15 per month; beyond that, each comment costs 0.001 XMR.
 
 [Post and comment fees vary depending on the turf](#why-does-it-cost-more-to-post-in-some-turfs).
 
@@ -168,17 +170,15 @@ Click [here](/territory) or scroll to the bottom in the turf dropdown menu and c
 
 ### How much does it cost to found a turf?
 
-Founding a turf costs either 50k XMR/month, 500k XMR/year, or 3m XMR as a one-time payment.
+Founding a turf costs either 0.02 XMR/month, 0.2 XMR/year, or 1 XMR as a one-time payment.
 
-If a turf founder chooses either the monthly or yearly payment options, they can select 'auto-renew' so that Stasher News is automatically paid the turf fee each month or year from your credit balance. If a turf founder doesn't select 'auto-renew' or they don't have enough credits, they will get a notification to pay an invoice within 5 days after the end of their current billing period to keep their turf.
+If a turf founder chooses either the monthly or yearly payment options, they can select 'remind me to renew' to get a notification when the next turf fee is due. You have a 5-day grace period after the end of your current billing period to pay the fee and keep your turf.
 
-If you later change your mind, your payment for the current period is included in the new cost. This means that if you go from monthly to yearly payments for example, we will charge you 450k instead of 500k XMR.
+If you switch from monthly to yearly billing, you pay the yearly fee at the switch and your year starts when your current paid coverage ends. Switching from yearly to monthly simply starts monthly billing once your paid year ends.
 
 ### Do I earn XMR from turfs?
 
-Yes. Turf founders earn 70% of all posting and boost fees as well as 21% of all XMR tipped within their turf.
-
-The remaining fees go to the Stasher News daily rewards pool, which rewards the best contributors each day.
+Not yet. Turf founders currently earn no share of the fees generated in their turf. Posting, comment, and turf fees go to the platform rewards pool, which is distributed weekly to the best contributors. A founder revenue share is planned.
 
 ### Why does it cost more to post in some turfs?
 
@@ -263,7 +263,7 @@ Yes, in hot ranking:
 
 Tipping an item with more XMR gives you more influence on an item's ranking.
 
-Tips themselves are peer-to-peer: 100% of a tip goes to its author. To keep ranking sybil-resistant, only 70% of a tip's value counts toward the item's in-feed ranking; the remaining 30% of the ranking weight is redistributed to turf founders and the SN community as part of the daily rewards.
+Tips themselves are peer-to-peer: 100% of a tip goes to its author and counts toward the item's ranking.
 
 ### Why should I tip?
 
@@ -289,9 +289,7 @@ To donate XMR directly to the Stasher News rewards pool, or to view the rewards 
 
 ### Someone tipped me 100 XMR but I only received 70 XMR. Why?
 
-30% of tips go to turf founders (21%) and the SN community as part of the daily rewards (9%). This sacrifice allows Stasher News to determine that the tip is genuine and can be used as a signal for ranking and daily rewards.
-
-By example, if someone tips your post or comment 100 XMR, 70 XMR go to you, 21 XMR go to the turf founder and the remaining 9 XMR are distributed as part of the daily rewards.
+This no longer happens. Tips are delivered peer-to-peer: 100% of a tip goes to its author and nothing is taken from tips along the way.
 
 ### Is there an equivalent to downvotes?
 
