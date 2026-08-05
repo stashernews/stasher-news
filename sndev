@@ -786,7 +786,7 @@ sndev__monero__derive_fee_pool() {
     return 1
   fi
   echo "Deriving fee subaddresses offline + registering index ranges with lws..."
-  docker__compose exec -T -u apprunner app node scripts/derive-rewards-fee-subaddresses.mjs
+  docker__compose exec -T -u apprunner app npx tsx --tsconfig jsconfig.json scripts/derive-rewards-fee-subaddresses.js
 }
 
 sndev__monero__rescan() {
