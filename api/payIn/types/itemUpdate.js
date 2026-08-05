@@ -17,7 +17,7 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-async function getPiconeros (models, { id, uploadIds, bio, newSubs, parentId }, { me }) {
+async function getPiconeros (models, { id, uploadIds, bio }, { me }) {
   // the only reason updating items costs anything is when it has new uploads
   const old = await models.item.findUnique({
     where: {
@@ -37,18 +37,7 @@ async function getPiconeros (models, { id, uploadIds, bio, newSubs, parentId }, 
 
   const { totalFeesMsats } = await uploadFees(uploadIds, { models, me })
 
-  let piconeros = 0n
-  const addedSubs = subsDiff(newSubs, old.subNames)
-  if (!parentId && addedSubs.length > 0) {
-    if (old.boost > 0) {
-      throw new Error('cannot move boosted items into different territories')
-    }
-    for (const subName of addedSubs) {
-      const sub = newSubs.find(sub => sub.name === subName)
-      // baseCost is denominated in the fork's legacy sats (1 sats == 1000 piconeros)
-      piconeros += BigInt(sub.baseCost) * 1000n
-    }
-  }
+  const piconeros = 0n
 
   if ((piconeros > 0 || totalFeesMsats > 0) && old.itemPayIns.length === 0) {
     throw new Error('cannot increase item cost with unpaid invoice')
@@ -60,18 +49,9 @@ async function getPiconeros (models, { id, uploadIds, bio, newSubs, parentId }, 
 export async function getInitial (models, { id, uploadIds, bio, subNames }, { me }) {
   const old = await models.item.findUnique({ where: { id: parseInt(id) } })
   const subs = await getSubs(models, { subNames, parentId: old.parentId })
-  const piconeros = await getPiconeros(models, { id, uploadIds, bio, newSubs: subs, parentId: old.parentId }, { me })
+  const piconeros = await getPiconeros(models, { id, uploadIds, bio }, { me })
 
-  // for post updates, when a sub is added, it contributes to the cost
-  // we populate the piconeros so that the new sub gets their proportional share of the revenue
-  // for reply updates, they can't change subs, so we don't populate the piconeros
-  const subsWithCosts = old.parentId
-    ? subs
-    : subs.map(sub => ({
-      ...sub,
-      piconeros: old.subNames?.includes(sub.name) ? 0n : BigInt(sub.baseCost ?? 1) * 1000n
-    }))
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs: subsWithCosts, piconeros })
+  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, piconeros })
 
   const beneficiaries = []
   if (uploadIds.length > 0) {

@@ -6,16 +6,13 @@ import { CenterLayout } from '@/components/layout'
 import JobForm from '@/components/job-form'
 import { PollForm } from '@/components/poll-form'
 import { BountyForm } from '@/components/bounty-form'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@apollo/client/react'
 import { useRouter } from 'next/router'
 import PageLoading from '@/components/page-loading'
-import { FeeButtonProvider } from '@/components/fee-button'
 import { SubMultiSelect } from '@/components/sub-select'
 import useCanEdit from '@/components/use-can-edit'
-import { SUBS } from '@/fragments/subs'
 import Countdown from '@/components/countdown'
-import { subsDiff } from '@/lib/subs'
 
 export const getServerSideProps = getGetServerSideProps({
   query: ITEM,
@@ -29,25 +26,6 @@ export default function PostEdit ({ ssrData }) {
 
   const { item } = data || ssrData
   const [subs, setSubs] = useState(item.subNames)
-
-  const addedSubs = useMemo(() => subsDiff(subs, item.subNames), [subs, item.subNames])
-  const { data: subsData } = useQuery(SUBS, {
-    variables: { subNames: addedSubs },
-    skip: !addedSubs.length
-  })
-
-  const baseLineItems = useMemo(() => {
-    if (!addedSubs.length || !subsData?.subs) return {}
-    return subsData.subs.reduce((acc, sub) => ({
-      ...acc,
-      [`territory-add-${sub.name}`]: {
-        label: `~${sub.name} post`,
-        term: `+ ${sub.baseCost}`,
-        op: '+',
-        modifier: cost => cost + sub.baseCost
-      }
-    }), {})
-  }, [addedSubs, subsData])
 
   const [,, editThreshold] = useCanEdit(item)
   const EditInfo = editThreshold && item.payIn?.payInState === 'PAID'
@@ -72,20 +50,18 @@ export default function PostEdit ({ ssrData }) {
 
   return (
     <CenterLayout>
-      <FeeButtonProvider baseLineItems={baseLineItems}>
-        <FormType item={item} subs={subs} EditInfo={EditInfo}>
-          {!item.isJob &&
-            <SubMultiSelect
-              placeholder='pick turfs'
-              className='d-flex'
-              size='md'
-              label='turf'
-              filterSubs={s => s.name !== 'jobs' && s.postTypes?.includes(itemType)}
-              onChange={(_, e) => setSubs(e)}
-              subs={subs}
-            />}
-        </FormType>
-      </FeeButtonProvider>
+      <FormType item={item} subs={subs} EditInfo={EditInfo}>
+        {!item.isJob &&
+          <SubMultiSelect
+            placeholder='pick turfs'
+            className='d-flex'
+            size='md'
+            label='turf'
+            filterSubs={s => s.name !== 'jobs' && s.postTypes?.includes(itemType)}
+            onChange={(_, e) => setSubs(e)}
+            subs={subs}
+          />}
+      </FormType>
     </CenterLayout>
   )
 }
