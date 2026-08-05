@@ -1,7 +1,7 @@
 import { Alert, Button } from 'react-bootstrap'
 import { useMe } from './me'
 import FeeButton, { FeeButtonProvider } from './fee-button'
-import { TERRITORY_BILLING_OPTIONS } from '@/lib/constants'
+import { piconerosToXmr } from '@/lib/format'
 import { Form } from './form'
 import { timeSince } from '@/lib/time'
 import { LongCountdown } from './countdown'
@@ -44,6 +44,12 @@ export default function TerritoryPaymentDue ({ sub }) {
   const dueDate = nextBillingWithGrace(sub)
   if (!dueDate) return null
 
+  const feePiconeros = BigInt({
+    MONTHLY: me?.privates?.territoryMonthlyPiconeros,
+    YEARLY: me?.privates?.territoryYearlyPiconeros,
+    ONCE: me?.privates?.territoryOncePiconeros
+  }[sub.billingType] || 0)
+
   return (
     <Alert key='danger' variant='danger'>
       {sub.status === 'STOPPED'
@@ -67,7 +73,16 @@ export default function TerritoryPaymentDue ({ sub }) {
           </>
           )}
 
-      <FeeButtonProvider baseLineItems={{ territory: TERRITORY_BILLING_OPTIONS('one')[sub.billingType.toLowerCase()] }}>
+      <FeeButtonProvider
+        baseLineItems={{
+          territory: {
+            term: `+ ${piconerosToXmr(feePiconeros)}`,
+            label: `${sub.billingType.toLowerCase()} turf fee`,
+            op: '+',
+            modifier: cost => cost + Number(feePiconeros / 1000n)
+          }
+        }}
+      >
         <Form
           initial={{
             name: sub.name
@@ -132,7 +147,7 @@ export function TerritoryBillingLine ({ sub }) {
 
   return (
     <div className='text-muted'>
-      <span>billing {sub.billingAutoRenew ? 'automatically renews' : 'due'} </span>
+      <span>billing {sub.billingAutoRenew ? 'reminders on' : 'reminders off'} </span>
       <span className='fw-bold' suppressHydrationWarning>{pastDue ? 'past due' : dueDate ? timeSince(dueDate) : 'never again'}</span>
     </div>
   )
