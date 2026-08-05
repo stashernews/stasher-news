@@ -23,7 +23,6 @@ export default function useWatchTip ({ paymentId, onDetected }) {
   const { data, stopPolling } = useQuery(TIP_STATUS, {
     variables: { paymentId },
     pollInterval: POLL_INTERVAL_MS,
-    fetchPolicy: 'network-only',
     skip: !paymentId
   })
 

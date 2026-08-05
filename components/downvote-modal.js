@@ -1,6 +1,6 @@
 import Button from 'react-bootstrap/Button'
 import BootstrapForm from 'react-bootstrap/Form'
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import AccordianItem from './accordian-item'
 import MoneroPaymentView from './monero-payment-view'
 import PaymentSuccessView from './payment-success-view'
@@ -8,6 +8,7 @@ import useWatchDownvote from './downvote/use-watch-downvote'
 import { useAct } from './item-act'
 import { useToast } from './toast'
 import { piconerosToXmr } from '@/lib/format'
+import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 import Flag from '@/svgs/flag-fill.svg'
 import {
   DOWNVOTE_MIN_PICONEROS,
@@ -17,6 +18,13 @@ import {
   downvoteAmountError,
   isLargeDownvote
 } from '@/lib/downvote'
+
+// After this long without the payment being detected, surface a "still waiting"
+// note with a close action so the modal can never sit open indefinitely with no
+// feedback. Detection is genuinely slow: the on-chain payment must be observed
+// by the penaltyIndexer (20s poll) plus a stagenet block, so a few minutes is
+// normal — the notice is deliberately longer than the expected window.
+const DOWNVOTE_WAIT_TIMEOUT_MS = 300000
 
 // preset quick amounts (piconeros) — mirrors the Tips row in item-act.js
 const PRESETS = [
@@ -90,9 +98,6 @@ export default function DownvoteModal ({ item, onClose }) {
   return (
     <div className='d-flex flex-column'>
       <h6 className='text-start'>Downvote</h6>
-      <p className='text-muted text-start'>
-        Downvotes fund the weekly curator rewards pool. The poster is not charged.
-      </p>
 
       <BootstrapForm.Group className='my-2'>
         <div className='d-flex justify-content-between align-items-baseline'>
@@ -146,8 +151,8 @@ export default function DownvoteModal ({ item, onClose }) {
       <AccordianItem
         header='what is a downvote?' body={
           <ul className='text-muted'>
-            <li>your Monero payment funds the weekly curator rewards pool</li>
-            <li>the poster is never charged</li>
+            <li>Downvoting de-ranks the post proportionally to the amount paid</li>
+            <li>the monero paid to downvote funds the weekly curator rewards pool</li>
             <li>the ranking penalty applies once your payment is observed on-chain (~2 minutes)</li>
           </ul>
         }
@@ -157,7 +162,29 @@ export default function DownvoteModal ({ item, onClose }) {
 }
 
 function DownvotePaymentView ({ moneroUri, amount, paymentId, onDetected, onClose }) {
-  useWatchDownvote({ paymentId, onDetected })
+  const { state } = useWatchDownvote({ paymentId, onDetected })
+  const [waitingTooLong, setWaitingTooLong] = useState(false)
+
+  useEffect(() => {
+    if (waitingTooLong) return
+    const timer = setTimeout(() => setWaitingTooLong(true), DOWNVOTE_WAIT_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [waitingTooLong])
+
+  // Render the success view directly from the polled state (mirrors the posting-fee
+  // modal, which derives its paid phase straight from the query data). This does not
+  // depend on the onDetected callback reaching the parent, so a detection can never
+  // be missed while the modal is open.
+  if (shouldTriggerPaymentSuccess(state)) {
+    return (
+      <PaymentSuccessView
+        title='Payment detected — your downvote is on its way!'
+        autoCloseMs={5000}
+        onAutoClose={onClose}
+      />
+    )
+  }
+
   return (
     <MoneroPaymentView
       moneroUri={moneroUri}
@@ -166,10 +193,33 @@ function DownvotePaymentView ({ moneroUri, amount, paymentId, onDetected, onClos
       description={`Scan to send ${piconerosToXmr(BigInt(amount))} to the rewards pool.`}
     >
       <p className='text-muted text-center mt-3'>
-        <small>
-          After you pay, the downvote is detected within ~2 minutes (one stagenet block).
-        </small>
+        <small>{downvoteStatusCopy(state)}</small>
       </p>
+      {waitingTooLong &&
+        <div className='d-flex flex-column align-items-center mt-2'>
+          <small className='text-muted mb-2'>
+            Payment not detected yet. It can take a few minutes to appear on-chain — you can leave this open, or close and check the item later.
+          </small>
+          <Button size='sm' variant='outline-secondary' onClick={onClose}>
+            close
+          </Button>
+        </div>}
     </MoneroPaymentView>
   )
+}
+
+function downvoteStatusCopy (state) {
+  switch (state) {
+    case 'EXPIRED':
+      return 'this downvote expired before it was detected — try again'
+    case 'REORGED':
+      return 'the payment was detected then reorganized — try again'
+    case 'CONFIRMED':
+      return 'status: CONFIRMED'
+    default: {
+      // DETECTED bumps + flips to the success view via onDetected; PENDING/null keeps the waiting copy
+      const label = state ?? 'PENDING'
+      return `status: ${label} — waiting for your payment to be observed on-chain (usually a few minutes)`
+    }
+  }
 }

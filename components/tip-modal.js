@@ -13,6 +13,7 @@ import PaymentSuccessView from './payment-success-view'
 import useWatchTip from './tip/use-watch-tip'
 import { INITIATE_TIP } from '@/fragments/monero'
 import { xmrToPiconeros, piconerosToXmr, piconerosToXmrDecimal } from '@/lib/format'
+import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 import UpArrow from '@/svgs/up-arrow.svg'
 
 // StealthNews tip modal (spec §8.3). Mirrors components/downvote-modal.js: call a
@@ -79,7 +80,7 @@ export default function TipModal ({ item, onClose }) {
   if (tip) {
     return (
       <TipPaymentView
-        uri={tip.uri} paymentId={tip.paymentId} amount={tip.piconeros} onDetected={onDetected}
+        uri={tip.uri} paymentId={tip.paymentId} amount={tip.piconeros} onDetected={onDetected} onClose={onClose}
       />
     )
   }
@@ -140,7 +141,7 @@ export default function TipModal ({ item, onClose }) {
       <AccordianItem
         header='how do tips work?' body={
           <ul className='text-muted'>
-            <li>your tip goes directly to the author's Monero wallet — StealthNews never holds it</li>
+            <li>your tip goes directly to the author's Monero wallet — Stasher News never holds it</li>
             <li>after you pay, the tip is detected within ~2 minutes (one stagenet block)</li>
             <li>the post's tip counter updates the moment your payment is detected</li>
           </ul>
@@ -166,13 +167,26 @@ function tipStatusCopy (state) {
     default: {
       // DETECTED bumps + flips to the success view via onDetected; PENDING/null keeps the waiting copy
       const label = state ?? 'PENDING'
-      return `status: ${label} — waiting for your payment (usually < 2 min)`
+      return `status: ${label} — waiting for your payment to be observed on-chain (usually a few minutes)`
     }
   }
 }
 
-function TipPaymentView ({ uri, paymentId, amount, onDetected }) {
+function TipPaymentView ({ uri, paymentId, amount, onDetected, onClose }) {
   const { state } = useWatchTip({ paymentId, onDetected })
+  // Render the success view directly from the polled state (mirrors the posting-fee
+  // modal, which derives its paid phase straight from the query data). This does not
+  // depend on the onDetected callback reaching the parent, so a detection can never
+  // be missed while the modal is open.
+  if (shouldTriggerPaymentSuccess(state)) {
+    return (
+      <PaymentSuccessView
+        title='Payment detected — your tip is on its way!'
+        autoCloseMs={5000}
+        onAutoClose={onClose}
+      />
+    )
+  }
   return (
     <MoneroPaymentView
       moneroUri={uri}
