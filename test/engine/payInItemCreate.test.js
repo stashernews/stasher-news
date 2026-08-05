@@ -193,3 +193,23 @@ test('getInitial returns a free prospect for established users', async () => {
   expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
   expect(result).not.toHaveProperty('moneroUri')
 })
+
+// --- Fix 4: comments beyond the 15/month freebie quota pay a flat comment fee ---
+test('getInitial returns a comment-fee URI for authors past the freebie quota', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  await prisma.$executeRaw`
+    UPDATE users SET "freeCommentCount" = 15
+    WHERE id = ${userId}::int`
+  const result = await getInitial(prisma, { parentId: '999' }, { me: { id: userId } })
+  expect(result.piconeros).toBe(0n)
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroUri).toContain('tx_amount=0.001')
+  expect(result.moneroSubaddressMajor).toBe(1)
+})
+
+test('getInitial returns a free prospect for anonymous comments', async () => {
+  const result = await getInitial(prisma, { parentId: '999' }, { me: { id: 27 } })
+  expect(result).toEqual({ payInType: 'ITEM_CREATE', userId: 27, piconeros: 0n })
+  expect(result).not.toHaveProperty('moneroUri')
+})

@@ -1,6 +1,18 @@
 import { FREE_COMMENTS_PER_MONTH, USER_ID } from '@/lib/constants'
 import { Prisma } from '@prisma/client'
 
+/**
+ * How many free comments the user has left this month (resets monthly).
+ * Mirrors the legacy resolver logic; shared by the ITEM_CREATE fee gate.
+ */
+export function commentsFreeLeft (user) {
+  if (!user) return 0
+  if (user.freeCommentResetAt && new Date() >= new Date(user.freeCommentResetAt)) {
+    return FREE_COMMENTS_PER_MONTH
+  }
+  return Math.max(0, FREE_COMMENTS_PER_MONTH - (user.freeCommentCount || 0))
+}
+
 // Get the first day of next month at midnight UTC
 export function getNextMonthStart () {
   const now = new Date()

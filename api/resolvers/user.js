@@ -5,7 +5,8 @@ import { postingFeePrivatesFor } from '@/api/monero/postingFee'
 import { territoryFeePrivatesFor } from '@/api/monero/territoryFee'
 import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/validate'
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
-import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES, SN_SYSTEM_ONLY_IDS, FREE_COMMENTS_PER_MONTH } from '@/lib/constants'
+import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES, SN_SYSTEM_ONLY_IDS } from '@/lib/constants'
+import { commentsFreeLeft } from '@/api/payIn/lib/freebie'
 import { timeUnitForRange, whenRange } from '@/lib/time'
 import assertApiKeyNotPermitted from './apiKey'
 import { isMuted } from '@/lib/user'
@@ -930,13 +931,7 @@ export default {
       }
       return user.freeCommentCount || 0
     },
-    freeCommentsLeft: (user) => {
-      // Reset counter if past reset date
-      if (user.freeCommentResetAt && new Date() >= new Date(user.freeCommentResetAt)) {
-        return FREE_COMMENTS_PER_MONTH
-      }
-      return Math.max(0, FREE_COMMENTS_PER_MONTH - (user.freeCommentCount || 0))
-    },
+    freeCommentsLeft: (user) => commentsFreeLeft(user),
     postingFeeRequired: async (user, args, { models, me }) =>
       (await postingFeePrivatesFor(models, user, me?.id)).postingFeeRequired,
     postingFeePiconeros: async (user, args, { models, me }) =>
