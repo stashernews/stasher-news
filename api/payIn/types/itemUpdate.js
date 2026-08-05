@@ -69,7 +69,7 @@ export async function getInitial (models, { id, uploadIds, bio, subNames }, { me
 }
 
 export async function onBegin (tx, payInId, args) {
-  const { id, uploadIds = [], options: pollOptions = [], forwardUsers: itemForwards = [], subNames = [], ...data } = args
+  const { id, uploadIds = [], options: pollOptions = [], subNames = [], ...data } = args
   const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
 
   const old = await tx.item.findUnique({
@@ -77,7 +77,6 @@ export async function onBegin (tx, payInId, args) {
     include: {
       threadSubscriptions: true,
       mentions: true,
-      itemForwards: true,
       itemReferrers: true,
       itemUploads: true
     }
@@ -87,8 +86,6 @@ export async function onBegin (tx, payInId, args) {
   // deleteMany is the set difference of the old - new
   // updateMany is the intersection of the old and new
   const difference = (a = [], b = [], key = 'userId') => a.filter(x => !b.find(y => y[key] === x[key]))
-  const intersectionMerge = (a = [], b = [], key) => a.filter(x => b.find(y => y.userId === x.userId))
-    .map(x => ({ [key]: x[key], ...b.find(y => y.userId === x.userId) }))
 
   const { userNames, itemIds } = extractMentions(args.text)
   const mentions = await getMentions(tx, { names: userNames, userId: args.userId })
@@ -127,30 +124,6 @@ export async function onBegin (tx, payInId, args) {
           uploadId: {
             in: difference(old.itemUploads, itemUploads, 'uploadId').map(({ uploadId }) => uploadId)
           }
-        }
-      },
-      itemForwards: {
-        deleteMany: {
-          userId: {
-            in: difference(old.itemForwards, itemForwards).map(({ userId }) => userId)
-          }
-        },
-        createMany: {
-          data: difference(itemForwards, old.itemForwards)
-        },
-        update: intersectionMerge(old.itemForwards, itemForwards, 'id').map(({ id, ...data }) => ({
-          where: { id },
-          data
-        }))
-      },
-      threadSubscriptions: {
-        deleteMany: {
-          userId: {
-            in: difference(old.itemForwards, itemForwards).map(({ userId }) => userId)
-          }
-        },
-        createMany: {
-          data: difference(itemForwards, old.itemForwards).map(({ userId }) => ({ userId }))
         }
       },
       mentions: {

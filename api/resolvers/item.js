@@ -102,7 +102,7 @@ export async function itemQueryWithMeta ({ me, models, query, orderBy = '' }, ..
         COALESCE("MeItemPayIn"."meDontLikeMsats", 0) as "meDontLikeMsats", COALESCE("MeItemPayIn"."mePendingDontLikeMsats", 0) as "mePendingDontLikeMsats",
         COALESCE("MeItemPayIn"."mePendingBoostMsats", 0) as "mePendingBoostMsats",
         b."itemId" IS NOT NULL AS "meBookmark", "ThreadSubscription"."itemId" IS NOT NULL AS "meSubscription",
-        "ItemForward"."itemId" IS NOT NULL AS "meForward", "subs".subs as subs,
+        "subs".subs as subs,
         to_jsonb("PayIn".*) || jsonb_build_object('payInStateChangedAt', "PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC') as "payIn",
         "CommentsViewAt"."last_viewed_at" as "meCommentsViewedAt"
       FROM (
@@ -112,7 +112,6 @@ export async function itemQueryWithMeta ({ me, models, query, orderBy = '' }, ..
       LEFT JOIN "Mute" ON "Mute"."muterId" = ${me.id} AND "Mute"."mutedId" = "Item"."userId"
       LEFT JOIN "Bookmark" b ON b."itemId" = "Item".id AND b."userId" = ${me.id}
       LEFT JOIN "ThreadSubscription" ON "ThreadSubscription"."itemId" = "Item".id AND "ThreadSubscription"."userId" = ${me.id}
-      LEFT JOIN "ItemForward" ON "ItemForward"."itemId" = "Item".id AND "ItemForward"."userId" = ${me.id}
       LEFT JOIN "CommentsViewAt" ON "CommentsViewAt"."itemId" = "Item".id AND "CommentsViewAt"."userId" = ${me.id}
       LEFT JOIN LATERAL (
         SELECT COALESCE(json_agg("Sub".*), '[]') as subs
@@ -1071,16 +1070,6 @@ export default {
       }
       return await models.user.findUnique({ where: { id: item.userId } })
     },
-    forwards: async (item, args, { models }) => {
-      return await models.itemForward.findMany({
-        where: {
-          itemId: item.id
-        },
-        include: {
-          user: true
-        }
-      })
-    },
     comments: async (item, { sort, cursor }, ctx) => {
       const { me } = ctx
       if (typeof item.comments !== 'undefined') {
@@ -1320,7 +1309,7 @@ export default {
   }
 }
 
-export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, ...item }, { me, models }) => {
+export const updateItem = async (parent, { hash, hmac, sendProtocolId, ...item }, { me, models }) => {
   // update iff this item belongs to me
   const old = await models.item.findUnique({
     where: { id: Number(item.id) },
@@ -1380,8 +1369,6 @@ export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, 
   } else if (old.parentId) {
     // prevent editing a comment like a post
     item = { id: Number(item.id), text: item.text }
-  } else {
-    item.forwardUsers = await getForwardUsers(models, forward)
   }
   // note for the future: could also check MediaNodes directly via Lexical
   item.uploadIds = uploadIdsFromText(item.text)
@@ -1392,10 +1379,9 @@ export const updateItem = async (parent, { forward, hash, hmac, sendProtocolId, 
   return await pay('ITEM_UPDATE', item, { models, me, sendProtocolId })
 }
 
-export const createItem = async (parent, { forward, sendProtocolId, ...item }, { me, models }) => {
+export const createItem = async (parent, { sendProtocolId, ...item }, { me, models }) => {
   item.userId = me ? Number(me.id) : USER_ID.anon
 
-  item.forwardUsers = await getForwardUsers(models, forward)
   item.uploadIds = uploadIdsFromText(item.text)
 
   if (item.url && !isJob(item)) {
@@ -1414,22 +1400,6 @@ export const createItem = async (parent, { forward, sendProtocolId, ...item }, {
   item.apiKey = me?.apiKey
 
   return await pay('ITEM_CREATE', item, { models, me, sendProtocolId })
-}
-
-export const getForwardUsers = async (models, forward) => {
-  const fwdUsers = []
-  if (forward) {
-    // find all users in one db query
-    const users = await models.user.findMany({ where: { OR: forward.map(fwd => ({ name: fwd.nym })) } })
-    // map users to fwdUser entries with id and pct
-    users.forEach(user => {
-      fwdUsers.push({
-        userId: user.id,
-        pct: forward.find(fwd => fwd.nym === user.name).pct
-      })
-    })
-  }
-  return fwdUsers
 }
 
 // we have to do our own query because ltree is unsupported

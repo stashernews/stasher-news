@@ -7,7 +7,7 @@
 // risks silent breakage. getInitial/onPaid here are dead code for the tip path.
 // Phase 4's DOWNVOTE is a separate payIn type that targets the rewards wallet.
 
-import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
+import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
 import { piconerosToXmr } from '@/lib/format'
 import { notifyZapped } from '@/lib/webPush'
 import { Prisma } from '@prisma/client'
@@ -31,27 +31,20 @@ export const paymentMethods = [
 //    if p2p, 27% to rewards pool, 3% to routing fee (P2P removed - Monero integration pending)
 //    if not p2p, all 30% to rewards pool
 export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
-  const item = await models.item.findUnique({ where: { id: parseInt(payInArgs.id) }, include: { itemForwards: { include: { user: true } }, user: true } })
-  const { subNames, parentId, itemForwards, userId, user } = item
+  const item = await models.item.findUnique({ where: { id: parseInt(payInArgs.id) } })
+  const { subNames, parentId, userId } = item
   const subs = await getSubs(models, { subNames, parentId })
   const piconeros = BigInt(payInArgs.piconeros)
 
   const zapMtokens = piconeros * 70n / 100n
-  const payOutCustodialTokensProspects = []
 
-  // build unified candidate list: explicit forwards + author's implicit remaining share
-  const authorPct = 100 - itemForwards.reduce((acc, f) => acc + f.pct, 0)
-  const candidates = [
-    ...itemForwards.map(f => ({ userId: f.userId, pct: f.pct, receiveCreditsBelowSats: f.user.receiveCreditsBelowSats })),
-    ...(authorPct > 0 ? [{ userId, pct: authorPct, receiveCreditsBelowSats: user.receiveCreditsBelowSats }] : [])
-  ].filter(c => c.userId !== USER_ID.anon && c.userId !== USER_ID.rewards && c.userId !== USER_ID.saloon)
-    .sort((a, b) => b.pct - a.pct)
-
-  // P2P removed - Monero integration pending
-  // distribute CCs to all candidates
-  for (const c of candidates) {
-    payOutCustodialTokensProspects.push({ payOutType: 'TIP', userId: c.userId, mtokens: zapMtokens * BigInt(c.pct) / 100n, custodialTokenType: 'CREDITS' })
-  }
+  // forward recipients were removed; the full receiver share goes to the post author
+  const payOutCustodialTokensProspects = [{
+    payOutType: 'TIP',
+    userId,
+    mtokens: zapMtokens,
+    custodialTokenType: 'CREDITS'
+  }]
 
   // what's left goes to the rewards pool
   const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, piconeros, payOutCustodialTokens: payOutCustodialTokensProspects })

@@ -2,7 +2,6 @@ import { datePivot } from '@/lib/time'
 import gql from 'graphql-tag'
 import { numWithUnits, abbrNum, piconerosToXmr } from '@/lib/format'
 import { USER_ID } from '@/lib/constants'
-import { getForwardUsers } from '@/api/resolvers/item'
 import { autoPost } from './weeklyPosts'
 
 export async function thisDay ({ models, apollo, boss }) {
@@ -33,17 +32,12 @@ ${topStackers(days)}
 ${topComments(days)}
 ${topSubs(days)}`
 
-  const forward = days.map(({ data }) => data.users.users?.[0]?.name).filter(Boolean).map(name => ({ nym: name, pct: 10 }))
-  forward.push({ nym: 'Undisciplined', pct: 50 })
-  const forwardUsers = await getForwardUsers(models, forward)
-
   await autoPost({
     data: {
       text,
       title: `This Day on SN: ${date}`,
       subName: 'meta',
-      userId: USER_ID.sn,
-      forwardUsers
+      userId: USER_ID.sn
     },
     models,
     apollo,
