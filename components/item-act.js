@@ -107,7 +107,7 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
   return (
     <Form
       initial={{
-        amount: piconerosToXmrDecimal(BigInt(defaultTipIncludingRandom(me?.privates) || 100000000))
+        amount: piconerosToXmrDecimal(BigInt(defaultTipIncludingRandom(me?.privates) || 1000000000))
       }}
       schema={xmrAmountSchema}
       onSubmit={onSubmit}
