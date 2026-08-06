@@ -26,7 +26,7 @@ const DEK_LEN = 32 // AES-256 data-encryption key
 const IV_LEN = 12 // GCM nonce
 const TAG_LEN = 16 // GCM auth tag
 const KEK_LEN = 32 // AES-256 key-encryption key
-const HKDF_INFO = Buffer.from('stashernews/monero/viewkey-kek/v1', 'utf8')
+const HKDF_INFO = Buffer.from('stealthnews/monero/viewkey-kek/v1', 'utf8')
 
 // `wrappedDek` packs {wrapIv(12) + wrapTag(16) + wrapped(32)} into one Bytes
 // field so the MoneroViewKey schema needs no extra columns.
