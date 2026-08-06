@@ -181,7 +181,7 @@ export default function Settings ({ ssrData }) {
             required
             autoFocus
             append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
-            hint={<small className='text-muted'>note: you can also press and hold the money button to tip custom amounts</small>}
+            hint={<small className='text-muted'>note: clicking the tip button on any post lets you tip a custom amount</small>}
           />
           <div className='pb-4'>
             <AccordianItem
