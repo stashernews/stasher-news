@@ -1430,6 +1430,7 @@ model ObservedTip {
   @@unique([txHash, recipientAccountId, recipientMajor, recipientMinor])
   @@index([postId])
   @@index([state])
+  @@index([state, confirmedAt])
 }
 
 // An observed downvote payment (arrives on the platform rewards wallet).
@@ -1450,6 +1451,7 @@ model ObservedBurn {
 
   @@unique([txHash, paymentId])
   @@index([postId])
+  @@index([state, confirmedAt])
 }
 
 // An observed posting/territory fee payment (arrives on the platform rewards
