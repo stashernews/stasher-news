@@ -86,5 +86,9 @@ docker/dnsmasq/dnsmasq.d/*
 # superpowers skill working state (SDD progress notes, task reports)
 .superpowers/
 
+# docker dev-install stamp (package-lock.json hash written by the app CMD
+# after a successful npm ci, used to skip reinstalls on container restarts)
+.npm-installed-stamp
+
 # personal admin guide (maintained privately by the project admin, not part of the project)
 ADMIN-GUIDE.md
