@@ -11,6 +11,12 @@ import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 // stop-polling terminal leaving the modal stuck with no success message and no
 // close. REORGED/EXPIRED are failure terminals. Mirrors the tip poll
 // (components/tip/use-watch-tip.js).
+//
+// Polling is a plain setInterval + refetch: Apollo's own pollInterval cannot be
+// relied on to survive React 19 StrictMode's double-mount (the remount reuses
+// the cached ObservableQuery and never restarts the timer), while a fresh
+// interval per mount always runs. The interval is torn down on unmount and on
+// terminal states, so no timer outlives the modal.
 const POLL_INTERVAL_MS = 3000
 
 // Terminal states: stop polling once the downvote reaches any of these.
@@ -19,9 +25,8 @@ const POLL_INTERVAL_MS = 3000
 const TERMINAL_STATES = new Set(['DETECTED', 'CONFIRMED', 'REORGED', 'EXPIRED'])
 
 export default function useWatchDownvote ({ paymentId, onDetected }) {
-  const { data, stopPolling } = useQuery(DOWNVOTE_STATUS, {
+  const { data, refetch } = useQuery(DOWNVOTE_STATUS, {
     variables: { paymentId },
-    pollInterval: POLL_INTERVAL_MS,
     skip: !paymentId
   })
 
@@ -29,17 +34,19 @@ export default function useWatchDownvote ({ paymentId, onDetected }) {
   const firedRef = useRef(false)
 
   useEffect(() => {
+    if (TERMINAL_STATES.has(state)) return
+    const timer = setInterval(() => {
+      refetch().catch(() => {})
+    }, POLL_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [state, refetch])
+
+  useEffect(() => {
     if (shouldTriggerPaymentSuccess(state) && !firedRef.current) {
       firedRef.current = true
       onDetected?.()
     }
-    if (TERMINAL_STATES.has(state)) {
-      stopPolling()
-    }
-  }, [state, onDetected, stopPolling])
-
-  // stop polling on unmount (modal closed before detection)
-  useEffect(() => () => stopPolling(), [stopPolling])
+  }, [state, onDetected])
 
   return { state }
 }
