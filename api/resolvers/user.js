@@ -962,7 +962,7 @@ export default {
       return contributors.has(user.name)
     },
     stacked: async (user, { when, from, to }, { models, me }) => {
-      if ((!me || me.id !== user.id) && user.hideFromTopUsers) {
+      if ((!me || me.id !== user.id) && (user.hideFromTopUsers || user.hideStashAmount)) {
         return null
       }
 
@@ -989,6 +989,8 @@ export default {
       `
       return stacked ? BigInt(stacked) : 0n
     },
+    stashAmountHidden: (user, args, { me }) =>
+      user.hideStashAmount && (!me || me.id !== user.id),
     spent: async (user, { when, from, to }, { models, me }) => {
       if ((!me || me.id !== user.id) && user.hideFromTopUsers) {
         return null

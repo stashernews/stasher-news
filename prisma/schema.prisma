@@ -66,6 +66,7 @@ model User {
   horseStreak         Int?
   subs                String[]
   hideCowboyHat       Boolean              @default(false)
+  hideStashAmount      Boolean              @default(true)
   Bookmarks           Bookmark[]
   Earn                Earn[]
   invites             Invite[]             @relation("Invites")

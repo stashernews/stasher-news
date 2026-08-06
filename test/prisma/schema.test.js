@@ -112,7 +112,7 @@ test('MoneroAccount drops the Item.posts inverse relation', () => {
 
 test('User has the StealthNews Monero fields and no custodial balance fields', () => {
   const fields = fieldsOf('User')
-  for (const c of ['moneroAddress', 'privacyMode', 'stackedPiconeros', 'downvotePiconeros', 'tipDefaultPiconeros', 'moneroAccounts', 'rewardPayouts']) {
+  for (const c of ['moneroAddress', 'privacyMode', 'stackedPiconeros', 'downvotePiconeros', 'tipDefaultPiconeros', 'moneroAccounts', 'rewardPayouts', 'hideStashAmount']) {
     expect(fields).toContain(c)
   }
   // stackedMsats dropped (stackedPiconeros survives) and stackedMcredits renamed

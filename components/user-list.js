@@ -15,7 +15,9 @@ import classNames from 'classnames'
 import CheckCircle from '@/svgs/checkbox-circle-fill.svg'
 
 // all of this nonsense is to show the stat we are sorting by first
-const Stacked = ({ user }) => (user.optional.stacked !== null && <span>{piconerosToXmr(BigInt(user.optional.stacked))} stashed</span>)
+const Stacked = ({ user }) => (user.optional.stacked !== null
+  ? <span>{piconerosToXmr(BigInt(user.optional.stacked))} stashed</span>
+  : (user.optional.stashAmountHidden && <span>??? XMR stashed</span>))
 const Spent = ({ user }) => (user.optional.spent !== null && <span>{abbrNum(user.optional.spent)} spent</span>)
 const Items = ({ user }) => (
   <Link href={`/${user.name}/all`} className='text-reset'>

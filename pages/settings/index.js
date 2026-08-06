@@ -119,6 +119,7 @@ export default function Settings ({ ssrData }) {
             hideUriDesc: settings?.hideUriDesc,
             hideFromTopUsers: settings?.hideFromTopUsers,
             hideCowboyHat: settings?.hideCowboyHat,
+            hideStashAmount: settings?.hideStashAmount,
             hideGithub: settings?.hideGithub,
             hideNostr: settings?.hideNostr,
             hideTwitter: settings?.hideTwitter,
@@ -299,6 +300,11 @@ export default function Settings ({ ssrData }) {
           <Checkbox
             label={<>hide my cowboy essentials (e.g. cowboy hat)</>}
             name='hideCowboyHat'
+            groupClassName='mb-0'
+          />
+          <Checkbox
+            label={<>hide how much XMR I've stashed from other users</>}
+            name='hideStashAmount'
             groupClassName='mb-0'
           />
           <Checkbox

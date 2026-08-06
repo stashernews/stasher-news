@@ -238,10 +238,19 @@ function HeaderHeader ({ user }) {
 
   const isMe = me?.name === user.name
   const Satistics = () => (
-    user.optional.stacked !== null &&
-      <div className={`mb-2 ms-0 ms-sm-1 ${styles.username} text-success`}>
-        {piconerosToXmr(BigInt(user.optional.stacked))} stashed
-      </div>
+    user.optional.stacked !== null
+      ? (
+        <div className={`mb-2 ms-0 ms-sm-1 ${styles.username} text-success`}>
+          {piconerosToXmr(BigInt(user.optional.stacked))} stashed
+        </div>
+        )
+      : user.optional.stashAmountHidden
+        ? (
+          <div className={`mb-2 ms-0 ms-sm-1 ${styles.username} text-success`}>
+            ??? XMR stashed
+          </div>
+          )
+        : null
   )
 
   return (

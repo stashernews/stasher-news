@@ -77,6 +77,7 @@ export const SETTINGS_FIELDS = gql`
       noteCowboyHat
       hideUriDesc
       hideFromTopUsers
+      hideStashAmount
       hideCowboyHat
       hideBookmarks
       hideGithub
@@ -150,6 +151,7 @@ ${STREAK_FIELDS}
         stacked
         spent
         referrals
+        stashAmountHidden
       }
       ...StreakFields
     }
@@ -170,6 +172,7 @@ export const USER_FIELDS = gql`
 
     optional {
       stacked
+      stashAmountHidden
       maxStreak
       isContributor
       githubId
@@ -210,6 +213,7 @@ export const TOP_USERS = gql`
         optional {
           stacked(when: $when, from: $from, to: $to)
           spent(when: $when, from: $from, to: $to)
+          stashAmountHidden
         }
         ...StreakFields
       }
@@ -231,6 +235,7 @@ export const TOP_COWBOYS = gql`
         optional {
           stacked(when: "forever")
           spent(when: "forever")
+          stashAmountHidden
         }
         ...StreakFields
       }
