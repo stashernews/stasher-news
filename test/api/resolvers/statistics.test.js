@@ -201,4 +201,35 @@ describe('Query.statistics', () => {
     expect(turfFee.subPayIn?.subName).toBe('monero')
     expect(turfFee.item).toBeNull()
   })
+
+  test('territory-create fee rows map to TERRITORY_CREATE (not mislabeled TERRITORY_BILLING)', async () => {
+    const me = await createUser()
+    const payIn = await prisma.payIn.create({ data: { userId: me, piconeros: 0n, payInType: 'TERRITORY_CREATE', payInState: 'PAID' } })
+    created.payIns.push(payIn.id)
+    const now = new Date()
+    const fee = await prisma.feeObservation.create({
+      data: {
+        txHash: 'gg'.repeat(32),
+        payInId: payIn.id,
+        feeType: 'TERRITORY_CREATE',
+        postId: null,
+        subName: 'monero',
+        recipientMajor: 2,
+        recipientMinor: 1,
+        piconeros: 300000000000n,
+        state: 'CONFIRMED',
+        confirmedAt: now
+      }
+    })
+    created.fees.push(fee.id)
+
+    const { payIns } = await resolvers.Query.statistics(null, {}, { models: prisma, me: { id: me } })
+
+    expect(payIns).toHaveLength(1)
+    const turfFee = payIns[0]
+    expect(turfFee.payInType).toBe('TERRITORY_CREATE')
+    expect(turfFee.isSend).toBe(true)
+    expect(turfFee.subPayIn?.subName).toBe('monero')
+    expect(turfFee.item).toBeNull()
+  })
 })
