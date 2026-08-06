@@ -209,11 +209,6 @@ export default {
         )
       }
 
-      if (meFull.noteWithdrawals) {
-        // StealthNews: custodial withdrawals (PayOutBolt11) were removed with the
-        // Lightning strip; the Monero P2P rail has no platform-side withdrawal to notify.
-      }
-
       if (meFull.noteInvites) {
         queries.push(
           `(SELECT "Invite".id, MAX(users.created_at) AS "sortTime", NULL::INTEGER as "earnedPiconeros",

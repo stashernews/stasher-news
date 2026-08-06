@@ -34,15 +34,12 @@ model User {
   lastSeenAt          DateTime?
   stackedCredits      BigInt               @default(0)
   noteAllDescendants  Boolean              @default(true)
-  noteDeposits        Boolean              @default(true)
-  noteWithdrawals     Boolean              @default(true)
   noteEarning         Boolean              @default(true)
   noteInvites         Boolean              @default(true)
   noteItemPiconeros   Boolean              @default(true)
   noteMentions        Boolean              @default(true)
   noteItemMentions    Boolean              @default(true)
   photoId             Int?
-  hideUriDesc         Boolean              @default(false)
   postsPiconerosFilter BigInt?                 @default(1000000000)
   commentsPiconerosFilter BigInt?              @default(0)
   freeCommentCount    Int                  @default(0)
@@ -51,7 +48,6 @@ model User {
   fiatCurrency        String               @default("USD")
   hideFromTopUsers    Boolean              @default(false)
   turboTipping        Boolean              @default(false)
-  tipUndos            Int?
   imgproxyOnly        Boolean              @default(false)
   showImagesAndVideos Boolean              @default(true)
   referrerId          Int?

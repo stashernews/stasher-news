@@ -87,7 +87,6 @@ export default gql`
     hideTwitter: Boolean!
     hideFromTopUsers: Boolean!
     hideStashAmount: Boolean!
-    hideUriDesc: Boolean!
     imgproxyOnly: Boolean!
     showImagesAndVideos: Boolean!
     nostrCrossposting: Boolean!
@@ -95,8 +94,6 @@ export default gql`
     nostrRelays: [String!]
     noteAllDescendants: Boolean!
     noteCowboyHat: Boolean!
-    noteDeposits: Boolean!,
-    noteWithdrawals: Boolean!,
     noteEarning: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!
@@ -160,7 +157,6 @@ export default gql`
     hideTwitter: Boolean!
     hideFromTopUsers: Boolean!
     hideStashAmount: Boolean!
-    hideUriDesc: Boolean!
     imgproxyOnly: Boolean!
     showImagesAndVideos: Boolean!
     nostrCrossposting: Boolean!
@@ -168,8 +164,6 @@ export default gql`
     nostrRelays: [String!]
     noteAllDescendants: Boolean!
     noteCowboyHat: Boolean!
-    noteDeposits: Boolean!
-    noteWithdrawals: Boolean!
     noteEarning: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!

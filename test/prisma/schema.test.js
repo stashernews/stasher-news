@@ -117,7 +117,7 @@ test('User has the StealthNews Monero fields and no custodial balance fields', (
   }
   // stackedMsats dropped (stackedPiconeros survives) and stackedMcredits renamed
   // to stackedCredits.
-  for (const removed of ['stackedMsats', 'stackedMcredits', 'vaultKeyHash', 'hasSendWallet', 'hasRecvWallet', 'autoWithdrawThreshold']) {
+  for (const removed of ['stackedMsats', 'stackedMcredits', 'vaultKeyHash', 'hasSendWallet', 'hasRecvWallet', 'autoWithdrawThreshold', 'noteDeposits', 'noteWithdrawals', 'hideUriDesc', 'tipUndos']) {
     expect(fields).not.toContain(removed)
   }
 })
