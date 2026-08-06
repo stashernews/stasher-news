@@ -71,11 +71,8 @@ export const SETTINGS_FIELDS = gql`
       noteAllDescendants
       noteMentions
       noteItemMentions
-      noteDeposits
-      noteWithdrawals
       noteInvites
       noteCowboyHat
-      hideUriDesc
       hideFromTopUsers
       hideStashAmount
       hideCowboyHat

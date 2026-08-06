@@ -416,10 +416,6 @@ export default {
         }
       }
 
-      // StealthNews: custodial deposits (PROXY_PAYMENT) and withdrawals (WITHDRAWAL /
-      // AUTO_WITHDRAWAL) were removed with the Lightning strip; the Monero P2P rail has no
-      // platform-side balance to deposit or withdraw, so these note checks are obsolete.
-
       // check if new invites have been redeemed
       if (user.noteInvites) {
         const [newInvites] = await models.$queryRawUnsafe(`

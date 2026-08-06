@@ -112,11 +112,8 @@ export default function Settings ({ ssrData }) {
             noteAllDescendants: settings?.noteAllDescendants,
             noteMentions: settings?.noteMentions,
             noteItemMentions: settings?.noteItemMentions,
-            noteDeposits: settings?.noteDeposits,
-            noteWithdrawals: settings?.noteWithdrawals,
             noteInvites: settings?.noteInvites,
             noteCowboyHat: settings?.noteCowboyHat,
-            hideUriDesc: settings?.hideUriDesc,
             hideFromTopUsers: settings?.hideFromTopUsers,
             hideCowboyHat: settings?.hideCowboyHat,
             hideStashAmount: settings?.hideStashAmount,
@@ -252,16 +249,6 @@ export default function Settings ({ ssrData }) {
             groupClassName='mb-0'
           />
           <Checkbox
-            label='XMR land in my attached wallet'
-            name='noteDeposits'
-            groupClassName='mb-0'
-          />
-          <Checkbox
-            label='XMR leaves my account'
-            name='noteWithdrawals'
-            groupClassName='mb-0'
-          />
-          <Checkbox
             label='someone mentions me'
             name='noteMentions'
             groupClassName='mb-0'
@@ -275,21 +262,6 @@ export default function Settings ({ ssrData }) {
             label='I find or lose cowboy essentials (e.g. cowboy hat)'
             name='noteCowboyHat'
             groupClassName='mb-3'
-          />
-          <div className='form-label'>wallet</div>
-          <Checkbox
-            label={
-              <div className='d-flex align-items-center'>use blank invoice descriptions
-                <Info>
-                  <ul>
-                    <li>Use this if you don't want funding sources to know you're using stasher.news.</li>
-                    <li>It makes your invoice descriptions blank.</li>
-                  </ul>
-                </Info>
-              </div>
-            }
-            name='hideUriDesc'
-            groupClassName='mb-0'
           />
           <div className='form-label'>privacy</div>
           <Checkbox
