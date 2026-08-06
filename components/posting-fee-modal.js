@@ -67,6 +67,11 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
             Posting fees deter spam. Posting is free once your account is {me.privates.freePostMinAgeDays} days old and you've earned {piconerosToXmr(BigInt(me.privates.freePostThresholdPiconeros))} in upvotes and tips.
           </small>
         </p>}
+      <p className='text-muted text-center mt-3'>
+        <small>
+          Posts stay hidden until the fee lands — detection takes about one block.
+        </small>
+      </p>
     </MoneroPaymentView>
   )
 }

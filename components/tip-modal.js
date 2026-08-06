@@ -15,9 +15,8 @@ import { INITIATE_TIP } from '@/fragments/monero'
 import { xmrToPiconeros, piconerosToXmr, piconerosToXmrDecimal } from '@/lib/format'
 import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 import UpArrow from '@/svgs/up-arrow.svg'
-import { defaultTipIncludingRandom } from './upvote'
 
-// StasherNews tip modal (spec §8.3). Mirrors components/downvote-modal.js: call a
+// StealthNews tip modal (spec §8.3). Mirrors components/downvote-modal.js: call a
 // mutation, get a monero: URI, render a QR view. Differences from downvote:
 //   - uses initiateTip (P2P, 100% to the author) not act/PayIn
 //   - XMR-decimal amount entry (not a piconeros slider)
@@ -35,7 +34,7 @@ export default function TipModal ({ item, onClose }) {
   const animate = useAnimation()
   const toaster = useToast()
   const [initiateTip] = useMutation(INITIATE_TIP)
-  const [amount, setAmount] = useState(() => piconerosToXmrDecimal(BigInt(defaultTipIncludingRandom(me?.privates) || 1000000000)))
+  const [amount, setAmount] = useState('')
   const [tip, setTip] = useState(null) // { uri, paymentId, piconeros }
   const [tipPaid, setTipPaid] = useState(false)
 
@@ -165,8 +164,11 @@ function tipStatusCopy (state) {
       return 'the payment was detected then reorganized — try again'
     case 'CONFIRMED':
       return 'status: CONFIRMED'
-    default:
-      return null
+    default: {
+      // DETECTED bumps + flips to the success view via onDetected; PENDING/null keeps the waiting copy
+      const label = state ?? 'PENDING'
+      return `status: ${label} — waiting for your payment to be observed on-chain (usually a few minutes)`
+    }
   }
 }
 
@@ -185,7 +187,6 @@ function TipPaymentView ({ uri, paymentId, amount, onDetected, onClose }) {
       />
     )
   }
-  const statusCopy = tipStatusCopy(state)
   return (
     <MoneroPaymentView
       moneroUri={uri}
@@ -193,10 +194,9 @@ function TipPaymentView ({ uri, paymentId, amount, onDetected, onClose }) {
       heading='Pay this tip'
       description={`Scan to send ${piconerosToXmr(BigInt(amount))} directly to the author.`}
     >
-      {statusCopy &&
-        <p className='text-muted text-center mt-2'>
-          <small>{statusCopy}</small>
-        </p>}
+      <p className='text-muted text-center mt-2'>
+        <small>{tipStatusCopy(state)}</small>
+      </p>
     </MoneroPaymentView>
   )
 }

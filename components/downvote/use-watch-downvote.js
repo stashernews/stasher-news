@@ -18,18 +18,13 @@ const POLL_INTERVAL_MS = 3000
 // failure terminals. null/PENDING keep polling.
 const TERMINAL_STATES = new Set(['DETECTED', 'CONFIRMED', 'REORGED', 'EXPIRED'])
 
-export function downvoteWatchOptions (paymentId) {
-  return {
+export default function useWatchDownvote ({ paymentId, onDetected }) {
+  const { data, stopPolling } = useQuery(DOWNVOTE_STATUS, {
     variables: { paymentId },
     pollInterval: POLL_INTERVAL_MS,
-    skip: !paymentId,
     fetchPolicy: 'network-only',
-    nextFetchPolicy: 'network-only'
-  }
-}
-
-export default function useWatchDownvote ({ paymentId, onDetected }) {
-  const { data, stopPolling } = useQuery(DOWNVOTE_STATUS, downvoteWatchOptions(paymentId))
+    skip: !paymentId
+  })
 
   const state = data?.downvoteStatus?.state ?? null
   const firedRef = useRef(false)
