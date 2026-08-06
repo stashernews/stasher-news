@@ -2,7 +2,7 @@ import { decryptViewKey } from '../monero/viewkey'
 import { piconerosToXmrDecimal } from '../monero/uri'
 import { GqlInputError } from '@/lib/error'
 
-// StealthNews public transparency query for the platform rewards wallet
+// StasherNews public transparency query for the platform rewards wallet
 // (spec §4.4, §6.4, §7.3). The rewards wallet is the ONLY custodial component:
 // a single Monero hot wallet (MoneroAccount { label: 'platform_rewards' }) that
 // receives all platform-bound revenue (downvotes, posting fees, territory fees).

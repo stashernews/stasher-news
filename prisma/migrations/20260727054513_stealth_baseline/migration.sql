@@ -1,4 +1,4 @@
--- StealthNews baseline migration (collapsed from 423 Stacker.news migrations).
+-- StasherNews baseline migration (collapsed from 423 Stacker.news migrations).
 -- PostgreSQL extensions required by the schema (Prisma does not manage these).
 CREATE EXTENSION IF NOT EXISTS "ltree";
 CREATE EXTENSION IF NOT EXISTS "citext";

@@ -74,7 +74,7 @@ export default {
         throw new GqlAuthenticationError()
       }
       const userId = me.id
-      // StealthNews: per-wallet filtering was removed with the Lightning strip.
+      // StasherNews: per-wallet filtering was removed with the Lightning strip.
       if (walletId != null) {
         return { payIns: [], cursor: null }
       }
@@ -84,7 +84,7 @@ export default {
       const limit = LIMIT
       const walletSendFilter = Prisma.empty
       const walletReceiveFilter = Prisma.empty
-      // StealthNews: the receive side of the activity feed was backed by the custodial
+      // StasherNews: the receive side of the activity feed was backed by the custodial
       // payout tables (PayOutCustodialToken, RefundCustodialToken), which are gone.
       // Monero tips are P2P and don't produce custodial receive-side payIns, so only the
       // user's own (send-side) payIns are surfaced here.
@@ -177,7 +177,7 @@ export default {
       return await getItem(payIn, { id: payIn.itemPayIn.itemId }, { me, models })
     },
     walletInfo: () => {
-      // StealthNews: walletInfo was backed by Lightning wallet protocols, which are
+      // StasherNews: walletInfo was backed by Lightning wallet protocols, which are
       // gone with the Monero strip — there is never a wallet to report.
       return null
     },
@@ -212,7 +212,7 @@ export default {
         return visibleRewards
       }
 
-      // StealthNews: the routing-fee hiding branch was driven by Lightning pay-out
+      // StasherNews: the routing-fee hiding branch was driven by Lightning pay-out
       // membership, which is gone with the Monero strip — there is nothing to obscure,
       // so the full custodial token list is always visible.
       return payOutCustodialTokens
@@ -315,7 +315,7 @@ export default {
 */
 
 async function getPayInFull ({ models, query, orderBy = Prisma.empty }) {
-  // StealthNews: the custodial/Lightning pay-in/out tables (PayOutCustodialToken,
+  // StasherNews: the custodial/Lightning pay-in/out tables (PayOutCustodialToken,
   // PayInCustodialToken, RefundCustodialToken, PessimisticEnv, SubPayOutCustodialToken,
   // ...) were removed in the Monero strip. The Lightning wallet history this query fed
   // is obsolete; a Monero wallet history is a separate feature. We return the bare PayIn

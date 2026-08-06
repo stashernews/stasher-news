@@ -20,11 +20,11 @@ export const paymentMethods = [
 ]
 
 export async function getInitial (models, args, { me }) {
-  // StealthNews posting-fee gate (spec §6.2, Q5). Posting is free for established
+  // StasherNews posting-fee gate (spec §6.2, Q5). Posting is free for established
   // users (stacked >= 1e10 piconeros AND age >= 7d); low-rep users pay a posting fee
   // to the platform rewards wallet before their post goes live.
   //
-  // piconeros is 0 in BOTH cases — StealthNews does not charge custodial sats for
+  // piconeros is 0 in BOTH cases — StasherNews does not charge custodial sats for
   // posting. The fee (when required) is on-chain Monero to a rewards-wallet fee
   // subaddress, observed by the penaltyIndexer. The SN payIn engine therefore sees
   // piconeros=0 -> payInState=PAID; the post's VISIBILITY is gated independently by
@@ -33,7 +33,7 @@ export async function getInitial (models, args, { me }) {
   // Comments are free within the 15/month freebie quota; beyond it each comment
   // costs the flat comment fee (see below).
   if (args.parentId) {
-    // StealthNews comment fee (spec §6.2): comments are free while the author has
+    // StasherNews comment fee (spec §6.2): comments are free while the author has
     // freebies left (15/month for all users); beyond the quota each comment costs
     // the flat comment fee (postingFeeFloorPiconeros) to the platform rewards
     // wallet, observed by the penaltyIndexer like the posting fee. Anon comments
@@ -125,7 +125,7 @@ export async function onBegin (tx, payInId, args) {
   const { parentId, uploadIds = [], options: pollOptions = [], subNames = [], ...data } = args
   const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
 
-  // StealthNews posting-fee gate: a PayIn that reserved a rewards-wallet fee
+  // StasherNews posting-fee gate: a PayIn that reserved a rewards-wallet fee
   // subaddress (moneroSubaddressMajor set) creates the Item PENDING_FEE (invisible
   // until the penaltyIndexer observes the fee and flips it to FEE_PAID); otherwise
   // the Item is live (FEE_NOT_REQUIRED). feeStatus is derived here from the PayIn's
@@ -297,7 +297,7 @@ export async function onPaidSideEffects (models, payInId) {
     }
   })
 
-  // StealthNews: a PENDING_FEE post is not live yet (invisible until the
+  // StasherNews: a PENDING_FEE post is not live yet (invisible until the
   // penaltyIndexer observes its posting fee and flips feeStatus to FEE_PAID), so
   // suppress all creation notifications here. They will fire once the post goes live.
   if (item.feeStatus === 'PENDING_FEE') {

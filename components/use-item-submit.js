@@ -88,7 +88,7 @@ export default function useItemSubmit (mutation,
 
       toastUpsertSuccessMessages(toaster, data, Object.keys(data)[0], values.text)
 
-      // StealthNews: a low-rep ITEM_CREATE returns a monero: URI for the posting
+      // StasherNews: a low-rep ITEM_CREATE returns a monero: URI for the posting
       // fee and the post is PENDING_FEE until the penaltyIndexer observes it
       // on-chain — surface the payment instead of redirecting to the feed.
       // Comments never carry a moneroUri (they are exempt from the fee gate).

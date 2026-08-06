@@ -1,10 +1,10 @@
--- Seed default platform territories so fresh StealthNews deployments have somewhere
+-- Seed default platform territories so fresh StasherNews deployments have somewhere
 -- to post (posting requires a territory: see subSelectSchemaMembers in lib/validate.js
 -- which enforces subNames.min(1) and validates each sub's existence + postTypes).
 --
 -- Set: bitcoin, tech, meta, jobs, monero. This replaces upstream's DEFAULT_SUBS
 -- (bitcoin, nostr, tech, meta, jobs): 'nostr' is dropped and 'monero' added to
--- match StealthNews. lib/constants.js DEFAULT_SUBS is updated to mirror this set.
+-- match StasherNews. lib/constants.js DEFAULT_SUBS is updated to mirror this set.
 --
 -- All are free ONCE territories (never billed — territoryBilling refuses ONCE
 -- subs), billingStatus PAID, status ACTIVE, supporting every fork PostType

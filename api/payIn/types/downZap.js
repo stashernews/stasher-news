@@ -5,7 +5,7 @@ import { getItemResult } from '../lib/item'
 import { makeDownvoteAddress } from '@/api/monero/penalty'
 import { buildMoneroUri } from '@/api/monero/uri'
 
-// StealthNews rewards-funded downvote (spec §3.3).
+// StasherNews rewards-funded downvote (spec §3.3).
 //
 // A downvote pays a fee-sized amount of Monero to the platform rewards wallet
 // via an *integrated address* (primary rewards address + an 8-byte payment_id
@@ -13,7 +13,7 @@ import { buildMoneroUri } from '@/api/monero/uri'
 // recorded here so the penaltyIndexer (Task 4) can attribute the on-chain
 // payment and apply the ranking penalty when it lands.
 //
-// piconeros is deliberately 0n: StealthNews downvotes are NOT paid in custodial
+// piconeros is deliberately 0n: StasherNews downvotes are NOT paid in custodial
 // sats. The on-chain Monero amount is observed externally by the penaltyIndexer
 // and recorded in ObservedBurn.piconeros (Task 4). With piconeros=0n and no
 // payOuts, the PayIn engine resolves this to payInState=PAID at creation time,

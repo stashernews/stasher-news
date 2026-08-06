@@ -1,4 +1,4 @@
--- StealthNews: replace the seeded Stacker News contributor account (k00b) with
+-- StasherNews: replace the seeded Stacker News contributor account (k00b) with
 -- the Stasher.News verified contributor account (untraceable), reusing the
 -- reserved founder id 616 (RESERVED_MAX_USER_ID = 615, see lib/constants.js).
 --

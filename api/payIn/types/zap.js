@@ -1,4 +1,4 @@
-// SUPERSEDED for tips (StealthNews Phase 3, 2026-07-31).
+// SUPERSEDED for tips (StasherNews Phase 3, 2026-07-31).
 // Tips no longer route through the payIn engine: they are ObservedTip-based via
 // the initiateTip mutation (webhook + payment-ID flow) and observed by the lws
 // webhook receiver, which calls applyTipDetected (api/monero/ranking.js) — the

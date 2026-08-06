@@ -17,7 +17,7 @@ import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 import UpArrow from '@/svgs/up-arrow.svg'
 import { defaultTipIncludingRandom } from './upvote'
 
-// StealthNews tip modal (spec §8.3). Mirrors components/downvote-modal.js: call a
+// StasherNews tip modal (spec §8.3). Mirrors components/downvote-modal.js: call a
 // mutation, get a monero: URI, render a QR view. Differences from downvote:
 //   - uses initiateTip (P2P, 100% to the author) not act/PayIn
 //   - XMR-decimal amount entry (not a piconeros slider)
