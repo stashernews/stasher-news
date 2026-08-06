@@ -23,7 +23,7 @@ export async function getInitial (models, { billingType, uploadIds }, { me }) {
   const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UNARCHIVE') // major 2
   const moneroUri = buildMoneroUri(
     [{ address: reserved.address, amount: fee }],
-    { description: `StealthNews turf reactivation (${billingType})` }
+    { description: `StasherNews turf reactivation (${billingType})` }
   )
 
   const beneficiaries = []

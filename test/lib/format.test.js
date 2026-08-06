@@ -95,7 +95,7 @@ describe('moneroUriAddress', () => {
   const ADDR = '5eHvZCqU7kP2fJwaDrV8mQ3gKxbEsW9nR4hLycFtXAoS5iMzdGuYBpT6jN1eHvZCqU7kP2fJwaDrV8mQ3gKxbEsW9nR4hLy'
 
   it('extracts the raw address from a monero: URI', () => {
-    expect(moneroUriAddress(`monero:${ADDR}?tx_amount=0.001&tx_description=StealthNews+posting+fee`)).toBe(ADDR)
+    expect(moneroUriAddress(`monero:${ADDR}?tx_amount=0.001&tx_description=StasherNews+posting+fee`)).toBe(ADDR)
   })
 
   it('returns the address when there is no query string', () => {

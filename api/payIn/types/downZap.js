@@ -63,7 +63,7 @@ export async function getInitial (models, { id, piconeros }, { me }) {
 
   const moneroUri = buildMoneroUri(
     [{ address: integratedAddress, amount }],
-    { description: 'StealthNews downvote' }
+    { description: 'StasherNews downvote' }
   )
 
   return {

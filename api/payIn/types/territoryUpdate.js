@@ -52,7 +52,7 @@ export async function getInitial (models, { oldName, billingType, uploadIds }, {
     const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UPDATE') // major 2
     prospect.moneroUri = buildMoneroUri(
       [{ address: reserved.address, amount: fee }],
-      { description: `StealthNews turf ${oldSub.name} switch to ${billingType}` }
+      { description: `StasherNews turf ${oldSub.name} switch to ${billingType}` }
     )
     prospect.moneroSubaddressMajor = reserved.major
     prospect.moneroSubaddressMinor = reserved.minor

@@ -25,7 +25,7 @@ export async function getInitial (models, { name }, { me }) {
   const reserved = await reserveFeeSubaddress(models, 'TERRITORY_BILLING') // major 2
   const moneroUri = buildMoneroUri(
     [{ address: reserved.address, amount: fee }],
-    { description: `StealthNews territory ${name} renewal (${sub.billingType})` }
+    { description: `StasherNews territory ${name} renewal (${sub.billingType})` }
   )
   return {
     payInType: 'TERRITORY_BILLING',

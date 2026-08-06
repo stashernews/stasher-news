@@ -3,7 +3,7 @@ import { isPostingFeeSubmit, shouldShowItemPaidAt, isPendingFeeItem, postingFeeM
 
 describe('isPostingFeeSubmit', () => {
   test('true when the submit result carries a monero: URI', () => {
-    expect(isPostingFeeSubmit({ moneroUri: 'monero:abc?tx_amount=0.001&tx_description=StealthNews+posting+fee' })).toBe(true)
+    expect(isPostingFeeSubmit({ moneroUri: 'monero:abc?tx_amount=0.001&tx_description=StasherNews+posting+fee' })).toBe(true)
   })
 
   test('false when the submit result has no URI', () => {
