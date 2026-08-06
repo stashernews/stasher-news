@@ -9,7 +9,6 @@ import { SETTINGS, SET_SETTINGS } from '@/fragments/users'
 import { useRouter } from 'next/router'
 import Info from '@/components/info'
 import Link from 'next/link'
-import AccordianItem from '@/components/accordian-item'
 import { bech32 } from 'bech32'
 import { NOSTR_MAX_RELAY_NUM, NOSTR_PUBKEY_BECH32, DEFAULT_CROSSPOSTING_RELAYS } from '@/lib/nostr'
 import { settingsSchema, filterXmrValidator } from '@/lib/validate'
@@ -105,7 +104,6 @@ export default function Settings ({ ssrData }) {
             tipRandom: settings?.tipRandom,
             tipRandomMin: piconerosToXmrDecimal(BigInt(settings?.tipRandomMin ?? 1)),
             tipRandomMax: piconerosToXmrDecimal(BigInt(settings?.tipRandomMax ?? 10)),
-            turboTipping: settings?.turboTipping,
             fiatCurrency: settings?.fiatCurrency || 'USD',
             noteItemPiconeros: settings?.noteItemPiconeros,
             noteEarning: settings?.noteEarning,
@@ -181,44 +179,7 @@ export default function Settings ({ ssrData }) {
             append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
             hint={<small className='text-muted'>note: clicking the tip button on any post lets you tip a custom amount</small>}
           />
-          <div className='pb-4'>
-            <AccordianItem
-              show={settings?.turboTipping}
-              header={<div style={{ fontWeight: 'bold', fontSize: '92%' }}>advanced</div>}
-              body={
-                <>
-                  <Checkbox
-                    name='turboTipping'
-                    label={
-                      <div className='d-flex align-items-center'>turbo tipping
-                        <Info>
-                          <ul>
-                            <li>Makes every additional click raise your total tip to another 10x multiple of your default tip</li>
-                            <li>e.g. if your tip default is 0.001 XMR
-                              <ul>
-                                <li>1st click: 0.001 XMR total tipped</li>
-                                <li>2nd click: 0.01 XMR total tipped</li>
-                                <li>3rd click: 0.1 XMR total tipped</li>
-                                <li>4th click: 1 XMR total tipped</li>
-                                <li>and so on ...</li>
-                              </ul>
-                            </li>
-                            <li>You can still custom tip via long press
-                              <ul>
-                                <li>the next click rounds up to the next greatest 10x multiple of your default</li>
-                              </ul>
-                            </li>
-                          </ul>
-                        </Info>
-                      </div>
-                    }
-                    groupClassName='mb-0'
-                  />
-                  <TipRandomField />
-                </>
-              }
-            />
-          </div>
+          <TipRandomField />
           <Select
             label='fiat currency'
             name='fiatCurrency'

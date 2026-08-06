@@ -47,7 +47,6 @@ model User {
   nsfwMode            Boolean              @default(false)
   fiatCurrency        String               @default("USD")
   hideFromTopUsers    Boolean              @default(false)
-  turboTipping        Boolean              @default(false)
   imgproxyOnly        Boolean              @default(false)
   showImagesAndVideos Boolean              @default(true)
   referrerId          Int?
