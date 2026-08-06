@@ -1,7 +1,7 @@
 import { notifyNewStreak, notifyStreakLost } from '@/lib/webPush'
 import { Prisma } from '@prisma/client'
 
-const COWBOY_HAT_STREAK_THRESHOLD = 100
+const COWBOY_HAT_STREAK_THRESHOLD_PICONEROS = 1000000000
 
 export async function computeStreaks ({ models }) {
   // get all eligible users in the last day
@@ -91,14 +91,26 @@ function getStreakQuery (type, userId) {
     : Prisma.sql`(now() AT TIME ZONE 'America/Chicago' - interval '1 day')::date`
 
   return Prisma.sql`
-      SELECT "PayIn"."userId"
-        FROM "PayIn"
-        WHERE "PayIn"."payInState" = 'PAID'
-        AND ("PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
-        ${userId ? Prisma.sql`AND "PayIn"."userId" = ${userId}` : Prisma.empty}
-        AND "PayIn"."payInType" NOT IN ('WITHDRAWAL', 'AUTO_WITHDRAWAL', 'PROXY_PAYMENT')
-        GROUP BY "PayIn"."userId"
-        HAVING sum("PayIn"."piconeros") / 1000.0 >= ${COWBOY_HAT_STREAK_THRESHOLD}`
+      SELECT "activity"."userId"
+        FROM (
+          SELECT "PayIn"."userId", sum("PayIn"."piconeros") AS piconeros
+            FROM "PayIn"
+            WHERE "PayIn"."payInState" = 'PAID'
+            AND ("PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
+            ${userId ? Prisma.sql`AND "PayIn"."userId" = ${userId}` : Prisma.empty}
+            AND "PayIn"."payInType" NOT IN ('WITHDRAWAL', 'AUTO_WITHDRAWAL', 'PROXY_PAYMENT')
+            GROUP BY "PayIn"."userId"
+          UNION ALL
+          SELECT "ObservedTip"."tipperId" AS "userId", sum("ObservedTip"."piconeros") AS piconeros
+            FROM "ObservedTip"
+            WHERE "ObservedTip"."state" IN ('DETECTED', 'CONFIRMED')
+            AND "ObservedTip"."tipperId" IS NOT NULL
+            AND ("ObservedTip"."detectedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
+            ${userId ? Prisma.sql`AND "ObservedTip"."tipperId" = ${userId}` : Prisma.empty}
+            GROUP BY "ObservedTip"."tipperId"
+        ) AS "activity"
+        GROUP BY "activity"."userId"
+        HAVING sum("activity"."piconeros") >= ${COWBOY_HAT_STREAK_THRESHOLD_PICONEROS}`
 }
 
 function isStreakActive (type, user) {
