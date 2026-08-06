@@ -1,35 +1,11 @@
 import { timeUnitForRange, whenRange } from '@/lib/time'
 import { Prisma } from '@prisma/client'
 
-function sliceClause (sub, me) {
-  return sub === ALL_SUB
-    ? Prisma.sql`"slice" = 'GLOBAL_BY_TYPE'`
-    : sub
-      ? Prisma.sql`"slice" = 'SUB_BY_TYPE' AND "subId" = ${sub.id}`
-      : me
-        ? Prisma.sql`"slice" = 'USER_BY_TYPE' AND "userId" = ${me.id}`
-        : Prisma.sql`"slice" = 'GLOBAL_BY_TYPE'`
-}
+const ALL_SUB = 'all'
 
-// For total unique counts across all types (not sum of per-type counts)
-function totalSliceClause (sub, me) {
-  return sub === ALL_SUB
-    ? Prisma.sql`"slice" = 'GLOBAL'`
-    : sub
-      ? Prisma.sql`"slice" = 'SUB_TOTAL' AND "subId" = ${sub.id}`
-      : me
-        ? Prisma.sql`"slice" = 'USER_TOTAL' AND "userId" = ${me.id}`
-        : Prisma.sql`"slice" = 'GLOBAL'`
-}
-
-function countClause (sub, me) {
-  return sub
-    ? Prisma.sql`COALESCE("countUsers", 0)`
-    : me
-      ? Prisma.sql`COALESCE("countGroup", 0)`
-      : Prisma.sql`COALESCE("countUsers", 0)`
-}
-
+// timeHelper builds the zero-filled generate_series buckets (kept from the
+// Agg-table era). `series` buckets are timestamptz truncated at America/Chicago
+// boundaries; every live aggregation below buckets observations the same way.
 function timeHelper (when, from, to) {
   const [fromDate, toDate] = whenRange(when, from, to)
   const granularity = timeUnitForRange([fromDate, toDate]).toUpperCase()
@@ -43,27 +19,18 @@ function timeHelper (when, from, to) {
   return { fromDate, toDate, granularity, step, series }
 }
 
-function spenderPayInsExcluded (sub, me) {
-  // StasherNews: the custodial PayInType values (WITHDRAWAL, AUTO_WITHDRAWAL,
-  // PROXY_PAYMENT, BUY_CREDITS, INVITE_GIFT, REWARDS, TERRITORY_UPDATE,
-  // DEFUNCT_TERRITORY_DAILY_PAYOUT) were removed from the enum in the Monero strip,
-  // so only the surviving valid types appear below.
-  return (sub === ALL_SUB || me)
-    ? Prisma.sql`TRUE`
-    : Prisma.sql`grid."payInType" NOT IN ('DONATE', 'TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE')`
+// Bucket expression for observation timestamps. confirmedAt/created_at are
+// timestamp-without-time-zone columns holding UTC wall time (session TZ is
+// UTC), so: naive -> UTC instant -> CT wall -> truncate -> CT instant. This
+// matches series."timeBucket" exactly.
+function bucket (granularity, column) {
+  return Prisma.sql`date_trunc(${granularity}, ${column} AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'`
 }
 
-function stackerPayOutsExcluded (sub, me) {
-  return (sub === ALL_SUB || me)
-    ? Prisma.sql`grid."payOutType" NOT IN ('PROXY_PAYMENT', 'DEFUNCT_DELAYED_TERRITORY_REVENUE',
-      'DEFUNCT_REFERRAL_ACT', 'REWARDS_POOL', 'ROUTING_FEE', 'ROUTING_FEE_REFUND', 'WITHDRAWAL',
-      'SYSTEM_REVENUE', 'BUY_CREDITS', 'INVOICE_OVERPAY_SPILLOVER')`
-    : Prisma.sql`grid."payOutType" NOT IN ('INVITE_GIFT', 'PROXY_PAYMENT', 'DEFUNCT_DELAYED_TERRITORY_REVENUE',
-      'DEFUNCT_REFERRAL_ACT', 'REWARDS_POOL', 'ROUTING_FEE', 'ROUTING_FEE_REFUND', 'WITHDRAWAL', 'SYSTEM_REVENUE',
-        'BUY_CREDITS', 'INVOICE_OVERPAY_SPILLOVER')`
+// Range + UTC-interpretation guards used everywhere below.
+function inRange (column, fromDate, toDate) {
+  return Prisma.sql`${column} AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz AND ${column} AT TIME ZONE 'UTC' < ${toDate}::timestamptz`
 }
-
-const ALL_SUB = 'all'
 
 const findSub = async (subName, { subLoader }) => {
   if (subName) {
@@ -72,231 +39,308 @@ const findSub = async (subName, { subLoader }) => {
   return null
 }
 
+// ---- observation scoping (per slice) ----
+
+function tipScope (sub, me) {
+  if (sub === ALL_SUB || (!sub && !me)) return Prisma.empty
+  if (sub) {
+    return Prisma.sql`AND t."postId" IN (SELECT "Item".id FROM "Item" WHERE "Item"."subName" = ${sub.name})`
+  }
+  return Prisma.sql`AND ma."ownerUserId" = ${me.id}`
+}
+
+function burnScope (sub, me) {
+  if (sub === ALL_SUB || (!sub && !me)) return Prisma.empty
+  if (sub) {
+    return Prisma.sql`AND b."postId" IN (SELECT "Item".id FROM "Item" WHERE "Item"."subName" = ${sub.name})`
+  }
+  return Prisma.sql`AND b."downvoterId" = ${me.id}`
+}
+
+function feeScope (sub, me) {
+  if (sub === ALL_SUB || (!sub && !me)) return Prisma.empty
+  if (sub) {
+    return Prisma.sql`AND (f."postId" IS NOT NULL AND f."postId" IN (SELECT "Item".id FROM "Item" WHERE "Item"."subName" = ${sub.name}) OR f."subName" = ${sub.name})`
+  }
+  return Prisma.sql`AND p."userId" = ${me.id}`
+}
+
+// Returns the slice's scope-able user (the viewer) for every resolver, or
+// null when sub-scoped or global. Used uniformly by growthTotals + the time
+// series resolvers so the scope helpers get one consistent shape.
+function sliceUser (sub, me) {
+  return sub === ALL_SUB || sub ? null : me
+}
+
 export default {
   Query: {
     growthTotals: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
       const { me, models } = ctx
-      // Use same timeHelper and grid pattern as time series queries so totals match
-      const { granularity, series } = timeHelper(when, from, to)
-
+      const { fromDate, toDate } = timeHelper(when, from, to)
       const sub = await findSub(subName, ctx)
+      const user = sliceUser(sub, mine ? me : null)
 
-      // Get spending totals using same grid pattern as spendingGrowth
-      const payInResult = await models.$queryRaw`
-        WITH series AS (
-          ${series}
-        ), grid AS (
-          SELECT "timeBucket", "payInType"
-          FROM series, unnest(enum_range(NULL::"PayInType")) domain("payInType")
-        )
+      const spendResult = await models.$queryRaw`
         SELECT
-          COALESCE(SUM("sumMcost"), 0) / 1000 AS spending,
-          COALESCE(SUM("countGroup"), 0)::int AS items
-        FROM grid
-        LEFT JOIN "AggPayIn" ON "AggPayIn"."timeBucket" = grid."timeBucket" AND "AggPayIn"."payInType" = grid."payInType"
-        AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-        AND ${sliceClause(sub, mine ? me : null)}
-        WHERE ${spenderPayInsExcluded(sub, mine ? me : null)}`
+          COALESCE(SUM(x.piconeros), 0) / 1000 AS spending,
+          COUNT(*)::int AS items
+        FROM (
+          SELECT b.piconeros
+          FROM "ObservedBurn" b
+          WHERE b.state = 'CONFIRMED'
+            AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
+            ${burnScope(sub, user)}
+          UNION ALL
+          SELECT f.piconeros
+          FROM "FeeObservation" f
+          JOIN "PayIn" p ON p.id = f."payInId"
+          WHERE f.state = 'CONFIRMED'
+            AND ${inRange(Prisma.sql`f."confirmedAt"`, fromDate, toDate)}
+            ${feeScope(sub, user)}
+        ) x`
 
-      // Get stashing totals using same grid pattern as stashingGrowth
-      const payOutResult = await models.$queryRaw`
-        WITH series AS (
-          ${series}
-        ), grid AS (
-          SELECT "timeBucket", "payOutType"
-          FROM series, unnest(enum_range(NULL::"PayOutType")) domain("payOutType")
-        )
-        SELECT COALESCE(SUM("sumMtokens"), 0) / 1000 AS stacking
-        FROM grid
-        LEFT JOIN "AggPayOut" ON "AggPayOut"."timeBucket" = grid."timeBucket" AND "AggPayOut"."payOutType" = grid."payOutType"
-        AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
-        AND ${sliceClause(sub, mine ? me : null)}
-        AND "AggPayOut"."payInType" IS NULL
-        WHERE ${stackerPayOutsExcluded(sub, mine ? me : null)}`
+      const stashResult = await models.$queryRaw`
+        SELECT COALESCE(SUM(t.piconeros), 0) / 1000 AS stashing
+        FROM "ObservedTip" t
+        JOIN "MoneroAccount" ma ON ma.id = t."recipientAccountId"
+        WHERE t.state = 'CONFIRMED'
+          AND ma."ownerUserId" IS NOT NULL
+          AND ${inRange(Prisma.sql`t."confirmedAt"`, fromDate, toDate)}
+          ${tipScope(sub, user)}`
 
-      // Get registration totals (only for global/all view)
       let registrations = null
       if (sub === ALL_SUB && !mine) {
         const regResult = await models.$queryRaw`
-          WITH series AS (
-            ${series}
-          )
-          SELECT COALESCE(SUM("count"), 0)::int AS registrations
-          FROM "AggRegistrations", series
-          WHERE "granularity" = ${granularity}::"AggGranularity"
-          AND "AggRegistrations"."timeBucket" = series."timeBucket"`
+          SELECT count(*)::int AS registrations
+          FROM users
+          WHERE ${inRange(Prisma.sql`users."created_at"`, fromDate, toDate)}`
         registrations = regResult[0]?.registrations || 0
       }
 
       return {
-        spending: payInResult[0]?.spending || 0,
-        items: payInResult[0]?.items || 0,
-        stashing: payOutResult[0]?.stacking || 0,
+        spending: spendResult[0]?.spending || 0,
+        items: spendResult[0]?.items || 0,
+        stashing: stashResult[0]?.stashing || 0,
         registrations
       }
     },
     registrationGrowth: async (parent, { when, from, to }, { models }) => {
-      const { granularity, series } = timeHelper(when, from, to)
+      const { granularity, series, fromDate, toDate } = timeHelper(when, from, to)
 
       return await models.$queryRaw`
         WITH series AS (
           ${series}
+        ), registrations AS (
+          SELECT ${bucket(granularity, Prisma.sql`u."created_at"`)} AS "timeBucket",
+            count(*) AS count,
+            count(*) FILTER (WHERE u."inviteId" IS NOT NULL) AS "invitedCount",
+            count(*) FILTER (WHERE u."referrerId" IS NOT NULL) AS "referredCount"
+          FROM users u
+          WHERE ${inRange(Prisma.sql`u."created_at"`, fromDate, toDate)}
+          GROUP BY 1
         )
-        SELECT series."timeBucket" as time, json_build_array(
-          json_build_object('name', 'invited', 'value', COALESCE(sum("invitedCount"), 0)),
-          json_build_object('name', 'referrals', 'value', COALESCE(sum("referredCount"), 0) - COALESCE(sum("invitedCount"), 0)),
-          json_build_object('name', 'organic', 'value', COALESCE(sum("count"), 0) - COALESCE(sum("referredCount"), 0))
+        SELECT series."timeBucket" AS time, json_build_array(
+          json_build_object('name', 'invited', 'value', COALESCE(sum(registrations."invitedCount"), 0)),
+          json_build_object('name', 'referrals', 'value', COALESCE(sum(registrations."referredCount"), 0) - COALESCE(sum(registrations."invitedCount"), 0)),
+          json_build_object('name', 'organic', 'value', COALESCE(sum(registrations.count), 0) - COALESCE(sum(registrations."referredCount"), 0))
         ) AS data
-        FROM "AggRegistrations", series
-        WHERE "granularity" = ${granularity}::"AggGranularity"
-        AND "AggRegistrations"."timeBucket" = series."timeBucket"
+        FROM series
+        LEFT JOIN registrations ON registrations."timeBucket" = series."timeBucket"
         GROUP BY series."timeBucket"
         ORDER BY series."timeBucket" ASC`
     },
     spenderGrowth: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
       const { me, models } = ctx
-      const { granularity, series } = timeHelper(when, from, to)
-
+      const { granularity, series, fromDate, toDate } = timeHelper(when, from, to)
       const sub = await findSub(subName, ctx)
+      const user = sliceUser(sub, mine ? me : null)
 
-      const result = await models.$queryRaw`
+      return await models.$queryRaw`
         WITH series AS (
           ${series}
-        ), grid AS (
-          SELECT "timeBucket", "payInType"
-          FROM series, unnest(enum_range(NULL::"PayInType")) domain("payInType")
+        ), spenders AS (
+          SELECT ${bucket(granularity, Prisma.sql`b."confirmedAt"`)} AS "timeBucket",
+            'DOWNVOTE' AS name, count(DISTINCT b."downvoterId") AS value
+          FROM "ObservedBurn" b
+          WHERE b.state = 'CONFIRMED' AND b."downvoterId" IS NOT NULL
+            AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
+            ${burnScope(sub, user)}
+          GROUP BY 1
+          UNION ALL
+          SELECT ${bucket(granularity, Prisma.sql`f."confirmedAt"`)} AS "timeBucket",
+            'POSTING' AS name, count(DISTINCT p."userId") AS value
+          FROM "FeeObservation" f
+          JOIN "PayIn" p ON p.id = f."payInId"
+          WHERE f.state = 'CONFIRMED' AND f."feeType" = 'POSTING'
+            AND ${inRange(Prisma.sql`f."confirmedAt"`, fromDate, toDate)}
+            ${feeScope(sub, user)}
+          GROUP BY 1
+          UNION ALL
+          SELECT ${bucket(granularity, Prisma.sql`f."confirmedAt"`)} AS "timeBucket",
+            'TERRITORY' AS name, count(DISTINCT p."userId") AS value
+          FROM "FeeObservation" f
+          JOIN "PayIn" p ON p.id = f."payInId"
+          WHERE f.state = 'CONFIRMED' AND f."feeType" IN ('TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE')
+            AND ${inRange(Prisma.sql`f."confirmedAt"`, fromDate, toDate)}
+            ${feeScope(sub, user)}
+          GROUP BY 1
         ), totals AS (
-          SELECT series."timeBucket", COALESCE("countUsers", 0) as total
-          FROM series
-          LEFT JOIN "AggPayIn" ON "AggPayIn"."timeBucket" = series."timeBucket"
-          AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-          AND ${totalSliceClause(sub, mine ? me : null)}
-          AND "AggPayIn"."payInType" IS NULL
+          SELECT "timeBucket", count(DISTINCT "userId") AS value FROM (
+            SELECT ${bucket(granularity, Prisma.sql`b."confirmedAt"`)} AS "timeBucket", b."downvoterId" AS "userId"
+            FROM "ObservedBurn" b
+            WHERE b.state = 'CONFIRMED' AND b."downvoterId" IS NOT NULL
+              AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
+              ${burnScope(sub, user)}
+            UNION ALL
+            SELECT ${bucket(granularity, Prisma.sql`f."confirmedAt"`)} AS "timeBucket", p."userId"
+            FROM "FeeObservation" f
+            JOIN "PayIn" p ON p.id = f."payInId"
+            WHERE f.state = 'CONFIRMED'
+              AND ${inRange(Prisma.sql`f."confirmedAt"`, fromDate, toDate)}
+              ${feeScope(sub, user)}
+          ) x
+          GROUP BY 1
         )
-        SELECT grid."timeBucket" as time,
-          (jsonb_agg(jsonb_build_object('name', grid."payInType", 'value', ${countClause(sub, mine ? me : null)}))
-          || jsonb_build_array(jsonb_build_object('name', 'total', 'value', totals.total)))::json
-          AS data
-        FROM grid
-        LEFT JOIN "AggPayIn" ON "AggPayIn"."timeBucket" = grid."timeBucket" AND "AggPayIn"."payInType" = grid."payInType"
-        AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-        AND ${sliceClause(sub, mine ? me : null)}
-        JOIN totals ON totals."timeBucket" = grid."timeBucket"
-        WHERE ${spenderPayInsExcluded(sub, mine ? me : null)}
-        GROUP BY grid."timeBucket", totals.total
-        ORDER BY grid."timeBucket" ASC`
-
-      return result
+        SELECT series."timeBucket" AS time,
+          (COALESCE(jsonb_agg(jsonb_build_object('name', spenders.name, 'value', spenders.value)) FILTER (WHERE spenders.name IS NOT NULL), '[]'::jsonb)
+            || COALESCE((SELECT jsonb_build_array(jsonb_build_object('name', 'total', 'value', t.value)) FROM totals t WHERE t."timeBucket" = series."timeBucket"), '[]'::jsonb)) AS data
+        FROM series
+        LEFT JOIN spenders ON spenders."timeBucket" = series."timeBucket"
+        GROUP BY series."timeBucket"
+        ORDER BY series."timeBucket" ASC`
     },
     spendingGrowth: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
       const { me, models } = ctx
-      const { granularity, series } = timeHelper(when, from, to)
-
+      const { granularity, series, fromDate, toDate } = timeHelper(when, from, to)
       const sub = await findSub(subName, ctx)
+      const user = sliceUser(sub, mine ? me : null)
 
       return await models.$queryRaw`
-         WITH series AS (
+        WITH series AS (
           ${series}
-        ), grid AS (
-          SELECT "timeBucket", "payInType"
-          FROM series, unnest(enum_range(NULL::"PayInType")) domain("payInType")
+        ), spends AS (
+          SELECT ${bucket(granularity, Prisma.sql`b."confirmedAt"`)} AS "timeBucket",
+            'DOWNVOTE' AS name, sum(b.piconeros) AS value
+          FROM "ObservedBurn" b
+          WHERE b.state = 'CONFIRMED'
+            AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
+            ${burnScope(sub, user)}
+          GROUP BY 1
+          UNION ALL
+          SELECT ${bucket(granularity, Prisma.sql`f."confirmedAt"`)} AS "timeBucket",
+            CASE WHEN f."feeType" = 'POSTING' THEN 'POSTING' ELSE 'TERRITORY' END AS name,
+            sum(f.piconeros) AS value
+          FROM "FeeObservation" f
+          JOIN "PayIn" p ON p.id = f."payInId"
+          WHERE f.state = 'CONFIRMED'
+            AND ${inRange(Prisma.sql`f."confirmedAt"`, fromDate, toDate)}
+            ${feeScope(sub, user)}
+          GROUP BY 1, 2
         )
-        SELECT grid."timeBucket" as time, json_agg(
-          json_build_object('name', grid."payInType", 'value', COALESCE("sumMcost", 0) / 1000)
-        ) AS data
-        FROM grid
-        LEFT JOIN "AggPayIn" ON "AggPayIn"."timeBucket" = grid."timeBucket" AND "AggPayIn"."payInType" = grid."payInType"
-        AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-        AND ${sliceClause(sub, mine ? me : null)}
-        WHERE ${spenderPayInsExcluded(sub, mine ? me : null)}
-        GROUP BY grid."timeBucket"
-        ORDER BY grid."timeBucket" ASC`
+        SELECT series."timeBucket" AS time,
+          COALESCE(
+            jsonb_agg(jsonb_build_object('name', spends.name, 'value', spends.value / 1000)) FILTER (WHERE spends.name IS NOT NULL),
+            '[]'::jsonb
+          ) AS data
+        FROM series
+        LEFT JOIN spends ON spends."timeBucket" = series."timeBucket"
+        GROUP BY series."timeBucket"
+        ORDER BY series."timeBucket" ASC`
     },
     itemGrowth: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
       const { me, models } = ctx
-      const { granularity, series } = timeHelper(when, from, to)
-
+      const { granularity, series, fromDate, toDate } = timeHelper(when, from, to)
       const sub = await findSub(subName, ctx)
+      const user = sliceUser(sub, mine ? me : null)
 
-      const result = await models.$queryRaw`
+      return await models.$queryRaw`
         WITH series AS (
           ${series}
-        ), grid AS (
-          SELECT "timeBucket", "payInType"
-          FROM series, unnest(enum_range(NULL::"PayInType")) domain("payInType")
+        ), spends AS (
+          SELECT ${bucket(granularity, Prisma.sql`b."confirmedAt"`)} AS "timeBucket",
+            'DOWNVOTE' AS name, COUNT(*) AS value
+          FROM "ObservedBurn" b
+          WHERE b.state = 'CONFIRMED'
+            AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
+            ${burnScope(sub, user)}
+          GROUP BY 1
+          UNION ALL
+          SELECT ${bucket(granularity, Prisma.sql`f."confirmedAt"`)} AS "timeBucket",
+            CASE WHEN f."feeType" = 'POSTING' THEN 'POSTING' ELSE 'TERRITORY' END AS name,
+            COUNT(*) AS value
+          FROM "FeeObservation" f
+          JOIN "PayIn" p ON p.id = f."payInId"
+          WHERE f.state = 'CONFIRMED'
+            AND ${inRange(Prisma.sql`f."confirmedAt"`, fromDate, toDate)}
+            ${feeScope(sub, user)}
+          GROUP BY 1, 2
         )
-        SELECT grid."timeBucket" as time, json_agg(
-          json_build_object('name', grid."payInType", 'value', COALESCE("countGroup", 0))
-        ) AS data
-        FROM grid
-        LEFT JOIN "AggPayIn" ON "AggPayIn"."timeBucket" = grid."timeBucket" AND "AggPayIn"."payInType" = grid."payInType"
-        AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-        AND ${sliceClause(sub, mine ? me : null)}
-        WHERE ${spenderPayInsExcluded(sub, mine ? me : null)}
-        GROUP BY grid."timeBucket"
-        ORDER BY grid."timeBucket" ASC`
-
-      return result
+        SELECT series."timeBucket" AS time,
+          COALESCE(
+            jsonb_agg(jsonb_build_object('name', spends.name, 'value', spends.value)) FILTER (WHERE spends.name IS NOT NULL),
+            '[]'::jsonb
+          ) AS data
+        FROM series
+        LEFT JOIN spends ON spends."timeBucket" = series."timeBucket"
+        GROUP BY series."timeBucket"
+        ORDER BY series."timeBucket" ASC`
     },
     stasherGrowth: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
       const { me, models } = ctx
-      const { granularity, series } = timeHelper(when, from, to)
-
+      const { granularity, series, fromDate, toDate } = timeHelper(when, from, to)
       const sub = await findSub(subName, ctx)
+      const user = sliceUser(sub, mine ? me : null)
 
       return await models.$queryRaw`
         WITH series AS (
           ${series}
-        ), grid AS (
-          SELECT "timeBucket", "payOutType"
-          FROM series, unnest(enum_range(NULL::"PayOutType")) domain("payOutType")
-        ), totals AS (
-          SELECT series."timeBucket", COALESCE("countUsers", 0) as total
-          FROM series
-          LEFT JOIN "AggPayOut" ON "AggPayOut"."timeBucket" = series."timeBucket"
-          AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
-          AND ${totalSliceClause(sub, mine ? me : null)}
-          AND "AggPayOut"."payInType" IS NULL
-          AND "AggPayOut"."payOutType" IS NULL
+        ), stashers AS (
+          SELECT ${bucket(granularity, Prisma.sql`t."confirmedAt"`)} AS "timeBucket",
+            count(DISTINCT ma."ownerUserId") AS value
+          FROM "ObservedTip" t
+          JOIN "MoneroAccount" ma ON ma.id = t."recipientAccountId"
+          WHERE t.state = 'CONFIRMED'
+            AND ma."ownerUserId" IS NOT NULL
+            AND ${inRange(Prisma.sql`t."confirmedAt"`, fromDate, toDate)}
+            ${tipScope(sub, user)}
+          GROUP BY 1
         )
-        SELECT grid."timeBucket" as time,
-          (jsonb_agg(jsonb_build_object('name', grid."payOutType", 'value', ${countClause(sub, mine ? me : null)}))
-          || jsonb_build_array(jsonb_build_object('name', 'total', 'value', totals.total)))::json
-          AS data
-        FROM grid
-        LEFT JOIN "AggPayOut" ON "AggPayOut"."timeBucket" = grid."timeBucket" AND "AggPayOut"."payOutType" = grid."payOutType"
-        AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
-        AND ${sliceClause(sub, mine ? me : null)}
-        AND "AggPayOut"."payInType" IS NULL
-        JOIN totals ON totals."timeBucket" = grid."timeBucket"
-        WHERE ${stackerPayOutsExcluded(sub, mine ? me : null)}
-        GROUP BY grid."timeBucket", totals.total
-        ORDER BY grid."timeBucket" ASC`
+        SELECT series."timeBucket" AS time,
+          jsonb_build_array(
+            jsonb_build_object('name', 'TIP', 'value', COALESCE(stashers.value, 0)),
+            jsonb_build_object('name', 'total', 'value', COALESCE(stashers.value, 0))
+          ) AS data
+        FROM series
+        LEFT JOIN stashers ON stashers."timeBucket" = series."timeBucket"
+        ORDER BY series."timeBucket" ASC`
     },
     stashingGrowth: async (parent, { when, to, from, sub: subName, mine }, ctx) => {
       const { me, models } = ctx
-      const { granularity, series } = timeHelper(when, from, to)
-
+      const { granularity, series, fromDate, toDate } = timeHelper(when, from, to)
       const sub = await findSub(subName, ctx)
+      const user = sliceUser(sub, mine ? me : null)
 
       return await models.$queryRaw`
         WITH series AS (
           ${series}
-        ), grid AS (
-          SELECT "timeBucket", "payOutType"
-          FROM series, unnest(enum_range(NULL::"PayOutType")) domain("payOutType")
+        ), tips AS (
+          SELECT ${bucket(granularity, Prisma.sql`t."confirmedAt"`)} AS "timeBucket",
+            sum(t.piconeros) AS value
+          FROM "ObservedTip" t
+          JOIN "MoneroAccount" ma ON ma.id = t."recipientAccountId"
+          WHERE t.state = 'CONFIRMED'
+            AND ma."ownerUserId" IS NOT NULL
+            AND ${inRange(Prisma.sql`t."confirmedAt"`, fromDate, toDate)}
+            ${tipScope(sub, user)}
+          GROUP BY 1
         )
-        SELECT grid."timeBucket" as time, json_agg(
-          json_build_object('name', grid."payOutType", 'value', COALESCE("sumMtokens", 0) / 1000)
-        ) AS data
-        FROM grid
-        LEFT JOIN "AggPayOut" ON "AggPayOut"."timeBucket" = grid."timeBucket" AND "AggPayOut"."payOutType" = grid."payOutType"
-        AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
-        AND ${sliceClause(sub, mine ? me : null)}
-        AND "payInType" IS NULL
-        WHERE ${stackerPayOutsExcluded(sub, mine ? me : null)}
-        GROUP BY grid."timeBucket"
-        ORDER BY grid."timeBucket" ASC`
+        SELECT series."timeBucket" AS time,
+          jsonb_build_array(
+            jsonb_build_object('name', 'TIP', 'value', COALESCE(tips.value, 0) / 1000)
+          ) AS data
+        FROM series
+        LEFT JOIN tips ON tips."timeBucket" = series."timeBucket"
+        ORDER BY series."timeBucket" ASC`
     }
   }
 }
