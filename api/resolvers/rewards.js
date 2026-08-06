@@ -21,51 +21,56 @@ async function getCachedActiveRewards (staleIn, models) {
   return await updateCachedRewards(models)
 }
 
+function toBigInt (v) {
+  if (v == null) return 0n
+  return BigInt(v)
+}
+
+// Rewards earmark per the PlatformFeeConfig allocation split (spec §6.4):
+// downvote 100% / posting 70% / turf 30%. BigInt division floors each source
+// independently, matching worker/rewardsDistributor.js.
+function rewardsFromInflow (inflow, time, config) {
+  const sourceShares = [
+    { name: 'downvote', piconeros: toBigInt(inflow.downvote) * BigInt(config.downvoteRewardsPct) / 100n },
+    { name: 'posting fee', piconeros: toBigInt(inflow.posting) * BigInt(config.postingFeeRewardsPct) / 100n },
+    { name: 'turf fee', piconeros: toBigInt(inflow.territory) * BigInt(config.territoryFeeRewardsPct) / 100n }
+  ]
+  const sources = sourceShares.filter(s => s.piconeros > 0n).map(s => ({ name: s.name, value: s.piconeros.toString() }))
+  const total = sourceShares.reduce((acc, s) => acc + s.piconeros, 0n)
+  return { total, time, sources }
+}
+
 async function getActiveRewards (models) {
-  return await models.$queryRaw`
-    WITH source_totals AS (
-      SELECT
-        "payInType",
-        sum("piconeros") as "piconeros"
-      FROM "AggRewards"
-      WHERE "timeBucket" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'
-      AND "payInType" IS NOT NULL
-      AND "granularity" = 'HOUR'
-      GROUP BY "payInType"
-    )
+  const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
+  const [{ downvote, posting, territory, time }] = await models.$queryRaw`
     SELECT
-      sum("piconeros")::BIGINT as total,
-      date_trunc('day', (now() AT TIME ZONE 'America/Chicago') + interval '1 day') AT TIME ZONE 'America/Chicago' as time,
-      array_agg(json_build_object('name', "payInType", 'value', "piconeros")) as sources
-    FROM source_totals`
+      COALESCE((SELECT sum("piconeros") FROM "ObservedBurn" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS downvote,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS posting,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS territory,
+      date_trunc('day', (now() AT TIME ZONE 'America/Chicago') + interval '1 day') AT TIME ZONE 'America/Chicago' AS time`
+
+  return [rewardsFromInflow({ downvote, posting, territory }, time, config)]
 }
 
 async function getRewards (when, models) {
-  if (when) {
-    if (when.length > 1) {
-      throw new GqlInputError('too many dates')
-    }
-    when.forEach(w => {
-      if (isNaN(new Date(w))) {
-        throw new GqlInputError('invalid date')
-      }
-    })
-    if (new Date(when[0]) > new Date(when[when.length - 1])) {
-      throw new GqlInputError('bad date range')
+  if (when.length > 1) {
+    throw new GqlInputError('too many dates')
+  }
+  for (const w of when) {
+    if (isNaN(new Date(w))) {
+      throw new GqlInputError('invalid date')
     }
   }
 
-  const results = await models.$queryRaw`
-    SELECT sum("piconeros")::BIGINT as total,
-      "AggRewards"."timeBucket" + interval '1 day' as time,
-      array_agg(json_build_object('name', "payInType", 'value', "piconeros")) as sources
-    FROM "AggRewards"
-    WHERE "AggRewards"."timeBucket" = date_trunc('day', ${when?.[0]}::text::timestamp - interval '1 day') AT TIME ZONE 'America/Chicago'
-    AND "AggRewards"."granularity" = 'DAY'
-    AND "AggRewards"."payInType" IS NOT NULL
-    GROUP BY "AggRewards"."timeBucket"`
+  const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
+  const [{ downvote, posting, territory, time }] = await models.$queryRaw`
+    SELECT
+      COALESCE((SELECT sum("piconeros") FROM "ObservedBurn" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS downvote,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS posting,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS territory,
+      date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AS time`
 
-  return results.length ? results : [{ total: 0, time: '0', sources: [] }]
+  return [rewardsFromInflow({ downvote, posting, territory }, time, config)]
 }
 
 export default {
