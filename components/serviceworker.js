@@ -62,16 +62,30 @@ export const ServiceWorkerProvider = ({ children }) => {
     })
   })
 
+  // Resolve a live registration from the Workbox state, falling back to the
+  // browser's own lookup. Throws a friendly error when none exists — the
+  // previous code dereferenced the null state directly, crashing with
+  // "can't access property pushManager, registration is null" whenever the
+  // service worker had not registered yet (or failed, e.g. on plain http).
+  const getRegistration = useCallback(async () => {
+    const active = registration ?? await navigator.serviceWorker.getRegistration()
+    if (!active) {
+      throw new Error('no active service worker found — push notifications are unavailable (service workers need HTTPS or localhost)')
+    }
+    return active
+  }, [registration])
+
   const subscribeToPushNotifications = async () => {
     // serviceWorker.controller is null on forced refreshes
     // see https://w3c.github.io/ServiceWorker/#navigator-service-worker-controller
     if (!navigator.serviceWorker.controller) {
       throw new Error('no active service worker found. try refreshing page.')
     }
+    const active = await getRegistration()
     const subscribeOptions = { userVisibleOnly: true, applicationServerKey }
     // Brave users must enable a flag in brave://settings/privacy first
     // see https://stackoverflow.com/a/69624651
-    let pushSubscription = await registration.pushManager.subscribe(subscribeOptions)
+    let pushSubscription = await active.pushManager.subscribe(subscribeOptions)
     const { endpoint } = pushSubscription
     // convert keys from ArrayBuffer to string
     pushSubscription = JSON.parse(JSON.stringify(pushSubscription))
@@ -100,12 +114,13 @@ export const ServiceWorkerProvider = ({ children }) => {
   }
 
   const togglePushSubscription = useCallback(async () => {
-    const pushSubscription = await registration.pushManager.getSubscription()
+    const active = await getRegistration()
+    const pushSubscription = await active.pushManager.getSubscription()
     if (pushSubscription) {
       return await unsubscribeFromPushNotifications(pushSubscription)
     }
     await subscribeToPushNotifications()
-  })
+  }, [getRegistration])
 
   useEffect(() => {
     setSupport({
