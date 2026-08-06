@@ -86,6 +86,7 @@ export default gql`
     hideNostr: Boolean!
     hideTwitter: Boolean!
     hideFromTopUsers: Boolean!
+    hideStashAmount: Boolean!
     hideUriDesc: Boolean!
     imgproxyOnly: Boolean!
     showImagesAndVideos: Boolean!
@@ -158,6 +159,7 @@ export default gql`
     hideNostr: Boolean!
     hideTwitter: Boolean!
     hideFromTopUsers: Boolean!
+    hideStashAmount: Boolean!
     hideUriDesc: Boolean!
     imgproxyOnly: Boolean!
     showImagesAndVideos: Boolean!
@@ -189,6 +191,7 @@ export default gql`
     stacked(when: String, from: String, to: String): BigInt
     spent(when: String, from: String, to: String): BigInt
     referrals(when: String, from: String, to: String): Int
+    stashAmountHidden: Boolean!
     streak: Int
     gunStreak: Int
     horseStreak: Int
