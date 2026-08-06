@@ -98,7 +98,6 @@ function getStreakQuery (type, userId) {
             WHERE "PayIn"."payInState" = 'PAID'
             AND ("PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
             ${userId ? Prisma.sql`AND "PayIn"."userId" = ${userId}` : Prisma.empty}
-            AND "PayIn"."payInType" NOT IN ('WITHDRAWAL', 'AUTO_WITHDRAWAL', 'PROXY_PAYMENT')
             GROUP BY "PayIn"."userId"
           UNION ALL
           SELECT "ObservedTip"."tipperId" AS "userId", sum("ObservedTip"."piconeros") AS piconeros
