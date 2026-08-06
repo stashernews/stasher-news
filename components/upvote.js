@@ -32,35 +32,6 @@ export const defaultTipIncludingRandom = ({ tipDefault, tipRandom, tipRandomMin,
     : (tipDefault || 1000000000)
 }
 
-export const nextTip = (meSats, { tipDefault, turboTipping, tipRandom, tipRandomMin, tipRandomMax }) => {
-  if (turboTipping) {
-    if (tipRandom) {
-      let pow = 0
-      // find the first power of 10 that is greater than meSats
-      while (!(meSats <= tipRandomMax * 10 ** pow)) {
-        pow++
-      }
-      // if meSats is in that power of 10's range already, move into the next range
-      if (meSats >= tipRandomMin * 10 ** pow) {
-        pow++
-      }
-      // make sure the our range minimum doesn't overlap with the previous range maximum
-      tipRandomMin = tipRandomMax * 10 ** (pow - 1) >= tipRandomMin * 10 ** pow ? tipRandomMax * 10 ** (pow - 1) + 1 : tipRandomMin * 10 ** pow
-      tipRandomMax = tipRandomMax * 10 ** pow
-      return Math.floor((Math.random() * (tipRandomMax - tipRandomMin + 1)) + tipRandomMin) - meSats
-    }
-
-    let sats = defaultTipIncludingRandom({ tipDefault, tipRandom, tipRandomMin, tipRandomMax })
-    while (meSats >= sats) {
-      sats *= 10
-    }
-    // deduct current sats since turbo tipping is about total zap not making the next zap 10x
-    return sats - meSats
-  }
-
-  return defaultTipIncludingRandom({ tipDefault, tipRandom, tipRandomMin, tipRandomMax })
-}
-
 export default function UpVote ({ item, className, collapsed }) {
   const showModal = useShowModal()
   const { me } = useMe()
@@ -72,7 +43,7 @@ export default function UpVote ({ item, className, collapsed }) {
     const meSats = Number(me ? item?.mePiconeros : item?.meAnonPiconeros) || 0
 
     // what should our next tip be?
-    const sats = nextTip(meSats, { ...me?.privates })
+    const sats = defaultTipIncludingRandom({ ...me?.privates })
     let overlayTextContent
     if (me) {
       overlayTextContent = me.privates?.tipRandom ? 'random' : piconerosToXmr(BigInt(sats))
@@ -84,7 +55,7 @@ export default function UpVote ({ item, className, collapsed }) {
       meSats, overlayTextContent,
       getColor(meSats), getColor(meSats + sats)]
   }, [
-    me, item?.mePiconeros, item?.meAnonPiconeros, me?.privates?.tipDefault, me?.privates?.turboDefault,
+    me, item?.mePiconeros, item?.meAnonPiconeros, me?.privates?.tipDefault,
     me?.privates?.tipRandom, me?.privates?.tipRandomMin, me?.privates?.tipRandomMax])
 
   const handlePress = () => {

@@ -15,6 +15,7 @@ import { INITIATE_TIP } from '@/fragments/monero'
 import { xmrToPiconeros, piconerosToXmr, piconerosToXmrDecimal } from '@/lib/format'
 import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 import UpArrow from '@/svgs/up-arrow.svg'
+import { defaultTipIncludingRandom } from './upvote'
 
 // StealthNews tip modal (spec §8.3). Mirrors components/downvote-modal.js: call a
 // mutation, get a monero: URI, render a QR view. Differences from downvote:
@@ -34,7 +35,7 @@ export default function TipModal ({ item, onClose }) {
   const animate = useAnimation()
   const toaster = useToast()
   const [initiateTip] = useMutation(INITIATE_TIP)
-  const [amount, setAmount] = useState('')
+  const [amount, setAmount] = useState(() => piconerosToXmrDecimal(BigInt(defaultTipIncludingRandom(me?.privates) || 1000000000)))
   const [tip, setTip] = useState(null) // { uri, paymentId, piconeros }
   const [tipPaid, setTipPaid] = useState(false)
 
