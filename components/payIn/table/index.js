@@ -23,12 +23,14 @@ export default function PayInTable ({ payIns }) {
 // Every history row is observation-backed and links to the thing it's about:
 // posting/downvote/tip rows → their post; territory-fee rows → their turf.
 // (Real PayIn rows reaching this table would fall through to /transactions.)
+// The turf is exposed on the wire as payerPrivates.sub (see PayerPrivates.sub
+// resolver); the internal subPayIn property never reaches the client.
 function payInHref (payIn) {
   if (payIn.item?.id) {
     return `/items/${payIn.item.id}`
   }
-  if (payIn.subPayIn?.subName) {
-    return `/~/${payIn.subPayIn.subName}`
+  if (payIn.payerPrivates?.sub?.name) {
+    return `/~/${payIn.payerPrivates.sub.name}`
   }
   return `/transactions/${payIn.id}`
 }
