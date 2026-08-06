@@ -65,8 +65,8 @@ export default function UpVote ({ item, className, collapsed }) {
   const showModal = useShowModal()
   const { me } = useMe()
 
-  const disabled = useMemo(() => collapsed || item?.mine || item?.meForward || item?.deletedAt,
-    [collapsed, item?.mine, item?.meForward, item?.deletedAt])
+  const disabled = useMemo(() => collapsed || item?.mine || item?.deletedAt,
+    [collapsed, item?.mine, item?.deletedAt])
 
   const [meSats, overlayText, color, nextColor] = useMemo(() => {
     const meSats = Number(me ? item?.mePiconeros : item?.meAnonPiconeros) || 0
