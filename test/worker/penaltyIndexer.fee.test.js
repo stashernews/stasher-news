@@ -56,7 +56,8 @@ async function createUser () {
 }
 
 // Seed an Item PENDING_FEE + its PayIn watching a rewards-wallet posting-fee
-// subaddress (major 1, minor). Mirrors what itemCreate.onBegin produces.
+// subaddress (major 1, minor). Mirrors what itemCreate.onBegin produces
+// (including the ItemPayIn link the indexer denormalizes onto the observation).
 async function seedPendingFeePost (minor) {
   const userId = await createUser()
   const payIn = await prisma.payIn.create({
@@ -74,8 +75,41 @@ async function seedPendingFeePost (minor) {
     data: { userId, title: 'pending-fee post', status: 'ACTIVE', feeStatus: 'PENDING_FEE', feePayInId: payIn.id }
   })
   await prisma.$executeRaw`UPDATE "Item" SET path = ${String(item.id)}::ltree WHERE id = ${item.id}::int`
+  await prisma.itemPayIn.create({ data: { itemId: item.id, payInId: payIn.id } })
   created.items.push(item.id)
   return { item, payIn, major: 1, minor }
+}
+
+// Seed a Sub PENDING_FEE + its PayIn watching a rewards-wallet territory-fee
+// subaddress (major 2, minor). Mirrors what territoryCreate.onBegin produces.
+async function seedPendingFeeSub (minor) {
+  const userId = await createUser()
+  const subName = `turf-fee-${minor}`
+  const payIn = await prisma.payIn.create({
+    data: {
+      userId,
+      payInType: 'TERRITORY_BILLING',
+      payInState: 'PAID',
+      piconeros: 0n,
+      moneroSubaddressMajor: 2,
+      moneroSubaddressMinor: minor
+    }
+  })
+  created.payIns.push(payIn.id)
+  await prisma.sub.create({
+    data: {
+      name: subName,
+      userId,
+      rankingType: 'WOT',
+      billingType: 'ONCE',
+      billingCost: 1000000000,
+      billingStatus: 'PENDING_FEE',
+      billingPayInId: payIn.id
+    }
+  })
+  created.subs.push(subName)
+  await prisma.subPayIn.create({ data: { subName, payInId: payIn.id } })
+  return { subName, payIn, major: 2, minor }
 }
 
 function lwsFeeTx (hash, piconeros, major, minor, height = 1234) {
@@ -91,11 +125,31 @@ test('penaltyIndexer attributes a posting fee by subaddress, creates FeeObservat
   expect(obs.state).toBe('DETECTED')
   expect(obs.piconeros).toBe(1_000_000_000n)
   expect(obs.feeType).toBe('POSTING')
+  // the ItemPayIn link is denormalized so analytics/history can find the post
+  expect(obs.postId).toBe(item.id)
+  expect(obs.subName).toBeNull()
 
   const live = await prisma.item.findUnique({ where: { id: item.id } })
   expect(live.feeStatus).toBe('FEE_PAID')
   expect(live.feeInvestmentPiconeros).toBe(1_000_000_000n)
   expect(live.netInvestment).toBe(1_000_000_000n) // trigger folds the fee in
+})
+
+test('penaltyIndexer attributes a territory fee by subaddress, denormalizing the Sub name', async () => {
+  const { subName, payIn, major, minor } = await seedPendingFeeSub(201)
+  await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('e5' + '56'.repeat(31), '200000000000', major, minor)] })
+
+  const obs = await prisma.feeObservation.findFirst({ where: { payInId: payIn.id } })
+  expect(obs).toBeTruthy()
+  expect(obs.state).toBe('DETECTED')
+  expect(obs.piconeros).toBe(200_000_000_000n)
+  expect(obs.feeType).toBe('TERRITORY_BILLING')
+  // the SubPayIn link is denormalized so analytics/history can find the turf
+  expect(obs.postId).toBeNull()
+  expect(obs.subName).toBe(subName)
+
+  const live = await prisma.sub.findUnique({ where: { name: subName } })
+  expect(live.billingStatus).toBe('PAID')
 })
 
 test('penaltyIndexer is idempotent across re-polls', async () => {
