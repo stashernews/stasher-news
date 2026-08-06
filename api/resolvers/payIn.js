@@ -32,22 +32,6 @@ function isMine (payIn, { me }) {
   return Number(meId) === Number(payIn.userId)
 }
 
-async function hydratePayInItems (payIns, { me, models }) {
-  const visibleItemPayIns = payIns.filter(payIn =>
-    payIn.itemPayIn && !(!isMine(payIn, { me }) && payIn.payInType === 'DOWNVOTE'))
-  if (visibleItemPayIns.length === 0) return
-
-  const items = await getItemsById(
-    visibleItemPayIns.map(payIn => payIn.itemPayIn.itemId),
-    { me, models }
-  )
-  const itemMap = new Map(items.map(item => [Number(item.id), item]))
-
-  for (const payIn of visibleItemPayIns) {
-    payIn.item = itemMap.get(Number(payIn.itemPayIn.itemId)) || null
-  }
-}
-
 export async function getPayIn (parent, { id }, { me, models }) {
   const payIn = (await getPayInFull({
     models,
@@ -78,60 +62,106 @@ export default {
       if (walletId != null) {
         return { payIns: [], cursor: null }
       }
-
       const decodedCursor = decodeCursor(cursor)
       const offset = decodedCursor.offset
       const limit = LIMIT
-      const walletSendFilter = Prisma.empty
-      const walletReceiveFilter = Prisma.empty
-      // StasherNews: the receive side of the activity feed was backed by the custodial
-      // payout tables (PayOutCustodialToken, RefundCustodialToken), which are gone.
-      // Monero tips are P2P and don't produce custodial receive-side payIns, so only the
-      // user's own (send-side) payIns are surfaced here.
-      const receivePredicate = Prisma.sql`AND FALSE`
 
-      // why we need the union:
-      // if we are paying in, we want a row for that when it's created, regardless of whether it's succeeded, pending, or failed
-      //    that's because payInCustodialTokens are created when the payIn is created
-      // if we are paid out, we want a row for that too if the payIn is paid or it failed and we are refunded
-      //    that's because payOutCustodialTokens and refundCustodialTokens are created when the payIn is paid and refunded respectively
-      // this helps provide a linear timeline of custodial token changes (ie mtokensAfter changes)
-      const payIns = await getPayInFull({
-        models,
-        query: Prisma.sql`
-          (
-            SELECT "PayIn".*, created_at as "sortTime", true as "isSend"
-            FROM "PayIn"
-            WHERE "PayIn"."userId" = ${userId}
-            AND "PayIn"."benefactorId" IS NULL
-            AND "PayIn"."piconeros" > 0
-            AND "PayIn"."created_at" <= ${decodedCursor.time}
-            ${walletSendFilter}
-            ORDER BY "sortTime" DESC
-            LIMIT ${limit + offset}
-          )
-          UNION ALL
-          (
-            SELECT "PayIn".*, "payInStateChangedAt" as "sortTime", false as "isSend"
-            FROM "PayIn"
-            WHERE "PayIn"."benefactorId" IS NULL
-            AND "PayIn"."piconeros" > 0
-            AND "PayIn"."payInStateChangedAt" <= ${decodedCursor.time}
-            ${walletReceiveFilter}
-            ${receivePredicate}
-            ORDER BY "sortTime" DESC
-            LIMIT ${limit + offset}
-          )
-          ORDER BY "sortTime" DESC, "isSend" ASC
-          OFFSET ${offset}
-          LIMIT ${limit}`,
-        orderBy: Prisma.sql`ORDER BY "sortTime" DESC, "isSend" ASC`
-      })
-      await hydratePayInItems(payIns, { me, models })
+      // StasherNews: the history feed is built from the observation tables (the
+      // fork's real source of truth), NOT from PayIn rows — PayIn.piconeros is 0
+      // for every monero fee/downvote, tips never create PayIns, and the receive
+      // side (tips) has no PayIn at all. Only CONFIRMED observations count.
+      // Synthetic rows get negative ids so they never collide with real PayIn.id
+      // or the Apollo cache key ['id', 'isSend'].
+      //
+      // Posting/burn rows carry their postId; TERRITORY_* fees carry subName
+      // instead (postId is NULL for territory fees), so the row can link to the
+      // turf and payInContext can render the TerritoryDetails.
+      const rows = await models.$queryRaw`
+        (
+          SELECT
+            (-t.id)::int AS id,
+            t."confirmedAt" AS "createdAt",
+            t."confirmedAt" AS "updatedAt",
+            t.piconeros AS piconeros,
+            'TIP'::"PayInType" AS "payInType",
+            'PAID'::"PayInState" AS "payInState",
+            t."confirmedAt" AS "payInStateChangedAt",
+            NULL::int AS "userId",
+            false AS "isSend",
+            t."postId" AS "itemId",
+            NULL::citext AS "subName"
+          FROM "ObservedTip" t
+          JOIN "MoneroAccount" ma ON ma.id = t."recipientAccountId"
+          WHERE t.state = 'CONFIRMED'
+            AND ma."ownerUserId" = ${userId}
+            AND t."confirmedAt" <= ${decodedCursor.time}
+        )
+        UNION ALL
+        (
+          SELECT
+            (-1000000000 - b.id)::int AS id,
+            b."confirmedAt",
+            b."confirmedAt",
+            b.piconeros,
+            'DOWNVOTE'::"PayInType",
+            'PAID'::"PayInState",
+            b."confirmedAt",
+            ${userId}::int,
+            true AS "isSend",
+            b."postId",
+            NULL::citext
+          FROM "ObservedBurn" b
+          WHERE b.state = 'CONFIRMED'
+            AND b."downvoterId" = ${userId}
+            AND b."confirmedAt" <= ${decodedCursor.time}
+        )
+        UNION ALL
+        (
+          SELECT
+            (-2000000000 - f.id)::int AS id,
+            f."confirmedAt",
+            f."confirmedAt",
+            f.piconeros,
+            CASE WHEN f."feeType" = 'POSTING'
+              THEN 'ITEM_CREATE'::"PayInType"
+              ELSE 'TERRITORY_BILLING'::"PayInType" END,
+            'PAID'::"PayInState",
+            f."confirmedAt",
+            ${userId}::int,
+            true AS "isSend",
+            f."postId",
+            f."subName"
+          FROM "FeeObservation" f
+          JOIN "PayIn" p ON p.id = f."payInId"
+          WHERE f.state = 'CONFIRMED'
+            AND p."userId" = ${userId}
+            AND f."confirmedAt" <= ${decodedCursor.time}
+        )
+        ORDER BY "payInStateChangedAt" DESC, "isSend" ASC
+        OFFSET ${offset}
+        LIMIT ${limit}`
+
+      // hydrate item (for tips/downvotes/posting fees) and, for territory fees,
+      // leave subPayIn populated so PayerPrivates.sub + PayInContext render the turf.
+      const itemIds = rows.map(r => Number(r.itemId)).filter(id => Number.isInteger(id) && id > 0)
+      const items = await getItemsById(itemIds, { me, models })
+      const itemMap = new Map(items.map(item => [Number(item.id), item]))
+
+      const payIns = rows.map(row => ({
+        ...row,
+        itemPayIn: row.itemId ? { itemId: row.itemId } : null,
+        subPayIn: row.subName ? { subName: row.subName } : null,
+        pessimisticEnv: null,
+        payInCustodialTokens: [],
+        payOutCustodialTokens: [],
+        beneficiaries: [],
+        refundCustodialTokens: [],
+        item: row.itemId ? (itemMap.get(Number(row.itemId)) ?? null) : null
+      }))
 
       return {
         payIns,
-        cursor: payIns.length === LIMIT ? nextCursorEncoded(decodedCursor) : null
+        cursor: payIns.length === limit ? nextCursorEncoded(decodedCursor) : null
       }
     },
     failedPayIns: async (parent, args, { me, models }) => {
