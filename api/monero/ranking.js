@@ -3,7 +3,7 @@ import prisma from '@/api/models'
 
 // Ranking side-effects of an observed Monero tip.
 //
-// StealthNews tips are observed off-chain by the moneroIndexer (Task 4). When a
+// StasherNews tips are observed off-chain by the moneroIndexer (Task 4). When a
 // tip is DETECTED this hook bumps the tipped Item's `piconeros` and propagates
 // `commentPiconeros` to ancestors so the retained `item_ranking` BEFORE UPDATE
 // trigger recomputes `ranktop`/`ranklit` — exactly the ranking path SN's

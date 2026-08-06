@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Engine-level regression for the StealthNews payIn engine (Tasks 1-4).
+// Engine-level regression for the StasherNews payIn engine (Tasks 1-4).
 //
 // TERRITORY_CREATE is an piconeros:0 fee payIn: getInitial builds a rewards-wallet
 // fee URI (no custodial sats), begin() -> payInCreate() yields payInState=PAID,
@@ -196,7 +196,7 @@ test('a rewards-wallet major-2 fee subaddress was reserved (ASSIGNED) for the fe
   expect(idx?.state).toBe('ASSIGNED')
 })
 
-test('the returned PayIn carries the StealthNews monero fee URI + subaddress coords', () => {
+test('the returned PayIn carries the StasherNews monero fee URI + subaddress coords', () => {
   expect(result.moneroUri).toMatch(/^monero:/)
   expect(result.moneroSubaddressMajor).toBe(2)
   expect(result.moneroSubaddressMinor).toBe(created.drawnMinor)

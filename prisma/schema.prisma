@@ -112,7 +112,7 @@ model User {
   curedBy             Cure?                @relation("Cure_curee")
   curedByMe           Cure[]               @relation("Cure_curer")
 
-  // StealthNews Monero fields (§4.2)
+  // StasherNews Monero fields (§4.2)
   moneroAddress       String?
   privacyMode         PrivacyMode?
   stackedPiconeros    BigInt       @default(0)
@@ -402,7 +402,7 @@ model Item {
   // that depends on this column unnecessarily ... remove during next maintenance window
   subName              String?               @db.Citext
 
-  // StealthNews posting-fee gate (§6.2, Q8): a low-rep author's post is created
+  // StasherNews posting-fee gate (§6.2, Q8): a low-rep author's post is created
   // PENDING_FEE and invisible until the penaltyIndexer observes the posting fee;
   // FEE_PAID (or FEE_NOT_REQUIRED for above-threshold authors) makes it visible.
   feeStatus   ItemFeeStatus @default(FEE_NOT_REQUIRED)
@@ -610,7 +610,7 @@ model Sub {
   postsPiconerosFilter BigInt                   @default(1000000000)
   nsfw             Boolean     @default(false)
 
-  // StealthNews territory-fee gate (§6.2): territory create/renew fees land on the
+  // StasherNews territory-fee gate (§6.2): territory create/renew fees land on the
   // rewards wallet; billingStatus tracks PAID -> PENDING_FEE -> LAPSED. Reuses the
   // existing billedLastAt/billPaidUntil cadence in worker/territory.js.
   billingStatus   SubBillingStatus @default(PAID)
@@ -1117,12 +1117,12 @@ model PayIn {
   userId Int
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // StealthNews (§4.2): Monero URI / observed-tip / observed-burn linkage
+  // StasherNews (§4.2): Monero URI / observed-tip / observed-burn linkage
   moneroUri      String?
   paymentId      String?
   observedTipId  BigInt?
   observedBurnId BigInt?
-  // StealthNews fee linkage (§6.2): the rewards-wallet fee subaddress this PayIn
+  // StasherNews fee linkage (§6.2): the rewards-wallet fee subaddress this PayIn
   // watches. The detected FeeObservation is reached via the `feeObservation`
   // back-relation (1:1, FK on FeeObservation.payInId) rather than a redundant scalar.
   moneroSubaddressMajor Int?
@@ -1272,7 +1272,7 @@ model AggRewards {
 }
 
 // =====================================================================
-// ==== STEALTHNEWS MONERO OBSERVATION MODELS (spec §4.3)            ====
+// ==== STASHERNEWS MONERO OBSERVATION MODELS (spec §4.3)            ====
 // =====================================================================
 // All monetary columns are BigInt piconeros (1e-12 XMR). The relation
 // syntax in the spec was malformed (fields:/references: swapped); it is
@@ -1327,7 +1327,7 @@ enum PayoutState {
   FAILED
 }
 
-// StealthNews fee ledger (§6.2). Posting/territory fees land on the platform
+// StasherNews fee ledger (§6.2). Posting/territory fees land on the platform
 // rewards wallet via dedicated subaddresses; the penaltyIndexer attributes them.
 enum FeeType {
   POSTING

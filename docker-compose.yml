@@ -325,7 +325,7 @@ services:
       - --auto-accept-creation
       - --max-subaddresses=50000
       - --create-queue-max=50000
-      - --access-control-origin=stealth.news
+      - --access-control-origin=stasher.news
       - --confirm-external-bind
       - --disable-admin-auth
       - --webhook-ssl-verification=none

@@ -1,6 +1,6 @@
 import createPrisma from '@/lib/create-prisma'
 
-// computeCuratorShares — the share-computation core of StealthNews' weekly
+// computeCuratorShares — the share-computation core of StasherNews' weekly
 // rewardsDistributor (Phase 4 Task 7 / design spec §5). It ports Stacker.news'
 // worker/earn.js reward CTE verbatim, changing ONLY the input source: confirmed
 // ObservedTip rows (P2P Monero tips) replace the legacy PayIn ZAP records, and
@@ -12,7 +12,7 @@ import createPrisma from '@/lib/create-prisma'
 //   - the HANDICAP_IDS / HANDICAP_ZAP_MULT (SN-specific user ids; every curator
 //     gets multiplier 1 here);
 //   - the EACH_ITEM_PORTION (item-author) UNION branch (SN sets it to 0 — dead
-//     code; StealthNews rewards curators only);
+//     code; StasherNews rewards curators only);
 //   - the entire referral machinery (OneDayReferral / foreverReferrerId).
 //
 // What was kept: NTILE(100) percentile cutoff, the "islands" contiguous-zap

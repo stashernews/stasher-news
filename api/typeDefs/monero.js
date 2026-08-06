@@ -1,6 +1,6 @@
 import { gql } from 'graphql-tag'
 
-// StealthNews Monero wallet-setup GraphQL surface (spec §7.3).
+// StasherNews Monero wallet-setup GraphQL surface (spec §7.3).
 //
 // Scope (controller resolution #1): ONLY the wallet-onboarding operations from
 // §7.3 land in Phase 2. The rest of §7.3 (setPrivacyMode, submitTipProof,

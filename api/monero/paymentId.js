@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 
-const DEFAULT_PID_KEY = 'stealthnews-dev-pid-key'
+const DEFAULT_PID_KEY = 'stashernews-dev-pid-key'
 
 // Resolve the HMAC key used to mint payment-Id capability tokens. Fail-closed on
 // mainnet when the weak committed dev-default is still in use: tipStatus exposes

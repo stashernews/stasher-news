@@ -2,7 +2,7 @@
 
 // Integration test: verifies the item_ranking trigger (reproduced verbatim
 // from migration 20260209000000_evergreen_ranking) still fires on the
-// StealthNews baseline and updates ranktop/ranklit in response to piconeros /
+// StasherNews baseline and updates ranktop/ranklit in response to piconeros /
 // downPiconeros changes. The column units are now piconeros, but the trigger
 // logic and field names are unchanged.
 //

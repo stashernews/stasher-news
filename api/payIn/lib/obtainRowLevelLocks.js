@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client'
 // 1. do NOT lock all users, but use NOWAIT on users locks so that we can catch AND retry transactions that fail with a deadlock error
 // anything we can do to minimize the time spent in these interactive txs would also help
 export async function obtainRowLevelLocks (tx, payIn) {
-  // StealthNews fee-based payIns (territory create/billing, posting, downvote) return
+  // StasherNews fee-based payIns (territory create/billing, posting, downvote) return
   // piconeros=0n with no custodial pay-outs, so payOutCustodialTokens is undefined. Guard it
   // to avoid "Cannot read properties of undefined (reading 'map')" — matches the
   // optional-chaining already used in api/payIn/lib/assert.js.

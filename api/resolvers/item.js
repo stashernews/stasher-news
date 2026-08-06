@@ -224,7 +224,7 @@ function whenClause (when, table) {
 }
 
 export const activeOrMine = (me) => {
-  // StealthNews posting-fee gate (§6.2, Q8): a PENDING_FEE item is invisible to
+  // StasherNews posting-fee gate (§6.2, Q8): a PENDING_FEE item is invisible to
   // everyone except its author until the penaltyIndexer observes its posting fee and
   // flips feeStatus to FEE_PAID. (Existing items default to FEE_NOT_REQUIRED.)
   return me
@@ -865,7 +865,7 @@ export default {
       await validateSchema(actSchema, { piconeros: Number(piconeros), act })
       await assertGofacYourself({ models, headers })
 
-      // StealthNews: tips are ObservedTip-based (the webhook + payment-ID flow in
+      // StasherNews: tips are ObservedTip-based (the webhook + payment-ID flow in
       // the initiateTip mutation), NOT PayIn-based. `act` is typed `: PayIn!` (the
       // legacy SN zap path) and the frontend ACT_MUTATION spreads PayInFields, so it
       // cannot carry a TipInitiation. The tip button must call initiateTip directly;

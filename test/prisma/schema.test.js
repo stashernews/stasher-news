@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Schema-presence test for the StealthNews baseline (Task 1).
+// Schema-presence test for the StasherNews baseline (Task 1).
 // Inspects the *generated* Prisma client DMMF metadata, so it only requires
 // `prisma generate` — no live database connection is made.
 //
@@ -48,13 +48,13 @@ const REMOVED_MODELS = [
   'ItemForward'
 ]
 
-test('stealth schema has the Monero observation models', () => {
+test('stasher schema has the Monero observation models', () => {
   for (const m of EXPECTED_MODELS) {
     expect(modelNames).toContain(m)
   }
 })
 
-test('stealth schema has no custodial/Lightning residue models', () => {
+test('stasher schema has no custodial/Lightning residue models', () => {
   for (const removed of REMOVED_MODELS) {
     expect(modelNames).not.toContain(removed)
   }
@@ -74,7 +74,7 @@ test('Item keeps the ranking-trigger column names verbatim', () => {
   }
 })
 
-test('Item has the StealthNews posting-fee columns (subaddress columns dropped)', () => {
+test('Item has the StasherNews posting-fee columns (subaddress columns dropped)', () => {
   const fields = fieldsOf('Item')
   for (const c of ['feeStatus', 'feePayInId', 'feePayIn', 'observedTips', 'observedBurns']) {
     expect(fields).toContain(c)
@@ -110,7 +110,7 @@ test('MoneroAccount drops the Item.posts inverse relation', () => {
   expect(rels).not.toContain('posts')
 })
 
-test('User has the StealthNews Monero fields and no custodial balance fields', () => {
+test('User has the StasherNews Monero fields and no custodial balance fields', () => {
   const fields = fieldsOf('User')
   for (const c of ['moneroAddress', 'privacyMode', 'stackedPiconeros', 'downvotePiconeros', 'tipDefaultPiconeros', 'moneroAccounts', 'rewardPayouts', 'hideStashAmount']) {
     expect(fields).toContain(c)
@@ -122,7 +122,7 @@ test('User has the StealthNews Monero fields and no custodial balance fields', (
   }
 })
 
-test('PayInType and PayInState enums are reduced to the StealthNews set', () => {
+test('PayInType and PayInState enums are reduced to the StasherNews set', () => {
   expect(valuesOf('PayInType').sort()).toEqual([
     'BOOST', 'DONATE', 'DOWNVOTE', 'ITEM_CREATE', 'ITEM_UPDATE',
     'MEDIA_UPLOAD', 'POLL_VOTE', 'TERRITORY_BILLING', 'TERRITORY_CREATE',

@@ -2,7 +2,7 @@
 
 // Integration test for computeCuratorShares (Phase 4 Task 7 / spec §5).
 //
-// computeCuratorShares ports SN's worker/earn.js reward-share CTE to StealthNews:
+// computeCuratorShares ports SN's worker/earn.js reward-share CTE to StasherNews:
 // it reads confirmed ObservedTip rows (P2P Monero tips) instead of legacy PayIn
 // ZAPs, ranks the tipped items by weightedVotes-weightedDownVotes, and apportions
 // a weekly rewards pool (piconeros) to the curators (tippers) of top content.

@@ -6,7 +6,7 @@ import { buildMoneroUri } from '../monero/uri'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 
-// StealthNews Monero wallet-setup + tip-initiation resolvers (spec §4.5, §7.3).
+// StasherNews Monero wallet-setup + tip-initiation resolvers (spec §4.5, §7.3).
 //
 // Operations:
 //   - Mutation.registerMoneroAccount — wallet onboarding (primary address + view key)

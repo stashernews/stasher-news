@@ -3,7 +3,7 @@ import createPrisma from '@/lib/create-prisma'
 import { computeCuratorShares } from './curatorShares'
 import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
 
-// rewardsDistributor — StealthNews' weekly rewards-pool distribution job
+// rewardsDistributor — StasherNews' weekly rewards-pool distribution job
 // (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
 //
 //   1. tallies CONFIRMED platform-wallet inflow by source (downvote burns +

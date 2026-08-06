@@ -103,7 +103,7 @@ export default function Transparency ({ ssrData }) {
         <Col lg={8} xs={12}>
           <h2 className='text-center text-muted'>Rewards Wallet Transparency</h2>
           <p className='text-center text-muted pb-4'>
-            The platform rewards wallet is StealthNews's only custodial component.
+            The platform rewards wallet is StasherNews's only custodial component.
             Downvotes, posting fees, and territory fees land here and fund weekly
             curator payouts. Audit it independently — the view key is public by design.
           </p>

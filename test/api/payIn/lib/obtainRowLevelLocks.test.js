@@ -2,7 +2,7 @@
 import { obtainRowLevelLocks } from '@/api/payIn/lib/obtainRowLevelLocks'
 
 // Regression test for the "Cannot read properties of undefined (reading 'map')"
-// crash that blocked every StealthNews fee-based payIn (territory create, posting,
+// crash that blocked every StasherNews fee-based payIn (territory create, posting,
 // territory billing, downvote). Those payIns return piconeros=0n with NO
 // payOutCustodialTokens key, so obtainRowLevelLocks must tolerate its absence.
 

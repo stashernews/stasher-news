@@ -2,7 +2,7 @@
 import { payInPrismaCreate } from '@/api/payIn/lib/payInPrisma'
 
 // Regression test for the "Unknown argument: payInCustodialTokens" /
-// "relation does not exist" crashes that blocked every StealthNews fee payIn.
+// "relation does not exist" crashes that blocked every StasherNews fee payIn.
 // The Prisma schema removed the custodial/Lightning tables, so payInPrismaCreate
 // must NOT emit keys referencing them for an piconeros:0 fee prospect.
 

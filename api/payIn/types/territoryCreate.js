@@ -6,7 +6,7 @@ import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 
-// StealthNews territory creation (spec §6.2). The founder pays a territory fee to
+// StasherNews territory creation (spec §6.2). The founder pays a territory fee to
 // the platform rewards wallet via a dedicated major-2 subaddress; the territory is
 // created billingStatus=PENDING_FEE (invisible/inactive) until the penaltyIndexer
 // observes the fee and flips it to PAID. piconeros=0 (no custodial sats) so the SN
