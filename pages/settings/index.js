@@ -101,7 +101,7 @@ export default function Settings ({ ssrData }) {
         <Form
           enableReinitialize
           initial={{
-            tipDefault: piconerosToXmrDecimal(BigInt(settings?.tipDefault ?? 100000000)),
+            tipDefault: piconerosToXmrDecimal(BigInt(settings?.tipDefault ?? 1000000000)),
             tipRandom: settings?.tipRandom,
             tipRandomMin: piconerosToXmrDecimal(BigInt(settings?.tipRandomMin ?? 1)),
             tipRandomMax: piconerosToXmrDecimal(BigInt(settings?.tipRandomMax ?? 10)),

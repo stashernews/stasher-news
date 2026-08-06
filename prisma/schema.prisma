@@ -121,7 +121,7 @@ model User {
   privacyMode         PrivacyMode?
   stackedPiconeros    BigInt       @default(0)
   downvotePiconeros   BigInt       @default(0)
-  tipDefaultPiconeros Int          @default(100000000)
+  tipDefaultPiconeros Int          @default(1000000000)
 
   // back-relations for the Monero observation models
   moneroAccounts MoneroAccount[]
