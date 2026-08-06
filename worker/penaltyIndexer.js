@@ -67,7 +67,8 @@ async function attributeFeeBySubaddress (models, tx) {
   if (major !== REWARDS_POSTING_MAJOR && major !== REWARDS_TERRITORY_MAJOR) return null
 
   const payIn = await models.payIn.findFirst({
-    where: { moneroSubaddressMajor: major, moneroSubaddressMinor: minor }
+    where: { moneroSubaddressMajor: major, moneroSubaddressMinor: minor },
+    include: { itemPayIn: true, subPayIn: true }
   })
   if (!payIn) return null
 
@@ -76,10 +77,11 @@ async function attributeFeeBySubaddress (models, tx) {
   // Idempotent insert keyed by @@unique([txHash, recipientMajor, recipientMinor]).
   // ON CONFLICT DO NOTHING means a re-poll of the same tx is a no-op. RETURNING
   // gives us the row only on the fresh insert (null on conflict) so the flip runs
-  // exactly once.
+  // exactly once. postId/subName are denormalized from the PayIn's ItemPayIn /
+  // SubPayIn links for the rewards ledger and the statistics/analytics reads.
   const rows = await models.$queryRaw`
-    INSERT INTO "FeeObservation" ("txHash","payInId","feeType","recipientMajor","recipientMinor","piconeros","height","state","detectedAt")
-    VALUES (${tx.hash}, ${payIn.id}, ${feeType}::"FeeType", ${major}, ${minor}, ${tx.piconeros}, ${tx.height ?? null}, 'DETECTED'::"ObservedState", NOW())
+    INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","height","state","detectedAt")
+    VALUES (${tx.hash}, ${payIn.id}, ${feeType}::"FeeType", ${payIn.itemPayIn?.itemId ?? null}, ${payIn.subPayIn?.subName ?? null}, ${major}, ${minor}, ${tx.piconeros}, ${tx.height ?? null}, 'DETECTED'::"ObservedState", NOW())
     ON CONFLICT ("txHash","recipientMajor","recipientMinor") DO NOTHING
     RETURNING id`
   if (!rows || rows.length === 0) return null
