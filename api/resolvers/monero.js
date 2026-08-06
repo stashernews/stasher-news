@@ -88,7 +88,7 @@ export async function initiateTipCore ({ postId, amount, models, monero, me }) {
   // piconeros here would make every tip misread 1e12x by the receiving wallet.
   const uri = buildMoneroUri(
     [{ address: integratedAddress, amount: piconeros }],
-    { description: `tip on "${post.title ?? ''}" via StealthNews`, paymentId }
+    { description: `tip on "${post.title ?? ''}" via StasherNews`, paymentId }
   )
 
   return { integratedAddress, paymentId, uri }

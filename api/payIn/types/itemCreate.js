@@ -51,7 +51,7 @@ export async function getInitial (models, args, { me }) {
     const sub = await reserveFeeSubaddress(models, 'POSTING')
     const moneroUri = buildMoneroUri(
       [{ address: sub.address, amount: fee }],
-      { description: 'StealthNews comment fee' }
+      { description: 'StasherNews comment fee' }
     )
     return {
       payInType: 'ITEM_CREATE',
@@ -80,7 +80,7 @@ export async function getInitial (models, args, { me }) {
   const sub = await reserveFeeSubaddress(models, 'POSTING')
   const moneroUri = buildMoneroUri(
     [{ address: sub.address, amount: fee }],
-    { description: 'StealthNews posting fee' }
+    { description: 'StasherNews posting fee' }
   )
   return {
     payInType: 'ITEM_CREATE',
