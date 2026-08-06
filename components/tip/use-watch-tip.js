@@ -19,18 +19,12 @@ const POLL_INTERVAL_MS = 3000
 // PENDING/null keep polling.
 const TERMINAL_STATES = new Set(['DETECTED', 'CONFIRMED', 'REORGED', 'EXPIRED'])
 
-export function tipWatchOptions (paymentId) {
-  return {
+export default function useWatchTip ({ paymentId, onDetected }) {
+  const { data, stopPolling } = useQuery(TIP_STATUS, {
     variables: { paymentId },
     pollInterval: POLL_INTERVAL_MS,
-    skip: !paymentId,
-    fetchPolicy: 'network-only',
-    nextFetchPolicy: 'network-only'
-  }
-}
-
-export default function useWatchTip ({ paymentId, onDetected }) {
-  const { data, stopPolling } = useQuery(TIP_STATUS, tipWatchOptions(paymentId))
+    skip: !paymentId
+  })
 
   const state = data?.tipStatus?.state ?? null
   const firedRef = useRef(false)

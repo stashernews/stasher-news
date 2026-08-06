@@ -22,7 +22,6 @@ export default function useWatchDownvote ({ paymentId, onDetected }) {
   const { data, stopPolling } = useQuery(DOWNVOTE_STATUS, {
     variables: { paymentId },
     pollInterval: POLL_INTERVAL_MS,
-    fetchPolicy: 'network-only',
     skip: !paymentId
   })
 
