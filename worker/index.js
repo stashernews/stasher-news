@@ -4,7 +4,6 @@ import PgBoss from 'pg-boss'
 import createPrisma from '@/lib/create-prisma'
 import { repin } from './repin'
 import { trust } from './trust'
-import { earn, earnRefill } from './earn'
 import { ApolloClient, HttpLink, InMemoryCache } from '@apollo/client'
 import { indexItem, indexAllItems } from './search'
 import { timestampItem } from './ots'
@@ -109,8 +108,6 @@ async function work () {
   await boss.work('repin-*', jobWrapper(repin))
   await boss.work('trust', jobWrapper(trust))
   await boss.work('timestampItem', { includeMetadata: true }, jobWrapper(timestampItem))
-  await boss.work('earn', jobWrapper(earn))
-  await boss.work('earnRefill', jobWrapper(earnRefill))
   await boss.work('streak', jobWrapper(computeStreaks))
   await boss.work('checkStreak', jobWrapper(checkStreak))
   await boss.work('nip57', jobWrapper(nip57))
