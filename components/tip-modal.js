@@ -164,11 +164,8 @@ function tipStatusCopy (state) {
       return 'the payment was detected then reorganized — try again'
     case 'CONFIRMED':
       return 'status: CONFIRMED'
-    default: {
-      // DETECTED bumps + flips to the success view via onDetected; PENDING/null keeps the waiting copy
-      const label = state ?? 'PENDING'
-      return `status: ${label} — waiting for your payment to be observed on-chain (usually a few minutes)`
-    }
+    default:
+      return null
   }
 }
 
@@ -187,6 +184,7 @@ function TipPaymentView ({ uri, paymentId, amount, onDetected, onClose }) {
       />
     )
   }
+  const statusCopy = tipStatusCopy(state)
   return (
     <MoneroPaymentView
       moneroUri={uri}
@@ -194,9 +192,10 @@ function TipPaymentView ({ uri, paymentId, amount, onDetected, onClose }) {
       heading='Pay this tip'
       description={`Scan to send ${piconerosToXmr(BigInt(amount))} directly to the author.`}
     >
-      <p className='text-muted text-center mt-2'>
-        <small>{tipStatusCopy(state)}</small>
-      </p>
+      {statusCopy &&
+        <p className='text-muted text-center mt-2'>
+          <small>{statusCopy}</small>
+        </p>}
     </MoneroPaymentView>
   )
 }
