@@ -1,28 +1,21 @@
 import { gql } from 'graphql-tag'
 import Button from 'react-bootstrap/Button'
-import InputGroup from 'react-bootstrap/InputGroup'
 import { getGetServerSideProps } from '@/api/ssrApollo'
-import { Form, Input, SubmitButton } from '@/components/form'
 import Layout from '@/components/layout'
 import { useQuery } from '@apollo/client/react'
 import Link from 'next/link'
-import { xmrAmountSchema } from '@/lib/validate'
-import { piconerosToXmr, xmrToPiconeros } from '@/lib/format'
+import { piconerosToXmr } from '@/lib/format'
 import PageLoading from '@/components/page-loading'
 import { useShowModal } from '@/components/modal'
 import dynamic from 'next/dynamic'
 import { FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
-import { useToast } from '@/components/toast'
-import { useAnimation } from '@/components/animation'
 import { Col, Row } from 'react-bootstrap'
 import { useData } from '@/components/use-data'
 import { GrowthPieChartSkeleton } from '@/components/charts-skeletons'
 import { useMemo } from 'react'
 import { CompactLongCountdown } from '@/components/countdown'
-import { DONATE } from '@/fragments/payIn'
-import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
-import { throwUnlessUserCancel } from '@/wallets/client/errors'
 import { payTypeShortName } from '@/lib/pay-in'
+import DonateModal from '@/components/donate-modal'
 
 const GrowthPieChart = dynamic(() => import('@/components/charts').then(mod => mod.GrowthPieChart), {
   loading: () => <GrowthPieChartSkeleton />
@@ -109,52 +102,12 @@ export default function Rewards ({ ssrData }) {
 
 export function DonateButton () {
   const showModal = useShowModal()
-  const toaster = useToast()
-  const animate = useAnimation()
-  const [donateToRewards] = usePayInMutation(DONATE)
 
   return (
-    <>
-      <Button
-        onClick={() => showModal(onClose => (
-          <Form
-            initial={{
-              amount: '0.001'
-            }}
-            schema={xmrAmountSchema}
-            onSubmit={async ({ amount }) => {
-              const { error, payError } = await donateToRewards({
-                variables: {
-                  piconeros: Number(xmrToPiconeros(String(amount)))
-                },
-                onCompleted: () => {
-                  animate()
-                  toaster.success('donated')
-                }
-              })
-              onClose()
-              if (error) throw error
-              // donations are pessimistic, so a terminal payment failure comes back in payError —
-              // but a user-canceled QR isn't news
-              throwUnlessUserCancel(payError)
-            }}
-          >
-            <Input
-              label='amount'
-              name='amount'
-              type='number'
-              required
-              autoFocus
-              append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
-            />
-            <div className='d-flex'>
-              <SubmitButton variant='success' className='ms-auto mt-1 px-4' value='TIP'>donate</SubmitButton>
-            </div>
-          </Form>
-        ))}
-        className='align-self-center'
-      >DONATE TO REWARDS
-      </Button>
-    </>
+    <Button
+      className='align-self-center'
+      onClick={() => showModal(onClose => <DonateModal onClose={onClose} />)}
+    >DONATE TO REWARDS
+    </Button>
   )
 }
