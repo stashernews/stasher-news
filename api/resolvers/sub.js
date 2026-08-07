@@ -88,6 +88,9 @@ export async function topSubs (parent, { query, cursor, when, from, to, limit, b
       ) x ON x.name = user_subs.name
       GROUP BY user_subs.name
     ),
+    -- counts items whose posting-fee PayIn is PAID (Item.feePayInId); free
+    -- posts (feePayInId null) are excluded, paid comments may count - this
+    -- is a fee-gated items count, not all posts in the sub
     sub_items AS (
       SELECT user_subs.name, count(*)::int AS nitems
       FROM user_subs
