@@ -7,7 +7,7 @@
 // worker stack:
 //   - reserve a rewards-wallet fee subaddress and seed a PENDING_FEE Item/Sub + PayIn
 //   - send a REAL stagenet fee to that subaddress
-//   - the penaltyIndexer observes it -> FeeObservation DETECTED + Item.feeStatus
+//   - the rewardsWalletObserver observes it -> FeeObservation DETECTED + Item.feeStatus
 //     FEE_PAID (post goes live) / Sub.billingStatus PAID
 //   - confirmFinalizer matures FeeObservation -> CONFIRMED at 10 confs
 //
@@ -140,7 +140,7 @@ async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
     return rows[0].id
   }
 
-  test('posting fee: a PENDING_FEE post goes live (FEE_PAID) once the penaltyIndexer observes the fee', async () => {
+  test('posting fee: a PENDING_FEE post goes live (FEE_PAID) once the rewardsWalletObserver observes the fee', async () => {
     // 1. reserve a real rewards-wallet posting-fee subaddress (major 1) + seed a
     //    PENDING_FEE Item + its PayIn watching that subaddress (mirrors itemCreate).
     const sub = await reserveFeeSubaddress(prisma, 'POSTING')
@@ -160,7 +160,7 @@ async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
     // 2. send a REAL stagenet fee to the reserved subaddress
     await sendFeeProgrammatic(sub.address, FEE_PICONEROS)
 
-    // 3. poll for the penaltyIndexer to flip feeStatus -> FEE_PAID (post goes live)
+    // 3. poll for the rewardsWalletObserver to flip feeStatus -> FEE_PAID (post goes live)
     await pollUntil('posting-fee FEE_PAID', async () => {
       const row = await prisma.item.findUnique({ where: { id: item.id }, select: { feeStatus: true } })
       return row?.feeStatus === 'FEE_PAID' ? row : null
@@ -181,7 +181,7 @@ async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
     }, { timeoutMs: CONFIRM_TIMEOUT_MS, pollMs: CONFIRM_POLL_MS })
   }, CONFIRM_TIMEOUT_MS + 60_000)
 
-  test('territory fee: a PENDING_FEE territory goes PAID once the penaltyIndexer observes the renewal fee', async () => {
+  test('territory fee: a PENDING_FEE territory goes PAID once the rewardsWalletObserver observes the renewal fee', async () => {
     const sub = await reserveFeeSubaddress(prisma, 'TERRITORY_CREATE')
     const userId = await createUser()
     const payIn = await prisma.payIn.create({

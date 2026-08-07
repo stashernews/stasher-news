@@ -8,7 +8,7 @@ import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 
 // StasherNews territory creation (spec §6.2). The founder pays a territory fee to
 // the platform rewards wallet via a dedicated major-2 subaddress; the territory is
-// created billingStatus=PENDING_FEE (invisible/inactive) until the penaltyIndexer
+// created billingStatus=PENDING_FEE (invisible/inactive) until the rewardsWalletObserver
 // observes the fee and flips it to PAID. piconeros=0 (no custodial sats) so the SN
 // payIn engine yields payInState=PAID; the fee itself is on-chain.
 

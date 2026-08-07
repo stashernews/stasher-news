@@ -21,7 +21,7 @@ import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
 // distribution + QUEUED payouts, finalizeDistribution drives the signer and
 // flips the distribution PENDING -> SENDING -> COMPLETE (payouts QUEUED -> SENT).
 //
-// This module exports TWO things (mirrors worker/penaltyIndexer.js /
+// This module exports TWO things (mirrors worker/rewardsWalletObserver.js /
 // worker/confirmFinalizer.js):
 //   - runDistributionOnce: the testable per-run core (no pg-boss).
 //   - rewardsDistributor:   the pg-boss handler. Runs the core and self-requeues
@@ -253,7 +253,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
 }
 
 // pg-boss handler. Runs the weekly distribution and self-requeues for the next
-// week. Mirrors the penaltyIndexer/confirmFinalizer self-requeuing pattern.
+// week. Mirrors the rewardsWalletObserver/confirmFinalizer self-requeuing pattern.
 export async function rewardsDistributor ({ boss, models }) {
   await runDistributionOnce({ models })
   await boss.send('rewardsDistributor', {}, { startAfter: WEEK_SECONDS })

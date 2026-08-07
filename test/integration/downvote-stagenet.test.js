@@ -7,10 +7,10 @@
 // monero-lws + app + worker stack end to end:
 //   - create a post + a downvote INTEGRATED address (rewards primary + payment_id)
 //     + seed its DownvotePidMap reverse map (calling the helpers directly, NOT the
-//     full payIn engine — the unit under test is the penaltyIndexer detection +
+//     full payIn engine — the unit under test is the rewardsWalletObserver detection +
 //     ranking, mirroring how phase3 calls reserveFeeSubaddress directly)
 //   - send a REAL stagenet downvote to the integrated address
-//   - the penaltyIndexer observes it -> ObservedDownvote DETECTED + Item.downPiconeros +
+//   - the rewardsWalletObserver observes it -> ObservedDownvote DETECTED + Item.downPiconeros +
 //     weightedDownVotes (LOG ranking penalty applied at DETECTION)
 //   - confirmFinalizer matures ObservedDownvote -> CONFIRMED at 10 confs
 //
@@ -43,7 +43,7 @@
 //      VIEWKEY_MASTER_KEY       must match the app/worker process
 //      STAGENET_DOWNVOTE_PICONEROS  optional (default 1000000000 = 0.001 XMR)
 //    PLATFORM_REWARDS_ADDRESS is derived at runtime from the registered rewards
-//    wallet so the integrated-address base is exactly what the penaltyIndexer polls.
+//    wallet so the integrated-address base is exactly what the rewardsWalletObserver polls.
 //
 // HOW TO RUN:
 //   RUN_STAGENET_INTEGRATION=1 STAGENET_SENDER_SEED=... VIEWKEY_MASTER_KEY=... \
@@ -163,7 +163,7 @@ async function chainHeight () {
     requireEnv('VIEWKEY_MASTER_KEY')
     // makeDownvoteAddress reads PLATFORM_REWARDS_ADDRESS; derive it from the
     // registered rewards wallet so the integrated-address base is exactly the
-    // wallet the penaltyIndexer polls (no env-var mismatch possible).
+    // wallet the rewardsWalletObserver polls (no env-var mismatch possible).
     const rewardsId = await getRewardsWalletId(prisma)
     const rewards = await prisma.moneroAccount.findUnique({ where: { id: rewardsId } })
     process.env.PLATFORM_REWARDS_ADDRESS = rewards.address

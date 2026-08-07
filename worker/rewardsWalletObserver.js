@@ -8,7 +8,7 @@ import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
 import { MONERO_POLL_INTERVAL_MS } from '@/lib/constants'
 import { Prisma } from '@prisma/client'
 
-// penaltyIndexer — observes posting/territory fees AND downvote payments paid to
+// rewardsWalletObserver — observes posting/territory fees AND downvote payments paid to
 // the platform rewards wallet (Phase 3 Task 5 + Phase 4 Task 4 / spec §3.3, §5.6,
 // §6.2). The rewards wallet is the ONLY custodial component; every payment lands
 // either on a DEDICATED subaddress (major 1 = posting, major 2 = territory) for
@@ -27,17 +27,16 @@ import { Prisma } from '@prisma/client'
 // at REQUIRED_CONFIRMATIONS (separate concern, separate job). Reorg reversal is
 // deferred (accepted v1 limitation — consistent with the tip flow).
 //
-// This module exports TWO things (mirrors worker/moneroIndexer.js /
-// worker/confirmFinalizer.js):
-//   - runPenaltyIndexerOnce: the testable per-poll core (no pg-boss). Accepts a
+// This module exports TWO things (mirrors worker/confirmFinalizer.js):
+//   - runRewardsWalletObserverOnce: the testable per-poll core (no pg-boss). Accepts a
 //     `txs` override so tests never touch the network.
-//   - penaltyIndexer: the pg-boss handler. Fetches txs via lwsClient, runs the
+//   - rewardsWalletObserver: the pg-boss handler. Fetches txs via lwsClient, runs the
 //     core, advances the cursor, and self-requeues.
 
 // One poll. `txs` is normally fetched from lws by the handler; tests pass it
 // directly. Returns nothing; effects are the FeeObservation/ObservedDownvote rows +
 // fee flips / ranking penalties.
-export async function runPenaltyIndexerOnce ({ models, account, txs }) {
+export async function runRewardsWalletObserverOnce ({ models, account, txs }) {
   for (const tx of txs || []) {
     await attributeOutput(models, tx, account)
   }
@@ -114,7 +113,7 @@ async function attributeDownvoteByPaymentId (models, tx) {
     } catch (err) {
       // Don't crash the indexer on a ranking-CTE failure; the ObservedDownvote row
       // already records the downvote. (Item columns can be repaired separately.)
-      console.error(`penaltyIndexer: ranking penalty failed for post ${map.postId}:`, err?.message || err)
+      console.error(`rewardsWalletObserver: ranking penalty failed for post ${map.postId}:`, err?.message || err)
     }
   }
 
@@ -208,7 +207,7 @@ async function flipPendingToLive (models, payIn, feePiconeros) {
 // same (lastTxId) forward dimension as moneroIndexer; full reorg reconciliation
 // for fees is deferred (a reorged fee re-appears in a later poll and the
 // idempotent FeeObservation insert handles it; confirmFinalizer gates finality).
-export async function penaltyIndexer ({ boss, models }) {
+export async function rewardsWalletObserver ({ boss, models }) {
   const account = await models.moneroAccount.findFirst({
     where: { label: 'platform_rewards', network: (process.env.MONERO_NETWORK || 'STAGENET').toUpperCase() },
     include: { viewKey: true }
@@ -220,7 +219,7 @@ export async function penaltyIndexer ({ boss, models }) {
     // lastTxId = nothing seen yet, so process the whole returned history (this
     // is what lets a brand-new account's FIRST lws tx, which has id 0, through).
     const fresh = txs.filter(t => t.height == null || typeof t.id !== 'number' || account.lastTxId == null || BigInt(t.id) > account.lastTxId)
-    await runPenaltyIndexerOnce({ models, account, txs: fresh })
+    await runRewardsWalletObserverOnce({ models, account, txs: fresh })
 
     let maxId = 0
     for (const t of txs) {
@@ -238,5 +237,5 @@ export async function penaltyIndexer ({ boss, models }) {
   } catch (err) {
     console.error('fee-pool auto top-up failed:', err?.message || err)
   }
-  await boss.send('penaltyIndexer', {}, { startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
+  await boss.send('rewardsWalletObserver', {}, { startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
 }

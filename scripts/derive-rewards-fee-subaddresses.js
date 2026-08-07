@@ -15,7 +15,7 @@
 //   MONERO_NETWORK          stagenet | mainnet
 //
 // The derivation logic lives in api/monero/feePoolDerive.js, shared with the
-// worker's automatic pool top-up (penaltyIndexer).
+// worker's automatic pool top-up (rewardsWalletObserver).
 import { PrismaClient } from '@prisma/client'
 import { deriveFeePoolAll } from '../api/monero/feePoolDerive.js'
 

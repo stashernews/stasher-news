@@ -10,11 +10,11 @@ import { buildMoneroUri } from '@/api/monero/uri'
 // A downvote pays a fee-sized amount of Monero to the platform rewards wallet
 // via an *integrated address* (primary rewards address + an 8-byte payment_id
 // that encodes (postId, nonce)). The payment_id reverse map (DownvotePidMap) is
-// recorded here so the penaltyIndexer (Task 4) can attribute the on-chain
+// recorded here so the rewardsWalletObserver (Task 4) can attribute the on-chain
 // payment and apply the ranking penalty when it lands.
 //
 // piconeros is deliberately 0n: StasherNews downvotes are NOT paid in custodial
-// sats. The on-chain Monero amount is observed externally by the penaltyIndexer
+// sats. The on-chain Monero amount is observed externally by the rewardsWalletObserver
 // and recorded in ObservedDownvote.piconeros (Task 4). With piconeros=0n and no
 // payOuts, the PayIn engine resolves this to payInState=PAID at creation time,
 // so the monero: URI is returned straight to the client — no invoice, no throw
@@ -90,7 +90,7 @@ export async function onBegin (tx, payInId, payInArgs) {
 // Intentionally a no-op. With piconeros=0n the PayIn is PAID at creation time, so
 // onPaid fires immediately during begin(). Applying the ranking penalty here
 // would penalise the item BEFORE the downvote is actually paid on-chain. The
-// real penalty is applied by the penaltyIndexer (Task 4) when it observes the
+// real penalty is applied by the rewardsWalletObserver (Task 4) when it observes the
 // payment as an ObservedDownvote.
 export async function onPaid (tx, payInId) {
 }

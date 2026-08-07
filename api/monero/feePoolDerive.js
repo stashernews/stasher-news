@@ -3,7 +3,7 @@
 // The rewards-wallet fee pool is pre-derived subaddresses (major 1 = posting,
 // major 2 = territory) stored as SubaddressIndex rows and watched via lws.
 // Derivation needs the rewards SPEND key, so this module is imported ONLY by
-// worker/penaltyIndexer.js (auto top-up) and scripts/derive-rewards-fee-subaddresses.js
+// worker/rewardsWalletObserver.js (auto top-up) and scripts/derive-rewards-fee-subaddresses.js
 // (manual CLI) — never by an api/ payIn path. The running app never reads the
 // spend key; the worker reads it only to extend a pool that has run low.
 
@@ -112,7 +112,7 @@ export async function deriveFeePoolAll (models) {
 // by one batch (batch size = the major's POSTING/TERRITORY_FEE_POOL_SIZE env).
 // `account` and `derive` are injectable for tests; the defaults resolve the
 // real platform_rewards wallet and call extendFeePool. A module-level flag
-// prevents overlapping derivations (e.g. two penaltyIndexer polls racing).
+// prevents overlapping derivations (e.g. two rewardsWalletObserver polls racing).
 let topUpInProgress = false
 let configWarned = false
 
