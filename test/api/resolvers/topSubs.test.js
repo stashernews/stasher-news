@@ -5,6 +5,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { topSubs } from '@/api/resolvers/sub'
+import { SUB_SORTS } from '@/lib/constants'
 
 // api/resolvers/sub.js transitively imports lexical/server deps (ESM-only).
 // Mirror the mocks in test/api/resolvers/leaderboard.test.js.
@@ -250,5 +251,18 @@ describe('topSubs reads live observations', () => {
     expect(sub.stacked).toBe(0n)
     const other = subs.find(s => s.name === 'topsubs-excl-other')
     expect(other.stacked).toBe(8000000000n)
+  })
+
+  test('the SubOptional GraphQL type no longer exposes revenue', async () => {
+    // Import the schema's typeDefs and assert revenue is absent from SubOptional.
+    // (Kept lightweight: a string check on the printed typeDef source.)
+    const { readFileSync } = require('fs')
+    const src = readFileSync('/app/api/typeDefs/sub.js', 'utf8')
+    expect(src).not.toMatch(/revenue\s*\(/)
+  })
+
+  test('SUB_SORTS no longer includes revenue', async () => {
+    expect(SUB_SORTS).not.toContain('revenue')
+    expect(SUB_SORTS).toEqual(['stacked', 'spent', 'items'])
   })
 })

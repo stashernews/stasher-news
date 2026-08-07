@@ -79,9 +79,8 @@ export default gql`
     """
     conditionally private
     """
-    stacked(when: String, from: String, to: String): Int
-    spent(when: String, from: String, to: String): Int
-    revenue(when: String, from: String, to: String): Int
+    stacked(when: String, from: String, to: String): BigInt
+    spent(when: String, from: String, to: String): BigInt
   }
 
   type SubBranding {

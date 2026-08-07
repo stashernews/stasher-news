@@ -172,7 +172,6 @@ export const TOP_SUBS = gql`
         optional {
           stacked(when: $when, from: $from, to: $to)
           spent(when: $when, from: $from, to: $to)
-          revenue(when: $when, from: $from, to: $to)
         }
       }
       cursor

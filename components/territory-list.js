@@ -11,7 +11,6 @@ import ActionDropdown from './action-dropdown'
 import { TerritoryInfo, ToggleSubSubscriptionDropdownItem, MuteSubDropdownItem } from './territory-header'
 
 // all of this nonsense is to show the stat we are sorting by first
-const Revenue = ({ sub }) => (sub.optional.revenue !== null && <span>{abbrNum(sub.optional.revenue)} revenue</span>)
 const Stacked = ({ sub }) => (sub.optional.stacked !== null && <span>{piconerosToXmr(BigInt(sub.optional.stacked))} stashed</span>)
 const Spent = ({ sub }) => (sub.optional.spent !== null && <span>{abbrNum(sub.optional.spent)} spent</span>)
 const Items = ({ sub }) => (
@@ -22,11 +21,10 @@ const Separator = () => (<span> \ </span>)
 
 const STAT_POS = {
   stacked: 0,
-  revenue: 1,
-  spent: 2,
-  items: 3
+  spent: 1,
+  items: 2
 }
-const STAT_COMPONENTS = [Stacked, Revenue, Spent, Items]
+const STAT_COMPONENTS = [Stacked, Spent, Items]
 
 function separate (arr, separator) {
   return arr.flatMap((x, i) => i < arr.length - 1 ? [x, separator] : [x])
