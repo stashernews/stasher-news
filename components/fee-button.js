@@ -52,8 +52,10 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
       commentFee: {
         term: `+ ${piconerosToXmr(commentFee)}`,
         label: 'comment fee',
-        op: '+',
-        modifier: (cost) => cost + Number(commentFee / 1000n),
+        // base line so the itemRepetition multiplier (op '*') scales it
+        // server-side too: 0.001 x 10^n (sortHelper runs _ first, then * and /)
+        op: '_',
+        modifier: () => Number(commentFee / 1000n),
         allowFreebies: false,
         isComment: comment
       },
@@ -75,12 +77,9 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
     postingFee: {
       term: `+ ${piconerosToXmr(feePiconeros)}`,
       label: 'posting fee',
-      // additive so the itemRepetition multiplier (op '*') can't inflate the
-      // flat on-chain fee: 0 * 10^n + fee stays fee (sortHelper runs _ first,
-      // then * and /, then + and -)
-      op: '+',
-      // legacy line items are sats: 1 sat == 1000 piconeros
-      modifier: (cost) => cost + Number(feePiconeros / 1000n),
+      // base line so the itemRepetition multiplier (op '*') scales it
+      op: '_',
+      modifier: () => Number(feePiconeros / 1000n),
       allowFreebies: false,
       isComment: false
     }
@@ -93,13 +92,20 @@ export function postCommentUseRemoteLineItems ({ parentId } = {}) {
     : gql`{ itemRepetition }`
 
   return function useRemoteLineItems () {
+    const { me } = useMe()
     const [line, setLine] = useState({})
 
     const { data } = useQuery(query, SSR ? {} : { pollInterval: FAST_POLL_INTERVAL_MS, nextFetchPolicy: 'cache-and-network' })
 
     useEffect(() => {
       const repetition = data?.itemRepetition
-      if (!repetition) return setLine({})
+      // only show the x10^n line when a fee actually applies: a comment past the
+      // freebie quota, or a low-rep post. Freebie comments (base 1) and free posts
+      // must never be multiplied.
+      const feeApplies = parentId
+        ? (me?.privates?.freeCommentsLeft ?? 0) <= 0
+        : !!me?.privates?.postingFeeRequired
+      if (!repetition || !feeApplies) return setLine({})
       setLine({
         itemRepetition: {
           term: <>x 10<sup>{repetition}</sup></>,
@@ -108,7 +114,7 @@ export function postCommentUseRemoteLineItems ({ parentId } = {}) {
           modifier: (cost) => cost * Math.pow(10, repetition)
         }
       })
-    }, [data?.itemRepetition])
+    }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.postingFeeRequired])
 
     return line
   }

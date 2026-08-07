@@ -213,3 +213,35 @@ test('getInitial returns a free prospect for anonymous comments', async () => {
   expect(result).toEqual({ payInType: 'ITEM_CREATE', userId: 27, piconeros: 0n })
   expect(result).not.toHaveProperty('moneroUri')
 })
+
+// --- A-05: 10x spam-fee escalation (item_spam) is applied server-side ---
+test('getInitial escalates the posting fee x10 for a second root post within 10m', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  await createRootPost(userId) // 1 prior root post by this user -> item_spam(NULL, userId, '10m') = 1
+  const result = await getInitial(prisma, {}, { me: { id: userId } })
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroUri).toContain('tx_amount=0.01') // 0.001 x 10^1
+})
+
+test('getInitial escalates the comment fee x10 for a repeat reply within 10m', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 15 WHERE id = ${userId}::int` // past quota
+  // item_spam only counts replies whose tree root is NOT authored by the replier
+  // (the fork never maintains Item.rootId, so the reply's rootId is set explicitly
+  // here) -> root the thread under a second user.
+  const otherUserId = await createUser()
+  const parentId = await createRootPost(otherUserId)
+  // 1 prior reply by this user to this parent -> item_spam(parentId, userId, '10m') = 1
+  const rows = await prisma.$queryRaw`
+    INSERT INTO "Item" ("userId", "parentId", text, "rootId", "created_at")
+    VALUES (${userId}::int, ${parentId}::int, ${'prior reply'}, ${parentId}::int, now())
+    RETURNING id::int AS id`
+  const replyId = rows[0].id
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(parentId) + '.' + String(replyId)}::ltree WHERE id = ${replyId}::int`
+  created.items.push(replyId)
+  const result = await getInitial(prisma, { parentId: String(parentId) }, { me: { id: userId } })
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroUri).toContain('tx_amount=0.01') // 0.001 x 10^1
+})

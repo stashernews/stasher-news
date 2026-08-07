@@ -1,4 +1,4 @@
-import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
+import { ANON_ITEM_SPAM_INTERVAL, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { notifyItemMention, notifyItemParents, notifyMention, notifyTerritorySubscribers, notifyUserSubscribers, notifyThreadSubscribers } from '@/lib/webPush'
 import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
@@ -18,6 +18,18 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.OPTIMISTIC,
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
+
+// 10x spam-fee escalation: the flat posting/comment fee is multiplied by
+// 10^(item_spam count) — the author's prior posts, or self-replies to this
+// parent, within the window. Anons use interval '0' so item_spam returns 0
+// (their x10 is a separate multiplier handled in the anon branch).
+async function escalatedFeePiconeros (models, { parentId, userId, basePiconeros }) {
+  if (basePiconeros <= 0n) return basePiconeros
+  const within = userId === USER_ID.anon ? ANON_ITEM_SPAM_INTERVAL : ITEM_SPAM_INTERVAL
+  const [{ n }] = await models.$queryRaw`
+    SELECT item_spam(${parentId ? parseInt(parentId) : null}::INTEGER, ${userId}::INTEGER, ${within}::INTERVAL)::INTEGER AS n`
+  return basePiconeros * 10n ** BigInt(n)
+}
 
 export async function getInitial (models, args, { me }) {
   // StasherNews posting-fee gate (spec §6.2, Q5). Posting is free for established
@@ -47,7 +59,11 @@ export async function getInitial (models, args, { me }) {
     }
     const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
     if (!config) throw new GqlInputError('fee config not initialized')
-    const fee = postingFeePiconeros(config)
+    const fee = await escalatedFeePiconeros(models, {
+      parentId: args.parentId,
+      userId: me.id,
+      basePiconeros: postingFeePiconeros(config)
+    })
     const sub = await reserveFeeSubaddress(models, 'POSTING')
     const moneroUri = buildMoneroUri(
       [{ address: sub.address, amount: fee }],
@@ -76,7 +92,11 @@ export async function getInitial (models, args, { me }) {
   }
 
   // low-rep user: reserve a rewards-wallet posting-fee subaddress and build the URI
-  const fee = postingFeePiconeros(config)
+  const fee = await escalatedFeePiconeros(models, {
+    parentId: null,
+    userId: me.id,
+    basePiconeros: postingFeePiconeros(config)
+  })
   const sub = await reserveFeeSubaddress(models, 'POSTING')
   const moneroUri = buildMoneroUri(
     [{ address: sub.address, amount: fee }],
