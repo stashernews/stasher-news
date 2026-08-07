@@ -425,6 +425,7 @@ model Item {
   @@index([path], map: "Item.path_index", type: Gist)
   @@index([path], map: "Item.path_index0", type: Gist)
   @@index([pinId], map: "Item.pinId_index")
+  @@index([subName])
   @@index([rootId], map: "Item.rootId_index")
   @@index([statusUpdatedAt], map: "Item.statusUpdatedAt_index")
   @@index([status], map: "Item.status_index")
@@ -1464,6 +1465,7 @@ model FeeObservation {
   @@unique([txHash, recipientMajor, recipientMinor])
   @@index([payInId])
   @@index([feeType, state])
+  @@index([state, confirmedAt])
 }
 
 // One weekly rewards distribution run.
