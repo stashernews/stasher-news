@@ -24,8 +24,8 @@ import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
 // This module exports TWO things (mirrors worker/rewardsWalletObserver.js /
 // worker/confirmFinalizer.js):
 //   - runDistributionOnce: the testable per-run core (no pg-boss).
-//   - rewardsDistributor:   the pg-boss handler. Runs the core and self-requeues
-//                            weekly.
+//   - rewardsDistributor:   the pg-boss handler. Runs the core once per scheduled
+//                            weekly run (pgboss.schedule cron, Monday 00:00 UTC).
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
