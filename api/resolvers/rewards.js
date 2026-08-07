@@ -74,10 +74,10 @@ async function getRewards (when, models) {
   const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
   const [{ downvote, posting, territory, time }] = await models.$queryRaw`
     SELECT
-      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS downvote,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS posting,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS territory,
-      date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AS time`
+      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS downvote,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS posting,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS territory,
+      date_trunc('day', ${when[0]}::text::timestamptz) AS time`
 
   return [rewardsFromInflow({ downvote, posting, territory }, time, config)]
 }
@@ -115,7 +115,7 @@ export default {
             FROM "Earn"
             WHERE "Earn"."userId" = ${me.id}
             AND (type IS NULL OR type NOT IN ('FOREVER_REFERRAL', 'ONE_DAY_REFERRAL'))
-            AND date_trunc('day', "Earn".created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago') = days_cte.day
+            AND date_trunc('day', "Earn".created_at AT TIME ZONE 'UTC') = days_cte.day
             ORDER BY "Earn".piconeros DESC)
         ) "Earn"
         GROUP BY days_cte.day

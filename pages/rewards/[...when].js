@@ -47,7 +47,7 @@ function RewardDay ({ total, sources, time, meRewards }) {
   return (
     <div className='py-3 w-100 d-grid' key={time} style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
       <h4 className='fw-bold text-muted ps-0'>
-        {time && <div className='text-muted fst-italic fs-6 fw-normal pb-1'>On {dayMonthYear(time)} at 12a CT</div>}
+        {time && <div className='text-muted fst-italic fs-6 fw-normal pb-1'>On {dayMonthYear(time)} at 12a UTC</div>}
         {piconerosToXmr(BigInt(total))} were rewarded
       </h4>
       <div className='my-3 w-100 justify-self-center'>
