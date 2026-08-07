@@ -5,7 +5,7 @@ import Info from './info'
 import styles from './fee-button.module.css'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
-import { ANON_FEE_MULTIPLIER, FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
+import { ANON_FEE_MULTIPLIER, DEFAULT_POSTING_FEE_PICONEROS, FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
 import { piconerosToXmr } from '@/lib/format'
 import { useMe } from './me'
 import AnonIcon from '@/svgs/spy-fill.svg'
@@ -33,7 +33,9 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
   // platform rewards wallet.
   if (comment || bio) {
     const freebie = !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
-    const commentFee = me?.privates?.commentFeePiconeros ? BigInt(me.privates.commentFeePiconeros) : 0n
+    const commentFee = me?.privates?.commentFeePiconeros
+      ? BigInt(me.privates.commentFeePiconeros)
+      : (me ? 0n : DEFAULT_POSTING_FEE_PICONEROS)
     if (freebie) {
       return {
         baseCost: {
@@ -68,9 +70,9 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
   // nothing for established ones. Legacy per-turf baseCost lines are denominated
   // in sats and would misquote the fee, so posts render a single postingFee line
   // (or no lines at all when the author posts free).
-  const feePiconeros = me?.privates?.postingFeeRequired
-    ? BigInt(me.privates.postingFeePiconeros || 0)
-    : 0n
+  const feePiconeros = me
+    ? (me.privates?.postingFeeRequired ? BigInt(me.privates.postingFeePiconeros || 0) : 0n)
+    : DEFAULT_POSTING_FEE_PICONEROS
   if (feePiconeros <= 0n) return {}
 
   return {

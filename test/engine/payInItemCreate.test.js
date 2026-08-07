@@ -20,6 +20,7 @@
 import { PrismaClient } from '@prisma/client'
 import { onPaid, getInitial } from '@/api/payIn/types/itemCreate'
 import { performBotBehavior } from '@/api/payIn/lib/item'
+import { USER_ID } from '@/lib/constants'
 
 // itemCreate.js statically imports @/lib/lexical/server/mentions (ESM-only
 // mdast-util-from-markdown, which next/jest does not transform from node_modules)
@@ -208,10 +209,14 @@ test('getInitial returns a comment-fee URI for authors past the freebie quota', 
   expect(result.moneroSubaddressMajor).toBe(1)
 })
 
-test('getInitial returns a free prospect for anonymous comments', async () => {
-  const result = await getInitial(prisma, { parentId: '999' }, { me: { id: 27 } })
-  expect(result).toEqual({ payInType: 'ITEM_CREATE', userId: 27, piconeros: 0n })
-  expect(result).not.toHaveProperty('moneroUri')
+// --- A-06: anonymous comments pay the comment fee x ANON_FEE_MULTIPLIER ---
+test('getInitial returns a x10 anon comment-fee URI for anonymous comments', async () => {
+  await ensureFeeConfig()
+  const result = await getInitial(prisma, { parentId: '999' }, { me: { id: USER_ID.anon } })
+  expect(result.piconeros).toBe(0n)
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroUri).toContain('tx_amount=0.01') // 0.001 x 10
+  expect(result.moneroSubaddressMajor).toBe(1)
 })
 
 // --- A-05: 10x spam-fee escalation (item_spam) is applied server-side ---

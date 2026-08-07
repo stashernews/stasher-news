@@ -1,4 +1,4 @@
-import { ANON_ITEM_SPAM_INTERVAL, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
+import { ANON_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { notifyItemMention, notifyItemParents, notifyMention, notifyTerritorySubscribers, notifyUserSubscribers, notifyThreadSubscribers } from '@/lib/webPush'
 import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
@@ -49,9 +49,26 @@ export async function getInitial (models, args, { me }) {
     // freebies left (15/month for all users); beyond the quota each comment costs
     // the flat comment fee (postingFeeFloorPiconeros) to the platform rewards
     // wallet, observed by the rewardsWalletObserver like the posting fee. Anon comments
-    // stay free — anon has no personal quota.
+    // pay the comment fee x ANON_FEE_MULTIPLIER.
     if (me.id === USER_ID.anon) {
-      return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
+      // anon has no freebie quota and pays the comment fee x ANON_FEE_MULTIPLIER.
+      // No spam escalation: ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0.
+      const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+      if (!config) throw new GqlInputError('fee config not initialized')
+      const fee = postingFeePiconeros(config) * BigInt(ANON_FEE_MULTIPLIER)
+      const sub = await reserveFeeSubaddress(models, 'POSTING')
+      const moneroUri = buildMoneroUri(
+        [{ address: sub.address, amount: fee }],
+        { description: 'StasherNews anon comment fee' }
+      )
+      return {
+        payInType: 'ITEM_CREATE',
+        userId: me.id,
+        piconeros: 0n,
+        moneroUri,
+        moneroSubaddressMajor: sub.major,
+        moneroSubaddressMinor: sub.minor
+      }
     }
     const commenter = await models.user.findUnique({ where: { id: me.id } })
     if (commentsFreeLeft(commenter) > 0) {

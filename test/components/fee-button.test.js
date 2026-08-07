@@ -37,8 +37,21 @@ describe('postCommentBaseLineItems — posts', () => {
     expect(lines).toEqual({})
   })
 
-  test('anonymous authors see no fee lines', () => {
-    expect(postCommentBaseLineItems({ me: null })).toEqual({})
+  test('anonymous post authors see the flat posting-fee line', () => {
+    const lines = postCommentBaseLineItems({ me: null })
+    expect(Object.keys(lines)).toEqual(['postingFee'])
+    expect(lines.postingFee.op).toBe('_')
+    expect(piconerosToXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+  })
+
+  test('anonymous comments show the comment fee x10', () => {
+    const lines = postCommentBaseLineItems({ comment: true, me: null })
+    expect(Object.keys(lines).sort()).toEqual(['anonCharge', 'commentFee'])
+    // base comment fee (0.001) then x10 anon mult -> total 0.01
+    const total = [lines.commentFee, lines.anonCharge]
+      .sort((a, b) => (a.op === '_' ? -1 : 1))
+      .reduce((cost, line) => line.modifier(cost), 0)
+    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.01 XMR')
   })
 })
 
