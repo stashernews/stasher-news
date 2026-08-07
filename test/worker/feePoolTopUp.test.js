@@ -76,6 +76,9 @@ test('topUpFeePoolIfLow extends a low major to maxMinor + batch; leaves a health
     121, 122, 123, 124, 125, 126, 127, 128, 129, 130,
     131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
     141, 142, 143, 144, 145, 146, 147, 148, 149, 150]) // AVAILABLE 150 >= 100
+  await seedSubs(3, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy donate
+  await seedSubs(4, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy tip-unwalleted
+  await seedSubs(5, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy boost
   const derive = jest.fn(async ({ account, major, targetMinor }) => 7)
   const result = await topUpFeePoolIfLow(prisma, { threshold: 100, account: { id: walletId }, derive })
 
@@ -84,9 +87,12 @@ test('topUpFeePoolIfLow extends a low major to maxMinor + batch; leaves a health
   expect(result.topUps).toEqual([{ major: 1, targetMinor: 2003, added: 7 }])
 })
 
-test('topUpFeePoolIfLow does nothing when both majors are healthy', async () => {
+test('topUpFeePoolIfLow does nothing when all fee majors are healthy', async () => {
   await seedSubs(1, Array.from({ length: 150 }, (_, i) => i + 1))
   await seedSubs(2, Array.from({ length: 150 }, (_, i) => i + 1))
+  await seedSubs(3, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy donate
+  await seedSubs(4, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy tip-unwalleted
+  await seedSubs(5, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy boost
   const derive = jest.fn(async () => 7)
   const result = await topUpFeePoolIfLow(prisma, { threshold: 100, account: { id: walletId }, derive })
   expect(derive).not.toHaveBeenCalled()
@@ -95,6 +101,9 @@ test('topUpFeePoolIfLow does nothing when both majors are healthy', async () => 
 
 test('topUpFeePoolIfLow derives an empty territory pool too (available 0 < threshold)', async () => {
   await seedSubs(1, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy posting
+  await seedSubs(3, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy donate
+  await seedSubs(4, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy tip-unwalleted
+  await seedSubs(5, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy boost
   const derive = jest.fn(async () => 9)
   const result = await topUpFeePoolIfLow(prisma, { threshold: 100, account: { id: walletId }, derive })
   expect(derive).toHaveBeenCalledTimes(1)
@@ -105,6 +114,9 @@ test('topUpFeePoolIfLow derives an empty territory pool too (available 0 < thres
 test('topUpFeePoolIfLow skips while a previous top-up is still in progress', async () => {
   await seedSubs(1, [1, 2, 3])
   await seedSubs(2, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy, keeps derive at exactly one call
+  await seedSubs(3, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy donate
+  await seedSubs(4, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy tip-unwalleted
+  await seedSubs(5, Array.from({ length: 150 }, (_, i) => i + 1)) // healthy boost
   let release
   const gate = new Promise(resolve => { release = resolve })
   const derive = jest.fn(() => gate)
