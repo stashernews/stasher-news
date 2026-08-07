@@ -299,7 +299,6 @@ export const USER_WITH_SUBS = gql`
           optional {
             stacked(when: "forever")
             spent(when: "forever")
-            revenue(when: "forever")
           }
         }
       }
@@ -334,7 +333,6 @@ export const MY_SUBSCRIBED_SUBS = gql`
         optional {
           stacked(when: "forever")
           spent(when: "forever")
-          revenue(when: "forever")
         }
       }
       cursor

@@ -101,7 +101,7 @@ function topSubs (days) {
     if (sub) {
       text += `
 - ~${sub.name}
-    - ${abbrNum(sub.optional?.stacked)} stashed \\ ${abbrNum(sub.optional?.revenue)} revenue \\ ${abbrNum(sub.optional?.spent)} spent \\ ${numWithUnits(sub.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
+    - ${abbrNum(sub.optional?.stacked)} stashed \\ ${abbrNum(sub.optional?.spent)} spent \\ ${numWithUnits(sub.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
     } else {
       text += `
 - no top territory for \`${day}\``
@@ -174,7 +174,6 @@ const THIS_DAY = gql`
         optional {
           stacked(when: "custom", from: $from, to: $to)
           spent(when: "custom", from: $from, to: $to)
-          revenue(when: "custom", from: $from, to: $to)
         }
       }
     }
