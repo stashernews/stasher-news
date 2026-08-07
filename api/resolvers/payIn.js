@@ -194,6 +194,20 @@ export default {
     }
   },
   PayIn: {
+    // On-chain confirmation signal for fee payIns (DONATE/posting/territory). The
+    // payIn is born PAID (piconeros=0n; the FeeObservation carries the real
+    // amount), so this checks whether a FeeObservation in a "payment succeeded"
+    // state has landed for it — mirroring shouldTriggerPaymentSuccess (DETECTED
+    // or CONFIRMED). FeeObservation.payInId is @unique, so at most one row. Only
+    // resolved when a query explicitly requests it (e.g. the DONATE modal poll),
+    // so it costs nothing on the general payIn queries.
+    feeObserved: async (payIn, args, { models }) => {
+      if (typeof payIn.feeObserved !== 'undefined') return payIn.feeObserved
+      const obs = await models.feeObservation.findFirst({
+        where: { payInId: payIn.id, state: { in: ['DETECTED', 'CONFIRMED'] } }
+      })
+      return !!obs
+    },
     payerPrivates: (payIn, args, { models, me }) => {
       if (!isMine(payIn, { me })) {
         return null

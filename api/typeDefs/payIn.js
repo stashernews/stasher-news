@@ -126,6 +126,11 @@ type PayIn {
   payOutCustodialTokens: [PayOutCustodialToken!]
   item: Item
   walletInfo: PayInWalletInfo
+  # true once a FeeObservation (DETECTED/CONFIRMED) exists for this payIn — the
+  # on-chain confirmation signal the DONATE client modal polls. Fee payIns are
+  # born PAID (piconeros=0n; the FeeObservation carries the real amount), so
+  # payInState alone can't tell the client the fee/donation landed.
+  feeObserved: Boolean
 }
 
 type PayerPrivates {
