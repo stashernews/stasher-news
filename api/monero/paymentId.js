@@ -35,7 +35,8 @@ export function generateTipPaymentId (postId, nonce) {
 // unique 8-byte (16 hex char) payment ID derived from
 // HMAC-SHA256(REWARDS_PID_KEY, "dv:<postId>:<nonce>"), truncated to 8 bytes.
 // The "dv:" prefix keeps downvote IDs disjoint from tip IDs ("tip:") so the
-// moneroIndexer (tips) and penaltyIndexer (downvotes) never collide.
+// tip and downvote ID namespaces never collide (tips arrive via lws webhooks;
+// rewardsWalletObserver attributes downvotes).
 export function generateDownvotePaymentId (postId, nonce) {
   const key = resolveRewardsPidKey()
   const hmac = createHmac('sha256', key)

@@ -15,7 +15,7 @@
 // the distribution PENDING -> SENDING -> COMPLETE, with payouts QUEUED -> SENT.
 //
 // Real DB integration test mirroring test/worker/curatorShares.test.js and
-// test/worker/penaltyIndexer.fee.test.js (live migrated database, FK-safe
+// test/worker/rewardsWalletObserver.fee.test.js (live migrated database, FK-safe
 // teardown). Run via the app container:
 //   docker exec -u apprunner app npx jest test/worker/rewardsDistributor.test.js
 

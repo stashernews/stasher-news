@@ -7,7 +7,7 @@ import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 
 // StasherNews territory billing/renewal (spec §6.2). Same shape as territoryCreate
 // but for an existing Sub at renewal: reserves a major-2 fee subaddress, emits the
-// fee URI, and sets billingStatus=PENDING_FEE until the penaltyIndexer observes the
+// fee URI, and sets billingStatus=PENDING_FEE until the rewardsWalletObserver observes the
 // fee. ONCE territories are never billed.
 
 export const anonable = false
@@ -55,7 +55,7 @@ export async function onBegin (tx, payInId, { name }) {
 
   const billPaidUntil = nextBilling(billedLastAt, sub.billingType)
 
-  // StasherNews: mark PENDING_FEE until the penaltyIndexer observes the renewal fee.
+  // StasherNews: mark PENDING_FEE until the rewardsWalletObserver observes the renewal fee.
   // The territory stays ACTIVE during the grace period; the territory worker lapses
   // it if PENDING_FEE persists past the grace window.
   const updated = await tx.sub.update({

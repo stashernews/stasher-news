@@ -19,7 +19,7 @@ export async function territoryBilling ({ data: { subName }, boss, models }) {
   if (!sub) return
   if (sub.billingType === 'ONCE' && sub.billingStatus !== 'PENDING_FEE') return
 
-  // Unpaid fee still pending: wait for the penaltyIndexer to observe it, but
+  // Unpaid fee still pending: wait for the rewardsWalletObserver to observe it, but
   // lapse the turf once the grace window has fully passed.
   if (sub.billingStatus === 'PENDING_FEE') {
     const anchor = sub.billPaidUntil || sub.billingPayIn?.createdAt

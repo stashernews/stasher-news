@@ -1,6 +1,6 @@
 // Territory fee math (spec §6.2). Pure (no Prisma, no lexical) so it is
 // unit-testable. The territory payIn types consume this to build the rewards-wallet
-// fee URI; the penaltyIndexer observes the fee and flips Sub.billingStatus to PAID.
+// fee URI; the rewardsWalletObserver observes the fee and flips Sub.billingStatus to PAID.
 //
 // §6.2: monthly 0.02 XMR (2e10 piconeros), yearly 0.2 XMR (2e11), once 1 XMR (1e12).
 

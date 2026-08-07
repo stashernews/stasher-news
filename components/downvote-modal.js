@@ -34,7 +34,7 @@ const PRESETS = [
 // an integrated address. `act('DONT_LIKE_THIS')` calls pay('DOWN_ZAP'), which —
 // with mcost=0n — resolves to payInState=PAID at creation and returns a `monero:`
 // URI straight away (no invoice to watch). We render that URI as a QR + deep
-// link; the on-chain payment is observed separately by the penaltyIndexer, which
+// link; the on-chain payment is observed separately by the rewardsWalletObserver, which
 // applies the ranking penalty when it lands (~one stagenet block).
 export default function DownvoteModal ({ item, onClose }) {
   const actor = useAct()

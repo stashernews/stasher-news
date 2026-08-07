@@ -403,7 +403,7 @@ model Item {
   subName              String?               @db.Citext
 
   // StasherNews posting-fee gate (§6.2, Q8): a low-rep author's post is created
-  // PENDING_FEE and invisible until the penaltyIndexer observes the posting fee;
+  // PENDING_FEE and invisible until the rewardsWalletObserver observes the posting fee;
   // FEE_PAID (or FEE_NOT_REQUIRED for above-threshold authors) makes it visible.
   feeStatus   ItemFeeStatus @default(FEE_NOT_REQUIRED)
   feePayInId  Int?           @unique
@@ -1328,7 +1328,7 @@ enum PayoutState {
 }
 
 // StasherNews fee ledger (§6.2). Posting/territory fees land on the platform
-// rewards wallet via dedicated subaddresses; the penaltyIndexer attributes them.
+// rewards wallet via dedicated subaddresses; the rewardsWalletObserver attributes them.
 enum FeeType {
   POSTING
   TERRITORY_CREATE
@@ -1456,7 +1456,7 @@ model ObservedDownvote {
 
 // An observed posting/territory fee payment (arrives on the platform rewards
 // wallet via a DEDICATED fee subaddress — major 1 = posting, major 2 = territory).
-// The penaltyIndexer attributes each fee output to its pending PayIn and flips the
+// The rewardsWalletObserver attributes each fee output to its pending PayIn and flips the
 // linked Item.feeStatus / Sub.billingStatus to paid. Phase 4's rewardsDistributor
 // sums these per period. postId/subName are denormalized for the rewards ledger.
 model FeeObservation {

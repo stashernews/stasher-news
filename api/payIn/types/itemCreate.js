@@ -26,9 +26,9 @@ export async function getInitial (models, args, { me }) {
   //
   // piconeros is 0 in BOTH cases — StasherNews does not charge custodial sats for
   // posting. The fee (when required) is on-chain Monero to a rewards-wallet fee
-  // subaddress, observed by the penaltyIndexer. The SN payIn engine therefore sees
+  // subaddress, observed by the rewardsWalletObserver. The SN payIn engine therefore sees
   // piconeros=0 -> payInState=PAID; the post's VISIBILITY is gated independently by
-  // Item.feeStatus (set in onBegin), which the penaltyIndexer flips PENDING_FEE ->
+  // Item.feeStatus (set in onBegin), which the rewardsWalletObserver flips PENDING_FEE ->
   // FEE_PAID when it observes the fee output.
   // Comments are free within the 15/month freebie quota; beyond it each comment
   // costs the flat comment fee (see below).
@@ -36,7 +36,7 @@ export async function getInitial (models, args, { me }) {
     // StasherNews comment fee (spec §6.2): comments are free while the author has
     // freebies left (15/month for all users); beyond the quota each comment costs
     // the flat comment fee (postingFeeFloorPiconeros) to the platform rewards
-    // wallet, observed by the penaltyIndexer like the posting fee. Anon comments
+    // wallet, observed by the rewardsWalletObserver like the posting fee. Anon comments
     // stay free — anon has no personal quota.
     if (me.id === USER_ID.anon) {
       return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
@@ -127,7 +127,7 @@ export async function onBegin (tx, payInId, args) {
 
   // StasherNews posting-fee gate: a PayIn that reserved a rewards-wallet fee
   // subaddress (moneroSubaddressMajor set) creates the Item PENDING_FEE (invisible
-  // until the penaltyIndexer observes the fee and flips it to FEE_PAID); otherwise
+  // until the rewardsWalletObserver observes the fee and flips it to FEE_PAID); otherwise
   // the Item is live (FEE_NOT_REQUIRED). feeStatus is derived here from the PayIn's
   // subaddress fields rather than threaded through the prospect, since feeStatus is
   // an Item column (not a PayIn column).
@@ -298,7 +298,7 @@ export async function onPaidSideEffects (models, payInId) {
   })
 
   // StasherNews: a PENDING_FEE post is not live yet (invisible until the
-  // penaltyIndexer observes its posting fee and flips feeStatus to FEE_PAID), so
+  // rewardsWalletObserver observes its posting fee and flips feeStatus to FEE_PAID), so
   // suppress all creation notifications here. They will fire once the post goes live.
   if (item.feeStatus === 'PENDING_FEE') {
     return

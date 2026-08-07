@@ -1,8 +1,8 @@
 /* eslint-env jest */
 
-// Integration test for the penaltyIndexer fee-attribution branch (Phase 3 Task 5).
+// Integration test for the rewardsWalletObserver fee-attribution branch (Phase 3 Task 5).
 //
-// runPenaltyIndexerOnce is the testable core: it processes rewards-wallet outputs
+// runRewardsWalletObserverOnce is the testable core: it processes rewards-wallet outputs
 // and, for each output at a fee subaddress (major 1 = posting, 2 = territory),
 // idempotently records a FeeObservation, links it to the pending PayIn, and flips
 // the gated Item.feeStatus PENDING_FEE -> FEE_PAID (so the post goes live). The
@@ -14,7 +14,7 @@
 // migrated database, mirroring test/worker/confirmFinalizer.test.js.
 
 import { PrismaClient } from '@prisma/client'
-import { runPenaltyIndexerOnce } from '@/worker/penaltyIndexer'
+import { runRewardsWalletObserverOnce } from '@/worker/rewardsWalletObserver'
 
 const prisma = new PrismaClient()
 
@@ -116,9 +116,9 @@ function lwsFeeTx (hash, piconeros, major, minor, height = 1234) {
   return { hash, piconeros: BigInt(piconeros), recipient: { maj_i: major, min_i: minor }, height, id: 1, payment_id: null }
 }
 
-test('penaltyIndexer attributes a posting fee by subaddress, creates FeeObservation DETECTED, flips Item FEE_PAID', async () => {
+test('rewardsWalletObserver attributes a posting fee by subaddress, creates FeeObservation DETECTED, flips Item FEE_PAID', async () => {
   const { item, payIn, major, minor } = await seedPendingFeePost(101)
-  await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('a1' + 'ab'.repeat(31), '1000000000', major, minor)] })
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('a1' + 'ab'.repeat(31), '1000000000', major, minor)] })
 
   const obs = await prisma.feeObservation.findFirst({ where: { payInId: payIn.id } })
   expect(obs).toBeTruthy()
@@ -135,9 +135,9 @@ test('penaltyIndexer attributes a posting fee by subaddress, creates FeeObservat
   expect(live.netInvestment).toBe(1_000_000_000n) // trigger folds the fee in
 })
 
-test('penaltyIndexer attributes a territory fee by subaddress, denormalizing the Sub name', async () => {
+test('rewardsWalletObserver attributes a territory fee by subaddress, denormalizing the Sub name', async () => {
   const { subName, payIn, major, minor } = await seedPendingFeeSub(201)
-  await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('e5' + '56'.repeat(31), '200000000000', major, minor)] })
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('e5' + '56'.repeat(31), '200000000000', major, minor)] })
 
   const obs = await prisma.feeObservation.findFirst({ where: { payInId: payIn.id } })
   expect(obs).toBeTruthy()
@@ -152,11 +152,11 @@ test('penaltyIndexer attributes a territory fee by subaddress, denormalizing the
   expect(live.billingStatus).toBe('PAID')
 })
 
-test('penaltyIndexer is idempotent across re-polls', async () => {
+test('rewardsWalletObserver is idempotent across re-polls', async () => {
   const { item, payIn, major, minor } = await seedPendingFeePost(102)
   const tx = lwsFeeTx('b2' + 'cd'.repeat(31), '1000000000', major, minor)
-  await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
-  await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
   const count = await prisma.feeObservation.count({ where: { payInId: payIn.id } })
   expect(count).toBe(1)
   const live = await prisma.item.findUnique({ where: { id: item.id } })
@@ -165,19 +165,19 @@ test('penaltyIndexer is idempotent across re-polls', async () => {
   expect(live.netInvestment).toBe(1_000_000_000n)
 })
 
-test('penaltyIndexer ignores outputs whose subaddress matches no pending fee (Phase 4 downvote path)', async () => {
+test('rewardsWalletObserver ignores outputs whose subaddress matches no pending fee (Phase 4 downvote path)', async () => {
   // major 0 / minor 0 with a payment_id -> not a fee subaddress; no FeeObservation, no throw
   const tx = lwsFeeTx('c3' + 'ef'.repeat(31), '1000000000', 0, 0)
   tx.payment_id = 'aabbccddeeff0011'
   const before = await prisma.feeObservation.count()
-  await expect(runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })).resolves.toBeUndefined()
+  await expect(runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })).resolves.toBeUndefined()
   expect(await prisma.feeObservation.count()).toBe(before)
 })
 
-test('penaltyIndexer ignores a fee subaddress with no pending PayIn (already consumed / unknown)', async () => {
+test('rewardsWalletObserver ignores a fee subaddress with no pending PayIn (already consumed / unknown)', async () => {
   // major 1, minor 999 has no PayIn reserved -> skip silently
   const tx = lwsFeeTx('d4' + '12'.repeat(31), '1000000000', 1, 999)
   const before = await prisma.feeObservation.count()
-  await expect(runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })).resolves.toBeUndefined()
+  await expect(runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })).resolves.toBeUndefined()
   expect(await prisma.feeObservation.count()).toBe(before)
 })

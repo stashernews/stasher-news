@@ -5,7 +5,7 @@ import { decryptViewKey } from './viewkey.js'
 // monero-lws REST client (Task 3 / spec §5).
 //
 // This is the single network boundary between StasherNews and the chain.
-// Two consumers: the worker (moneroIndexer / confirmFinalizer / penaltyIndexer)
+// Two consumers: the worker (confirmFinalizer / rewardsWalletObserver)
 // imports the `lwsClient` singleton directly, and the web/GraphQL layer gets
 // it via the `monero` key on the Apollo context (see api/ssrApollo.js).
 //

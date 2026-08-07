@@ -29,7 +29,7 @@ import {
 } from './domainVerification.js'
 import { untrackOldItems } from './untrackOldItems'
 import { confirmFinalizer } from './confirmFinalizer'
-import { penaltyIndexer } from './penaltyIndexer'
+import { rewardsWalletObserver } from './rewardsWalletObserver'
 import { rewardsDistributor } from './rewardsDistributor'
 import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
@@ -141,17 +141,18 @@ async function work () {
     await boss.send('webhookCleanup', {}, { startAfter: CLEANUP_INTERVAL_SECONDS / 4 }) // first sweep after 15min
   }
 
-  // penaltyIndexer: polls the platform rewards wallet for posting/territory fee
-  // outputs (subaddress attribution). Same self-requeuing pattern as confirmFinalizer.
-  await boss.work('penaltyIndexer', jobWrapper(penaltyIndexer))
-  if (await boss.getQueueSize('penaltyIndexer') === 0) {
-    await boss.send('penaltyIndexer', {})
+  // rewardsWalletObserver: polls the platform rewards wallet for posting/territory
+  // fee outputs (subaddress attribution) and downvote payments (payment_id
+  // attribution). Same self-requeuing pattern as confirmFinalizer.
+  await boss.work('rewardsWalletObserver', jobWrapper(rewardsWalletObserver))
+  if (await boss.getQueueSize('rewardsWalletObserver') === 0) {
+    await boss.send('rewardsWalletObserver', {})
   }
 
   // rewardsDistributor: weekly rewards-pool distribution (earmark inflow, compute
   // curator shares, write QUEUED payouts). Self-requeues weekly (7d startAfter).
   await boss.work('rewardsDistributor', jobWrapper(rewardsDistributor))
-  // Unlike penaltyIndexer/confirmFinalizer (which seed immediately), the
+  // Unlike rewardsWalletObserver/confirmFinalizer (which seed immediately), the
   // rewardsDistributor seed starts AFTER a full week: the first payout needs a
   // week of inflow to accumulate first. `sndev monero distribute` covers any
   // out-of-band run before that.

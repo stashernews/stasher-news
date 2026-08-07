@@ -4,7 +4,7 @@ import { DOWNVOTE_STATUS } from '@/fragments/monero'
 import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 
 // Polls downvoteStatus(paymentId) while a downvote modal is open. Fires
-// onDetected exactly once when the penaltyIndexer first observes the payment
+// onDetected exactly once when the rewardsWalletObserver first observes the payment
 // (DETECTED) OR when the downvote is already CONFIRMED, then stops. CONFIRMED,
 // normally reached via confirmFinalizer, must ALSO trigger success — a downvote
 // already confirmed by the time the modal first polls would otherwise be a silent

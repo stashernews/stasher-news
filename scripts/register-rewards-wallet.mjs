@@ -34,7 +34,7 @@ async function main () {
   // update must ALSO set label/scanFromHeight: if an 'author' row already
   // exists for this address, the create branch is skipped and the label would
   // otherwise stay 'author', leaving no platform_rewards row for
-  // getRewardsWalletId/penaltyIndexer to find.
+  // getRewardsWalletId/rewardsWalletObserver to find.
   const pending = await prisma.moneroAccount.findFirst({
     where: { address, network },
     select: { id: true, label: true }

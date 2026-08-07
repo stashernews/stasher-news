@@ -87,7 +87,7 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     confirmed += 1
   }
 
-  // Fee observations (penaltyIndexer / Phase 3 Task 5): mature DETECTED fee
+  // Fee observations (rewardsWalletObserver): mature DETECTED fee
   // observations to CONFIRMED at the same confirmation threshold. The gated
   // Item/Sub already went live on DETECTION; CONFIRMED just finalizes the ledger
   // row so Phase 4's rewardsDistributor can sum paid fees per period. The linked
@@ -105,7 +105,7 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     })
   }
 
-  // ObservedDownvote (penaltyIndexer Phase 4): mature DETECTED downvotes to
+  // ObservedDownvote (rewardsWalletObserver): mature DETECTED downvotes to
   // CONFIRMED at the same confirmation threshold. The ranking penalty
   // (weightedDownVotes/downPiconeros) was already applied at DETECTION — mirroring
   // how tips apply their effect at DETECTION — so CONFIRMED just finalizes the
