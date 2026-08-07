@@ -224,3 +224,19 @@ test('an empty period yields no shares and a full rollover', async () => {
   expect(BigInt(distributedPiconeros)).toBe(0n)
   expect(BigInt(rolledOverPiconeros)).toBe(POOL)
 })
+
+test('each share carries per-type earns that sum exactly to the share', async () => {
+  const { shares } = await computeCuratorShares(
+    periodStart, periodEnd, POOL, { minPayout: 1_000_000_000n, topN: 100 }, prisma)
+
+  expect(shares.length).toBeGreaterThan(0)
+  for (const s of shares) {
+    expect(s.earns.length).toBeGreaterThan(0)
+    for (const e of s.earns) {
+      expect(['TIP_POST', 'TIP_COMMENT']).toContain(e.type)
+      expect(e.rank).toBeGreaterThan(0)
+    }
+    const earnedSum = s.earns.reduce((acc, e) => acc + BigInt(e.piconeros), 0n)
+    expect(earnedSum).toBe(BigInt(s.sharePiconeros))
+  }
+})
