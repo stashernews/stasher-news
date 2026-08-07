@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto'
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
 import { GqlInputError } from '@/lib/error'
 import { getItemResult } from '../lib/item'
-import { makeDownvoteAddress } from '@/api/monero/penalty'
+import { makeDownvoteAddress } from '@/api/monero/downvote'
 import { buildMoneroUri } from '@/api/monero/uri'
 
 // StasherNews rewards-funded downvote (spec §3.3).

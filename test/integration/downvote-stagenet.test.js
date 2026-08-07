@@ -51,7 +51,7 @@
 // =============================================================================
 
 import { PrismaClient } from '@prisma/client'
-import { makeDownvoteAddress } from '@/api/monero/penalty'
+import { makeDownvoteAddress } from '@/api/monero/downvote'
 import { getRewardsWalletId } from '@/api/monero/feePool'
 import { daemonClient } from '@/api/monero/daemonClient'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'

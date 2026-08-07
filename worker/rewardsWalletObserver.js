@@ -3,7 +3,7 @@ import {
   REWARDS_POSTING_MAJOR,
   REWARDS_TERRITORY_MAJOR
 } from '@/api/monero/feePool'
-import { reverseMapPaymentId } from '@/api/monero/penalty'
+import { reverseMapPaymentId } from '@/api/monero/downvote'
 import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
 import { MONERO_POLL_INTERVAL_MS } from '@/lib/constants'
 import { Prisma } from '@prisma/client'

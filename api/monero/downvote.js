@@ -1,12 +1,12 @@
 import { makeIntegratedAddress } from './integratedAddress'
 import { generateDownvotePaymentId } from './paymentId'
 
-// Downvote penalty-address generator + payment_id reverse lookup (spec §3.3).
+// Downvote address + payment_id reverse lookup (spec §3.3).
 //
 // When a user downvotes a post, they pay a fee-sized amount to the platform
 // rewards wallet via an *integrated address* (primary rewards address + an
 // 8-byte payment_id baked in). The payment_id deterministically encodes the
-// (postId, nonce) pair being penalised; the penaltyIndexer (Task 4) later
+// (postId, nonce) pair; the rewardsWalletObserver later
 // reverses it via reverseMapPaymentId to apply the downvote once the payment
 // lands on-chain.
 
@@ -30,8 +30,8 @@ export function makeDownvoteAddress (postId, nonce) {
 //
 // Looks up the DownvotePidMap row for a detected payment_id. Returns the raw
 // row (postId, nonce, userId, expiresAt, consumedAt) or null if no such
-// payment_id was ever issued. Expiry/consumed filtering is the penaltyIndexer's
-// concern (Task 4), not ours.
+// payment_id was ever issued. Expiry/consumed filtering is the rewardsWalletObserver's
+// concern, not ours.
 export async function reverseMapPaymentId (paymentId, models) {
   return models.downvotePidMap.findUnique({ where: { paymentId } })
 }
