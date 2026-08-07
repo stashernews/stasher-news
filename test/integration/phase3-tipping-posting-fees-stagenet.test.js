@@ -51,9 +51,9 @@ const prisma = new PrismaClient()
 const STAGENET_ENABLED = process.env.RUN_STAGENET_INTEGRATION === '1'
 const FEE_PICONEROS = BigInt(process.env.STAGENET_FEE_PICONEROS || '1000000000')
 
-const DETECT_TIMEOUT_MS = 6 * 60_000
+const DETECT_TIMEOUT_MS = 600_000
 const DETECT_POLL_MS = 10_000
-const CONFIRM_TIMEOUT_MS = 6 * 60_000
+const CONFIRM_TIMEOUT_MS = 25 * 60_000
 const CONFIRM_POLL_MS = 30_000
 const RESTORE_HEIGHT_MARGIN = 1000
 // A reused stagenet sender wallet carries a maturing CHANGE output after each

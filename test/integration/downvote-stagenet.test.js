@@ -63,9 +63,9 @@ const prisma = new PrismaClient()
 const STAGENET_ENABLED = process.env.RUN_STAGENET_INTEGRATION === '1'
 const DOWNVOTE_PICONEROS = BigInt(process.env.STAGENET_DOWNVOTE_PICONEROS || '1000000000')
 
-const DETECT_TIMEOUT_MS = 6 * 60_000
+const DETECT_TIMEOUT_MS = 600_000
 const DETECT_POLL_MS = 10_000
-const CONFIRM_TIMEOUT_MS = 6 * 60_000
+const CONFIRM_TIMEOUT_MS = 25 * 60_000
 const CONFIRM_POLL_MS = 30_000
 const RESTORE_HEIGHT_MARGIN = 1000
 // A reused stagenet sender wallet carries a maturing CHANGE output after each
@@ -233,12 +233,9 @@ async function chainHeight () {
     console.log(`  sent downvote tx ${hash} (${DOWNVOTE_PICONEROS.toString()} piconeros)`)
 
     // ---- 6. poll for ObservedDownvote DETECTED -----------------------------------
-    // With a dev REQUIRED_CONFIRMATIONS=1, the observer's DETECTED row is flipped
-    // to CONFIRMED by confirmFinalizer within seconds — the poll accepts both
-    // states (the DETECTED-phase effects are applied at DETECTION and persist).
     const detected = await pollUntil('ObservedDownvote DETECTED', async () => {
       const downvote = await prisma.observedDownvote.findFirst({ where: { paymentId } })
-      if (downvote && (downvote.state === 'DETECTED' || downvote.state === 'CONFIRMED')) return downvote
+      if (downvote && downvote.state === 'DETECTED') return downvote
       console.log(`    [DETECTED] chain=${await chainHeight()}; not yet`)
       return null
     })

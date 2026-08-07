@@ -82,7 +82,7 @@ const TIP_MEDIUM = 10_000_000_000_000n // 10 "XMR equiv" — curator 2
 const TIP_TINY = 150_000_000n // 0.00015 XMR — curator 3 (above ZAP_THRESHOLD 1e8, but share < minPayout)
 
 // Jest timeout: wallet sync + 2 tx broadcasts on stagenet (~2 min blocks).
-const RUN_TIMEOUT_MS = 6 * 60_000
+const RUN_TIMEOUT_MS = 15 * 60_000
 
 function requireEnv (name) {
   const v = process.env[name]
