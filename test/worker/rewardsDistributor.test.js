@@ -21,6 +21,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { runDistributionOnce, finalizeDistribution } from '@/worker/rewardsDistributor'
+import { applyTipDetected } from '@/api/monero/ranking'
 
 const prisma = new PrismaClient()
 
@@ -218,9 +219,12 @@ beforeAll(async () => {
   const inPeriod = new Date(Date.now() - 2 * DAY)
 
   // Author + ranked root post (the tipped content) + author receiving account.
+  // weightedVotes starts at 0 — it is populated through the REAL path
+  // (applyTipDetected below) rather than seeded directly, so this fixture no
+  // longer masks the bug that nothing writes weightedVotes.
   const authorId = await createUser()
   const recipientAccount = await createRecipientAccount()
-  const postId = await createRootPost(authorId, 100, new Date(Date.now() - 3 * DAY))
+  const postId = await createRootPost(authorId, 0, new Date(Date.now() - 3 * DAY))
 
   // Downvote payment (platform rewards wallet inflow) attributed to the post.
   await seedDownvote(postId, DOWNVOTE_PICONEROS, inPeriod)
@@ -239,6 +243,15 @@ beforeAll(async () => {
   await createPayoutAccount(c1)
   await createPayoutAccount(c2)
   // c3: intentionally no MoneroAccount(ownerUserId: c3) -> excluded from payouts.
+
+  // Real path (merged rewards plan Task 2): give c1 territory trust in 'meta'
+  // and apply a detected tip so Item.weightedVotes is bumped via
+  // zapTrust × LOG(tipPiconeros) — exactly what the webhook receiver does on a
+  // live tip. This is what makes the post qualify for curator rewards.
+  await prisma.userSubTrust.create({
+    data: { subName: 'meta', userId: c1, zapPostTrust: 1.0, subZapPostTrust: 1.0 }
+  })
+  await applyTipDetected(postId, c1, 1_000_000_000n)
 
   // Equal-weight confirmed tips from each curator on the top post, inside the period.
   await seedTip({ postId, tipperId: c1, piconeros: 2_000_000_000_000n, confirmedAt: inPeriod, recipientAccountId: recipientAccount.id })
@@ -275,6 +288,14 @@ test('the rewards pool equals the exact allocation earmark + prior rollover', as
 
 test('distributedPiconeros + rolledOverPiconeros reconciles to the pool exactly', async () => {
   expect(result.distributedPiconeros + result.rolledOverPiconeros).toBe(result.poolPiconeros)
+})
+
+test('the distributor pays out (>0) when weightedVotes is populated through the real tip path', async () => {
+  // End-to-end: weightedVotes on the top post was bumped by applyTipDetected
+  // (above, via a UserSubTrust row) — NOT seeded directly — so this asserts the
+  // real production path feeds computeCuratorShares and the pool is distributed.
+  expect(result.distributedPiconeros).toBeGreaterThan(0n)
+  expect(result.payoutCount).toBeGreaterThan(0)
 })
 
 test('the distribution is finalized COMPLETE (Task 9 signer wired) with completedAt set', async () => {

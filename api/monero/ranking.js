@@ -18,10 +18,14 @@ import prisma from '@/api/models'
 //   - ancestor `Item.commentPiconeros += piconeros` (path-based, ORDER BY id for
 //     consistent lock ordering — deadlock safety per api/payIn/README.md)
 //
-// Trust-weighting columns (`weightedVotes`, `subWeightedVotes`, `upvotes`,
-// `weightedComments`, `credits`) and `lastTipAt` are NOT touched here — see
-// task-5-report.md for the noted gap. `ranktop` reads only
-// piconeros/commentPiconeros, so ranking stays correct without them.
+// Trust-weighting columns: on a DETECTED tip with a known tipper this bumps
+// `weightedVotes`/`subWeightedVotes` by zapTrust × LOG(tipPiconeros) — the exact
+// upstream zap.js math (mirrors worker/rewardsWalletObserver's downvote path) —
+// consuming UserSubTrust from the nightly trust worker, plus `upvotes` (the
+// distinct-tipper count). `weightedComments`, `credits`, and `lastTipAt` are
+// still not touched. `ranktop` reads only piconeros/commentPiconeros, so ranking
+// stays correct independent of weightedVotes; weightedVotes feeds the weekly
+// curator rewards distributor (worker/curatorShares.js).
 //
 // All deltas bind `piconeros` as BIGINT (piconeros are BigInt; never coerced
 // to Number). The whole chain is a single statement inside a ReadCommitted
@@ -33,12 +37,15 @@ import prisma from '@/api/models'
 const ADD = Prisma.raw('+')
 const SUB = Prisma.raw('-')
 
-function tipDeltaSql (postId, tipperId, piconeros, sign) {
+function tipDeltaSql (postId, tipperId, piconeros, sign, isComment) {
   // Optional per-user attribution CTE. Omitted entirely for anonymous tips so
   // no ItemUserAgg row is created; the rest of the chain still runs. The
   // RETURNING first_vote is 1 when this is the tipper's FIRST tip on the post
   // (tipPiconeros was 0 before this upsert) and 0 on repeat tips — mirroring the
-  // legacy zap.js `upvotes += first_vote` distinct-tipper count.
+  // legacy zap.js `upvotes += first_vote` distinct-tipper count. log_sats is the
+  // diminishing-marginal-weight LOG term (mirrors worker/rewardsWalletObserver's
+  // downvote path + upstream zap.js) that scales the tipper's territory trust
+  // into weightedVotes/subWeightedVotes below.
   const isAdd = sign === ADD
   const zap = tipperId == null
     ? Prisma.empty
@@ -48,7 +55,31 @@ function tipDeltaSql (postId, tipperId, piconeros, sign) {
           VALUES (${tipperId}::INTEGER, ${postId}::INTEGER, ${piconeros}::BIGINT)
           ON CONFLICT ("itemId", "userId") DO UPDATE
           SET "tipPiconeros" = "ItemUserAgg"."tipPiconeros" + ${piconeros}::BIGINT, updated_at = now()
-          RETURNING ("tipPiconeros" = ${piconeros}::BIGINT)::INTEGER AS first_vote
+          RETURNING ("tipPiconeros" = ${piconeros}::BIGINT)::INTEGER AS first_vote,
+            LOG("tipPiconeros"::FLOAT / GREATEST("tipPiconeros" - ${piconeros}, 1)::FLOAT) AS log_sats
+        ),`
+
+  // Territory + trust lookup, only for attributed tips (the weightedVotes bump
+  // needs per-user trust). Mirrors worker/rewardsWalletObserver's
+  // applyDownvotePenalty: resolve the item's first sub via COALESCE on the root
+  // then the item itself (default 'meta'), then left-join UserSubTrust to read
+  // the tipper's zapPost/zapComment trust for that territory. Anonymous tips
+  // (no tipperId) and reversals (reverseTip passes null) skip this entirely.
+  const trust = tipperId == null
+    ? Prisma.empty
+    : Prisma.sql`
+        territory AS (
+          SELECT COALESCE(r."subNames"[1], i."subNames"[1], 'meta')::CITEXT AS "subName"
+          FROM "Item" i
+          LEFT JOIN "Item" r ON r.id = i."rootId"
+          WHERE i.id = ${postId}::INTEGER
+        ),
+        zapper AS (
+          SELECT
+            COALESCE(${isComment ? Prisma.sql`"zapCommentTrust"` : Prisma.sql`"zapPostTrust"`}, 0)::float AS "zapTrust",
+            COALESCE(${isComment ? Prisma.sql`"subZapCommentTrust"` : Prisma.sql`"subZapPostTrust"`}, 0)::float AS "subZapTrust"
+          FROM territory
+          LEFT JOIN "UserSubTrust" ust ON ust."subName" = territory."subName" AND ust."userId" = ${tipperId}::INTEGER
         ),`
 
   // upvotes is the # of distinct tippers. A detected tip bumps it once per tipper
@@ -61,14 +92,22 @@ function tipDeltaSql (postId, tipperId, piconeros, sign) {
         ? Prisma.sql`"upvotes" = "Item"."upvotes"`
         : Prisma.sql`"upvotes" = "Item"."upvotes" + zap.first_vote`)
     : Prisma.sql`"upvotes" = "Item"."upvotes" - 1`
-  const fromZap = needZap ? Prisma.sql`FROM zap` : Prisma.empty
+  // Trust-weighted vote terms (ADD path + attributed tip only). Reversal does
+  // NOT touch weightedVotes — upstream has no zap reversal; the bounded reorg
+  // drift on the score column is accepted for v1.
+  const weightedSet = needZap
+    ? Prisma.sql`,
+        "weightedVotes" = "Item"."weightedVotes" + zapper."zapTrust" * zap.log_sats,
+        "subWeightedVotes" = "Item"."subWeightedVotes" + zapper."subZapTrust" * zap.log_sats`
+    : Prisma.empty
+  const fromZap = needZap ? Prisma.sql`FROM zap, zapper` : Prisma.empty
 
   return Prisma.sql`
-    WITH ${zap}
+    WITH ${trust}${zap}
     item_tipped AS (
       UPDATE "Item"
       SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
-          ${upvotesSet}
+          ${upvotesSet}${weightedSet}
       ${fromZap}
       WHERE "Item".id = ${postId}::INTEGER
       RETURNING "Item".*
@@ -85,16 +124,19 @@ function tipDeltaSql (postId, tipperId, piconeros, sign) {
 }
 
 export async function applyTipDetected (postId, tipperId, piconeros, tx) {
-  // Transaction propagation. When `tx` is supplied the caller OWNS the
-  // transaction — run the ranking SQL directly on it and do NOT open an inner
-  // $transaction. This lets the moneroIndexer wrap ObservedTip.create and this
-  // ranking delta in ONE serializable $transaction so they commit or roll back
-  // together: a partial failure (apply throws) can never leave an orphan
-  // DETECTED row with unbumped piconeros, which the next poll's P2002 idempotency
-  // check would otherwise skip forever. Without `tx` the original standalone
-  // behaviour is preserved so every other caller — the Task 5 unit tests, the
-  // seedTip test helper, reviveIfReorged — is unchanged.
-  const sql = tipDeltaSql(postId, tipperId, piconeros, ADD)
+  // Derive isComment for the trust-weight lookup (zapPostTrust vs
+  // zapCommentTrust). The webhook receiver passes (postId, tipperId, piconeros,
+  // tx) and does not have the Item object, so the single indexed-PK parentId
+  // select here is the mandated placement. Anonymous tips skip the trust bump
+  // entirely (no per-user attribution) so no lookup is needed. parentId is
+  // immutable so reading it on the caller's tx (or prisma, standalone) is safe.
+  let isComment = false
+  if (tipperId != null) {
+    const q = Prisma.sql`SELECT "parentId" FROM "Item" WHERE id = ${postId}::INTEGER`
+    const rows = tx ? await tx.$queryRaw(q) : await prisma.$queryRaw(q)
+    isComment = rows[0]?.parentId != null
+  }
+  const sql = tipDeltaSql(postId, tipperId, piconeros, ADD, isComment)
   if (tx) {
     await tx.$executeRaw(sql)
     return
