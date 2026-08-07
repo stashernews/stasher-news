@@ -3,8 +3,6 @@
 // Unit tests for Query.rewards — the /rewards pool readout. Models are stubbed
 // (mirrors test/api/resolvers/rewardsWallet.test.js) — no DB, no network.
 //
-import resolvers from '@/api/resolvers/rewards'
-
 // rewards.js transitively imports api/payIn (types barrel -> itemCreate ->
 // lib/lexical/server/mentions) and api/resolvers/item (-> components/editor,
 // lib/lexical/server/html), which pull ESM-only node_modules (mdast-util-from-
@@ -27,22 +25,36 @@ jest.mock('../../../lib/lexical/server/html', () => ({
   lexicalHTMLGenerator: async () => ''
 }))
 
+let resolvers
+
+beforeEach(() => {
+  // getActiveRewards caches its result for 10s in module state; a fresh module
+  // registry per test keeps each active-path test off the previous one's cache.
+  // jest.mock factories above survive jest.resetModules().
+  jest.resetModules()
+  resolvers = require('../../../api/resolvers/rewards').default
+})
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const WEEK_MS = 7 * DAY_MS
+
 const CONFIG = {
   downvoteRewardsPct: 100,
   postingFeeRewardsPct: 70,
   territoryFeeRewardsPct: 30
 }
 
-function makeModels (inflow = {}, config = CONFIG) {
+function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null } = {}) {
   const calls = jest.fn(async () => [{
     downvote: 1000000000n,
     posting: 1000000000n,
     territory: 200000000000n,
-    time: new Date('2026-08-07T05:00:00.000Z'),
+    time: new Date('2026-08-07T00:00:00.000Z'),
     ...inflow
   }])
   return {
     platformFeeConfig: { upsert: jest.fn(async () => config) },
+    rewardDistribution: { findFirst: jest.fn(async () => lastDistribution) },
     $queryRaw: calls
   }
 }
@@ -62,10 +74,38 @@ describe('Query.rewards', () => {
     expect(reward.time).toBeInstanceOf(Date)
   })
 
+  test('active view counts down to the next weekly distribution', async () => {
+    const periodEnd = new Date(Date.now() - 2 * DAY_MS)
+    const models = makeModels({ lastDistribution: { periodEnd } })
+    const [reward] = await resolvers.Query.rewards(null, {}, { models })
+
+    // next distribution = last periodEnd + 7d (worker self-requeues WEEK_SECONDS later)
+    expect(reward.time.getTime()).toBe(periodEnd.getTime() + WEEK_MS)
+  })
+
+  test('active view pools inflow since the last distribution, with no day truncation', async () => {
+    const periodEnd = new Date(Date.now() - 2 * DAY_MS)
+    const models = makeModels({ lastDistribution: { periodEnd } })
+    await resolvers.Query.rewards(null, {}, { models })
+
+    const [sql] = models.$queryRaw.mock.calls[0]
+    expect(sql.join('?')).toContain('"confirmedAt" >= ?')
+    expect(sql.join('?')).not.toContain('date_trunc')
+  })
+
+  test('active view falls back to now+7d when no distribution has run yet', async () => {
+    const models = makeModels()
+    const before = Date.now()
+    const [reward] = await resolvers.Query.rewards(null, {}, { models })
+    const after = Date.now()
+
+    expect(reward.time.getTime()).toBeGreaterThanOrEqual(before + WEEK_MS)
+    expect(reward.time.getTime()).toBeLessThanOrEqual(after + WEEK_MS)
+  })
+
   test('drops zero-earmark sources', async () => {
-    // routed through the historical path (when) because the active path serves
-    // the module-level rewardCache for 10s and would leak the prior test's data
-    const models = makeModels({ downvote: 0n, territory: 0n })
+    // routed through the historical path (when) to exercise getRewards
+    const models = makeModels({ inflow: { downvote: 0n, territory: 0n } })
     const [reward] = await resolvers.Query.rewards(null, { when: ['2026-08-05'] }, { models })
 
     expect(reward.total).toBe(700000000n)
@@ -73,7 +113,7 @@ describe('Query.rewards', () => {
   })
 
   test('historical rewards use the requested day', async () => {
-    const models = makeModels({ downvote: 500000000n, posting: 0n, territory: 0n })
+    const models = makeModels({ inflow: { downvote: 500000000n, posting: 0n, territory: 0n } })
     const [reward] = await resolvers.Query.rewards(null, { when: ['2026-08-05'] }, { models })
 
     expect(reward.total).toBe(500000000n)
