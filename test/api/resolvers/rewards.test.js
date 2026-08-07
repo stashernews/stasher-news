@@ -91,6 +91,9 @@ describe('Query.rewards', () => {
     const [sql] = models.$queryRaw.mock.calls[0]
     expect(sql.join('?')).toContain('"confirmedAt" >= ?')
     expect(sql.join('?')).not.toContain('date_trunc')
+
+    // the window start binds the last distribution's periodEnd, not now-WEEK_MS
+    expect(models.$queryRaw.mock.calls[0][1]).toEqual(periodEnd)
   })
 
   test('active view falls back to now+7d when no distribution has run yet', async () => {
