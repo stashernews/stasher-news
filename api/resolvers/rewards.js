@@ -3,6 +3,8 @@ import { getItem } from './item'
 import { GqlInputError } from '@/lib/error'
 import pay from '../payIn'
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
 let rewardCache
 
 async function updateCachedRewards (models) {
@@ -42,12 +44,19 @@ function rewardsFromInflow (inflow, time, config) {
 
 async function getActiveRewards (models) {
   const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
-  const [{ downvote, posting, territory, time }] = await models.$queryRaw`
+  const lastDistribution = await models.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
+  const periodStart = lastDistribution?.periodEnd ?? new Date(Date.now() - WEEK_MS)
+  const nextTime = lastDistribution
+    ? new Date(lastDistribution.periodEnd.getTime() + WEEK_MS)
+    : new Date(Date.now() + WEEK_MS)
+  // A missed/cron-delayed distribution would put nextTime in the past; clamp so
+  // the countdown never reads 0s.
+  const time = nextTime > new Date() ? nextTime : new Date(Date.now() + WEEK_MS)
+  const [{ downvote, posting, territory }] = await models.$queryRaw`
     SELECT
-      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS downvote,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS posting,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS territory,
-      date_trunc('day', (now() AT TIME ZONE 'America/Chicago') + interval '1 day') AT TIME ZONE 'America/Chicago' AS time`
+      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS downvote,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS posting,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS territory`
 
   return [rewardsFromInflow({ downvote, posting, territory }, time, config)]
 }
