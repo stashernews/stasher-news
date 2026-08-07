@@ -8,6 +8,9 @@
 // Account-index convention on the rewards wallet:
 //   major 1 = posting fees
 //   major 2 = territory fees (create / billing / unarchive / update)
+//   major 3 = donations (rewards pool)
+//   major 4 = tips to wallet-less authors (TIP_UNWALLETED)
+//   major 5 = boosts (rewards pool)
 // (Major 0 is the wallet's primary address; Phase 4's downvotes use payment IDs,
 //  not subaddresses, so they do not consume this pool.)
 
@@ -15,13 +18,29 @@ import prisma from '@/api/models'
 
 export const REWARDS_POSTING_MAJOR = 1
 export const REWARDS_TERRITORY_MAJOR = 2
+export const REWARDS_DONATE_MAJOR = 3
+export const REWARDS_TIP_UNWALLETED_MAJOR = 4
+export const REWARDS_BOOST_MAJOR = 5
+
+// all fee subaddress majors on the platform rewards wallet (consumed by the
+// rewardsWalletObserver dispatch guard + the derive script)
+export const FEE_MAJORS = [
+  REWARDS_POSTING_MAJOR,
+  REWARDS_TERRITORY_MAJOR,
+  REWARDS_DONATE_MAJOR,
+  REWARDS_TIP_UNWALLETED_MAJOR,
+  REWARDS_BOOST_MAJOR
+]
 
 const FEE_TYPE_TO_MAJOR = {
   POSTING: REWARDS_POSTING_MAJOR,
   TERRITORY_CREATE: REWARDS_TERRITORY_MAJOR,
   TERRITORY_BILLING: REWARDS_TERRITORY_MAJOR,
   TERRITORY_UNARCHIVE: REWARDS_TERRITORY_MAJOR,
-  TERRITORY_UPDATE: REWARDS_TERRITORY_MAJOR
+  TERRITORY_UPDATE: REWARDS_TERRITORY_MAJOR,
+  DONATE: REWARDS_DONATE_MAJOR,
+  TIP_UNWALLETED: REWARDS_TIP_UNWALLETED_MAJOR,
+  BOOST: REWARDS_BOOST_MAJOR
 }
 
 /** Resolve the platform_rewards wallet id for the active network. */

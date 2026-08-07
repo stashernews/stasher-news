@@ -35,7 +35,9 @@ function rewardsFromInflow (inflow, time, config) {
   const sourceShares = [
     { name: 'downvote', piconeros: toBigInt(inflow.downvote) * BigInt(config.downvoteRewardsPct) / 100n },
     { name: 'posting fee', piconeros: toBigInt(inflow.posting) * BigInt(config.postingFeeRewardsPct) / 100n },
-    { name: 'turf fee', piconeros: toBigInt(inflow.territory) * BigInt(config.territoryFeeRewardsPct) / 100n }
+    { name: 'turf fee', piconeros: toBigInt(inflow.territory) * BigInt(config.territoryFeeRewardsPct) / 100n },
+    // donations, boosts, and tips to wallet-less authors go 100% to the pool
+    { name: 'extra', piconeros: toBigInt(inflow.extra) }
   ]
   const sources = sourceShares.filter(s => s.piconeros > 0n).map(s => ({ name: s.name, value: s.piconeros.toString() }))
   const total = sourceShares.reduce((acc, s) => acc + s.piconeros, 0n)
@@ -52,13 +54,14 @@ async function getActiveRewards (models) {
   // A missed/cron-delayed distribution would put nextTime in the past; clamp so
   // the countdown never reads 0s.
   const time = nextTime > new Date() ? nextTime : new Date(Date.now() + WEEK_MS)
-  const [{ downvote, posting, territory }] = await models.$queryRaw`
+  const [{ downvote, posting, territory, extra }] = await models.$queryRaw`
     SELECT
       COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS posting,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS territory`
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS territory,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS extra`
 
-  return [rewardsFromInflow({ downvote, posting, territory }, time, config)]
+  return [rewardsFromInflow({ downvote, posting, territory, extra }, time, config)]
 }
 
 async function getRewards (when, models) {
@@ -72,14 +75,15 @@ async function getRewards (when, models) {
   }
 
   const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
-  const [{ downvote, posting, territory, time }] = await models.$queryRaw`
+  const [{ downvote, posting, territory, extra, time }] = await models.$queryRaw`
     SELECT
       COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS territory,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS extra,
       date_trunc('day', ${when[0]}::text::timestamptz) AS time`
 
-  return [rewardsFromInflow({ downvote, posting, territory }, time, config)]
+  return [rewardsFromInflow({ downvote, posting, territory, extra }, time, config)]
 }
 
 export default {

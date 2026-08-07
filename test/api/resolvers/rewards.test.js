@@ -115,6 +115,16 @@ describe('Query.rewards', () => {
     expect(reward.sources).toEqual([{ name: 'posting fee', value: '700000000' }])
   })
 
+  test('the extra source (DONATE/TIP_UNWALLETED/BOOST) funds the pool at 100%', async () => {
+    // active path (getActiveRewards): a seeded DONATE observation flows in as the
+    // "extra" inflow term, added to the pool at 100% (no allocation % split).
+    const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, extra: 3_000_000_000n } })
+    const [reward] = await resolvers.Query.rewards(null, {}, { models })
+
+    expect(reward.sources).toEqual([{ name: 'extra', value: '3000000000' }])
+    expect(reward.total).toBe(3_000_000_000n)
+  })
+
   test('historical rewards use the requested day in UTC', async () => {
     const models = makeModels({ inflow: { downvote: 500000000n, posting: 0n, territory: 0n } })
     const [reward] = await resolvers.Query.rewards(null, { when: ['2026-08-05'] }, { models })

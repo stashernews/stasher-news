@@ -1,7 +1,7 @@
 import { lwsClient } from '@/api/monero/lwsClient'
 import {
   REWARDS_POSTING_MAJOR,
-  REWARDS_TERRITORY_MAJOR
+  FEE_MAJORS
 } from '@/api/monero/feePool'
 import { reverseMapPaymentId } from '@/api/monero/downvote'
 import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
@@ -63,7 +63,7 @@ async function attributeOutput (models, tx, account) {
 async function attributeFeeBySubaddress (models, tx) {
   const major = tx.recipient?.maj_i
   const minor = tx.recipient?.min_i
-  if (major !== REWARDS_POSTING_MAJOR && major !== REWARDS_TERRITORY_MAJOR) return null
+  if (!FEE_MAJORS.includes(major)) return null
 
   const payIn = await models.payIn.findFirst({
     where: { moneroSubaddressMajor: major, moneroSubaddressMinor: minor },
@@ -173,6 +173,9 @@ async function applyDownvotePenalty (models, item, userId, piconeros) {
 
 function feeTypeFor (major, payInType) {
   if (major === REWARDS_POSTING_MAJOR) return 'POSTING'
+  if (payInType === 'DONATE') return 'DONATE'
+  if (payInType === 'TIP_UNWALLETED') return 'TIP_UNWALLETED'
+  if (payInType === 'BOOST') return 'BOOST'
   // territory major: the PayIn's type tells us which territory fee it is
   if (payInType === 'TERRITORY_BILLING') return 'TERRITORY_BILLING'
   if (payInType === 'TERRITORY_UNARCHIVE') return 'TERRITORY_UNARCHIVE'
@@ -194,6 +197,8 @@ async function flipPendingToLive (models, payIn, feePiconeros) {
       SET "feeStatus" = 'FEE_PAID',
           "feeInvestmentPiconeros" = GREATEST("feeInvestmentPiconeros", ${feePiconeros}::bigint)
       WHERE "feePayInId" = ${payIn.id} AND "feeStatus" = 'PENDING_FEE'`
+  } else if (['DONATE', 'TIP_UNWALLETED', 'BOOST'].includes(payIn.payInType)) {
+    // no gated record to flip — the FeeObservation itself is the effect
   } else if (['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE'].includes(payIn.payInType)) {
     await models.sub.updateMany({
       where: { billingPayInId: payIn.id, billingStatus: 'PENDING_FEE' },
