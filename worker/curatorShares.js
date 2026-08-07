@@ -45,6 +45,31 @@ const EACH_ZAP_PORTION = 2.0
 // cancel — so only this HAVING dust filter is unit-sensitive.
 const ZAP_THRESHOLD_PICONEROS = 100_000_000n
 
+// Apportion a curator's share across their earn types by typeProportion (mirrors
+// api/payIn/types/rewards.js apportionment): normalize per curator, floor each,
+// give the rounding remainder to the highest-proportion type. Per-type amounts
+// sum exactly to sharePiconeros.
+function apportionEarns (earns, sharePiconeros) {
+  if (earns.length === 0) return []
+  const total = earns.reduce((acc, e) => acc + e.typeProportion, 0)
+  const shareNum = Number(sharePiconeros)
+  const apportioned = earns.map(e => ({
+    type: e.type,
+    rank: e.rank,
+    piconeros: total > 0 ? BigInt(Math.floor((e.typeProportion / total) * shareNum)) : 0n
+  }))
+  const distributed = apportioned.reduce((acc, e) => acc + e.piconeros, 0n)
+  const remainder = sharePiconeros - distributed
+  if (remainder > 0n) {
+    let maxIdx = 0
+    for (let i = 1; i < earns.length; i++) {
+      if (earns[i].typeProportion > earns[maxIdx].typeProportion) maxIdx = i
+    }
+    apportioned[maxIdx].piconeros += remainder
+  }
+  return apportioned
+}
+
 /**
  * Compute curator reward shares for a period.
  *
@@ -56,7 +81,9 @@ const ZAP_THRESHOLD_PICONEROS = 100_000_000n
  *   - topN: cap on the number of recipients (highest proportion first).
  * @param {object} [models] - Prisma client. A throwaway client is created if
  *   omitted (and disconnected after the query).
- * @returns {Promise<{ shares: Array<{ curatorId: number, sharePiconeros: bigint }>, distributedPiconeros: bigint, rolledOverPiconeros: bigint }>}
+ * @returns {Promise<{ shares: Array<{ curatorId: number, sharePiconeros: bigint, earns: Array<{ type: 'TIP_POST'|'TIP_COMMENT', rank: number, piconeros: bigint }> }>, distributedPiconeros: bigint, rolledOverPiconeros: bigint }>}
+ *   `share.earns` partitions `sharePiconeros` by content type; its piconeros sum
+ *   exactly to `sharePiconeros`. Consumed when writing per-(curator,type) Earn rows.
  */
 export async function computeCuratorShares (periodStart, periodEnd, poolPiconeros, { minPayout = 0n, topN = 100 } = {}, models) {
   const ownsClient = !models
@@ -70,7 +97,7 @@ export async function computeCuratorShares (periodStart, periodEnd, poolPiconero
 
 async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout, topN) {
   // Per-curator raw proportions from the ported CTE. Each row is
-  // { curatorId: number, total_proportion: number }.
+  // { curatorId: number, total_proportion: number, earns: string (json_agg text) }.
   const prospects = await models.$queryRaw`
     WITH reward_proportions AS (
       WITH item_proportions AS (
@@ -148,14 +175,21 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
       )
       -- normalize within the post/comment partition, then split each partition's
       -- weight by EACH_ZAP_PORTION (2.0 => posts and comments each get half).
+      -- Carry type + rank (over all qualifying curators in the partition) so the
+      -- distributor can write SN-parity per-(curator, type) Earn rows.
       SELECT "userId",
+        CASE WHEN "isPost" THEN 'TIP_POST' ELSE 'TIP_COMMENT' END AS type,
+        ROW_NUMBER() OVER (PARTITION BY "isPost" ORDER BY item_zapper_proportion DESC) AS rank,
         item_zapper_proportion / (sum(item_zapper_proportion) OVER (PARTITION BY "isPost")) / ${EACH_ZAP_PORTION} AS "typeProportion"
       FROM item_zapper_ratios
       WHERE item_zapper_proportion > 0
         AND ${EACH_ZAP_PORTION} > 0
     )
-    -- roll every curator's per-item proportions up into one total.
-    SELECT "userId" AS "curatorId", sum("typeProportion") AS "total_proportion"
+    -- roll every curator's per-type proportions up into one total, keeping the
+    -- per-type breakdown (type/rank/typeProportion) for Earn row writing.
+    SELECT "userId" AS "curatorId",
+      sum("typeProportion") AS "total_proportion",
+      json_agg(json_build_object('type', "type", 'rank', "rank", 'typeProportion', "typeProportion"))::text AS "earns"
     FROM reward_proportions
     GROUP BY "userId"`
 
@@ -163,7 +197,12 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
 
   const rows = prospects.map(r => ({
     curatorId: Number(r.curatorId),
-    totalProportion: Number(r.total_proportion)
+    totalProportion: Number(r.total_proportion),
+    earns: JSON.parse(r.earns).map(e => ({
+      type: e.type,
+      rank: Number(e.rank),
+      typeProportion: Number(e.typeProportion)
+    }))
   }))
 
   const sumProportion = rows.reduce((acc, r) => acc + r.totalProportion, 0)
@@ -179,7 +218,8 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
     .map(r => ({
       curatorId: r.curatorId,
       totalProportion: r.totalProportion,
-      sharePiconeros: BigInt(Math.floor(r.totalProportion / sumProportion * poolNum))
+      sharePiconeros: BigInt(Math.floor(r.totalProportion / sumProportion * poolNum)),
+      earns: r.earns
     }))
     // topN: keep only the highest-proportion curators.
     .sort((a, b) => b.totalProportion - a.totalProportion)
@@ -190,7 +230,11 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
   const minBig = BigInt(minPayout)
   const shares = ranked
     .filter(s => s.sharePiconeros >= minBig)
-    .map(s => ({ curatorId: s.curatorId, sharePiconeros: s.sharePiconeros }))
+    .map(s => ({
+      curatorId: s.curatorId,
+      sharePiconeros: s.sharePiconeros,
+      earns: apportionEarns(s.earns, s.sharePiconeros)
+    }))
 
   const distributedPiconeros = shares.reduce((acc, s) => acc + s.sharePiconeros, 0n)
   const rolledOverPiconeros = poolPiconeros - distributedPiconeros
