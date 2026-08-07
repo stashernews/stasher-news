@@ -7,7 +7,7 @@ import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/val
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
 import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES, SN_SYSTEM_ONLY_IDS } from '@/lib/constants'
 import { commentsFreeLeft } from '@/api/payIn/lib/freebie'
-import { timeUnitForRange, whenRange } from '@/lib/time'
+import { whenRange } from '@/lib/time'
 import assertApiKeyNotPermitted from './apiKey'
 import { isMuted } from '@/lib/user'
 import { GqlAuthenticationError, GqlAuthorizationError, GqlInputError } from '@/lib/error'
@@ -76,7 +76,6 @@ async function authMethods (user, args, { models, me }) {
 export async function topUsers (parent, { cursor, when, by = 'stacked', from, to, limit }, { models, me }) {
   const decodedCursor = decodeCursor(cursor)
   const [fromDate, toDate] = whenRange(when, from, to || decodeCursor.time)
-  const granularity = timeUnitForRange([fromDate, toDate]).toUpperCase()
 
   let column
   switch (by) {
@@ -94,34 +93,52 @@ export async function topUsers (parent, { cursor, when, by = 'stacked', from, to
 
   const users = (await models.$queryRaw`
     WITH user_outgoing AS (
-      SELECT "AggPayIn"."userId", floor(sum("AggPayIn"."sumMcost") / 1000) as spent,
-        sum("AggPayIn"."countGroup") FILTER (WHERE "AggPayIn"."payInType" = 'ITEM_CREATE') as nitems
-      FROM "AggPayIn"
-      WHERE "AggPayIn"."timeBucket" >= ${fromDate}
-      AND "AggPayIn"."timeBucket" <= ${toDate}
-      AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-      AND "AggPayIn"."slice" = 'USER_BY_TYPE'
-      GROUP BY "AggPayIn"."userId"
+      SELECT x."userId", sum(x.piconeros)::bigint as spent
+      FROM (
+        SELECT d."downvoterId" AS "userId", d.piconeros
+        FROM "ObservedDownvote" d
+        WHERE d.state = 'CONFIRMED' AND d."downvoterId" IS NOT NULL
+          AND d."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+          AND d."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+        UNION ALL
+        SELECT p."userId", f.piconeros
+        FROM "FeeObservation" f
+        JOIN "PayIn" p ON p.id = f."payInId"
+        WHERE f.state = 'CONFIRMED'
+          AND f."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+          AND f."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+      ) x
+      GROUP BY x."userId"
+    ),
+    user_item_counts AS (
+      SELECT p."userId", count(*)::int as nitems
+      FROM "PayIn" p
+      WHERE p."payInType" = 'ITEM_CREATE' AND p."payInState" = 'PAID'
+        AND p."payInStateChangedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+        AND p."payInStateChangedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+      GROUP BY p."userId"
     ),
     user_incoming AS (
-      SELECT "AggPayOut"."userId", floor(sum("AggPayOut"."sumMtokens") / 1000) as stacked
-      FROM "AggPayOut"
-      WHERE "AggPayOut"."timeBucket" >= ${fromDate}
-      AND "AggPayOut"."timeBucket" <= ${toDate}
-      AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
-      AND "AggPayOut"."slice" = 'USER_BY_TYPE'
-      AND "AggPayOut"."payInType" IS NOT NULL
-      GROUP BY "AggPayOut"."userId"
+      SELECT ma."ownerUserId" AS "userId", sum(t.piconeros)::bigint AS stacked
+      FROM "ObservedTip" t
+      JOIN "MoneroAccount" ma ON ma.id = t."recipientAccountId"
+      WHERE t.state = 'CONFIRMED' AND ma."ownerUserId" IS NOT NULL
+        AND t."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+        AND t."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+      GROUP BY ma."ownerUserId"
     ),
     user_stats AS (
-      SELECT COALESCE(user_outgoing."userId", user_incoming."userId") as "userId", COALESCE(user_outgoing."spent", 0) as spent,
-        COALESCE(user_outgoing."nitems", 0) as nitems, COALESCE(user_incoming."stacked", 0) as stacked
-      FROM user_outgoing
-      FULL JOIN user_incoming ON user_outgoing."userId" = user_incoming."userId"
+      SELECT COALESCE(oo."userId", ic."userId", ii."userId") as "userId",
+        COALESCE(oo."spent", 0) as spent, COALESCE(ic."nitems", 0) as nitems,
+        COALESCE(ii."stacked", 0) as stacked
+      FROM user_outgoing oo
+      FULL JOIN user_item_counts ic ON ic."userId" = oo."userId"
+      FULL JOIN user_incoming ii ON ii."userId" = COALESCE(oo."userId", ic."userId")
     )
     SELECT * FROM user_stats
     JOIN users ON user_stats."userId" = users.id
     WHERE users.id NOT IN (${Prisma.join([...SN_SYSTEM_ONLY_IDS, USER_ID.anon])})
+      AND users."name" IS NOT NULL
     ORDER BY ${column} DESC NULLS LAST, users.created_at ASC
     OFFSET ${decodedCursor.offset}
     LIMIT ${limit}`
@@ -222,19 +239,14 @@ export default {
           FROM search_users_by_name(${q}::text, ${DEFAULT_NAME_SIMILARITY}::real, ${Number(limit)}::integer)`
       } else {
         users = await models.$queryRaw`
-          SELECT name
-          FROM "AggPayOut"
-          JOIN users on users.id = "AggPayOut"."userId"
-          WHERE NOT users."hideFromTopUsers"
-          AND "AggPayOut"."slice" = 'USER_TOTAL'
-          AND "AggPayOut"."granularity" = 'HOUR'
-          AND "AggPayOut"."timeBucket" = (
-            SELECT max("timeBucket")
-            FROM "AggPayOut"
-            WHERE "AggPayOut"."slice" = 'USER_TOTAL'
-            AND "AggPayOut"."granularity" = 'HOUR'
-          )
-          ORDER BY "AggPayOut"."sumMtokens" DESC, users.created_at ASC
+          SELECT u.name
+          FROM "ObservedTip" t
+          JOIN "MoneroAccount" ma ON ma.id = t."recipientAccountId"
+          JOIN users u ON u.id = ma."ownerUserId"
+          WHERE t.state = 'CONFIRMED' AND ma."ownerUserId" IS NOT NULL
+            AND NOT u."hideFromTopUsers"
+          GROUP BY u.id, u.name, u.created_at
+          ORDER BY sum(t.piconeros) DESC, u.created_at ASC
           LIMIT ${limit}`
       }
 
@@ -972,18 +984,14 @@ export default {
       }
 
       const [fromDate, toDate] = whenRange(when, from, to)
-      const granularity = timeUnitForRange([fromDate, toDate]).toUpperCase()
       const [{ stacked }] = await models.$queryRaw`
-        SELECT sum("AggPayOut"."sumMtokens") as stacked
-        FROM "AggPayOut"
-        WHERE "AggPayOut"."userId" = ${user.id}
-        AND "AggPayOut"."timeBucket" >= ${fromDate}
-        AND "AggPayOut"."timeBucket" <= ${toDate}
-        AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
-        AND "AggPayOut"."slice" = 'USER_BY_TYPE'
-        GROUP BY "AggPayOut"."userId"
-      `
-      return stacked ? BigInt(stacked) : 0n
+        SELECT COALESCE(sum(t.piconeros), 0) as stacked
+        FROM "ObservedTip" t
+        JOIN "MoneroAccount" ma ON ma.id = t."recipientAccountId"
+        WHERE t.state = 'CONFIRMED' AND ma."ownerUserId" = ${user.id}
+          AND t."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+          AND t."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz`
+      return BigInt(stacked)
     },
     stashAmountHidden: (user, args, { me }) =>
       !!user.hideStashAmount && (!me || me.id !== user.id),
@@ -997,19 +1005,23 @@ export default {
       }
 
       const [fromDate, toDate] = whenRange(when, from, to)
-      const granularity = timeUnitForRange([fromDate, toDate]).toUpperCase()
-      const [spentRow] = await models.$queryRaw`
-        SELECT sum("AggPayIn"."sumMcost") as spent
-        FROM "AggPayIn"
-        WHERE "AggPayIn"."userId" = ${user.id}
-        AND "AggPayIn"."timeBucket" >= ${fromDate}
-        AND "AggPayIn"."timeBucket" <= ${toDate}
-        AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-        AND "AggPayIn"."slice" = 'USER_BY_TYPE'
-        GROUP BY "AggPayIn"."userId"
-      `
-
-      return spentRow?.spent ? BigInt(spentRow.spent) : 0n
+      const [{ spent }] = await models.$queryRaw`
+        SELECT COALESCE(sum(x.piconeros), 0) as spent
+        FROM (
+          SELECT d.piconeros
+          FROM "ObservedDownvote" d
+          WHERE d.state = 'CONFIRMED' AND d."downvoterId" = ${user.id}
+            AND d."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+            AND d."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+          UNION ALL
+          SELECT f.piconeros
+          FROM "FeeObservation" f
+          JOIN "PayIn" p ON p.id = f."payInId"
+          WHERE f.state = 'CONFIRMED' AND p."userId" = ${user.id}
+            AND f."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+            AND f."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+        ) x`
+      return BigInt(spent)
     },
     referrals: async (user, { when, from, to }, { models, me }) => {
       if ((!me || me.id !== user.id) && user.hideFromTopUsers) {
