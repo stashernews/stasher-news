@@ -3,14 +3,12 @@ import { timeLeft } from '@/lib/time'
 import { useMe } from './me'
 import styles from './poll.module.css'
 import { signIn } from 'next-auth/react'
-import ActionTooltip from './action-tooltip'
 import { useToast } from './toast'
 import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import { useAnimation } from './animation'
 import { throwUnlessUserCancel } from '@/wallets/client/errors'
-import { piconerosToXmr, fixedDecimal, numWithUnits } from '@/lib/format'
+import { fixedDecimal, numWithUnits } from '@/lib/format'
 import { POLL_VOTE } from '@/fragments/payIn'
-import { POLL_COST } from '@/lib/constants'
 import { useState } from 'react'
 import classNames from 'classnames'
 
@@ -21,34 +19,32 @@ const PollButton = ({ v, item }) => {
   const { me } = useMe()
 
   return (
-    <ActionTooltip placement='left' notForm overlayText={piconerosToXmr(BigInt(POLL_COST) * 1000n)}>
-      <Button
-        disabled={isSubmitting}
-        variant='outline-info' className={classNames(styles.pollButton, isSubmitting && 'pulse')}
-        onClick={me
-          ? async () => {
-            setIsSubmitting(true)
-            const variables = { id: v.id }
-            try {
-              const { error, payError } = await pollVote({
-                variables
-              })
-              if (error) throw error
-              // poll votes are pessimistic, so a terminal payment failure (expired/canceled
-              // invoice) comes back in payError, never error — but a user-canceled QR isn't news
-              throwUnlessUserCancel(payError)
-            } catch (error) {
-              const reason = error?.message || error?.toString?.()
-              toaster.danger(reason)
-            } finally {
-              setIsSubmitting(false)
-            }
+    <Button
+      disabled={isSubmitting}
+      variant='outline-info' className={classNames(styles.pollButton, isSubmitting && 'pulse')}
+      onClick={me
+        ? async () => {
+          setIsSubmitting(true)
+          const variables = { id: v.id }
+          try {
+            const { error, payError } = await pollVote({
+              variables
+            })
+            if (error) throw error
+            // poll votes are free (PAID at creation), so a payError isn't expected;
+            // throwUnlessUserCancel is kept defensively in case the engine surfaces one
+            throwUnlessUserCancel(payError)
+          } catch (error) {
+            const reason = error?.message || error?.toString?.()
+            toaster.danger(reason)
+          } finally {
+            setIsSubmitting(false)
           }
-          : signIn}
-      >
-        {v.option}
-      </Button>
-    </ActionTooltip>
+        }
+        : signIn}
+    >
+      {v.option}
+    </Button>
   )
 }
 
