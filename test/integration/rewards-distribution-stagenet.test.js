@@ -5,7 +5,7 @@
 //
 // Verifies the full rewards-distribution loop (Tasks 7-9) against the REAL
 // monerod + monero-lws + app + worker stack:
-//   - seed a CONFIRMED ObservedBurn (pool funding) + 3 CONFIRMED ObservedTip
+//   - seed a CONFIRMED ObservedDownvote (pool funding) + 3 CONFIRMED ObservedTip
 //     rows on a top item from 3 curators
 //   - run runDistributionOnce with the REAL sendPayouts (monero-ts hot-wallet
 //     signer) so actual on-chain txs are constructed + broadcast
@@ -24,13 +24,13 @@
 //   7. The post author's stackedPiconeros is unchanged (only curators receive).
 //
 // -----------------------------------------------------------------------------
-// FUNDING PATH: This test uses the SEEDED ObservedBurn path (not a real
+// FUNDING PATH: This test uses the SEEDED ObservedDownvote path (not a real
 // on-chain downvote). The rewards wallet ALREADY has a confirmed account-0
 // balance from prior test sends (~0.002 XMR at last check). Seeding a
-// CONFIRMED ObservedBurn directly represents the pool funding without the
+// CONFIRMED ObservedDownvote directly represents the pool funding without the
 // ~20-minute confirmation wait. The REAL sign+broadcast path is still
 // exercised end-to-end — sendPayouts opens the rewards wallet and constructs
-// + relays actual stagenet transactions. This is acceptable because tip/burn
+// + relays actual stagenet transactions. This is acceptable because tip/downvote
 // DETECTION was already verified by the Phase 2 webhook gate and the Task 6
 // downvote test; THIS test focuses on the DISTRIBUTION.
 //
@@ -65,7 +65,7 @@ const prisma = new PrismaClient()
 const STAGENET_ENABLED = process.env.RUN_STAGENET_INTEGRATION === '1'
 
 // --- Test amounts (piconeros = 1e-12 XMR) ---
-// Pool funded via seeded ObservedBurn. Must be small enough to fit the rewards
+// Pool funded via seeded ObservedDownvote. Must be small enough to fit the rewards
 // wallet's existing stagenet balance (~0.002 XMR) but large enough that at
 // least 2 curator shares exceed the test minPayout.
 const POOL_PICONEROS = 1_000_000_000n // 0.001 XMR
@@ -161,14 +161,14 @@ async function generateStagenetAddresses (count) {
     }
 
     // FK-safe cleanup order:
-    // RewardPayout -> RewardDistribution -> ObservedTip -> ObservedBurn ->
+    // RewardPayout -> RewardDistribution -> ObservedTip -> ObservedDownvote ->
     // ItemUserAgg -> Item -> MoneroAccount -> User
     for (const distId of created.distributions) {
       await prisma.rewardPayout.deleteMany({ where: { distributionId: distId } }).catch(() => {})
       await prisma.rewardDistribution.deleteMany({ where: { id: distId } }).catch(() => {})
     }
     await prisma.observedTip.deleteMany({ where: { tipperId: { in: created.users } } }).catch(() => {})
-    await prisma.observedBurn.deleteMany({ where: { postId: { in: created.items } } }).catch(() => {})
+    await prisma.observedDownvote.deleteMany({ where: { postId: { in: created.items } } }).catch(() => {})
     await prisma.itemUserAgg.deleteMany({ where: { itemId: { in: created.items } } }).catch(() => {})
     for (const id of created.items) await prisma.item.deleteMany({ where: { id } }).catch(() => {})
     for (const id of created.accounts) await prisma.moneroAccount.deleteMany({ where: { id } }).catch(() => {})
@@ -258,16 +258,16 @@ async function generateStagenetAddresses (count) {
     }
     console.log(`  seeded 3 CONFIRMED ObservedTip rows (large=${TIP_LARGE.toString()} medium=${TIP_MEDIUM.toString()} tiny=${TIP_TINY.toString()})`)
 
-    // ===== 4. Seed CONFIRMED ObservedBurn (pool funding) ==================
+    // ===== 4. Seed CONFIRMED ObservedDownvote (pool funding) ==================
     // SEEDED PATH: the rewards wallet already has a confirmed account-0
     // balance from prior test sends. We represent the pool funding with a
-    // directly-seeded CONFIRMED ObservedBurn — no ~20-min downvote wait.
+    // directly-seeded CONFIRMED ObservedDownvote — no ~20-min downvote wait.
 
-    await prisma.observedBurn.create({
+    await prisma.observedDownvote.create({
       data: {
-        txHash: `dist-test-burn-${now}`,
+        txHash: `dist-test-downvote-${now}`,
         postId,
-        paymentId: `dist-test-burn-pid-${now}`,
+        paymentId: `dist-test-downvote-pid-${now}`,
         piconeros: POOL_PICONEROS,
         state: 'CONFIRMED',
         confirmedAt: new Date(now - 5 * 60 * 1000),
@@ -275,7 +275,7 @@ async function generateStagenetAddresses (count) {
         confirmations: 10
       }
     })
-    console.log(`  seeded CONFIRMED ObservedBurn pool=${POOL_PICONEROS.toString()} pico`)
+    console.log(`  seeded CONFIRMED ObservedDownvote pool=${POOL_PICONEROS.toString()} pico`)
 
     // ===== 5. Capture baseline ============================================
     const baseAuthor = await prisma.user.findUnique({

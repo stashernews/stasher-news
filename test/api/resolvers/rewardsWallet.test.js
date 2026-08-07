@@ -34,11 +34,11 @@ const CONFIG = {
   territoryFeeRewardsPct: 30
 }
 
-function makeModels ({ account = makeAccount(), burns = 0n, feeGroups = [], config = CONFIG } = {}) {
+function makeModels ({ account = makeAccount(), downvotes = 0n, feeGroups = [], config = CONFIG } = {}) {
   return {
     moneroAccount: { findFirst: jest.fn(async () => account) },
     platformFeeConfig: { findUnique: jest.fn(async () => config) },
-    observedBurn: { aggregate: jest.fn(async () => ({ _sum: { piconeros: burns } })) },
+    observedDownvote: { aggregate: jest.fn(async () => ({ _sum: { piconeros: downvotes } })) },
     feeObservation: { groupBy: jest.fn(async () => feeGroups) }
   }
 }
@@ -51,7 +51,7 @@ function makeMonero (received = 0n, sent = 0n) {
 
 describe('Query.rewardsWalletInfo', () => {
   test('returns a valid address, decrypted view key, and balance = received - sent', async () => {
-    const models = makeModels({ burns: 0n, feeGroups: [] })
+    const models = makeModels({ downvotes: 0n, feeGroups: [] })
     const monero = makeMonero(1000n, 250n)
 
     const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
@@ -72,7 +72,7 @@ describe('Query.rewardsWalletInfo', () => {
       { feeType: 'TERRITORY_CREATE', _sum: { piconeros: 150n } },
       { feeType: 'TERRITORY_BILLING', _sum: { piconeros: 150n } }
     ]
-    const models = makeModels({ burns: 100n, feeGroups })
+    const models = makeModels({ downvotes: 100n, feeGroups })
     const monero = makeMonero(1000n, 100n)
 
     const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
@@ -90,7 +90,7 @@ describe('Query.rewardsWalletInfo', () => {
       { feeType: 'POSTING', _sum: { piconeros: 200n } },
       { feeType: 'TERRITORY_CREATE', _sum: { piconeros: 300n } }
     ]
-    const models = makeModels({ burns: 100n, feeGroups })
+    const models = makeModels({ downvotes: 100n, feeGroups })
     const monero = makeMonero(1000n, 100n)
 
     const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
@@ -109,7 +109,7 @@ describe('Query.rewardsWalletInfo', () => {
   })
 
   test('zero confirmed inflow puts the whole balance in ops earmark', async () => {
-    const models = makeModels({ burns: 0n, feeGroups: [] })
+    const models = makeModels({ downvotes: 0n, feeGroups: [] })
     const monero = makeMonero(500n, 100n)
 
     const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })

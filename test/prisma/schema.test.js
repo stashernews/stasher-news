@@ -24,7 +24,7 @@ const EXPECTED_MODELS = [
   'MoneroViewKey',
   'SubaddressIndex',
   'ObservedTip',
-  'ObservedBurn',
+  'ObservedDownvote',
   'RewardDistribution',
   'RewardPayout',
   'DownvotePidMap',
@@ -76,7 +76,7 @@ test('Item keeps the ranking-trigger column names verbatim', () => {
 
 test('Item has the StasherNews posting-fee columns (subaddress columns dropped)', () => {
   const fields = fieldsOf('Item')
-  for (const c of ['feeStatus', 'feePayInId', 'feePayIn', 'observedTips', 'observedBurns']) {
+  for (const c of ['feeStatus', 'feePayInId', 'feePayIn', 'observedTips', 'observedDownvotes']) {
     expect(fields).toContain(c)
   }
   // dead pre-registered-subaddress columns and relation removed in Task 5
@@ -96,7 +96,7 @@ const relationFieldsOf = (modelName) => {
 
 test('Item exposes its Monero back-relations as relation fields', () => {
   const rels = relationFieldsOf('Item')
-  for (const r of ['observedTips', 'observedBurns']) {
+  for (const r of ['observedTips', 'observedDownvotes']) {
     expect(rels).toContain(r)
   }
   // PostSubaddress back-relation removed in Task 5

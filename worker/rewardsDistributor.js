@@ -6,7 +6,7 @@ import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
 // rewardsDistributor — StasherNews' weekly rewards-pool distribution job
 // (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
 //
-//   1. tallies CONFIRMED platform-wallet inflow by source (downvote burns +
+//   1. tallies CONFIRMED platform-wallet inflow by source (downvotes +
 //      posting/territory fees) for the period;
 //   2. applies the PlatformFeeConfig allocation split to get the rewards earmark;
 //   3. adds the prior period's rolledOverPiconeros to form the pool;
@@ -85,7 +85,7 @@ async function distribute (models) {
 
     // --- Inflow by source (all CONFIRMED, confirmedAt in [periodStart, periodEnd)) ---
     const [downvoteAgg, postingAgg, territoryAgg] = await Promise.all([
-      tx.observedBurn.aggregate({
+      tx.observedDownvote.aggregate({
         _sum: { piconeros: true },
         where: { state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
       }),

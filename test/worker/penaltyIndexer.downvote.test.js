@@ -4,7 +4,7 @@
 //
 // runPenaltyIndexerOnce is the testable core: it processes rewards-wallet outputs
 // and, for each output to the PRIMARY address (major 0) carrying a payment_id,
-// looks up the DownvotePidMap reverse map, idempotently records an ObservedBurn
+// looks up the DownvotePidMap reverse map, idempotently records an ObservedDownvote
 // (DETECTED), applies the LOG-scaled ranking penalty (ported from the legacy
 // downZap.js onPaid SQL to piconeros), and marks the map consumed. Fee subaddress
 // outputs (major 1/2) short-circuit before this branch.
@@ -31,13 +31,13 @@ beforeAll(async () => {
 })
 
 afterEach(async () => {
-  // ObservedBurn rows are created by the indexer (linked to the seeded items),
+  // ObservedDownvote rows are created by the indexer (linked to the seeded items),
   // so clean them by postId each test to keep the count-based assertions isolated.
-  await prisma.observedBurn.deleteMany({ where: { postId: { in: created.items } } })
+  await prisma.observedDownvote.deleteMany({ where: { postId: { in: created.items } } })
 })
 
 afterAll(async () => {
-  await prisma.observedBurn.deleteMany({ where: { postId: { in: created.items } } })
+  await prisma.observedDownvote.deleteMany({ where: { postId: { in: created.items } } })
   for (const pid of created.maps) await prisma.downvotePidMap.deleteMany({ where: { paymentId: pid } })
   for (const id of created.items) {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
@@ -89,7 +89,7 @@ function lwsDownvoteTx (hash, paymentId, piconeros, height = 1000) {
   return { hash, piconeros: BigInt(piconeros), recipient: { maj_i: 0, min_i: 0 }, height, id: 1, payment_id: paymentId }
 }
 
-test('penaltyIndexer maps a payment_id to a postId, creates ObservedBurn DETECTED, bumps downPiconeros, consumes the map', async () => {
+test('penaltyIndexer maps a payment_id to a postId, creates ObservedDownvote DETECTED, bumps downPiconeros, consumes the map', async () => {
   const userId = await createUser()
   const postId = await createRoot(userId, 'downvote-target')
   const paymentId = await seedMap(postId, userId)
@@ -97,11 +97,11 @@ test('penaltyIndexer maps a payment_id to a postId, creates ObservedBurn DETECTE
 
   await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [lwsDownvoteTx('e5' + 'ab'.repeat(31), paymentId, PICONEROS)] })
 
-  const burn = await prisma.observedBurn.findFirst({ where: { postId } })
-  expect(burn).toBeTruthy()
-  expect(burn.state).toBe('DETECTED')
-  expect(burn.piconeros).toBe(PICONEROS)
-  expect(burn.paymentId).toBe(paymentId)
+  const downvote = await prisma.observedDownvote.findFirst({ where: { postId } })
+  expect(downvote).toBeTruthy()
+  expect(downvote.state).toBe('DETECTED')
+  expect(downvote.piconeros).toBe(PICONEROS)
+  expect(downvote.paymentId).toBe(paymentId)
 
   const item = await prisma.item.findUnique({ where: { id: postId }, select: { downPiconeros: true } })
   expect(item.downPiconeros).toBe(PICONEROS)
@@ -110,7 +110,7 @@ test('penaltyIndexer maps a payment_id to a postId, creates ObservedBurn DETECTE
   expect(map.consumedAt).toBeInstanceOf(Date)
 })
 
-test('penaltyIndexer is idempotent across re-polls (no duplicate ObservedBurn, no double downPiconeros)', async () => {
+test('penaltyIndexer is idempotent across re-polls (no duplicate ObservedDownvote, no double downPiconeros)', async () => {
   const userId = await createUser()
   const postId = await createRoot(userId, 'idempotent-downvote')
   const paymentId = await seedMap(postId, userId)
@@ -120,18 +120,18 @@ test('penaltyIndexer is idempotent across re-polls (no duplicate ObservedBurn, n
   await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
   await runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
 
-  const count = await prisma.observedBurn.count({ where: { postId } })
+  const count = await prisma.observedDownvote.count({ where: { postId } })
   expect(count).toBe(1)
 
   const item = await prisma.item.findUnique({ where: { id: postId }, select: { downPiconeros: true } })
   expect(item.downPiconeros).toBe(PICONEROS)
 })
 
-test('penaltyIndexer ignores an unknown payment_id (no ObservedBurn, no error)', async () => {
+test('penaltyIndexer ignores an unknown payment_id (no ObservedDownvote, no error)', async () => {
   await expect(
     runPenaltyIndexerOnce({ models: prisma, account: rewardsWallet, txs: [lwsDownvoteTx('a7' + 'ef'.repeat(31), 'unknownpid00000000', 1_000_000_000n)] })
   ).resolves.toBeUndefined()
-  expect(await prisma.observedBurn.count()).toBe(0)
+  expect(await prisma.observedDownvote.count()).toBe(0)
 })
 
 test('penaltyIndexer applies a LOG-scaled weightedDownVotes delta when the downvoter has territory trust', async () => {

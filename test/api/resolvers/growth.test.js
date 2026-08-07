@@ -14,11 +14,11 @@ const STAGENET_ADDR = '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTET
 // own distinct address.
 const STAGENET_ADDR_2 = '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6K'
 
-const created = { users: [], items: [], tips: [], burns: [], fees: [], payIns: [] }
+const created = { users: [], items: [], tips: [], downvotes: [], fees: [], payIns: [] }
 
 async function cleanupTracked () {
   await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } })
-  await prisma.observedBurn.deleteMany({ where: { id: { in: created.burns } } })
+  await prisma.observedDownvote.deleteMany({ where: { id: { in: created.downvotes } } })
   await prisma.feeObservation.deleteMany({ where: { id: { in: created.fees } } })
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } })
   await prisma.moneroAccount.deleteMany({ where: { ownerUserId: { in: created.users } } })
@@ -76,12 +76,12 @@ async function createTip ({ postId, recipientAccountId, piconeros, state = 'CONF
   return tip
 }
 
-async function createBurn ({ postId, downvoterId, piconeros }) {
-  const burn = await prisma.observedBurn.create({
+async function createDownvote ({ postId, downvoterId, piconeros }) {
+  const downvote = await prisma.observedDownvote.create({
     data: { txHash: 'ab'.repeat(32), postId, downvoterId, paymentId: `pid-b${Math.random()}`, piconeros, state: 'CONFIRMED', confirmedAt: T }
   })
-  created.burns.push(burn.id)
-  return burn
+  created.downvotes.push(downvote.id)
+  return downvote
 }
 
 async function createFee ({ userId, postId, subName = undefined, feeType = 'POSTING', piconeros }) {
@@ -112,7 +112,7 @@ describe('growth resolvers', () => {
     const otherPost = await createPost(other)
 
     await createTip({ postId: post.id, recipientAccountId: acct.id, piconeros: 1000000000n })
-    await createBurn({ postId: otherPost.id, downvoterId: me, piconeros: 500000000n })
+    await createDownvote({ postId: otherPost.id, downvoterId: me, piconeros: 500000000n })
     await createFee({ postId: post.id, userId: me, piconeros: 1000000000n })
     // noise that must NOT count for mine: a tip to someone else
     await createTip({ postId: otherPost.id, recipientAccountId: (await createAccount(other, STAGENET_ADDR_2)).id, piconeros: 700000000n })
@@ -144,7 +144,7 @@ describe('growth resolvers', () => {
     const me = await createUser()
     const post = await createPost(me)
 
-    await createBurn({ postId: post.id, downvoterId: me, piconeros: 500000000n })
+    await createDownvote({ postId: post.id, downvoterId: me, piconeros: 500000000n })
     await createFee({ userId: me, postId: post.id, piconeros: 1000000000n })
 
     const items = await resolvers.Query.itemGrowth(null, { ...RANGE, mine: true }, meCtx(me))
@@ -166,7 +166,7 @@ describe('growth resolvers', () => {
     expect(sumSeries(stashers, 'total')).toBe(1)
   })
 
-  test('sub slice scopes tips/burns to the sub’s posts', async () => {
+  test('sub slice scopes tips/downvotes to the sub’s posts', async () => {
     const me = await createUser()
     const acct = await createAccount(me)
     const inSub = await createPost(me, 'monero')

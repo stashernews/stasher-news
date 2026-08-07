@@ -15,7 +15,7 @@ import { buildMoneroUri } from '@/api/monero/uri'
 //
 // piconeros is deliberately 0n: StasherNews downvotes are NOT paid in custodial
 // sats. The on-chain Monero amount is observed externally by the penaltyIndexer
-// and recorded in ObservedBurn.piconeros (Task 4). With piconeros=0n and no
+// and recorded in ObservedDownvote.piconeros (Task 4). With piconeros=0n and no
 // payOuts, the PayIn engine resolves this to payInState=PAID at creation time,
 // so the monero: URI is returned straight to the client — no invoice, no throw
 // (see api/payIn/lib/payInCreate.js getPayInState).
@@ -91,7 +91,7 @@ export async function onBegin (tx, payInId, payInArgs) {
 // onPaid fires immediately during begin(). Applying the ranking penalty here
 // would penalise the item BEFORE the downvote is actually paid on-chain. The
 // real penalty is applied by the penaltyIndexer (Task 4) when it observes the
-// payment as an ObservedBurn.
+// payment as an ObservedDownvote.
 export async function onPaid (tx, payInId) {
 }
 

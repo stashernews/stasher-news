@@ -73,7 +73,7 @@ export default {
       // Synthetic rows get negative ids so they never collide with real PayIn.id
       // or the Apollo cache key ['id', 'isSend'].
       //
-      // Posting/burn rows carry their postId; TERRITORY_* fees carry subName
+      // Posting/downvote rows carry their postId; TERRITORY_* fees carry subName
       // instead (postId is NULL for territory fees), so the row can link to the
       // turf and payInContext can render the TerritoryDetails.
       const rows = await models.$queryRaw`
@@ -110,7 +110,7 @@ export default {
             true AS "isSend",
             b."postId",
             NULL::citext
-          FROM "ObservedBurn" b
+          FROM "ObservedDownvote" b
           WHERE b.state = 'CONFIRMED'
             AND b."downvoterId" = ${userId}
             AND b."confirmedAt" <= ${decodedCursor.time}

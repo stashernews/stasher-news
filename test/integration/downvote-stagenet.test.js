@@ -10,16 +10,16 @@
 //     full payIn engine — the unit under test is the penaltyIndexer detection +
 //     ranking, mirroring how phase3 calls reserveFeeSubaddress directly)
 //   - send a REAL stagenet downvote to the integrated address
-//   - the penaltyIndexer observes it -> ObservedBurn DETECTED + Item.downPiconeros +
+//   - the penaltyIndexer observes it -> ObservedDownvote DETECTED + Item.downPiconeros +
 //     weightedDownVotes (LOG ranking penalty applied at DETECTION)
-//   - confirmFinalizer matures ObservedBurn -> CONFIRMED at 10 confs
+//   - confirmFinalizer matures ObservedDownvote -> CONFIRMED at 10 confs
 //
 // The exit-gate invariants asserted:
-//   1. ObservedBurn appears DETECTED then CONFIRMED (within the poll timeouts).
+//   1. ObservedDownvote appears DETECTED then CONFIRMED (within the poll timeouts).
 //   2. Item.downPiconeros increases by exactly the sent piconeros (PRIMARY, unconditional).
 //   3. The post AUTHOR is NOT charged: stackedPiconeros unchanged at DETECTION and
 //      again at CONFIRMATION (downvotes fund the rewards pool, never the poster).
-//   4. ObservedBurn.piconeros === the sent amount (the rewards pool accrual record).
+//   4. ObservedDownvote.piconeros === the sent amount (the rewards pool accrual record).
 //   5. weightedDownVotes increases: the downvoter is seeded a nonzero zapPostTrust
 //      for the post's territory so the LOG penalty registers a real ranking weight.
 //      (A trust-less downvoter correctly yields 0 — SN semantics — and is NOT a
@@ -170,9 +170,9 @@ async function chainHeight () {
   })
 
   afterAll(async () => {
-    // FK-safe order: ObservedBurn -> ItemUserAgg -> DownvotePidMap -> Item ->
+    // FK-safe order: ObservedDownvote -> ItemUserAgg -> DownvotePidMap -> Item ->
     // UserSubTrust -> Sub -> users.
-    await prisma.observedBurn.deleteMany({ where: { postId: { in: created.items } } })
+    await prisma.observedDownvote.deleteMany({ where: { postId: { in: created.items } } })
     await prisma.itemUserAgg.deleteMany({ where: { itemId: { in: created.items } } })
     for (const pid of created.maps) await prisma.downvotePidMap.deleteMany({ where: { paymentId: pid } })
     for (const id of created.items) await prisma.item.deleteMany({ where: { id } })
@@ -190,7 +190,7 @@ async function chainHeight () {
     return rows[0].id
   }
 
-  test('downvote -> ObservedBurn DETECTED (downPiconeros + weightedDownVotes; poster NOT charged) -> CONFIRMED', async () => {
+  test('downvote -> ObservedDownvote DETECTED (downPiconeros + weightedDownVotes; poster NOT charged) -> CONFIRMED', async () => {
     // ---- 1. seed a poster, a downvoter, a territory + the downvoter's trust ---
     const posterId = await createUser()
     const downvoterId = await createUser()
@@ -232,14 +232,14 @@ async function chainHeight () {
     const hash = await sendDownvote(integratedAddress, DOWNVOTE_PICONEROS)
     console.log(`  sent downvote tx ${hash} (${DOWNVOTE_PICONEROS.toString()} piconeros)`)
 
-    // ---- 6. poll for ObservedBurn DETECTED -----------------------------------
-    const detected = await pollUntil('ObservedBurn DETECTED', async () => {
-      const burn = await prisma.observedBurn.findFirst({ where: { paymentId } })
-      if (burn && burn.state === 'DETECTED') return burn
+    // ---- 6. poll for ObservedDownvote DETECTED -----------------------------------
+    const detected = await pollUntil('ObservedDownvote DETECTED', async () => {
+      const downvote = await prisma.observedDownvote.findFirst({ where: { paymentId } })
+      if (downvote && downvote.state === 'DETECTED') return downvote
       console.log(`    [DETECTED] chain=${await chainHeight()}; not yet`)
       return null
     })
-    console.log(`  DETECTED: burn id=${detected.id} piconeros=${detected.piconeros.toString()} downvoterId=${detected.downvoterId} height=${detected.height ?? 'mempool'}`)
+    console.log(`  DETECTED: downvote id=${detected.id} piconeros=${detected.piconeros.toString()} downvoterId=${detected.downvoterId} height=${detected.height ?? 'mempool'}`)
 
     // ---- 7. assert DETECTED effects -----------------------------------------
     expect(detected.paymentId).toBe(paymentId)
@@ -255,17 +255,17 @@ async function chainHeight () {
     expect(detPoster.stackedPiconeros).toBe(basePoster.stackedPiconeros)
     console.log('  DETECTED assertions passed (downPiconeros + weightedDownVotes bumped; poster stackedPiconeros unchanged)')
 
-    // ---- 8. poll for ObservedBurn CONFIRMED ----------------------------------
-    const confirmed = await pollUntil('ObservedBurn CONFIRMED', async () => {
-      const burn = await prisma.observedBurn.findUnique({ where: { id: detected.id }, select: { state: true, height: true, confirmations: true, confirmedAt: true } })
-      if (burn && burn.state === 'CONFIRMED') return burn
+    // ---- 8. poll for ObservedDownvote CONFIRMED ----------------------------------
+    const confirmed = await pollUntil('ObservedDownvote CONFIRMED', async () => {
+      const downvote = await prisma.observedDownvote.findUnique({ where: { id: detected.id }, select: { state: true, height: true, confirmations: true, confirmedAt: true } })
+      if (downvote && downvote.state === 'CONFIRMED') return downvote
       const chain = await chainHeight()
-      const burnH = burn?.height ?? null
-      const confs = burnH != null ? chain - burnH + 1 : 0
-      console.log(`    [CONFIRMED] chain=${chain} burnHeight=${burnH ?? 'mempool'} confs=${confs}/${REQUIRED_CONFIRMATIONS}`)
+      const downvoteH = downvote?.height ?? null
+      const confs = downvoteH != null ? chain - downvoteH + 1 : 0
+      console.log(`    [CONFIRMED] chain=${chain} downvoteHeight=${downvoteH ?? 'mempool'} confs=${confs}/${REQUIRED_CONFIRMATIONS}`)
       return null
     }, { timeoutMs: CONFIRM_TIMEOUT_MS, pollMs: CONFIRM_POLL_MS })
-    console.log(`  CONFIRMED: burn id=${detected.id} confirmations=${confirmed.confirmations} confirmedAt=${confirmed.confirmedAt.toISOString()}`)
+    console.log(`  CONFIRMED: downvote id=${detected.id} confirmations=${confirmed.confirmations} confirmedAt=${confirmed.confirmedAt.toISOString()}`)
 
     // ---- 9. assert CONFIRMED effects ----------------------------------------
     expect(confirmed.state).toBe('CONFIRMED')

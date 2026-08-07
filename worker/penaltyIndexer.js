@@ -21,9 +21,9 @@ import { Prisma } from '@prisma/client'
 //     gated Item.feeStatus PENDING_FEE -> FEE_PAID (or Sub.billingStatus), taking
 //     the post/territory live.
 //   - primary address + payment_id (Phase 4): reverses the payment_id via the
-//     DownvotePidMap, idempotently records an ObservedBurn (DETECTED), and applies
+//     DownvotePidMap, idempotently records an ObservedDownvote (DETECTED), and applies
 //     the LOG-scaled ranking penalty (weightedDownVotes/downPiconeros) at DETECTION.
-// The confirmFinalizer matures FeeObservation/ObservedBurn DETECTED -> CONFIRMED
+// The confirmFinalizer matures FeeObservation/ObservedDownvote DETECTED -> CONFIRMED
 // at REQUIRED_CONFIRMATIONS (separate concern, separate job). Reorg reversal is
 // deferred (accepted v1 limitation — consistent with the tip flow).
 //
@@ -35,7 +35,7 @@ import { Prisma } from '@prisma/client'
 //     core, advances the cursor, and self-requeues.
 
 // One poll. `txs` is normally fetched from lws by the handler; tests pass it
-// directly. Returns nothing; effects are the FeeObservation/ObservedBurn rows +
+// directly. Returns nothing; effects are the FeeObservation/ObservedDownvote rows +
 // fee flips / ranking penalties.
 export async function runPenaltyIndexerOnce ({ models, account, txs }) {
   for (const tx of txs || []) {
@@ -92,7 +92,7 @@ async function attributeFeeBySubaddress (models, tx) {
 
 // Attribute a primary-address output carrying a payment_id to a downvote. Looks
 // up the payment_id in the DownvotePidMap reverse map; if found, idempotently
-// records an ObservedBurn (DETECTED) and applies the LOG-scaled ranking penalty
+// records an ObservedDownvote (DETECTED) and applies the LOG-scaled ranking penalty
 // (ported from the legacy downZap.js onPaid SQL to piconeros). The penalty fires
 // exactly once per (txHash, paymentId) — the ON CONFLICT DO NOTHING guard returns
 // a row only on the fresh insert, so a re-poll never double-penalises.
@@ -101,7 +101,7 @@ async function attributeDownvoteByPaymentId (models, tx) {
   if (!map) return
 
   const rows = await models.$queryRaw`
-    INSERT INTO "ObservedBurn" ("txHash","postId","downvoterId","paymentId","piconeros","height","state","detectedAt")
+    INSERT INTO "ObservedDownvote" ("txHash","postId","downvoterId","paymentId","piconeros","height","state","detectedAt")
     VALUES (${tx.hash}, ${map.postId}, ${map.userId}::INT, ${tx.payment_id}, ${tx.piconeros}, ${tx.height ?? null}, 'DETECTED'::"ObservedState", NOW())
     ON CONFLICT ("txHash","paymentId") DO NOTHING
     RETURNING id`
@@ -112,8 +112,8 @@ async function attributeDownvoteByPaymentId (models, tx) {
     try {
       await applyDownvotePenalty(models, item, map.userId, tx.piconeros)
     } catch (err) {
-      // Don't crash the indexer on a ranking-CTE failure; the ObservedBurn row
-      // already records the burn. (Item columns can be repaired separately.)
+      // Don't crash the indexer on a ranking-CTE failure; the ObservedDownvote row
+      // already records the downvote. (Item columns can be repaired separately.)
       console.error(`penaltyIndexer: ranking penalty failed for post ${map.postId}:`, err?.message || err)
     }
   }
