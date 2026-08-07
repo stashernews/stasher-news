@@ -23,8 +23,8 @@ import { CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constant
 // diverge — a CONFIRMED tip with an unbumped author (or vice versa) would
 // desync the reputation calc. The transaction guarantees they commit together.
 //
-// Scope: ObservedTip, FeeObservation, AND ObservedBurn. The tip flip is coupled
-// to the author stackedPiconeros denorm (atomic); the fee and burn flips are
+// Scope: ObservedTip, FeeObservation, AND ObservedDownvote. The tip flip is coupled
+// to the author stackedPiconeros denorm (atomic); the fee and downvote flips are
 // ledger-only (their ranking/visibility effects already applied at DETECTION).
 // Reorg reversal is NOT implemented — deferred as an accepted v1 limitation
 // (consistent with the tip flow; a >10-block Monero reorg is negligible).
@@ -105,22 +105,22 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     })
   }
 
-  // ObservedBurn (penaltyIndexer Phase 4): mature DETECTED downvote burns to
+  // ObservedDownvote (penaltyIndexer Phase 4): mature DETECTED downvotes to
   // CONFIRMED at the same confirmation threshold. The ranking penalty
   // (weightedDownVotes/downPiconeros) was already applied at DETECTION — mirroring
   // how tips apply their effect at DETECTION — so CONFIRMED just finalizes the
   // ledger row. Reorg reversal is deferred (consistent with the tip flow: a
   // >10-block Monero reorg is negligible; consequence is minor ranking drift,
   // not fund loss).
-  const burns = await models.observedBurn.findMany({
+  const downvotes = await models.observedDownvote.findMany({
     where: { state: 'DETECTED', height: { not: null } },
     take: SCAN_BATCH_SIZE
   })
-  for (const burn of burns) {
-    const confirmations = chainHeight - burn.height + 1
+  for (const downvote of downvotes) {
+    const confirmations = chainHeight - downvote.height + 1
     if (confirmations < REQUIRED_CONFIRMATIONS) continue
-    await models.observedBurn.update({
-      where: { id: burn.id },
+    await models.observedDownvote.update({
+      where: { id: downvote.id },
       data: { state: 'CONFIRMED', confirmations, confirmedAt: new Date() }
     })
   }

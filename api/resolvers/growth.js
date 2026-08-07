@@ -49,7 +49,7 @@ function tipScope (sub, me) {
   return Prisma.sql`AND ma."ownerUserId" = ${me.id}`
 }
 
-function burnScope (sub, me) {
+function downvoteScope (sub, me) {
   if (sub === ALL_SUB || (!sub && !me)) return Prisma.empty
   if (sub) {
     return Prisma.sql`AND b."postId" IN (SELECT "Item".id FROM "Item" WHERE "Item"."subName" = ${sub.name})`
@@ -86,10 +86,10 @@ export default {
           COUNT(*)::int AS items
         FROM (
           SELECT b.piconeros
-          FROM "ObservedBurn" b
+          FROM "ObservedDownvote" b
           WHERE b.state = 'CONFIRMED'
             AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
-            ${burnScope(sub, user)}
+            ${downvoteScope(sub, user)}
           UNION ALL
           SELECT f.piconeros
           FROM "FeeObservation" f
@@ -161,10 +161,10 @@ export default {
         ), spenders AS (
           SELECT ${bucket(granularity, Prisma.sql`b."confirmedAt"`)} AS "timeBucket",
             'DOWNVOTE' AS name, count(DISTINCT b."downvoterId") AS value
-          FROM "ObservedBurn" b
+          FROM "ObservedDownvote" b
           WHERE b.state = 'CONFIRMED' AND b."downvoterId" IS NOT NULL
             AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
-            ${burnScope(sub, user)}
+            ${downvoteScope(sub, user)}
           GROUP BY 1
           UNION ALL
           SELECT ${bucket(granularity, Prisma.sql`f."confirmedAt"`)} AS "timeBucket",
@@ -187,10 +187,10 @@ export default {
         ), totals AS (
           SELECT "timeBucket", count(DISTINCT "userId") AS value FROM (
             SELECT ${bucket(granularity, Prisma.sql`b."confirmedAt"`)} AS "timeBucket", b."downvoterId" AS "userId"
-            FROM "ObservedBurn" b
+            FROM "ObservedDownvote" b
             WHERE b.state = 'CONFIRMED' AND b."downvoterId" IS NOT NULL
               AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
-              ${burnScope(sub, user)}
+              ${downvoteScope(sub, user)}
             UNION ALL
             SELECT ${bucket(granularity, Prisma.sql`f."confirmedAt"`)} AS "timeBucket", p."userId"
             FROM "FeeObservation" f
@@ -221,10 +221,10 @@ export default {
         ), spends AS (
           SELECT ${bucket(granularity, Prisma.sql`b."confirmedAt"`)} AS "timeBucket",
             'DOWNVOTE' AS name, sum(b.piconeros) AS value
-          FROM "ObservedBurn" b
+          FROM "ObservedDownvote" b
           WHERE b.state = 'CONFIRMED'
             AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
-            ${burnScope(sub, user)}
+            ${downvoteScope(sub, user)}
           GROUP BY 1
           UNION ALL
           SELECT ${bucket(granularity, Prisma.sql`f."confirmedAt"`)} AS "timeBucket",
@@ -259,10 +259,10 @@ export default {
         ), spends AS (
           SELECT ${bucket(granularity, Prisma.sql`b."confirmedAt"`)} AS "timeBucket",
             'DOWNVOTE' AS name, COUNT(*) AS value
-          FROM "ObservedBurn" b
+          FROM "ObservedDownvote" b
           WHERE b.state = 'CONFIRMED'
             AND ${inRange(Prisma.sql`b."confirmedAt"`, fromDate, toDate)}
-            ${burnScope(sub, user)}
+            ${downvoteScope(sub, user)}
           GROUP BY 1
           UNION ALL
           SELECT ${bucket(granularity, Prisma.sql`f."confirmedAt"`)} AS "timeBucket",

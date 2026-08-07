@@ -70,11 +70,11 @@ export default {
       const totalSent = info.total_sent ?? 0n
       const balance = totalReceived - totalSent
 
-      const burns = await models.observedBurn.aggregate({
+      const downvotes = await models.observedDownvote.aggregate({
         _sum: { piconeros: true },
         where: { state: 'CONFIRMED' }
       })
-      const downvotePiconeros = burns._sum?.piconeros ?? 0n
+      const downvotePiconeros = downvotes._sum?.piconeros ?? 0n
 
       const feeGroups = await models.feeObservation.groupBy({
         by: ['feeType'],

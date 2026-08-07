@@ -31,11 +31,11 @@ const prisma = new PrismaClient()
 
 const STAGENET_ADDR = '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
 
-const created = { users: [], items: [], tips: [], burns: [], fees: [], payIns: [] }
+const created = { users: [], items: [], tips: [], downvotes: [], fees: [], payIns: [] }
 
 async function cleanupTracked () {
   await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } })
-  await prisma.observedBurn.deleteMany({ where: { id: { in: created.burns } } })
+  await prisma.observedDownvote.deleteMany({ where: { id: { in: created.downvotes } } })
   await prisma.feeObservation.deleteMany({ where: { id: { in: created.fees } } })
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } })
   await prisma.moneroAccount.deleteMany({ where: { ownerUserId: { in: created.users } } })
@@ -106,10 +106,10 @@ describe('Query.statistics', () => {
 
     const now = new Date()
     await createTip({ postId: post.id, recipientAccountId: acct.id, piconeros: 1000000000n, confirmedAt: now })
-    const burn = await prisma.observedBurn.create({
+    const downvote = await prisma.observedDownvote.create({
       data: { txHash: 'bb'.repeat(32), postId: otherPost.id, downvoterId: me, paymentId: 'pid-b', piconeros: 500000000n, state: 'CONFIRMED', confirmedAt: now }
     })
-    created.burns.push(burn.id)
+    created.downvotes.push(downvote.id)
     const payIn = await prisma.payIn.create({ data: { userId: me, piconeros: 0n, payInType: 'ITEM_CREATE', payInState: 'PAID' } })
     created.payIns.push(payIn.id)
     const fee = await prisma.feeObservation.create({
@@ -149,10 +149,10 @@ describe('Query.statistics', () => {
     const now = new Date()
     await createTip({ postId: post.id, recipientAccountId: acct.id, piconeros: 1000000000n, confirmedAt: now, state: 'DETECTED' })
     await createTip({ postId: post.id, recipientAccountId: otherAcct.id, piconeros: 1000000000n, confirmedAt: now })
-    const burn = await prisma.observedBurn.create({
+    const downvote = await prisma.observedDownvote.create({
       data: { txHash: 'dd'.repeat(32), postId: otherPost.id, downvoterId: other, paymentId: 'pid-d', piconeros: 500000000n, state: 'CONFIRMED', confirmedAt: now }
     })
-    created.burns.push(burn.id)
+    created.downvotes.push(downvote.id)
     const otherPayIn = await prisma.payIn.create({ data: { userId: other, piconeros: 0n, payInType: 'ITEM_CREATE', payInState: 'PAID' } })
     created.payIns.push(otherPayIn.id)
     const otherFee = await prisma.feeObservation.create({

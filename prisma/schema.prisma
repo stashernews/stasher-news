@@ -409,9 +409,9 @@ model Item {
   feePayInId  Int?           @unique
   feePayIn    PayIn?         @relation("ItemFeePayIn", fields: [feePayInId], references: [id])
 
-  // back-relations for observed Monero tips/burns (ObservedTip/ObservedBurn)
-  observedTips  ObservedTip[]
-  observedBurns ObservedBurn[]
+  // back-relations for observed Monero tips/downvotes (ObservedTip/ObservedDownvote)
+  observedTips      ObservedTip[]
+  observedDownvotes ObservedDownvote[]
 
   @@index([uploadId])
   @@index([lastTipAt])
@@ -1117,11 +1117,11 @@ model PayIn {
   userId Int
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // StasherNews (§4.2): Monero URI / observed-tip / observed-burn linkage
+  // StasherNews (§4.2): Monero URI / observed-tip / observed-downvote linkage
   moneroUri      String?
   paymentId      String?
   observedTipId  BigInt?
-  observedBurnId BigInt?
+  observedDownvoteId BigInt?
   // StasherNews fee linkage (§6.2): the rewards-wallet fee subaddress this PayIn
   // watches. The detected FeeObservation is reached via the `feeObservation`
   // back-relation (1:1, FK on FeeObservation.payInId) rather than a redundant scalar.
@@ -1434,7 +1434,7 @@ model ObservedTip {
 }
 
 // An observed downvote payment (arrives on the platform rewards wallet).
-model ObservedBurn {
+model ObservedDownvote {
   id            BigInt        @id @default(autoincrement())
   txHash        String
   postId        Int

@@ -3,7 +3,7 @@
 // Integration test for the weekly rewardsDistributor (Phase 4 Task 8 / spec §5).
 //
 // runDistributionOnce is the testable core: it tallies a week of CONFIRMED
-// platform inflow (downvote burns + posting/territory fees) by source, applies
+// platform inflow (downvotes + posting/territory fees) by source, applies
 // the PlatformFeeConfig allocation split, adds the prior period's rollover to
 // form the pool, calls computeCuratorShares (Task 7) to apportion it to the
 // curators of top content, and writes one RewardDistribution row + QUEUED
@@ -42,7 +42,7 @@ const created = {
   tips: [],
   payIns: [],
   fees: [],
-  burns: [],
+  downvotes: [],
   distributions: []
 }
 
@@ -162,14 +162,14 @@ async function seedFee (payInId, feeType, major, piconeros, confirmedAt) {
   return fee
 }
 
-let burnSeq = 0
-async function seedBurn (postId, piconeros, confirmedAt) {
-  burnSeq += 1
-  const burn = await prisma.observedBurn.create({
+let downvoteSeq = 0
+async function seedDownvote (postId, piconeros, confirmedAt) {
+  downvoteSeq += 1
+  const downvote = await prisma.observedDownvote.create({
     data: {
-      txHash: 'rdburn' + String(burnSeq),
+      txHash: 'rddv' + String(downvoteSeq),
       postId,
-      paymentId: 'rdburn' + String(burnSeq).padStart(8, '0'),
+      paymentId: 'rddv' + String(downvoteSeq).padStart(8, '0'),
       piconeros,
       height: 3000,
       confirmations: 10,
@@ -177,8 +177,8 @@ async function seedBurn (postId, piconeros, confirmedAt) {
       confirmedAt
     }
   })
-  created.burns.push(burn.id)
-  return burn
+  created.downvotes.push(downvote.id)
+  return downvote
 }
 
 beforeAll(async () => {
@@ -222,8 +222,8 @@ beforeAll(async () => {
   const recipientAccount = await createRecipientAccount()
   const postId = await createRootPost(authorId, 100, new Date(Date.now() - 3 * DAY))
 
-  // Downvote burn (platform rewards wallet inflow) attributed to the post.
-  await seedBurn(postId, DOWNVOTE_PICONEROS, inPeriod)
+  // Downvote payment (platform rewards wallet inflow) attributed to the post.
+  await seedDownvote(postId, DOWNVOTE_PICONEROS, inPeriod)
 
   // Posting fee + territory fee (need distinct PayIns for the FK).
   const postingPayIn = await seedPayIn(authorId, 'ITEM_CREATE', 1, 1)
@@ -258,7 +258,7 @@ afterAll(async () => {
   await prisma.rewardDistribution.deleteMany({ where: { id: { in: created.distributions } } })
   await prisma.feeObservation.deleteMany({ where: { id: { in: created.fees } } })
   await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } })
-  await prisma.observedBurn.deleteMany({ where: { id: { in: created.burns } } })
+  await prisma.observedDownvote.deleteMany({ where: { id: { in: created.downvotes } } })
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } })
   for (const id of created.items) {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })

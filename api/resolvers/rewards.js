@@ -44,7 +44,7 @@ async function getActiveRewards (models) {
   const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
   const [{ downvote, posting, territory, time }] = await models.$queryRaw`
     SELECT
-      COALESCE((SELECT sum("piconeros") FROM "ObservedBurn" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS downvote,
+      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'), 0)::bigint AS territory,
       date_trunc('day', (now() AT TIME ZONE 'America/Chicago') + interval '1 day') AT TIME ZONE 'America/Chicago' AS time`
@@ -65,7 +65,7 @@ async function getRewards (when, models) {
   const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
   const [{ downvote, posting, territory, time }] = await models.$queryRaw`
     SELECT
-      COALESCE((SELECT sum("piconeros") FROM "ObservedBurn" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS downvote,
+      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' + interval '1 day'), 0)::bigint AS territory,
       date_trunc('day', ${when[0]}::text::timestamptz AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago' AS time`
