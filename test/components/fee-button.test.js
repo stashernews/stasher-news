@@ -17,7 +17,7 @@ describe('postCommentBaseLineItems — posts', () => {
       me: { privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000 } }
     })
     expect(Object.keys(lines)).toEqual(['postingFee'])
-    expect(lines.postingFee.op).toBe('+')
+    expect(lines.postingFee.op).toBe('_')
     expect(lines.postingFee.term).toBe('+ 0.001 XMR')
     expect(lines.postingFee.label).toBe('posting fee')
     expect(piconerosToXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
@@ -57,6 +57,7 @@ describe('postCommentBaseLineItems — comments and bios', () => {
       me: { privates: { freeCommentsLeft: 0, commentFeePiconeros: 1000000000 } }
     })
     expect(Object.keys(lines)).toEqual(['commentFee'])
+    expect(lines.commentFee.op).toBe('_')
     expect(lines.commentFee.term).toBe('+ 0.001 XMR')
     expect(lines.commentFee.label).toBe('comment fee')
     expect(lines.commentFee.isComment).toBe(true)
