@@ -107,6 +107,12 @@ async function work () {
   await boss.work('payWeeklyPostBounty', jobWrapper(payWeeklyPostBounty))
   await boss.work('repin-*', jobWrapper(repin))
   await boss.work('trust', jobWrapper(trust))
+  // trust recomputes nightly via the pgboss.schedule row (0 2 * * * America/Chicago).
+  // Self-seed on fresh installs (deferred 24h) so a brand-new stack lands a first run
+  // without waiting on the cron, mirroring the rewardsDistributor deferred-seed pattern.
+  if (await boss.getQueueSize('trust') === 0) {
+    await boss.send('trust', {}, { startAfter: 24 * 60 * 60 })
+  }
   await boss.work('timestampItem', { includeMetadata: true }, jobWrapper(timestampItem))
   await boss.work('streak', jobWrapper(computeStreaks))
   await boss.work('checkStreak', jobWrapper(checkStreak))
