@@ -1,7 +1,8 @@
 // Fee-subaddress pool derivation + auto top-up (spec §5.6, §6.2).
 //
 // The rewards-wallet fee pool is pre-derived subaddresses (major 1 = posting,
-// major 2 = territory) stored as SubaddressIndex rows and watched via lws.
+// 2 = territory, 3 = donate, 4 = tip-unwalleted, 5 = boost) stored as
+// SubaddressIndex rows and watched via lws.
 // Derivation needs the rewards SPEND key, so this module is imported ONLY by
 // worker/rewardsWalletObserver.js (auto top-up) and scripts/derive-rewards-fee-subaddresses.js
 // (manual CLI) — never by an api/ payIn path. The running app never reads the
@@ -9,18 +10,30 @@
 
 import moneroTs from 'monero-ts'
 import { lwsClient } from './lwsClient.js'
-import { REWARDS_POSTING_MAJOR, REWARDS_TERRITORY_MAJOR } from './feePool.js'
+import {
+  REWARDS_POSTING_MAJOR,
+  REWARDS_TERRITORY_MAJOR,
+  REWARDS_DONATE_MAJOR,
+  REWARDS_TIP_UNWALLETED_MAJOR,
+  REWARDS_BOOST_MAJOR
+} from './feePool.js'
 
 export const FEE_POOL_TOPUP_THRESHOLD = Number(process.env.FEE_POOL_TOPUP_THRESHOLD) || 100
 
 const MAJOR_BATCH_ENV = {
   [REWARDS_POSTING_MAJOR]: 'POSTING_FEE_POOL_SIZE',
-  [REWARDS_TERRITORY_MAJOR]: 'TERRITORY_FEE_POOL_SIZE'
+  [REWARDS_TERRITORY_MAJOR]: 'TERRITORY_FEE_POOL_SIZE',
+  [REWARDS_DONATE_MAJOR]: 'DONATE_FEE_POOL_SIZE',
+  [REWARDS_TIP_UNWALLETED_MAJOR]: 'TIP_UNWALLETED_FEE_POOL_SIZE',
+  [REWARDS_BOOST_MAJOR]: 'BOOST_FEE_POOL_SIZE'
 }
 
 const DEFAULT_BATCH = {
   [REWARDS_POSTING_MAJOR]: 2000,
-  [REWARDS_TERRITORY_MAJOR]: 200
+  [REWARDS_TERRITORY_MAJOR]: 200,
+  [REWARDS_DONATE_MAJOR]: 200,
+  [REWARDS_TIP_UNWALLETED_MAJOR]: 200,
+  [REWARDS_BOOST_MAJOR]: 200
 }
 
 // AVAILABLE/total/maxMinor counts for one MoneroAccount, keyed by major index.
@@ -91,14 +104,18 @@ export async function extendFeePool (models, { account, major, targetMinor }) {
 }
 
 // Full pool derivation for the manual CLI: majors 1 -> POSTING_FEE_POOL_SIZE,
-// 2 -> TERRITORY_FEE_POOL_SIZE. Throws if the rewards wallet isn't registered.
+// 2 -> TERRITORY_FEE_POOL_SIZE, 3/4/5 -> their *_FEE_POOL_SIZE envs. Throws if
+// the rewards wallet isn't registered.
 export async function deriveFeePoolAll (models) {
   const account = await models.moneroAccount.findFirst({ where: { label: 'platform_rewards' }, include: { viewKey: true } })
   if (!account) throw new Error('platform_rewards MoneroAccount not registered yet; run sndev monero register-rewards-wallet first')
 
   const plans = [
     { major: REWARDS_POSTING_MAJOR, targetMinor: Number(process.env.POSTING_FEE_POOL_SIZE || 2000) },
-    { major: REWARDS_TERRITORY_MAJOR, targetMinor: Number(process.env.TERRITORY_FEE_POOL_SIZE || 200) }
+    { major: REWARDS_TERRITORY_MAJOR, targetMinor: Number(process.env.TERRITORY_FEE_POOL_SIZE || 200) },
+    { major: REWARDS_DONATE_MAJOR, targetMinor: Number(process.env.DONATE_FEE_POOL_SIZE || 200) },
+    { major: REWARDS_TIP_UNWALLETED_MAJOR, targetMinor: Number(process.env.TIP_UNWALLETED_FEE_POOL_SIZE || 200) },
+    { major: REWARDS_BOOST_MAJOR, targetMinor: Number(process.env.BOOST_FEE_POOL_SIZE || 200) }
   ]
   const results = []
   for (const { major, targetMinor } of plans) {
@@ -131,7 +148,7 @@ export async function topUpFeePoolIfLow (models, { threshold = FEE_POOL_TOPUP_TH
     const doDerive = derive || (async opts => extendFeePool(models, opts))
     const levels = await feePoolLevels(models, account.id)
     const topUps = []
-    for (const major of [REWARDS_POSTING_MAJOR, REWARDS_TERRITORY_MAJOR]) {
+    for (const major of [REWARDS_POSTING_MAJOR, REWARDS_TERRITORY_MAJOR, REWARDS_DONATE_MAJOR, REWARDS_TIP_UNWALLETED_MAJOR, REWARDS_BOOST_MAJOR]) {
       const available = levels[major]?.available ?? 0
       if (available >= threshold) continue
       const maxMinor = levels[major]?.maxMinor ?? 0

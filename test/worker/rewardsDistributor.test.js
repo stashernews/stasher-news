@@ -65,14 +65,15 @@ const fakeSigner = async (payouts, { models } = {}) => {
 }
 
 // Seed amounts (piconeros). Picked so the allocation math is exact:
-//   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100
-//                 = 5e12 + 2.8e12 + 0.6e12 = 8.4e12
-//   pool          = 8.4e12 + 1e12 (prior rollover) = 9.4e12
+//   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100 + 3e12 (extra @100%)
+//                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 = 11.4e12
+//   pool          = 11.4e12 + 1e12 (prior rollover) = 12.4e12
 const DOWNVOTE_PICONEROS = 5_000_000_000_000n
 const POSTING_FEE_PICONEROS = 4_000_000_000_000n
 const TERRITORY_FEE_PICONEROS = 2_000_000_000_000n
+const EXTRA_DONATE_PICONEROS = 3_000_000_000_000n
 const PRIOR_ROLLOVER_PICONEROS = 1_000_000_000_000n
-const EXPECTED_POOL_PICONEROS = 9_400_000_000_000n
+const EXPECTED_POOL_PICONEROS = 12_400_000_000_000n
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -235,6 +236,11 @@ beforeAll(async () => {
   await seedFee(postingPayIn.id, 'POSTING', 1, POSTING_FEE_PICONEROS, inPeriod)
   await seedFee(territoryPayIn.id, 'TERRITORY_CREATE', 2, TERRITORY_FEE_PICONEROS, inPeriod)
 
+  // Donation (extra source: funds the pool 1:1, no allocation %). Lands on the
+  // DONATE fee subaddress major (3) per the fee-subaddress convention.
+  const donatePayIn = await seedPayIn(authorId, 'DONATE', 3, 1)
+  await seedFee(donatePayIn.id, 'DONATE', 3, EXTRA_DONATE_PICONEROS, inPeriod)
+
   // --- Curators (tippers): c1, c2 get payout accounts; c3 does NOT ---
   const c1 = await createUser()
   const c2 = await createUser()
@@ -282,8 +288,14 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
-test('the rewards pool equals the exact allocation earmark + prior rollover', async () => {
+test('the rewards pool equals the exact allocation earmark + extra sources + prior rollover', async () => {
   expect(result.poolPiconeros.toString()).toBe(EXPECTED_POOL_PICONEROS.toString())
+})
+
+test('the DONATE extra source funds the pool 1:1 (no allocation %)', async () => {
+  // Without the extra term, pool would be 9.4e12; the DONATE observation adds
+  // its full amount at 100% (no downvoteRewardsPct/postingFeeRewardsPct split).
+  expect(result.poolPiconeros).toBe(9_400_000_000_000n + EXTRA_DONATE_PICONEROS)
 })
 
 test('distributedPiconeros + rolledOverPiconeros reconciles to the pool exactly', async () => {
