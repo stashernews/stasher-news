@@ -32,15 +32,15 @@ export default function Rewards ({ ssrData }) {
   return (
     <CenterLayout footerLinks>
       <div className='mw-100'>
-        {rewards.map(({ total, sources, time }, i) => (
-          <RewardDay key={time} total={total} sources={sources} time={time} meRewards={meRewards?.[i]} />
+        {rewards.map(({ total, sources, time, periodStart, periodEnd }, i) => (
+          <RewardRecord key={time} total={total} sources={sources} time={time} periodStart={periodStart} periodEnd={periodEnd} meRewards={meRewards?.[i]} />
         ))}
       </div>
     </CenterLayout>
   )
 }
 
-function RewardDay ({ total, sources, time, meRewards }) {
+function RewardRecord ({ total, sources, time, periodStart, periodEnd, meRewards }) {
   const sourcesData = useMemo(() => {
     return sources.map(({ name, value }) => ({ name: payTypeShortName(name), value: Number(value) }))
   }, [sources])
@@ -48,6 +48,8 @@ function RewardDay ({ total, sources, time, meRewards }) {
     <div className='py-3 w-100 d-grid' key={time} style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
       <h4 className='fw-bold text-muted ps-0'>
         {time && <div className='text-muted fst-italic fs-6 fw-normal pb-1'>On {dayMonthYear(time)} at 12a UTC</div>}
+        {periodStart && periodEnd &&
+          <div className='text-muted fst-italic fs-6 fw-normal pb-1'>weekly distribution covering {dayMonthYear(periodStart)} – {dayMonthYear(periodEnd)}</div>}
         {piconerosToXmr(BigInt(total))} were rewarded
       </h4>
       <div className='my-3 w-100 justify-self-center'>

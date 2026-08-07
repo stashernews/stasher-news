@@ -18,6 +18,8 @@ export default gql`
     total: BigInt!
     time: Date!
     sources: [NameValue!]!
+    periodStart: Date
+    periodEnd: Date
   }
 
   type Reward {

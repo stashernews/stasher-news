@@ -23,6 +23,8 @@ export const ME_REWARDS = gql`
         name
         value
       }
+      periodStart
+      periodEnd
     }
     meRewards(when: $when) {
       total
