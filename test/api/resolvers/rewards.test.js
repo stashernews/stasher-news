@@ -112,12 +112,16 @@ describe('Query.rewards', () => {
     expect(reward.sources).toEqual([{ name: 'posting fee', value: '700000000' }])
   })
 
-  test('historical rewards use the requested day', async () => {
+  test('historical rewards use the requested day in UTC', async () => {
     const models = makeModels({ inflow: { downvote: 500000000n, posting: 0n, territory: 0n } })
     const [reward] = await resolvers.Query.rewards(null, { when: ['2026-08-05'] }, { models })
 
     expect(reward.total).toBe(500000000n)
     expect(reward.sources).toEqual([{ name: 'downvote', value: '500000000' }])
+    // the historical day window is UTC-midnight anchored — no CT anywhere
+    const [sql] = models.$queryRaw.mock.calls[0]
+    expect(sql.join('?')).not.toContain('America/Chicago')
+    expect(sql.join('?')).toContain('date_trunc(\'day\', ?::text::timestamptz)')
   })
 
   test('rejects too many dates and invalid dates', async () => {
