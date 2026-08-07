@@ -30,7 +30,7 @@ export function generateTipPaymentId (postId, nonce) {
   return hmac.digest('hex').slice(0, 16)
 }
 
-// Deterministic payment-ID generator for downvote penalty attribution
+// Deterministic payment-ID generator for downvote attribution
 // (spec §3.3). Each downvote pays the platform rewards wallet tagged with a
 // unique 8-byte (16 hex char) payment ID derived from
 // HMAC-SHA256(REWARDS_PID_KEY, "dv:<postId>:<nonce>"), truncated to 8 bytes.
