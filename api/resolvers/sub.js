@@ -59,25 +59,23 @@ export async function topSubs (parent, { query, cursor, when, from, to, limit, b
         COALESCE(floor(sum("AggPayOut"."sumMtokens") FILTER (WHERE "AggPayOut"."payOutType" = 'TIP') / 1000), 0) as stacked
       FROM user_subs
       LEFT JOIN "AggPayOut" ON "AggPayOut"."subId" = user_subs.id
-      WHERE "AggPayOut"."timeBucket" >= ${fromDate}
-      AND "AggPayOut"."timeBucket" <= ${toDate}
-      AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
-      AND "AggPayOut"."slice" = 'SUB_BY_TYPE'
-      AND "AggPayOut"."payInType" IS NULL
+        AND "AggPayOut"."timeBucket" >= ${fromDate}
+        AND "AggPayOut"."timeBucket" <= ${toDate}
+        AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
+        AND "AggPayOut"."slice" = 'SUB_BY_TYPE'
+        AND "AggPayOut"."payInType" IS NULL
       GROUP BY user_subs.name
     ),
     sub_incoming AS (
       SELECT user_subs.name,
         floor(COALESCE(sum("AggPayIn"."sumMcost"), 0) / 1000) as spent,
-        sum("AggPayIn"."countGroup") FILTER (WHERE "AggPayIn"."payInType" = 'ITEM_CREATE') as nitems
+        COALESCE(sum("AggPayIn"."countGroup") FILTER (WHERE "AggPayIn"."payInType" = 'ITEM_CREATE'), 0) as nitems
       FROM user_subs
       LEFT JOIN "AggPayIn" ON "AggPayIn"."subId" = user_subs.id
-      WHERE "AggPayIn"."timeBucket" >= ${fromDate}
-      AND "AggPayIn"."timeBucket" <= ${toDate}
-      AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-      AND "AggPayIn"."slice" = 'SUB_BY_TYPE'
-      AND "AggPayIn"."subId" IS NOT NULL
-      AND "AggPayIn"."payInType" <> 'DEFUNCT_TERRITORY_DAILY_PAYOUT'
+        AND "AggPayIn"."timeBucket" >= ${fromDate}
+        AND "AggPayIn"."timeBucket" <= ${toDate}
+        AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
+        AND "AggPayIn"."slice" = 'SUB_BY_TYPE'
       GROUP BY user_subs.name
     ),
     sub_stats AS (
@@ -89,7 +87,7 @@ export async function topSubs (parent, { query, cursor, when, from, to, limit, b
       FROM sub_outgoing
       FULL JOIN sub_incoming ON sub_outgoing.name = sub_incoming.name
     )
-    SELECT * FROM sub_stats
+    SELECT "Sub".*, sub_stats.name, sub_stats.revenue, sub_stats.stacked, sub_stats.spent, sub_stats.nitems, COALESCE("Sub"."postTypes", '{}') AS "postTypes" FROM sub_stats
     JOIN "Sub" ON sub_stats.name = "Sub".name
     ORDER BY ${column} DESC NULLS LAST, "Sub".created_at ASC
     OFFSET ${decodedCursor.offset}
@@ -137,7 +135,7 @@ export default {
           FROM "Sub"
           LEFT JOIN "SubSubscription" ss ON "Sub".name = ss."subName" AND ss."userId" = ${me.id}::INTEGER
           LEFT JOIN "MuteSub" ON "Sub".name = "MuteSub"."subName" AND "MuteSub"."userId" = ${me.id}::INTEGER
-          WHERE status <> 'STOPPED' AND "Sub".name NOT LIKE '\\_p4downvote\\_%' ${showNsfw ? Prisma.empty : Prisma.sql`AND "Sub"."nsfw" = FALSE`}
+          WHERE status <> 'STOPPED' AND "Sub".name NOT LIKE '\\_p4downvote\\_%' ${showNsfw ? Prisma.empty : Prisma.sql`AND ("Sub"."nsfw" = FALSE OR "Sub"."userId" = ${me.id}::INTEGER)`}
           GROUP BY "Sub".name, ss."userId", "MuteSub"."userId"
           ORDER BY "Sub".name ASC
         `
@@ -177,6 +175,7 @@ export default {
         SELECT "Sub".name, "Sub".id
         FROM "Sub"
         WHERE "Sub".status <> 'STOPPED'
+        AND "Sub".name NOT LIKE '\\_p4downvote\\_%'
         GROUP BY "Sub".name
       `
 

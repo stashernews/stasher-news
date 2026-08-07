@@ -77,6 +77,22 @@ beforeAll(async () => {
     }
   })
   created.subs.push(internal.name)
+
+  // nsfw territory owned by the viewer: must still show up in the viewer's own
+  // dropdown even while their nsfw mode is off (founders can always see their
+  // own turfs).
+  const nsfwOwned = await prisma.sub.create({
+    data: {
+      name: `activeSubsNsfw${Date.now()}`,
+      userId: me.id,
+      rankingType: 'WOT',
+      billingType: 'ONCE',
+      billingCost: 0,
+      postTypes: ['LINK', 'DISCUSSION'],
+      nsfw: true
+    }
+  })
+  created.subs.push(nsfwOwned.name)
 })
 
 afterAll(async () => {
@@ -121,4 +137,15 @@ test('activeSubs excludes the platform-internal _p4downvote_* reward subs', asyn
   for (const sub of result) {
     expect(sub.name.startsWith('_p4downvote_')).toBe(false)
   }
+})
+
+test('activeSubs shows the founder their own nsfw territory without nsfw mode', async () => {
+  const me = { id: created.users[0] }
+  const userLoader = createUserLoader(prisma)
+  const result = await subResolvers.Query.activeSubs(null, null, { models: prisma, me, userLoader })
+
+  const names = result.map(s => s.name)
+  const nsfwOwned = created.subs.find(s => s.startsWith('activeSubsNsfw'))
+  expect(nsfwOwned).toBeDefined()
+  expect(names).toContain(nsfwOwned)
 })
