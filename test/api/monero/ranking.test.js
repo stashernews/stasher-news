@@ -140,3 +140,61 @@ test('reverseTip subtracts piconeros, lowers ranktop, and decrements upvotes', a
   expect(after.ranktop).toBeLessThan(before.ranktop)
   expect(before.upvotes - after.upvotes).toBe(1)
 })
+
+test('applyTipDetected bumps weightedVotes/subWeightedVotes by zapTrust x LOG(tipPiconeros)', async () => {
+  // Real path feeding the weekly distributor: the tipper's territory trust
+  // (UserSubTrust, produced by the nightly trust worker) scales a LOG() tip
+  // amount into Item.weightedVotes/subWeightedVotes — the exact upstream
+  // zap.js math mirrored by worker/rewardsWalletObserver's downvote path.
+  const poster = await createUser(); created.users.push(poster)
+  const tipper = await createUser(); created.users.push(tipper)
+
+  // Root post in the 'meta' territory (set explicitly; COALESCE would fall
+  // back to 'meta' anyway).
+  const rows = await prisma.$queryRaw`
+    INSERT INTO "Item" ("userId", title) VALUES (${poster}::int, ${'weighted-tip-post'})
+    RETURNING id::int AS id`
+  const postId = rows[0].id
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree, "subNames" = ARRAY['meta']::CITEXT[] WHERE id = ${postId}::int`
+  created.items.push(postId)
+
+  // Seed territory trust for the tipper in 'meta'.
+  await prisma.userSubTrust.create({
+    data: { subName: 'meta', userId: tipper, zapPostTrust: 0.5, subZapPostTrust: 0.25 }
+  })
+
+  const before = await prisma.item.findUnique({
+    where: { id: postId },
+    select: { weightedVotes: true, subWeightedVotes: true }
+  })
+  await applyTipDetected(postId, tipper, 1_000_000_000n)
+  const after = await prisma.item.findUnique({
+    where: { id: postId },
+    select: { weightedVotes: true, subWeightedVotes: true }
+  })
+
+  // Postgres LOG() is base-10: a first tip of 1e9 piconeros yields
+  // LOG(1e9 / GREATEST(0, 1)) = LOG(1e9) = 9. weightedVotes += zapTrust * 9,
+  // subWeightedVotes += subZapTrust * 9.
+  const logSats = Math.log10(1_000_000_000)
+  expect(after.weightedVotes - before.weightedVotes).toBeCloseTo(0.5 * logSats, 6)
+  expect(after.subWeightedVotes - before.subWeightedVotes).toBeCloseTo(0.25 * logSats, 6)
+})
+
+test('anonymous tips (no tipperId) leave weightedVotes untouched (no per-user attribution)', async () => {
+  const u = await createUser(); created.users.push(u)
+  const p = await createRoot(u, 'anon-weighted'); created.items.push(p)
+
+  const before = await prisma.item.findUnique({
+    where: { id: p },
+    select: { weightedVotes: true, subWeightedVotes: true }
+  })
+  await applyTipDetected(p, null, 1_000_000_000n)
+  const after = await prisma.item.findUnique({
+    where: { id: p },
+    select: { weightedVotes: true, subWeightedVotes: true }
+  })
+
+  expect(after.weightedVotes).toBe(before.weightedVotes)
+  expect(after.subWeightedVotes).toBe(before.subWeightedVotes)
+})

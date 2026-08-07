@@ -15,6 +15,10 @@ function mockModels (overrides = {}) {
   const txUpdate = overrides.txUpdate || jest.fn().mockResolvedValue({})
   const userUpdate = overrides.userUpdate || jest.fn().mockResolvedValue({})
   const execRaw = overrides.execRaw || jest.fn().mockResolvedValue(1)
+  // applyTipDetected reads the tipped item's parentId (to pick zapPostTrust vs
+  // zapCommentTrust) via a $queryRaw on the tx; default to no rows so isComment
+  // resolves false (a post) in these unit tests.
+  const queryRaw = overrides.queryRaw || jest.fn().mockResolvedValue([])
   return {
     observedTip: {
       findFirst: jest.fn().mockResolvedValue(null),
@@ -24,7 +28,8 @@ function mockModels (overrides = {}) {
     $transaction: jest.fn(async (fn) => fn({
       observedTip: { update: txUpdate },
       user: { update: userUpdate },
-      $executeRaw: execRaw
+      $executeRaw: execRaw,
+      $queryRaw: queryRaw
     }))
   }
 }
