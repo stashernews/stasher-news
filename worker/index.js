@@ -156,11 +156,15 @@ async function work () {
   }
 
   // rewardsDistributor: weekly rewards-pool distribution (earmark inflow, compute
-  // curator shares, write QUEUED payouts). Self-requeues weekly (7d startAfter).
+  // curator shares, write QUEUED payouts). Recurring runs are owned by the
+  // pgboss.schedule row (cron 0 0 * * 1 UTC, migration
+  // 20260807160000_schedule_rewards_distributor) — NOT a self-requeue — so each
+  // run lands on the Monday 00:00 UTC the rewards resolver counts down to.
   await boss.work('rewardsDistributor', jobWrapper(rewardsDistributor))
-  // Unlike rewardsWalletObserver/confirmFinalizer (which seed immediately), the
-  // rewardsDistributor seed starts AFTER a full week: the first payout needs a
-  // week of inflow to accumulate first. `sndev monero distribute` covers any
+  // Fresh-install seed only: the first payout needs a week of inflow to
+  // accumulate, so on a brand-new stack we defer one run 7d (the cron then owns
+  // every subsequent week). The handler does NOT self-requeue, so this cannot
+  // create recurring double scheduling. `sndev monero distribute` covers any
   // out-of-band run before that.
   if (await boss.getQueueSize('rewardsDistributor') === 0) {
     await boss.send('rewardsDistributor', {}, { startAfter: 7 * 24 * 60 * 60 })
