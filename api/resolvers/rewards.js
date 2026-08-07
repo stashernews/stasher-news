@@ -44,6 +44,20 @@ function rewardsFromInflow (inflow, time, config) {
   return { total, time, sources }
 }
 
+// Sum CONFIRMED platform-wallet inflow by source over [periodStart, periodEnd).
+// Used by getRewards for the covering distribution's source pie. `confirmedAt`
+// is a timestamp-without-timezone column holding UTC wall time; binding the JS
+// Dates matches the worker's Prisma aggregate semantics exactly.
+async function inflowByPeriod (periodStart, periodEnd, models) {
+  const [{ downvote, posting, territory, extra }] = await models.$queryRaw`
+    SELECT
+      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS downvote,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS posting,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS territory,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS extra`
+  return { downvote, posting, territory, extra }
+}
+
 async function getActiveRewards (models) {
   const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
   const lastDistribution = await models.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
@@ -75,15 +89,38 @@ async function getRewards (when, models) {
   }
 
   const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
-  const [{ downvote, posting, territory, extra, time }] = await models.$queryRaw`
-    SELECT
-      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS downvote,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS posting,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= date_trunc('day', ${when[0]}::text::timestamptz) AND "confirmedAt" < date_trunc('day', ${when[0]}::text::timestamptz) + interval '1 day'), 0)::bigint AS extra,
-      date_trunc('day', ${when[0]}::text::timestamptz) AS time`
+  // `when[0]` is 'YYYY-MM-DD'; Date parses a date-only ISO string as UTC midnight.
+  const d = new Date(when[0])
 
-  return [rewardsFromInflow({ downvote, posting, territory, extra }, time, config)]
+  // Covering distribution = the most recent one whose period started at or before
+  // the requested date. For any date after the first distribution began, this is
+  // the latest distribution overall (so the current week shows last week's
+  // payout); future dates still 404 via the page's `time` future-guard (time = d).
+  const covering = await models.rewardDistribution.findFirst({
+    where: { periodStart: { lte: d } },
+    orderBy: { periodEnd: 'desc' }
+  })
+
+  if (covering) {
+    const { sources } = rewardsFromInflow(
+      await inflowByPeriod(covering.periodStart, covering.periodEnd, models), d, config)
+    return [{
+      total: covering.distributedPiconeros,
+      time: d,
+      sources,
+      periodStart: covering.periodStart,
+      periodEnd: covering.periodEnd
+    }]
+  }
+
+  // Pre-first-distribution fallback: the requested UTC day's confirmed inflow.
+  const [{ downvote, posting, territory, extra }] = await models.$queryRaw`
+    SELECT
+      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS downvote,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS posting,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS territory,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS extra`
+  return [rewardsFromInflow({ downvote, posting, territory, extra }, d, config)]
 }
 
 export default {
@@ -94,7 +131,6 @@ export default {
       if (!me) {
         return null
       }
-
       if (!when || when.length > 1) {
         throw new GqlInputError('too many dates')
       }
@@ -104,28 +140,21 @@ export default {
         }
       }
 
-      const results = await models.$queryRaw`
-        WITH days_cte (day) AS (
-          SELECT date_trunc('day', t)
-          FROM generate_series(
-            ${when[0]}::text::timestamp,
-            ${when[when.length - 1]}::text::timestamp,
-            interval '1 day') AS t
-        )
-        SELECT coalesce(sum(piconeros), 0) as total, json_agg("Earn".*) as rewards
-        FROM days_cte
-        CROSS JOIN LATERAL (
-          (SELECT "Earn".piconeros as piconeros, type, rank, "typeId"
-            FROM "Earn"
-            WHERE "Earn"."userId" = ${me.id}
-            AND (type IS NULL OR type NOT IN ('FOREVER_REFERRAL', 'ONE_DAY_REFERRAL'))
-            AND date_trunc('day', "Earn".created_at AT TIME ZONE 'UTC') = days_cte.day
-            ORDER BY "Earn".piconeros DESC)
-        ) "Earn"
-        GROUP BY days_cte.day
-        ORDER BY days_cte.day ASC`
+      const d = new Date(when[0])
+      const covering = await models.rewardDistribution.findFirst({
+        where: { periodStart: { lte: d } },
+        orderBy: { periodEnd: 'desc' }
+      })
+      if (!covering) return []
 
-      return results
+      return await models.$queryRaw`
+        SELECT coalesce(sum(piconeros), 0) as total,
+               json_agg(json_build_object('type', type, 'rank', rank, 'piconeros', piconeros, 'typeId', "typeId")) as rewards
+        FROM "Earn"
+        WHERE "Earn"."userId" = ${me.id}
+          AND (type IS NULL OR type NOT IN ('FOREVER_REFERRAL', 'ONE_DAY_REFERRAL'))
+          AND "Earn"."distributionId" = ${covering.id}
+        GROUP BY "Earn"."distributionId"`
     }
   },
   Rewards: {

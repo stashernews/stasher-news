@@ -125,16 +125,27 @@ describe('Query.rewards', () => {
     expect(reward.total).toBe(3_000_000_000n)
   })
 
-  test('historical rewards use the requested day in UTC', async () => {
-    const models = makeModels({ inflow: { downvote: 500000000n, posting: 0n, territory: 0n } })
+  test('historical rewards resolve to the covering weekly distribution', async () => {
+    const periodStart = new Date('2026-07-25T00:00:00.000Z')
+    const periodEnd = new Date('2026-08-01T00:00:00.000Z')
+    const models = makeModels({
+      lastDistribution: { periodStart, periodEnd, distributedPiconeros: 3_200_000_000_000n }
+    })
+    const [reward] = await resolvers.Query.rewards(null, { when: ['2026-07-28'] }, { models })
+
+    expect(reward.total).toBe(3_200_000_000_000n)
+    expect(reward.time.toISOString()).toBe('2026-07-28T00:00:00.000Z') // requested date, not periodEnd
+    expect(reward.periodStart).toBe(periodStart)
+    expect(reward.periodEnd).toBe(periodEnd)
+  })
+
+  test('historical rewards fall back to day inflow before the first distribution', async () => {
+    const models = makeModels() // lastDistribution: null
     const [reward] = await resolvers.Query.rewards(null, { when: ['2026-08-05'] }, { models })
 
-    expect(reward.total).toBe(500000000n)
-    expect(reward.sources).toEqual([{ name: 'downvote', value: '500000000' }])
-    // the historical day window is UTC-midnight anchored — no CT anywhere
-    const [sql] = models.$queryRaw.mock.calls[0]
-    expect(sql.join('?')).not.toContain('America/Chicago')
-    expect(sql.join('?')).toContain('date_trunc(\'day\', ?::text::timestamptz)')
+    expect(reward.periodStart).toBeUndefined()
+    expect(reward.periodEnd).toBeUndefined()
+    expect(reward.total).toBe(1000000000n + 700000000n + 60000000000n) // stub earmark
   })
 
   test('rejects too many dates and invalid dates', async () => {
@@ -143,5 +154,33 @@ describe('Query.rewards', () => {
       .rejects.toThrow(/too many dates/i)
     await expect(resolvers.Query.rewards(null, { when: ['garbage'] }, { models }))
       .rejects.toThrow(/invalid date/i)
+  })
+})
+
+describe('Query.meRewards', () => {
+  test('returns the covering distribution Earn rows for the viewer', async () => {
+    const periodStart = new Date('2026-07-25T00:00:00.000Z')
+    const periodEnd = new Date('2026-08-01T00:00:00.000Z')
+    const covering = { id: 42, periodStart, periodEnd }
+    const models = {
+      rewardDistribution: { findFirst: jest.fn(async () => covering) },
+      $queryRaw: jest.fn(async () => [{
+        total: 1_200_000_000n,
+        rewards: [{ type: 'TIP_POST', rank: 3, piconeros: 1_200_000_000n, typeId: null }]
+      }])
+    }
+    const [mine] = await resolvers.Query.meRewards(null, { when: ['2026-07-28'] }, { me: { id: 7 }, models })
+
+    expect(mine.total).toBe(1_200_000_000n)
+    expect(mine.rewards[0]).toMatchObject({ type: 'TIP_POST', rank: 3 })
+    // the Earn query is scoped to the covering distribution id (the last bound arg)
+    const [, ...args] = models.$queryRaw.mock.calls[0]
+    expect(args[args.length - 1]).toBe(42)
+  })
+
+  test('returns empty when no covering distribution exists', async () => {
+    const models = { rewardDistribution: { findFirst: jest.fn(async () => null) } }
+    const result = await resolvers.Query.meRewards(null, { when: ['2026-06-01'] }, { me: { id: 7 }, models })
+    expect(result).toEqual([])
   })
 })
