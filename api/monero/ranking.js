@@ -28,9 +28,11 @@ import prisma from '@/api/models'
 // curator rewards distributor (worker/curatorShares.js).
 //
 // All deltas bind `piconeros` as BIGINT (piconeros are BigInt; never coerced
-// to Number). The whole chain is a single statement inside a ReadCommitted
-// transaction (the codebase standard — see api/payIn/index.js + README), using
-// the increment-in-place pattern that is correct under ReadCommitted.
+// to Number). applyTipDetected issues a parentId SELECT then the WITH … chain
+// (two statements, one ReadCommitted transaction — the codebase standard, see
+// api/payIn/index.js + README): parentId is immutable so reading it on the
+// caller's tx is safe, and the delta chain uses the increment-in-place pattern
+// that is correct under ReadCommitted.
 
 // Prisma.raw embeds a controlled '+'/'-' literal (never user input) so the
 // ancestor-propagation SQL is written once for both add and subtract paths.

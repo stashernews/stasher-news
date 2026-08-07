@@ -45,10 +45,10 @@ const EACH_ZAP_PORTION = 2.0
 // cancel — so only this HAVING dust filter is unit-sensitive.
 const ZAP_THRESHOLD_PICONEROS = 100_000_000n
 
-// Apportion a curator's share across their earn types by typeProportion (mirrors
-// api/payIn/types/rewards.js apportionment): normalize per curator, floor each,
-// give the rounding remainder to the highest-proportion type. Per-type amounts
-// sum exactly to sharePiconeros.
+// Apportion a curator's share across their earn types by typeProportion
+// (mirrors the upstream SN per-type apportionment: normalize per curator, floor
+// each, give the rounding remainder to the highest-proportion type). Per-type
+// amounts sum exactly to sharePiconeros.
 function apportionEarns (earns, sharePiconeros) {
   if (earns.length === 0) return []
   const total = earns.reduce((acc, e) => acc + e.typeProportion, 0)
