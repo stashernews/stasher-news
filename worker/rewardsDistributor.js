@@ -28,7 +28,6 @@ import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
 //                            weekly.
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
-const WEEK_SECONDS = 7 * 24 * 60 * 60
 
 // One weekly distribution. The testable core: no pg-boss, no network. Accepts
 // the Prisma client (so tests pass their own); creates a throwaway client if
@@ -281,9 +280,12 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
   }
 }
 
-// pg-boss handler. Runs the weekly distribution and self-requeues for the next
-// week. Mirrors the rewardsWalletObserver/confirmFinalizer self-requeuing pattern.
-export async function rewardsDistributor ({ boss, models }) {
+// pg-boss handler. Runs one weekly distribution. Recurring scheduling is owned
+// by the pgboss.schedule row (cron 0 0 * * 1 UTC, added by migration
+// 20260807160000_schedule_rewards_distributor), NOT a relative self-requeue — so
+// runs land on the same Monday 00:00 UTC the rewards resolver counts down to
+// (api/resolvers/rewards.js). `sndev monero distribute` calls runDistributionOnce
+// directly for out-of-band runs.
+export async function rewardsDistributor ({ models }) {
   await runDistributionOnce({ models })
-  await boss.send('rewardsDistributor', {}, { startAfter: WEEK_SECONDS })
 }
