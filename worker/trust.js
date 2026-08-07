@@ -173,15 +173,13 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
       'trust', CASE WHEN total_trust > 0 THEN trust / total_trust::float ELSE 0 END)) AS hops
     FROM (
       WITH user_votes AS (
-        SELECT "PayIn"."userId" AS user_id, users.name AS name, "ItemPayIn"."itemId" AS item_id, max("PayIn"."payInStateChangedAt") AS act_at,
-            users.created_at AS user_at, "PayIn"."payInType" = 'DOWNVOTE' AS against,
-            count(*) OVER (partition by "PayIn"."userId") AS user_vote_count,
-            sum("PayIn"."piconeros") as user_piconeros
-        FROM "PayIn"
-        JOIN "ItemPayIn" ON "ItemPayIn"."payInId" = "PayIn"."id"
-        JOIN "Item" ON "Item".id = "ItemPayIn"."itemId" AND "PayIn"."payInType" IN ('TIP', 'DOWNVOTE')
-          AND "PayIn"."payInState" = 'PAID'
-          AND NOT "Item".bio AND "Item"."userId" <> "PayIn"."userId"
+        SELECT tips."tipperId" AS user_id, users.name AS name, tips."postId" AS item_id,
+            max(tips."confirmedAt") AS act_at,
+            users.created_at AS user_at, false AS against,
+            count(*) OVER (partition by tips."tipperId") AS user_vote_count,
+            sum(tips."piconeros") AS user_piconeros
+        FROM "ObservedTip" tips
+        JOIN "Item" ON "Item".id = tips."postId" AND NOT "Item".bio AND "Item"."userId" <> tips."tipperId"
           AND ${postTrust
             ? Prisma.sql`"Item"."parentId" IS NULL AND "Item"."subName" = ${subName}::TEXT`
             : Prisma.sql`
@@ -189,11 +187,29 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
               JOIN "Item" root ON "Item"."rootId" = root.id AND root."subName" = ${subName}::TEXT`
           }
           AND "Item".created_at > NOW() - INTERVAL '1 year'
-        JOIN users ON "PayIn"."userId" = users.id AND users.id <> ${USER_ID.anon}
+        JOIN users ON tips."tipperId" = users.id AND users.id <> ${USER_ID.anon}
+        WHERE tips.state = 'CONFIRMED'
         GROUP BY user_id, users.name, item_id, user_at, against
-        HAVING CASE WHEN
-          "PayIn"."payInType" = 'DOWNVOTE' THEN sum("PayIn"."piconeros") > ${AGAINST_PICO_MIN}
-          ELSE sum("PayIn"."piconeros") > ${PICO_MIN} END
+        HAVING sum(tips."piconeros") > ${PICO_MIN}
+        UNION ALL
+        SELECT burns."downvoterId" AS user_id, users.name AS name, burns."postId" AS item_id,
+            max(COALESCE(burns."confirmedAt", burns."detectedAt")) AS act_at,
+            users.created_at AS user_at, true AS against,
+            count(*) OVER (partition by burns."downvoterId") AS user_vote_count,
+            sum(burns."piconeros") AS user_piconeros
+        FROM "ObservedDownvote" burns
+        JOIN "Item" ON "Item".id = burns."postId" AND NOT "Item".bio AND "Item"."userId" <> burns."downvoterId"
+          AND ${postTrust
+            ? Prisma.sql`"Item"."parentId" IS NULL AND "Item"."subName" = ${subName}::TEXT`
+            : Prisma.sql`
+              "Item"."parentId" IS NOT NULL
+              JOIN "Item" root ON "Item"."rootId" = root.id AND root."subName" = ${subName}::TEXT`
+          }
+          AND "Item".created_at > NOW() - INTERVAL '1 year'
+        JOIN users ON burns."downvoterId" = users.id AND users.id <> ${USER_ID.anon}
+        WHERE burns.state IN ('DETECTED', 'CONFIRMED')
+        GROUP BY user_id, users.name, item_id, user_at, against
+        HAVING sum(burns."piconeros") > ${AGAINST_PICO_MIN}
       ),
       user_pair AS (
         SELECT a.user_id AS a_id, b.user_id AS b_id,
