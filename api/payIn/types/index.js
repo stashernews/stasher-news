@@ -14,7 +14,6 @@ import * as BUY_CREDITS from './buyCredits'
 import * as INVITE_GIFT from './inviteGift'
 import * as WITHDRAWAL from './withdrawal'
 import * as AUTO_WITHDRAWAL from './autoWithdrawal'
-import * as REWARDS from './rewards'
 import * as MEDIA_UPLOAD from './mediaUpload'
 
 export default {
@@ -34,6 +33,5 @@ export default {
   PROXY_PAYMENT,
   WITHDRAWAL,
   AUTO_WITHDRAWAL,
-  MEDIA_UPLOAD,
-  REWARDS
+  MEDIA_UPLOAD
 }
