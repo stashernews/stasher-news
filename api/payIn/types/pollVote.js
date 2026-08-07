@@ -1,5 +1,4 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
-import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
 import { GqlInputError } from '@/lib/error'
 
 export const anonable = false
@@ -13,18 +12,16 @@ export const paymentMethods = [
 export async function getInitial (models, { id }, { me }) {
   const pollOption = await models.pollOption.findUnique({
     where: { id: parseInt(id) },
-    include: { item: { include: { subs: { include: { sub: true } } } } }
+    include: { item: true }
   })
+  if (!pollOption) throw new GqlInputError('poll option not found')
 
-  const piconeros = BigInt(pollOption.item.pollCost) * 1000n
-  const subs = pollOption.item.subs.map(subItem => subItem.sub)
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, piconeros })
-
+  // StasherNews: poll votes are free (the fork removed poll-vote founder
+  // revenue), so the payIn carries piconeros 0n and is PAID at creation.
   return {
     payInType: 'POLL_VOTE',
     userId: me?.id,
-    piconeros,
-    payOutCustodialTokens,
+    piconeros: 0n,
     pollVote: {
       pollOptionId: pollOption.id,
       itemId: pollOption.itemId
@@ -44,7 +41,10 @@ export async function onBegin (tx, payInId, { id }) {
       userId,
       id: { not: payInId },
       payInType: 'POLL_VOTE',
-      payInState: { in: ['PAID', 'PENDING', 'PENDING_HELD'] },
+      // post-free-vote every POLL_VOTE is PAID at creation (piconeros 0n), so a
+      // prior conflicting vote can only be in 'PAID'; 'PENDING'/'PENDING_HELD'
+      // were Lightning states removed from the PayInState enum in this fork.
+      payInState: { in: ['PAID'] },
       itemPayIn: {
         item: {
           pollOptions: {
