@@ -1,4 +1,4 @@
-import { timeUnitForRange, whenRange } from '@/lib/time'
+import { whenRange } from '@/lib/time'
 import { validateSchema, territorySchema, subBrandingSchema } from '@/lib/validate'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
 import { notifyTerritoryTransfer } from '@/lib/webPush'
@@ -35,14 +35,12 @@ export async function getSub (parent, { name }, { models, me }) {
   })
 }
 
-export async function topSubs (parent, { query, cursor, when, from, to, limit, by = 'revenue' }, { models, me }) {
+export async function topSubs (parent, { query, cursor, when, from, to, limit, by = 'stacked' }, { models, me }) {
   const decodedCursor = decodeCursor(cursor)
   const [fromDate, toDate] = whenRange(when, from, to || decodeCursor.time)
-  const granularity = timeUnitForRange([fromDate, toDate]).toUpperCase()
 
   let column
   switch (by) {
-    case 'revenue': column = Prisma.sql`revenue`; break
     case 'spent': column = Prisma.sql`spent`; break
     case 'stacked': column = Prisma.sql`stacked`; break
     case 'items': column = Prisma.sql`nitems`; break
@@ -53,41 +51,65 @@ export async function topSubs (parent, { query, cursor, when, from, to, limit, b
     WITH user_subs AS (
       ${query}
     ),
-    sub_outgoing AS (
-      SELECT user_subs.name,
-        COALESCE(floor(sum("AggPayOut"."sumMtokens") FILTER (WHERE "AggPayOut"."payOutType" = 'TERRITORY_REVENUE') / 1000), 0) as revenue,
-        COALESCE(floor(sum("AggPayOut"."sumMtokens") FILTER (WHERE "AggPayOut"."payOutType" = 'TIP') / 1000), 0) as stacked
+    sub_stacked AS (
+      SELECT user_subs.name, sum(t.piconeros)::bigint AS stacked
       FROM user_subs
-      LEFT JOIN "AggPayOut" ON "AggPayOut"."subId" = user_subs.id
-        AND "AggPayOut"."timeBucket" >= ${fromDate}
-        AND "AggPayOut"."timeBucket" <= ${toDate}
-        AND "AggPayOut"."granularity" = ${granularity}::"AggGranularity"
-        AND "AggPayOut"."slice" = 'SUB_BY_TYPE'
-        AND "AggPayOut"."payInType" IS NULL
+      JOIN "Item" i ON i."subName" = user_subs.name
+      JOIN "ObservedTip" t ON t."postId" = i.id
+      WHERE t.state = 'CONFIRMED'
+        AND t."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+        AND t."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
       GROUP BY user_subs.name
     ),
-    sub_incoming AS (
-      SELECT user_subs.name,
-        floor(COALESCE(sum("AggPayIn"."sumMcost"), 0) / 1000) as spent,
-        COALESCE(sum("AggPayIn"."countGroup") FILTER (WHERE "AggPayIn"."payInType" = 'ITEM_CREATE'), 0) as nitems
+    sub_spent AS (
+      SELECT user_subs.name, sum(x.piconeros)::bigint AS spent
       FROM user_subs
-      LEFT JOIN "AggPayIn" ON "AggPayIn"."subId" = user_subs.id
-        AND "AggPayIn"."timeBucket" >= ${fromDate}
-        AND "AggPayIn"."timeBucket" <= ${toDate}
-        AND "AggPayIn"."granularity" = ${granularity}::"AggGranularity"
-        AND "AggPayIn"."slice" = 'SUB_BY_TYPE'
+      JOIN (
+        SELECT i."subName" AS name, d.piconeros
+        FROM "ObservedDownvote" d
+        JOIN "Item" i ON i.id = d."postId"
+        WHERE d.state = 'CONFIRMED'
+          AND d."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+          AND d."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+        UNION ALL
+        SELECT i."subName" AS name, f.piconeros
+        FROM "FeeObservation" f
+        JOIN "Item" i ON i.id = f."postId"
+        WHERE f.state = 'CONFIRMED' AND f."feeType" = 'POSTING'
+          AND f."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+          AND f."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+        UNION ALL
+        SELECT f."subName" AS name, f.piconeros
+        FROM "FeeObservation" f
+        WHERE f.state = 'CONFIRMED' AND f."feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE')
+          AND f."subName" IS NOT NULL
+          AND f."confirmedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+          AND f."confirmedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+      ) x ON x.name = user_subs.name
+      GROUP BY user_subs.name
+    ),
+    sub_items AS (
+      SELECT user_subs.name, count(*)::int AS nitems
+      FROM user_subs
+      JOIN "Item" i ON i."subName" = user_subs.name
+      JOIN "PayIn" p ON p.id = i."feePayInId"
+      WHERE p."payInType" = 'ITEM_CREATE' AND p."payInState" = 'PAID'
+        AND p."payInStateChangedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+        AND p."payInStateChangedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
       GROUP BY user_subs.name
     ),
     sub_stats AS (
-      SELECT COALESCE(sub_outgoing.name, sub_incoming.name) as name,
-        COALESCE(sub_outgoing."revenue", 0) as revenue,
-        COALESCE(sub_outgoing."stacked", 0) as stacked,
-        COALESCE(sub_incoming."spent", 0) as spent,
-        COALESCE(sub_incoming."nitems", 0) as nitems
-      FROM sub_outgoing
-      FULL JOIN sub_incoming ON sub_outgoing.name = sub_incoming.name
+      SELECT user_subs.name,
+        COALESCE(sub_stacked.stacked, 0) AS stacked,
+        COALESCE(sub_spent.spent, 0) AS spent,
+        COALESCE(sub_items.nitems, 0) AS nitems
+      FROM user_subs
+      LEFT JOIN sub_stacked ON sub_stacked.name = user_subs.name
+      LEFT JOIN sub_spent ON sub_spent.name = user_subs.name
+      LEFT JOIN sub_items ON sub_items.name = user_subs.name
     )
-    SELECT "Sub".*, sub_stats.name, sub_stats.revenue, sub_stats.stacked, sub_stats.spent, sub_stats.nitems, COALESCE("Sub"."postTypes", '{}') AS "postTypes" FROM sub_stats
+    SELECT "Sub".*, sub_stats.name, sub_stats.stacked, sub_stats.spent, sub_stats.nitems, COALESCE("Sub"."postTypes", '{}') AS "postTypes"
+    FROM sub_stats
     JOIN "Sub" ON sub_stats.name = "Sub".name
     ORDER BY ${column} DESC NULLS LAST, "Sub".created_at ASC
     OFFSET ${decodedCursor.offset}
@@ -181,7 +203,7 @@ export default {
 
       return await topSubs(parent, { query, cursor, when, from, to, limit, by }, { models, me })
     },
-    userSubs: async (parent, { name, cursor, when, by = 'revenue', from, to, limit }, { models, me }) => {
+    userSubs: async (parent, { name, cursor, when, by = 'stacked', from, to, limit }, { models, me }) => {
       if (!name) {
         throw new GqlInputError('must supply user name')
       }
