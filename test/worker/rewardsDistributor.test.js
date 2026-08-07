@@ -271,6 +271,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // FK-safe teardown.
+  await prisma.earn.deleteMany({ where: { distributionId: { in: created.distributions } } })
   for (const id of created.distributions) {
     await prisma.rewardPayout.deleteMany({ where: { distributionId: id } })
   }
@@ -337,6 +338,26 @@ test('a curator WITHOUT a registered receiving address is excluded (their share 
   expect(curatorIds).toContain(seededCurators.c1)
   expect(curatorIds).toContain(seededCurators.c2)
   expect(curatorIds).not.toContain(seededCurators.c3)
+})
+
+test('Earn rows are written for paid curators only, summing exactly to distributedPiconeros', async () => {
+  const earns = await prisma.earn.findMany({ where: { distributionId: result.id } })
+  expect(earns.length).toBeGreaterThan(0)
+
+  const earnerIds = [...new Set(earns.map(e => e.userId))]
+  expect(earnerIds).toContain(seededCurators.c1)
+  expect(earnerIds).toContain(seededCurators.c2)
+  expect(earnerIds).not.toContain(seededCurators.c3) // no payout address -> excluded
+
+  for (const e of earns) {
+    expect(['TIP_POST', 'TIP_COMMENT']).toContain(e.type)
+    expect(e.rank).toBeGreaterThan(0)
+    expect(e.typeId).toBeNull()
+    expect(e.distributionId).toBe(result.id)
+    expect(e.createdAt.toISOString()).toBe(result.periodEnd.toISOString())
+  }
+  const sum = earns.reduce((acc, e) => acc + e.piconeros, 0n)
+  expect(sum).toBe(result.distributedPiconeros)
 })
 
 test('a zero-payout distribution skips SENDING and goes straight to COMPLETE', async () => {

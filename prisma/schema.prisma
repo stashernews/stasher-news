@@ -293,11 +293,14 @@ model Earn {
   typeProportion Float?
   type           EarnType?
   typeId         Int?
+  distributionId Int?
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  distribution   RewardDistribution? @relation(fields: [distributionId], references: [id], onDelete: SetNull)
 
   @@index([createdAt], map: "Earn.created_at_index")
   @@index([createdAt, userId], map: "Earn.created_at_userId_index")
   @@index([userId], map: "Earn.userId_index")
+  @@index([distributionId], map: "Earn.distributionId_index")
 }
 
 model Invite {
@@ -1477,6 +1480,7 @@ model RewardDistribution {
   completedAt          DateTime?
 
   payouts RewardPayout[]
+  earns   Earn[]
 }
 
 // A single curator payout within a distribution (real on-chain tx from the hot wallet).

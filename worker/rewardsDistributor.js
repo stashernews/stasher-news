@@ -176,6 +176,28 @@ async function distribute (models) {
       await tx.rewardPayout.createMany({
         data: payoutRows.map(p => ({ ...p, distributionId: distribution.id, state: 'QUEUED' }))
       })
+      // Write per-(curator, type) Earn rows for every paid curator — SN-parity
+      // trophy list + exact "you earned X (Y%)" (sum(Earn) === distributedPiconeros).
+      // typeId null = no item links (matches upstream). createdAt = periodEnd so
+      // the meRewards day bucket + the in-app Earn notification date land on the
+      // distribution day. Address-less curators get no rows (their share rolled
+      // over; notifying "you stashed" for unreceived funds would be a lie).
+      const earnRows = []
+      for (const p of payoutRows) {
+        const share = shares.find(s => s.curatorId === p.curatorId)
+        for (const e of share.earns) {
+          earnRows.push({
+            userId: p.curatorId,
+            piconeros: e.piconeros,
+            type: e.type,
+            rank: e.rank,
+            typeId: null,
+            distributionId: distribution.id,
+            createdAt: periodEnd
+          })
+        }
+      }
+      await tx.earn.createMany({ data: earnRows })
     }
 
     // The on-chain signing + PENDING -> SENDING -> COMPLETE flip happens AFTER
