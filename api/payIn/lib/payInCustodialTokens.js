@@ -1,4 +1,4 @@
-import { isP2POnly, isPayableWithCredits, isSystemOnly, isWithdrawal } from './is'
+import { isP2POnly, isPayableWithCredits, isWithdrawal } from './is'
 import { USER_ID } from '@/lib/constants'
 
 export async function getPayInCustodialTokens (tx, mCustodialCost, payIn, { me }) {
@@ -8,7 +8,7 @@ export async function getPayInCustodialTokens (tx, mCustodialCost, payIn, { me }
     return payInCustodialTokens
   }
 
-  if (mCustodialCost % 1000n !== 0n && !isWithdrawal(payIn) && !isSystemOnly(payIn)) {
+  if (mCustodialCost % 1000n !== 0n && !isWithdrawal(payIn)) {
     throw new Error('mCustodialCost must be a multiple of 1000 and is: ' + mCustodialCost)
   }
 

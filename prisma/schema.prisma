@@ -1249,28 +1249,6 @@ model AggPayOut {
   @@index([subId])
 }
 
-model AggRegistrations {
-  id            Int            @id @default(autoincrement())
-  timeBucket    DateTime       @db.Timestamptz(3)
-  granularity   AggGranularity
-  count         BigInt
-  invitedCount  BigInt
-  referredCount BigInt
-
-  @@unique([granularity, timeBucket], map: "AggRegistrations_unique_key")
-}
-
-model AggRewards {
-  id          Int            @id @default(autoincrement())
-  timeBucket  DateTime       @db.Timestamptz(3)
-  granularity AggGranularity
-  payInType   PayInType?
-  piconeros   BigInt
-  countGroup  BigInt
-
-  @@unique([granularity, timeBucket, payInType], map: "AggRewards_unique_key")
-}
-
 // =====================================================================
 // ==== STASHERNEWS MONERO OBSERVATION MODELS (spec §4.3)            ====
 // =====================================================================
