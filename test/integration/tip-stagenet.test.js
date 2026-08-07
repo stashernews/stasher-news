@@ -98,7 +98,7 @@ const TIP_PICONEROS = BigInt(process.env.STAGENET_TIP_PICONEROS || '1000000000')
 // lws scan lag exists. Confirmation: ~2 min/block * 10 + finalizer cadence.
 const DETECT_TIMEOUT_MS = 120_000
 const DETECT_POLL_MS = 5_000
-const CONFIRM_TIMEOUT_MS = 25 * 60_000
+const CONFIRM_TIMEOUT_MS = 6 * 60_000
 const CONFIRM_POLL_MS = 30_000
 
 function sleep (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
@@ -348,7 +348,7 @@ async function sendTipManual (integratedAddress, moneroUri, amountPiconeros) {
       throw err
     }
     console.log('  CONFIRMED assertions passed (stackedPiconeros bumped by exactly the tip amount)')
-  }, 30 * 60_000)
+  }, 10 * 60_000)
 })
 
 async function pollUntil (label, condition, { timeoutMs, intervalMs, onPoll } = {}) {

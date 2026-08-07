@@ -51,11 +51,19 @@ const prisma = new PrismaClient()
 const STAGENET_ENABLED = process.env.RUN_STAGENET_INTEGRATION === '1'
 const FEE_PICONEROS = BigInt(process.env.STAGENET_FEE_PICONEROS || '1000000000')
 
-const DETECT_TIMEOUT_MS = 600_000
+const DETECT_TIMEOUT_MS = 6 * 60_000
 const DETECT_POLL_MS = 10_000
-const CONFIRM_TIMEOUT_MS = 25 * 60_000
+const CONFIRM_TIMEOUT_MS = 6 * 60_000
 const CONFIRM_POLL_MS = 30_000
 const RESTORE_HEIGHT_MARGIN = 1000
+// A reused stagenet sender wallet carries a maturing CHANGE output after each
+// send (Monero locks change for 10 blocks). If a prior run spent from the
+// sender recently, its whole balance is briefly "locked" (getUnlockedBalance()
+// == 0) even though getBalance() is large. Wait for the change to mature before
+// constructing the fee tx, else monero-ts throws "not enough unlocked money".
+const SEND_WAIT_UNLOCK_MS = 20 * 60_000
+const SEND_WAIT_POLL_MS = 30_000
+const SEND_FEE_MARGIN_PICONEROS = 100_000_000n // 0.0001 XMR; observed stagenet fee ~0.000044
 
 function sleep (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
@@ -105,6 +113,24 @@ async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
   })
   try {
     await wallet.sync()
+    // Wait until the sender has enough UNLOCKED balance. Monero locks change
+    // outputs for 10 blocks; a freshly reused sender can report balance > 0 but
+    // unlocked == 0 right after a prior send (see the downvote test for the same
+    // pattern). Polling here avoids a misleading "not enough unlocked money".
+    const need = amountPiconeros + SEND_FEE_MARGIN_PICONEROS
+    const unlockDeadline = Date.now() + SEND_WAIT_UNLOCK_MS
+    while (Date.now() < unlockDeadline) {
+      const unlocked = await wallet.getUnlockedBalance()
+      if (unlocked >= need) break
+      const bal = await wallet.getBalance()
+      console.log(`  sendFeeProgrammatic: waiting for sender change to mature (balance=${bal.toString()} unlocked=${unlocked.toString()} need=${need.toString()}); retry in ${SEND_WAIT_POLL_MS / 1000}s`)
+      await wallet.sync()
+      await sleep(SEND_WAIT_POLL_MS)
+    }
+    const unlocked = await wallet.getUnlockedBalance()
+    if (unlocked < need) {
+      throw new Error(`sender has insufficient unlocked balance (${unlocked.toString()} < ${need.toString()}); fund STAGENET_SENDER_SEED or wait for change to mature`)
+    }
     const tx = await wallet.createTx({ accountIndex: 0, address: recipientAddress, amount: amountPiconeros, relay: true })
     const hash = tx.getHash()
     return Array.isArray(hash) ? hash[0] : hash
