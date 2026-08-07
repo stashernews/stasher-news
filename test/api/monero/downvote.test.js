@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { makeDownvoteAddress, reverseMapPaymentId } from '@/api/monero/penalty'
+import { makeDownvoteAddress, reverseMapPaymentId } from '@/api/monero/downvote'
 import { generateDownvotePaymentId, generateTipPaymentId } from '@/api/monero/paymentId'
 
 // Stagenet primary address reused from integratedAddress.test.js so generated
