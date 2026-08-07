@@ -62,18 +62,13 @@ async function getActiveRewards (models) {
   const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
   const lastDistribution = await models.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
   const periodStart = lastDistribution?.periodEnd ?? new Date(Date.now() - WEEK_MS)
-  const nextTime = lastDistribution
-    ? new Date(lastDistribution.periodEnd.getTime() + WEEK_MS)
-    : new Date(Date.now() + WEEK_MS)
-  // A missed/cron-delayed distribution would put nextTime in the past; clamp so
-  // the countdown never reads 0s.
-  const time = nextTime > new Date() ? nextTime : new Date(Date.now() + WEEK_MS)
-  const [{ downvote, posting, territory, extra }] = await models.$queryRaw`
+  const [{ downvote, posting, territory, extra, time }] = await models.$queryRaw`
     SELECT
       COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS extra`
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS extra,
+      (date_trunc('week', now() AT TIME ZONE 'UTC') + interval '1 week') AT TIME ZONE 'UTC' AS time`
 
   return [rewardsFromInflow({ downvote, posting, territory, extra }, time, config)]
 }

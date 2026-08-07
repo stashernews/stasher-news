@@ -36,7 +36,6 @@ beforeEach(() => {
 })
 
 const DAY_MS = 24 * 60 * 60 * 1000
-const WEEK_MS = 7 * DAY_MS
 
 const CONFIG = {
   downvoteRewardsPct: 100,
@@ -74,36 +73,32 @@ describe('Query.rewards', () => {
     expect(reward.time).toBeInstanceOf(Date)
   })
 
-  test('active view counts down to the next weekly distribution', async () => {
-    const periodEnd = new Date(Date.now() - 2 * DAY_MS)
-    const models = makeModels({ lastDistribution: { periodEnd } })
-    const [reward] = await resolvers.Query.rewards(null, {}, { models })
-
-    // next distribution = last periodEnd + 7d (worker self-requeues WEEK_SECONDS later)
-    expect(reward.time.getTime()).toBe(periodEnd.getTime() + WEEK_MS)
-  })
-
-  test('active view pools inflow since the last distribution, with no day truncation', async () => {
+  test('active view pools inflow since the last distribution', async () => {
     const periodEnd = new Date(Date.now() - 2 * DAY_MS)
     const models = makeModels({ lastDistribution: { periodEnd } })
     await resolvers.Query.rewards(null, {}, { models })
 
     const [sql] = models.$queryRaw.mock.calls[0]
     expect(sql.join('?')).toContain('"confirmedAt" >= ?')
-    expect(sql.join('?')).not.toContain('date_trunc')
-
     // the window start binds the last distribution's periodEnd, not now-WEEK_MS
     expect(models.$queryRaw.mock.calls[0][1]).toEqual(periodEnd)
   })
 
-  test('active view falls back to now+7d when no distribution has run yet', async () => {
+  test('active view computes the next distribution slot in SQL, not a moving now-based time', async () => {
     const models = makeModels()
-    const before = Date.now()
-    const [reward] = await resolvers.Query.rewards(null, {}, { models })
-    const after = Date.now()
+    await resolvers.Query.rewards(null, {}, { models })
 
-    expect(reward.time.getTime()).toBeGreaterThanOrEqual(before + WEEK_MS)
-    expect(reward.time.getTime()).toBeLessThanOrEqual(after + WEEK_MS)
+    const [sql] = models.$queryRaw.mock.calls[0]
+    // time = next Monday 00:00 UTC, computed in SQL (mirrors the Monday cron).
+    // The resolver must NOT bind a JS-computed time value — the slot is fixed
+    // in SQL so polling never sees a moving target.
+    expect(sql.join('?')).toContain("date_trunc('week'")
+    expect(sql.join('?')).toContain("interval '1 week'")
+    // the query binds only the inflow window start (periodStart, 4×: downvote,
+    // posting, territory, extra) — no JS-computed time value. 1 strings array
+    // + 4 values = 5 args (regression guard against re-introducing a bound
+    // now+7d time).
+    expect(models.$queryRaw.mock.calls[0].length).toBe(5)
   })
 
   test('drops zero-earmark sources', async () => {
