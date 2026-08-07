@@ -254,4 +254,19 @@ describe('leaderboard reads live observations', () => {
 
     expect(users.map(u => u.name)).toContain('sugg-heavy')
   })
+
+  test('userSuggestions excludes nameless stackers (User.name is non-null)', async () => {
+    // a user who received tips but never picked a nym must not surface — returning
+    // them would crash GraphQL's non-null User.name.
+    const anon = await createUser()
+    const acct = await createAccount(anon)
+    const post = await createPost(anon)
+
+    await createTip({ postId: post.id, recipientAccountId: acct.id, piconeros: 100000000000n, confirmedAt: T })
+
+    const users = await userResolvers.Query.userSuggestions(null, { q: null, limit: 50 }, { models: prisma })
+
+    expect(users.map(u => u.name)).not.toContain(null)
+    expect(users.find(u => u.id === anon)).toBeUndefined()
+  })
 })

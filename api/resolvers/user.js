@@ -245,6 +245,7 @@ export default {
           JOIN users u ON u.id = ma."ownerUserId"
           WHERE t.state = 'CONFIRMED' AND ma."ownerUserId" IS NOT NULL
             AND NOT u."hideFromTopUsers"
+            AND u."name" IS NOT NULL
           GROUP BY u.id, u.name, u.created_at
           ORDER BY sum(t.piconeros) DESC, u.created_at ASC
           LIMIT ${limit}`
