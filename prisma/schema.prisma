@@ -53,12 +53,12 @@ model User {
   nostrPubkey         String?
   nostrAuthPubkey     String?              @unique(map: "users.nostrAuthPubkey_unique")
   nostrCrossposting   Boolean              @default(false)
-  noteCowboyHat       Boolean              @default(true)
+  noteBadges          Boolean              @default(true)
   streak              Int?
   infected            Boolean              @default(false)
   cured               Boolean              @default(false)
   subs                String[]
-  hideCowboyHat       Boolean              @default(false)
+  hideBadges          Boolean              @default(false)
   hideStashAmount      Boolean              @default(true)
   Bookmarks           Bookmark[]
   Earn                Earn[]

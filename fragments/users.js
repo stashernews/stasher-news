@@ -71,10 +71,10 @@ export const SETTINGS_FIELDS = gql`
       noteMentions
       noteItemMentions
       noteInvites
-      noteCowboyHat
+      noteBadges
       hideFromTopUsers
       hideStashAmount
-      hideCowboyHat
+      hideBadges
       hideBookmarks
       hideGithub
       hideNostr

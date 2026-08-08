@@ -257,7 +257,7 @@ export default {
         )
       }
 
-      if (meFull.noteCowboyHat) {
+      if (meFull.noteBadges) {
         queries.push(
           `(SELECT id::text, updated_at AS "sortTime", 0::INTEGER as "earnedPiconeros", 'Flame' AS type
           FROM "Streak"
