@@ -618,6 +618,44 @@ test('B4: a FAILED sweep does NOT complete the distribution (payouts sent, manua
   expect(payoutAfter.state).toBe('SENT')
 })
 
+test('B4: a FAILED distribution with all payouts SENT reconciles to COMPLETE on the next run (sweep not re-attempted)', async () => {
+  // After a FAILED sweep (status=FAILED, opsSweepState=FAILED, payouts all SENT),
+  // the next run sees hasQueued===false and takes the !hasQueued reconciliation
+  // branch straight to COMPLETE — without re-attempting the sweep. opsSweepState
+  // stays FAILED (the unswept ops earmark rolls forward via opsRolledOver).
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 31 * DAY),
+      periodEnd: new Date(Date.now() - 30 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      opsAvailablePiconeros: 2_000_000_000n,
+      payoutCount: 1,
+      opsSweepState: 'FAILED',
+      status: 'FAILED'
+    }
+  })
+  created.distributions.push(dist.id)
+  const payout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'SENT', txHash: 'ab'.repeat(32) }
+  })
+  let signerCalled = false
+  let sweepCalled = false
+  await finalizeDistribution(
+    prisma,
+    { ...dist, payouts: [payout] },
+    async () => { signerCalled = true; return { sent: 0, failed: 0, skipped: 0 } },
+    async () => { sweepCalled = true; return { state: 'SWEPT' } })
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('COMPLETE')
+  expect(updated.completedAt).toBeTruthy()
+  expect(updated.opsSweepState).toBe('FAILED') // unchanged — sweep not re-attempted
+  expect(signerCalled).toBe(false) // !hasQueued branch skips the signer
+  expect(sweepCalled).toBe(false) // and skips the sweep
+})
+
 test('a second run within the same week is idempotent (returns the existing distribution)', async () => {
   const before = await prisma.rewardPayout.count({ where: { distributionId: result.id } })
   const again = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
