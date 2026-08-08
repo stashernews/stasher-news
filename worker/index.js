@@ -38,6 +38,7 @@ import { healthProbe } from './healthProbe'
 import { dbBackup } from './dbBackup'
 import { writeWorkerHeartbeat } from './heartbeat'
 import { logInfo, logError } from '@/lib/logger'
+import { moneroJobDurationSeconds } from '@/lib/metrics'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -82,11 +83,14 @@ async function work () {
       if (job.retrycount > 0) {
         logInfo(`  ... retry #${job.retrycount}/${job.retrylimit}`)
       }
+      const start = Date.now()
       try {
         await fn({ ...job, ...args })
       } catch (error) {
         logError(`error running ${job.name}`, error)
         throw error
+      } finally {
+        try { moneroJobDurationSeconds.labels(job.name).observe((Date.now() - start) / 1000) } catch { /* metric never breaks a job */ }
       }
       logInfo(`finished ${job.name}`)
     }

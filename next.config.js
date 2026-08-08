@@ -193,6 +193,10 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
         destination: '/api/web-app-origin-association'
       },
       {
+        source: '/metrics',
+        destination: '/api/metrics'
+      },
+      {
         source: '/~:sub/:slug*',
         destination: '/~/:slug*?sub=:sub'
       },
