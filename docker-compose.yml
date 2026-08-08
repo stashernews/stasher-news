@@ -287,28 +287,22 @@ services:
   monerod:
     build: ./docker/monerod
     restart: unless-stopped
+    env_file: *env_file
     command:
-      - --stagenet
       - --non-interactive
       - --rpc-bind-ip=0.0.0.0
-      - --rpc-bind-port=38081
       - --restricted-rpc
       - --rpc-ssl=disabled
       - --disable-rpc-ban
       - --zmq-rpc-bind-ip=0.0.0.0
-      - --zmq-rpc-bind-port=38082
-      - --zmq-pub=tcp://0.0.0.0:38083
       - --confirm-external-bind
       - --confirm-zmq-rpc-external-bind
-      - --add-peer=node.sethforprivacy.com:38080
-      - --add-peer=stagenet.xmr-tw.org:38080
-      - --add-peer=xmr-node.cakewallet.com:38080
     volumes:
       - monerod:/root/.bitmonero
     ports:
-      - "38081:38081"
+      - "${MONEROD_RPC_PORT:-38081}:${MONEROD_RPC_PORT:-38081}"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:38081/get_height || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${MONEROD_RPC_PORT:-38081}/get_height || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -322,6 +316,7 @@ services:
     depends_on:
       - monerod
     restart: unless-stopped
+    env_file: *env_file
     command:
       - --network=stage
       - --daemon=${MONEROD_ZMQ_RPC_URL}
