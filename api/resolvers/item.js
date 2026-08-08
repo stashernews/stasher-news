@@ -312,8 +312,12 @@ export async function filterClause (type, sub, sort, { me, userLoader, subLoader
 
   if (me) {
     const user = await userLoader.load(me.id)
-    commentsPiconerosFilter = user.commentsPiconerosFilter
-    postsPiconerosFilter = user.postsPiconerosFilter
+    // a stale session can reference a deleted user row; treat it as logged out
+    // (defaults) instead of crashing every feed query
+    if (user) {
+      commentsPiconerosFilter = user.commentsPiconerosFilter
+      postsPiconerosFilter = user.postsPiconerosFilter
+    }
   }
 
   const territory = sub ? await subLoader.load(sub) : null
