@@ -29,15 +29,18 @@ function toBigInt (v) {
 }
 
 // Rewards earmark per the PlatformFeeConfig allocation split (spec §6.4):
-// downvote 100% / posting 70% / turf 30%. BigInt division floors each source
-// independently, matching worker/rewardsDistributor.js.
+// downvote 100% / posting 70% / turf 30% / wallet-less tips 50%. BigInt
+// division floors each source independently, matching
+// worker/rewardsDistributor.js.
 function rewardsFromInflow (inflow, time, config) {
   const sourceShares = [
     { name: 'downvote', piconeros: toBigInt(inflow.downvote) * BigInt(config.downvoteRewardsPct) / 100n },
     { name: 'posting fee', piconeros: toBigInt(inflow.posting) * BigInt(config.postingFeeRewardsPct) / 100n },
     { name: 'turf fee', piconeros: toBigInt(inflow.territory) * BigInt(config.territoryFeeRewardsPct) / 100n },
-    // donations, boosts, and tips to wallet-less authors go 100% to the pool
-    { name: 'extra', piconeros: toBigInt(inflow.extra) }
+    // donations and boosts go 100% to the pool
+    { name: 'extra', piconeros: toBigInt(inflow.extra) },
+    // wallet-less-author tips (TIP_UNWALLETED) go walletlessTipRewardsPct% to the pool
+    { name: 'wallet-less tips', piconeros: toBigInt(inflow.walletlesstip) * BigInt(config.walletlessTipRewardsPct) / 100n }
   ]
   const sources = sourceShares.filter(s => s.piconeros > 0n).map(s => ({ name: s.name, value: s.piconeros.toString() }))
   const total = sourceShares.reduce((acc, s) => acc + s.piconeros, 0n)
@@ -49,28 +52,30 @@ function rewardsFromInflow (inflow, time, config) {
 // is a timestamp-without-timezone column holding UTC wall time; binding the JS
 // Dates matches the worker's Prisma aggregate semantics exactly.
 async function inflowByPeriod (periodStart, periodEnd, models) {
-  const [{ downvote, posting, territory, extra }] = await models.$queryRaw`
+  const [{ downvote, posting, territory, extra, walletlesstip }] = await models.$queryRaw`
     SELECT
       COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS extra`
-  return { downvote, posting, territory, extra }
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS extra,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS walletlesstip`
+  return { downvote, posting, territory, extra, walletlesstip }
 }
 
 async function getActiveRewards (models) {
   const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
   const lastDistribution = await models.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
   const periodStart = lastDistribution?.periodEnd ?? new Date(Date.now() - WEEK_MS)
-  const [{ downvote, posting, territory, extra, time }] = await models.$queryRaw`
+  const [{ downvote, posting, territory, extra, walletlesstip, time }] = await models.$queryRaw`
     SELECT
       COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS extra,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS extra,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS walletlesstip,
       (date_trunc('week', now() AT TIME ZONE 'UTC') + interval '1 week') AT TIME ZONE 'UTC' AS time`
 
-  return [rewardsFromInflow({ downvote, posting, territory, extra }, time, config)]
+  return [rewardsFromInflow({ downvote, posting, territory, extra, walletlesstip }, time, config)]
 }
 
 async function getRewards (when, models) {
@@ -109,13 +114,14 @@ async function getRewards (when, models) {
   }
 
   // Pre-first-distribution fallback: the requested UTC day's confirmed inflow.
-  const [{ downvote, posting, territory, extra }] = await models.$queryRaw`
+  const [{ downvote, posting, territory, extra, walletlesstip }] = await models.$queryRaw`
     SELECT
       COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','TIP_UNWALLETED','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS extra`
-  return [rewardsFromInflow({ downvote, posting, territory, extra }, d, config)]
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('DONATE','BOOST') AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS extra,
+      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS walletlesstip`
+  return [rewardsFromInflow({ downvote, posting, territory, extra, walletlesstip }, d, config)]
 }
 
 export default {
