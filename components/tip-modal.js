@@ -13,6 +13,7 @@ import { bumpActCache } from './item-act'
 import PaymentSuccessView from './payment-success-view'
 import useWatchTip from './tip/use-watch-tip'
 import { INITIATE_TIP } from '@/fragments/monero'
+import { USER_ID } from '@/lib/constants'
 import { xmrToPiconeros, piconerosToXmr, piconerosToXmrDecimal } from '@/lib/format'
 import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 import UpArrow from '@/svgs/up-arrow.svg'
@@ -43,7 +44,8 @@ export default function TipModal ({ item, onClose }) {
   const toaster = useToast()
   const [initiateTip] = useMutation(INITIATE_TIP)
   const [amount, setAmount] = useState(() => initialTipAmount(me?.privates))
-  const [tip, setTip] = useState(null) // { uri, paymentId, piconeros }
+  const [tip, setTip] = useState(null) // { uri, paymentId, piconeros, recipient }
+  const authorIsAnon = Number(item?.user?.id) === USER_ID.anon
   const [tipPaid, setTipPaid] = useState(false)
 
   const onSubmit = useCallback(async (e) => {
@@ -57,8 +59,8 @@ export default function TipModal ({ item, onClose }) {
     }
     try {
       const { data } = await initiateTip({ variables: { postId: String(item.id), amount: String(piconeros) } })
-      const { uri, paymentId } = data.initiateTip
-      setTip({ uri, paymentId, piconeros: String(piconeros) })
+      const { uri, paymentId, recipient } = data.initiateTip
+      setTip({ uri, paymentId, piconeros: String(piconeros), recipient })
     } catch (error) {
       // e.g. "post author has no monero account", "min tip is 0.0001 XMR ..."
       toaster.danger(error?.message ?? 'failed to create tip')
@@ -88,7 +90,7 @@ export default function TipModal ({ item, onClose }) {
   if (tip) {
     return (
       <TipPaymentView
-        uri={tip.uri} paymentId={tip.paymentId} amount={tip.piconeros} onDetected={onDetected} onClose={onClose}
+        uri={tip.uri} paymentId={tip.paymentId} amount={tip.piconeros} recipient={tip.recipient} onDetected={onDetected} onClose={onClose}
       />
     )
   }
@@ -97,7 +99,9 @@ export default function TipModal ({ item, onClose }) {
     <div className='d-flex flex-column'>
       <h6 className='text-start'>Tip</h6>
       <p className='text-muted text-start'>
-        100% of this tip goes directly to the author, wallet-to-wallet.
+        {authorIsAnon
+          ? <>This author has no wallet. Your tip up-ranks the post and funds the curator rewards pool.</>
+          : <>100% of this tip goes directly to the author, wallet-to-wallet.</>}
       </p>
 
       <BootstrapForm.Group className='my-2'>
@@ -180,7 +184,7 @@ function tipStatusCopy (state) {
   }
 }
 
-function TipPaymentView ({ uri, paymentId, amount, onDetected, onClose }) {
+function TipPaymentView ({ uri, paymentId, amount, recipient, onDetected, onClose }) {
   const { state } = useWatchTip({ paymentId, onDetected })
   // Render the success view directly from the polled state (mirrors the posting-fee
   // modal, which derives its paid phase straight from the query data). This does not
@@ -200,7 +204,9 @@ function TipPaymentView ({ uri, paymentId, amount, onDetected, onClose }) {
       moneroUri={uri}
       amountPiconeros={BigInt(amount)}
       heading='Pay this tip'
-      description={`Scan to send ${piconerosToXmr(BigInt(amount))} directly to the author.`}
+      description={recipient === 'REWARDS'
+        ? `Scan to send ${piconerosToXmr(BigInt(amount))} to the rewards pool — the author has no Monero wallet.`
+        : `Scan to send ${piconerosToXmr(BigInt(amount))} directly to the author.`}
     >
       <p className='text-muted text-center mt-2'>
         <small>{tipStatusCopy(state)}</small>
