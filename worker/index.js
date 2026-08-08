@@ -34,6 +34,7 @@ import { rewardsDistributor } from './rewardsDistributor'
 import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
+import { dbBackup } from './dbBackup'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -182,6 +183,17 @@ async function work () {
   await boss.work('rotateViewKeys', jobWrapper(rotateViewKeys))
   if (await boss.getQueueSize('rotateViewKeys') === 0) {
     await boss.send('rotateViewKeys', {}, { startAfter: 24 * 60 * 60 })
+  }
+
+  // dbBackup: nightly encrypted DB dump (pg_dump | gpg -> BACKUP_DIR) with
+  // retention pruning + optional S3 upload. Recurring runs are owned by the
+  // pgboss.schedule row (cron 0 3 * * * UTC, migration
+  // 20260808160000_schedule_db_backup) — NOT a self-requeue — mirroring
+  // rewardsDistributor. Fresh installs get one deferred (24h) run so a
+  // brand-new stack lands a first backup before waiting on the cron.
+  await boss.work('dbBackup', jobWrapper(dbBackup))
+  if (await boss.getQueueSize('dbBackup') === 0) {
+    await boss.send('dbBackup', {}, { startAfter: 24 * 60 * 60 })
   }
 
   console.log('working jobs')
