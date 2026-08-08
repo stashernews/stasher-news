@@ -38,8 +38,7 @@ export const SN_UPLOAD_FILES_COMMAND = createCommand('SN_UPLOAD_FILES_COMMAND')
 const UPLOAD_FEES_QUERY = gql`
   query uploadFees($s3Keys: [Int]!) {
     uploadFees(s3Keys: $s3Keys) {
-      nUnpaid
-      uploadFees
+      totalFeesPiconeros
     }
   }
 `
@@ -276,11 +275,11 @@ function useLexicalUploadFees (editor) {
   })
 
   const handleUploadFeesData = useCallback(({ data }) => {
-    const { uploadFees: feePerUpload, nUnpaid } = data.uploadFees
-    const totalFees = feePerUpload * nUnpaid
+    const { totalFeesPiconeros } = data.uploadFees
+    const totalFees = Number(totalFeesPiconeros)
     merge({
       uploadFees: {
-        term: `+ ${piconerosToXmr(BigInt(feePerUpload))} x ${nUnpaid}`,
+        term: `+ ${piconerosToXmr(BigInt(totalFeesPiconeros))}`,
         label: 'upload fee',
         op: '+',
         modifier: cost => cost + totalFees,

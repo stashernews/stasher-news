@@ -1,14 +1,16 @@
 /* eslint-env jest */
 
-// Unit tests for the uploadFees resolver — flat 10MB threshold + 0.001 XMR
-// per upload over the free size. Real DB, fixtures tracked + removed
-// (mirrors test/api/resolvers/growth.test.js).
+// Unit tests for the uploadFees resolver — proportional fee schedule: registered
+// users get the first 10MB free per upload, then 0.001 XMR per full 10MB block
+// (floor); anons get no free tier (0.001 minimum on every upload). Real DB,
+// fixtures tracked + removed (mirrors test/api/resolvers/growth.test.js).
 
 import { PrismaClient } from '@prisma/client'
 import { uploadFees } from '@/api/resolvers/upload'
 import { UPLOAD_FEE_PICONEROS } from '@/lib/constants'
 
 const prisma = new PrismaClient()
+const MB = 1024 * 1024
 
 const created = { users: [], uploads: [] }
 
@@ -40,33 +42,91 @@ async function createUploads (userId, specs) {
   return rows.map(r => r.id)
 }
 
-describe('uploadFees — 10MB threshold', () => {
-  test('uploads at or under 10MB are free', async () => {
+describe('uploadFees — proportional fee schedule', () => {
+  test('empty s3Keys returns zeroed fees', async () => {
+    const fees = await uploadFees([], { models: prisma, me: { id: 27 } })
+    expect(fees).toEqual({
+      bytes24h: 0n,
+      bytesUnpaid: 0n,
+      nUnpaid: 0n,
+      uploadFees: 0n,
+      uploadFeesPiconeros: 0n,
+      totalFees: 0n,
+      totalFeesPiconeros: 0n
+    })
+  })
+
+  test('registered uploads at or under 10MB are free', async () => {
     const userId = await createUser()
-    const ids = await createUploads(userId, [{ size: 1024 }, { size: 10 * 1024 * 1024 }]) // 1KB + exactly 10MB
+    const ids = await createUploads(userId, [{ size: 1024 }, { size: 10 * MB }]) // 1KB + exactly 10MB
     const fees = await uploadFees(ids, { models: prisma, me: { id: userId } })
     expect(fees.nUnpaid).toBe(0n)
     expect(fees.totalFeesPiconeros).toBe(0n)
   })
 
-  test('each upload over 10MB costs 0.001 XMR', async () => {
+  test('registered uploads over 10MB pay 0.001 XMR per full 10MB block', async () => {
     const userId = await createUser()
-    const ids = await createUploads(userId, [{ size: 11 * 1024 * 1024 }, { size: 50 * 1024 * 1024 }])
+    const ids = await createUploads(userId, [{ size: 11 * MB }, { size: 20 * MB }])
     const fees = await uploadFees(ids, { models: prisma, me: { id: userId } })
     expect(fees.nUnpaid).toBe(2n)
-    expect(fees.uploadFeesPiconeros).toBe(UPLOAD_FEE_PICONEROS)
+    expect(fees.totalFeesPiconeros).toBe(3n * UPLOAD_FEE_PICONEROS) // 0.001 + 0.002
+  })
+
+  test('registered 30MB pays 3 blocks (0.003 XMR)', async () => {
+    const userId = await createUser()
+    const ids = await createUploads(userId, [{ size: 30 * MB }])
+    const fees = await uploadFees(ids, { models: prisma, me: { id: userId } })
+    expect(fees.nUnpaid).toBe(1n)
+    expect(fees.totalFeesPiconeros).toBe(3n * UPLOAD_FEE_PICONEROS)
+  })
+
+  test('registered 20.5MB floors to 2 blocks (0.002 XMR)', async () => {
+    const userId = await createUser()
+    const ids = await createUploads(userId, [{ size: Math.floor(20.5 * MB) }])
+    const fees = await uploadFees(ids, { models: prisma, me: { id: userId } })
+    expect(fees.nUnpaid).toBe(1n)
     expect(fees.totalFeesPiconeros).toBe(2n * UPLOAD_FEE_PICONEROS)
   })
 
-  test('anon uploads over 10MB cost the same (no anon surcharge)', async () => {
-    const ids = await createUploads(27, [{ size: 11 * 1024 * 1024 }])
+  test('anon uploads have no free tier: 1KB costs 0.001 XMR', async () => {
+    const ids = await createUploads(27, [{ size: 1024 }])
     const fees = await uploadFees(ids, { models: prisma, me: { id: 27 } })
+    expect(fees.nUnpaid).toBe(1n)
     expect(fees.totalFeesPiconeros).toBe(UPLOAD_FEE_PICONEROS)
   })
 
-  test('already-paid uploads over 10MB are exempt from the fee', async () => {
+  test('anon 10MB costs 0.001 XMR (exact boundary counts one block)', async () => {
+    const ids = await createUploads(27, [{ size: 10 * MB }])
+    const fees = await uploadFees(ids, { models: prisma, me: { id: 27 } })
+    expect(fees.nUnpaid).toBe(1n)
+    expect(fees.totalFeesPiconeros).toBe(UPLOAD_FEE_PICONEROS)
+  })
+
+  test('anon 11MB costs 0.001 XMR', async () => {
+    const ids = await createUploads(27, [{ size: 11 * MB }])
+    const fees = await uploadFees(ids, { models: prisma, me: { id: 27 } })
+    expect(fees.nUnpaid).toBe(1n)
+    expect(fees.totalFeesPiconeros).toBe(UPLOAD_FEE_PICONEROS)
+  })
+
+  test('anon 20MB costs 0.002 XMR', async () => {
+    const ids = await createUploads(27, [{ size: 20 * MB }])
+    const fees = await uploadFees(ids, { models: prisma, me: { id: 27 } })
+    expect(fees.nUnpaid).toBe(1n)
+    expect(fees.totalFeesPiconeros).toBe(2n * UPLOAD_FEE_PICONEROS)
+  })
+
+  test('mixed batch: registered {1KB, 20MB} charges only the 20MB upload', async () => {
     const userId = await createUser()
-    const ids = await createUploads(userId, [{ size: 11 * 1024 * 1024, paid: true }])
+    const ids = await createUploads(userId, [{ size: 1024 }, { size: 20 * MB }])
+    const fees = await uploadFees(ids, { models: prisma, me: { id: userId } })
+    expect(fees.nUnpaid).toBe(1n)
+    expect(fees.totalFeesPiconeros).toBe(2n * UPLOAD_FEE_PICONEROS)
+  })
+
+  test('already-paid uploads are exempt from the fee', async () => {
+    const userId = await createUser()
+    const ids = await createUploads(userId, [{ size: 11 * MB, paid: true }])
     const fees = await uploadFees(ids, { models: prisma, me: { id: userId } })
     expect(fees.nUnpaid).toBe(0n)
     expect(fees.bytesUnpaid).toBe(0n)

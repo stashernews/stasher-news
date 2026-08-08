@@ -107,24 +107,33 @@ export async function uploadFees (s3Keys, { models, me }) {
     }
   }
 
-  const [{ bytesUnpaid, nUnpaid }] = await models.$queryRaw`
+  const [{ bytesUnpaid, nUnpaid, totalFeesPiconeros }] = await models.$queryRaw`
     SELECT
       COALESCE(SUM(size) FILTER (WHERE paid = 'f' AND id IN (${Prisma.join(s3Keys)})), 0)::BIGINT AS "bytesUnpaid",
-      COALESCE(COUNT(id) FILTER (WHERE paid = 'f' AND id IN (${Prisma.join(s3Keys)}) AND size > ${UPLOAD_FREE_BYTES_MAX}::INTEGER), 0)::BIGINT AS "nUnpaid"
+      COALESCE(COUNT(id) FILTER (WHERE paid = 'f' AND id IN (${Prisma.join(s3Keys)}) AND (size > ${UPLOAD_FREE_BYTES_MAX}::INTEGER OR ${userId} = ${USER_ID.anon})), 0)::BIGINT AS "nUnpaid",
+      COALESCE(SUM(
+        CASE
+          WHEN size > ${UPLOAD_FREE_BYTES_MAX}::INTEGER
+            THEN ${UPLOAD_FEE_PICONEROS} * (size / ${UPLOAD_FREE_BYTES_MAX}::INTEGER)::BIGINT
+          WHEN ${userId} = ${USER_ID.anon} THEN ${UPLOAD_FEE_PICONEROS}
+          ELSE 0::BIGINT
+        END
+      ) FILTER (WHERE paid = 'f' AND id IN (${Prisma.join(s3Keys)})), 0)::BIGINT AS "totalFeesPiconeros"
     FROM "Upload"
     WHERE "Upload"."userId" = ${userId}
       AND id IN (${Prisma.join(s3Keys)})`
 
-  const uploadFeesPiconeros = nUnpaid > 0n ? UPLOAD_FEE_PICONEROS : 0n
-  const totalFeesPiconeros = BigInt(nUnpaid) * uploadFeesPiconeros
+  const uploadFeesPiconeros = totalFeesPiconeros
+  const uploadFees = Number(totalFeesPiconeros)
+  const totalFees = Number(totalFeesPiconeros)
 
   return {
     bytes24h: 0n,
     bytesUnpaid,
     nUnpaid,
-    uploadFees: Number(uploadFeesPiconeros),
+    uploadFees,
     uploadFeesPiconeros,
-    totalFees: Number(totalFeesPiconeros),
+    totalFees,
     totalFeesPiconeros
   }
 }

@@ -283,6 +283,17 @@ test('getInitial includes the upload fee in the posting-fee URI for a >10MB uplo
   expect(result.beneficiaries?.some(b => b.payInType === 'MEDIA_UPLOAD')).toBe(true)
 })
 
+// --- A-07 follow-up: upload fees are proportional (0.001 per 10MB block) ---
+test('getInitial folds a 30MB upload fee (0.003 XMR) into the posting-fee URI', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  const uploadId = await createUpload(userId, { size: 30 * 1024 * 1024 }) // 30MB -> 3 blocks -> 0.003 XMR
+  const result = await getInitial(prisma, { uploadIds: [uploadId] }, { me: { id: userId } })
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroUri).toContain('tx_amount=0.004') // 0.001 posting fee + 0.003 upload fee
+  expect(result.beneficiaries?.some(b => b.payInType === 'MEDIA_UPLOAD')).toBe(true)
+})
+
 // --- End-to-end: a >10MB upload drives the full pay('ITEM_CREATE', ...) engine ---
 //
 // The other tests call getInitial() directly, which never reaches
