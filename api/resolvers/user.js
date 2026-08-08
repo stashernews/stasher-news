@@ -260,6 +260,10 @@ export default {
         return false
       }
       const user = await userLoader.load(me.id)
+      // stale session (user row deleted): no notes to report
+      if (!user) {
+        return false
+      }
       const lastChecked = user.checkedNotesAt || new Date(0)
 
       // if we've already recorded finding notes after they last checked, return true
@@ -644,10 +648,10 @@ export default {
 
       const user = await userLoader.load(me.id)
 
-      if (user.bioId) {
-        return await updateItem(parent, { id: user.bioId, bio: true, text, title: `@${user.name}'s bio`, sendProtocolId }, { me, models })
+      if (user?.bioId) {
+        return await updateItem(parent, { id: user.bioId, bio: true, text, title: `@${user?.name}'s bio`, sendProtocolId }, { me, models })
       } else {
-        return await createItem(parent, { bio: true, text, title: `@${user.name}'s bio`, sendProtocolId }, { me, models })
+        return await createItem(parent, { bio: true, text, title: `@${user?.name}'s bio`, sendProtocolId }, { me, models })
       }
     },
     generateApiKey: async (parent, { id }, { models, me, userLoader }) => {
@@ -656,7 +660,7 @@ export default {
       }
 
       const user = await userLoader.load(me.id)
-      if (!user.apiKeyEnabled) {
+      if (!user?.apiKeyEnabled) {
         throw new GqlAuthorizationError('you are not allowed to generate api keys')
       }
 

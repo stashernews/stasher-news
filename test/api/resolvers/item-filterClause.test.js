@@ -21,7 +21,7 @@ jest.mock('../../../lib/lexical/server/html', () => ({
   lexicalHTMLGenerator: async () => ''
 }))
 
-function ctx (userOverrides = {}, subOverrides) {
+function ctx (userOverrides = {}, subOverrides, userLoaderOverrides) {
   return {
     me: { id: 1 },
     userLoader: {
@@ -29,7 +29,8 @@ function ctx (userOverrides = {}, subOverrides) {
         postsPiconerosFilter: 1000000000n,
         commentsPiconerosFilter: 0n,
         ...userOverrides
-      })
+      }),
+      ...userLoaderOverrides
     },
     subLoader: {
       load: async () => subOverrides || null
@@ -46,6 +47,14 @@ describe('filterClause with BigInt filters', () => {
 
   test('non-curated territory feed (sort new) does not throw with BigInt territory filter', async () => {
     const clause = await filterClause('links', 'monero', 'new', ctx({}, { postsPiconerosFilter: 1000000000n }))
+    expect(typeof clause).toBe('string')
+  })
+
+  test('does not throw when the session user row is missing (stale session)', async () => {
+    // Regression: a session cookie referencing a deleted user id makes
+    // userLoader.load return null. The old code dereferenced user.commentsPiconerosFilter
+    // and crashed every feed query -> SSR 302 -> /404 (the logged-out homepage bug).
+    const clause = await filterClause('links', undefined, 'lit', ctx({}, null, { load: async () => null }))
     expect(typeof clause).toBe('string')
   })
 })

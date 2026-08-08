@@ -20,6 +20,14 @@ export default {
       }
 
       const meFull = await userLoader.load(me.id)
+      if (!meFull) {
+        // stale session (deleted user row): nothing to notify about
+        return {
+          lastChecked: null,
+          cursor: null,
+          notifications: []
+        }
+      }
 
       /*
         So that we can cursor over results, we union notifications together ...

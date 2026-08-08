@@ -177,8 +177,11 @@ async function loadPiconerosFilters (me, userLoader) {
   let commentsPiconerosFilter = DEFAULT_COMMENTS_PICONEROS_FILTER
   if (me) {
     const user = await userLoader.load(me.id)
-    postsPiconerosFilter = user.postsPiconerosFilter == null ? null : Number(user.postsPiconerosFilter)
-    commentsPiconerosFilter = user.commentsPiconerosFilter == null ? null : Number(user.commentsPiconerosFilter)
+    // stale session (deleted user row): fall back to the logged-out defaults
+    if (user) {
+      postsPiconerosFilter = user.postsPiconerosFilter == null ? null : Number(user.postsPiconerosFilter)
+      commentsPiconerosFilter = user.commentsPiconerosFilter == null ? null : Number(user.commentsPiconerosFilter)
+    }
   }
   return { postsPiconerosFilter, commentsPiconerosFilter }
 }
