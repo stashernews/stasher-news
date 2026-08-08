@@ -12,6 +12,18 @@
 //   docker exec -u apprunner app npx jest test/worker/opsSweep.test.js
 
 import { sweepOpsEarmark } from '@/api/monero/rewards'
+import { logError } from '../../lib/logger'
+
+// D1 migrated rewards.js from console.* to the pino logger (lib/logger.js), so
+// CRITICAL/relayed logs no longer hit console.error/console.log. Mock the logger
+// with a relative path (next/jest gives jest.mock no `@/` alias) and assert on
+// the logError stub — mirrors test/worker/deleteUnusedImages.test.js.
+jest.mock('../../lib/logger', () => ({
+  __esModule: true,
+  logInfo: jest.fn(),
+  logError: jest.fn(),
+  logWarn: jest.fn()
+}))
 
 const COLD_ADDRESS = '5COLD' + 'A'.repeat(90)
 const MIN_FLOOR = 1_000_000_000n // default REWARDS_OPS_SWEEP_MIN_PICONEROS (0.001 XMR)
@@ -142,16 +154,11 @@ test('marks FAILED on a hard createTx error (funds stayed in the wallet)', async
     throwsOn: true,
     throwErr: new Error('invalid recipient address')
   })
-  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-  try {
-    const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
-    expect(res).toEqual({ state: 'FAILED' })
-    expect(models.store.opsSweepState).toBe('FAILED')
-    expect(models.store.opsSweptPiconeros).toBe(0n)
-    expect(models.store.opsSweepTxHash).toBeNull()
-  } finally {
-    errSpy.mockRestore()
-  }
+  const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
+  expect(res).toEqual({ state: 'FAILED' })
+  expect(models.store.opsSweepState).toBe('FAILED')
+  expect(models.store.opsSweptPiconeros).toBe(0n)
+  expect(models.store.opsSweepTxHash).toBeNull()
 })
 
 test('is idempotent on a distribution already SWEPT (no createTx call)', async () => {
@@ -205,19 +212,16 @@ test('persists SWEPT (not FAILED) when the first DB update throws but the retry 
     .mockResolvedValue({ id: dist.id })
   const models = { rewardDistribution: { update } }
   const wallet = makeFakeWallet({ unlocked: 10_000_000_000_000n })
-  const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
-  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-  try {
-    const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
-    expect(res.state).toBe('SWEPT')
-    expect(update).toHaveBeenCalledTimes(2)
-    const persisted = update.mock.calls[1][0].data
-    expect(persisted.opsSweepState).toBe('SWEPT')
-    expect(persisted.opsSweptPiconeros).toBe(3_000_000_000_000n)
-    expect(persisted.opsSweepTxHash).toMatch(/^[0-9a-f]{64}$/)
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('CRITICAL'))
-  } finally {
-    logSpy.mockRestore()
-    errSpy.mockRestore()
-  }
+  logError.mockClear()
+  const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
+  expect(res.state).toBe('SWEPT')
+  expect(update).toHaveBeenCalledTimes(2)
+  const persisted = update.mock.calls[1][0].data
+  expect(persisted.opsSweepState).toBe('SWEPT')
+  expect(persisted.opsSweptPiconeros).toBe(3_000_000_000_000n)
+  expect(persisted.opsSweepTxHash).toMatch(/^[0-9a-f]{64}$/)
+  expect(logError).toHaveBeenCalledWith(
+    expect.objectContaining({ distributionId: dist.id, txHash: persisted.opsSweepTxHash }),
+    expect.stringContaining('CRITICAL')
+  )
 })

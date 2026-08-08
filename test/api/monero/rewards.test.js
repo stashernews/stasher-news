@@ -12,6 +12,18 @@
 //   docker exec -u apprunner app npx jest test/api/monero/rewards.test.js
 
 import { sendPayouts } from '@/api/monero/rewards'
+import { logInfo, logError } from '../../../lib/logger'
+
+// D1 migrated rewards.js from console.* to the pino logger (lib/logger.js), so
+// CRITICAL/relayed logs no longer hit console.error/console.log. Mock the logger
+// with a relative path (next/jest gives jest.mock no `@/` alias) and assert on
+// the logInfo/logError stubs — mirrors test/worker/deleteUnusedImages.test.js.
+jest.mock('../../../lib/logger', () => ({
+  __esModule: true,
+  logInfo: jest.fn(),
+  logError: jest.fn(),
+  logWarn: jest.fn()
+}))
 
 // Build a QUEUED RewardPayout-shaped row (BigInt piconeros, like the schema).
 let idSeq = 1000
@@ -158,22 +170,23 @@ test('persists the tx hash (SENT, not FAILED) when the first DB update throws bu
     .mockResolvedValue({ id: p.id, state: 'SENT' })
   const models = { rewardPayout: { update } }
   const wallet = makeFakeWallet()
-  const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
-  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-  try {
-    const summary = await sendPayouts([p], { models, wallet })
-    expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0 })
-    // the retrying update call wrote SENT with the relayed tx hash (never FAILED)
-    expect(update).toHaveBeenCalledTimes(2)
-    const persisted = update.mock.calls[1][0].data
-    expect(persisted.state).toBe('SENT')
-    expect(persisted.txHash).toMatch(/^[0-9a-f]{64}$/)
-    // the relayed tx hash was logged the instant relay succeeded (never lost)
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining(`payout ${p.id} relayed txHash=${persisted.txHash}`))
-    // a CRITICAL warning was emitted for the first (failed) persist attempt
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('CRITICAL'))
-  } finally {
-    logSpy.mockRestore()
-    errSpy.mockRestore()
-  }
+  logInfo.mockClear()
+  logError.mockClear()
+  const summary = await sendPayouts([p], { models, wallet })
+  expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0 })
+  // the retrying update call wrote SENT with the relayed tx hash (never FAILED)
+  expect(update).toHaveBeenCalledTimes(2)
+  const persisted = update.mock.calls[1][0].data
+  expect(persisted.state).toBe('SENT')
+  expect(persisted.txHash).toMatch(/^[0-9a-f]{64}$/)
+  // the relayed tx hash was logged the instant relay succeeded (never lost)
+  expect(logInfo).toHaveBeenCalledWith(
+    expect.objectContaining({ payoutId: p.id, txHash: persisted.txHash }),
+    expect.stringContaining('relayed')
+  )
+  // a CRITICAL warning was emitted for the first (failed) persist attempt
+  expect(logError).toHaveBeenCalledWith(
+    expect.objectContaining({ payoutId: p.id, txHash: persisted.txHash }),
+    expect.stringContaining('CRITICAL')
+  )
 })
