@@ -1443,7 +1443,7 @@ model ObservedDownvote {
 model FeeObservation {
   id             BigInt        @id @default(autoincrement())
   txHash         String
-  payInId        Int           @unique
+  payInId        Int?
   feeType        FeeType
   postId         Int?
   subName        String?       @db.Citext
@@ -1456,7 +1456,7 @@ model FeeObservation {
   detectedAt     DateTime      @default(now())
   confirmedAt    DateTime?
 
-  payIn PayIn @relation(fields: [payInId], references: [id])
+  payIn PayIn? @relation(fields: [payInId], references: [id])
 
   @@unique([txHash, recipientMajor, recipientMinor])
   @@index([payInId])
@@ -1525,6 +1525,9 @@ model PlatformFeeConfig {
   downvoteRewardsPct             Int    @default(100)
   postingFeeRewardsPct           Int    @default(70)
   territoryFeeRewardsPct         Int    @default(30)
+  // wallet-less author tips (TIP_UNWALLETED): % of inflow allocated to the
+  // curator rewards pool; the remainder is the ops share. Default 50.
+  walletlessTipRewardsPct        Int    @default(50)
   // rewards distribution
   distributionTopN               Int    @default(100)
   distributionMinPayoutPiconeros BigInt @default(1000000000)
