@@ -1305,6 +1305,14 @@ enum PayoutState {
   FAILED
 }
 
+// Hot-wallet ops sweep: whether the ops share of a distribution was swept out.
+enum OpsSweepState {
+  NOT_SWEEPED
+  SWEPT
+  SKIPPED_LOCKED
+  FAILED
+}
+
 // StasherNews fee ledger (§6.2). Posting/territory fees land on the platform
 // rewards wallet via dedicated subaddresses; the rewardsWalletObserver attributes them.
 enum FeeType {
@@ -1466,16 +1474,22 @@ model FeeObservation {
 
 // One weekly rewards distribution run.
 model RewardDistribution {
-  id                   Int                @id @default(autoincrement())
-  periodStart          DateTime
-  periodEnd            DateTime
-  poolPiconeros        BigInt
-  distributedPiconeros BigInt             @default(0)
-  rolledOverPiconeros  BigInt             @default(0)
-  payoutCount          Int                @default(0)
-  status               DistributionStatus @default(PENDING)
-  startedAt            DateTime?
-  completedAt          DateTime?
+  id                     Int                @id @default(autoincrement())
+  periodStart            DateTime
+  periodEnd              DateTime
+  poolPiconeros          BigInt
+  distributedPiconeros   BigInt             @default(0)
+  rolledOverPiconeros    BigInt             @default(0)
+  payoutCount            Int                @default(0)
+  status                 DistributionStatus @default(PENDING)
+  startedAt              DateTime?
+  completedAt            DateTime?
+  opsInflowPiconeros     BigInt             @default(0)
+  opsRolledOverPiconeros BigInt             @default(0)
+  opsAvailablePiconeros  BigInt             @default(0)
+  opsSweptPiconeros      BigInt             @default(0)
+  opsSweepTxHash         String?
+  opsSweepState          OpsSweepState      @default(NOT_SWEEPED)
 
   payouts RewardPayout[]
   earns   Earn[]
