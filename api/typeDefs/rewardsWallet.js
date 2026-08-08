@@ -32,12 +32,14 @@ export default gql`
     downvotePiconeros: BigInt!
     postingFeePiconeros: BigInt!
     territoryFeePiconeros: BigInt!
+    walletlessTipPiconeros: BigInt!
     totalPiconeros: BigInt!
     rewardsPiconeros: BigInt!
     opsPiconeros: BigInt!
     downvoteRewardsPct: Int!
     postingFeeRewardsPct: Int!
     territoryFeeRewardsPct: Int!
+    walletlessTipRewardsPct: Int!
   }
 
   # A weekly rewards distribution run (spec §5, §6.2). Each distribution records

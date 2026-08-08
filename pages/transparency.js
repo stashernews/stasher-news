@@ -24,12 +24,14 @@ const REWARDS_WALLET = gql`
         downvotePiconeros
         postingFeePiconeros
         territoryFeePiconeros
+        walletlessTipPiconeros
         totalPiconeros
         rewardsPiconeros
         opsPiconeros
         downvoteRewardsPct
         postingFeeRewardsPct
         territoryFeeRewardsPct
+        walletlessTipRewardsPct
       }
     }
     rewardDistributions(limit: 10) {
@@ -139,6 +141,7 @@ export default function Transparency ({ ssrData }) {
             <Stat label='Downvotes' value={`${pi.downvotePiconeros} piconeros`} sub={`${pi.downvoteRewardsPct}% to rewards`} />
             <Stat label='Posting fees' value={`${pi.postingFeePiconeros} piconeros`} sub={`${pi.postingFeeRewardsPct}% to rewards`} />
             <Stat label='Turf fees' value={`${pi.territoryFeePiconeros} piconeros`} sub={`${pi.territoryFeeRewardsPct}% to rewards`} />
+            <Stat label='Wallet-less tips' value={`${pi.walletlessTipPiconeros} piconeros`} sub={`${pi.walletlessTipRewardsPct}% to rewards`} />
           </div>
           <div className='d-flex flex-wrap justify-content-between py-3 my-2'>
             <Stat label='Total inflow' value={`${pi.totalPiconeros} piconeros`} />

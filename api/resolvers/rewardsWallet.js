@@ -16,31 +16,38 @@ import { GqlInputError } from '@/lib/error'
 // exactly (opsEarmark is the floor remainder), so the transparency page never
 // shows rounding drift.
 
-// All FeeObservation feeTypes other than POSTING are territory fees (see the
-// FeeType enum: TERRITORY_CREATE / TERRITORY_BILLING / TERRITORY_UNARCHIVE),
-// and they all share the territoryFeeRewardsPct allocation.
+// Bucket FeeObservation groupBy rows by source. TIP_UNWALLETED (wallet-less
+// anonymous tips) and DONATE/BOOST have allocation pcts of their own — they
+// must NOT be lumped in with territory fees.
 function splitFeeGroups (groups) {
   let postingFeePiconeros = 0n
   let territoryFeePiconeros = 0n
+  let walletlessTipPiconeros = 0n
+  let donateBoostPiconeros = 0n
+  const TERRITORY = new Set(['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE'])
   for (const g of groups ?? []) {
     const val = g?._sum?.piconeros ?? 0n
     if (g.feeType === 'POSTING') postingFeePiconeros += val
-    else territoryFeePiconeros += val
+    else if (g.feeType === 'TIP_UNWALLETED') walletlessTipPiconeros += val
+    else if (g.feeType === 'DONATE' || g.feeType === 'BOOST') donateBoostPiconeros += val
+    else if (TERRITORY.has(g.feeType)) territoryFeePiconeros += val
   }
-  return { postingFeePiconeros, territoryFeePiconeros }
+  return { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donateBoostPiconeros }
 }
 
 // Proportional earmark against the LIVE consolidated balance. rewardsEarmark +
 // opsEarmark === balance holds by construction (opsEarmark = balance -
 // rewardsEarmark), independent of any floor in the inflow-side percentage split.
 function computeEarmarks (balance, sources, config) {
-  const { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros } = sources
-  const totalInflow = downvotePiconeros + postingFeePiconeros + territoryFeePiconeros
+  const { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donateBoostPiconeros } = sources
+  const totalInflow = downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donateBoostPiconeros
 
   const rewardsNumerator =
     downvotePiconeros * BigInt(config.downvoteRewardsPct) +
     postingFeePiconeros * BigInt(config.postingFeeRewardsPct) +
-    territoryFeePiconeros * BigInt(config.territoryFeeRewardsPct)
+    territoryFeePiconeros * BigInt(config.territoryFeeRewardsPct) +
+    walletlessTipPiconeros * BigInt(config.walletlessTipRewardsPct) +
+    donateBoostPiconeros * 100n
   const rewardsInflow = rewardsNumerator / 100n
   const opsInflow = totalInflow - rewardsInflow
 
@@ -81,11 +88,11 @@ export default {
         _sum: { piconeros: true },
         where: { state: 'CONFIRMED' }
       })
-      const { postingFeePiconeros, territoryFeePiconeros } = splitFeeGroups(feeGroups)
+      const { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donateBoostPiconeros } = splitFeeGroups(feeGroups)
 
       const earmarks = computeEarmarks(
         balance,
-        { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros },
+        { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donateBoostPiconeros },
         config)
 
       return {
@@ -102,12 +109,14 @@ export default {
           downvotePiconeros,
           postingFeePiconeros,
           territoryFeePiconeros,
+          walletlessTipPiconeros,
           totalPiconeros: earmarks.totalInflow,
           rewardsPiconeros: earmarks.rewardsInflow,
           opsPiconeros: earmarks.opsInflow,
           downvoteRewardsPct: config.downvoteRewardsPct,
           postingFeeRewardsPct: config.postingFeeRewardsPct,
-          territoryFeeRewardsPct: config.territoryFeeRewardsPct
+          territoryFeeRewardsPct: config.territoryFeeRewardsPct,
+          walletlessTipRewardsPct: config.walletlessTipRewardsPct
         }
       }
     },
