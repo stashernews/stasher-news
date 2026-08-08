@@ -225,7 +225,7 @@ export default {
     },
     topCowboys: async (parent, { cursor }, { models, me }) => {
       const { users, cursor: topCowboysCursor } = await topUsers(parent, { cursor, when: 'forever', by: 'streak', limit: LIMIT }, { models, me })
-      const cowboys = users.map(u => (u?.hideCowboyHat && (!me || me.id !== u.id)) ? null : u).filter(u => u?.streak !== null)
+      const cowboys = users.map(u => (u?.hideBadges && (!me || me.id !== u.id)) ? null : u).filter(u => u?.streak !== null)
       return {
         cursor: cowboys.length === LIMIT ? topCowboysCursor : null,
         users: cowboys
@@ -456,7 +456,7 @@ export default {
         }
       }
 
-      if (user.noteCowboyHat) {
+      if (user.noteBadges) {
         const streak = await models.streak.findFirst({
           where: {
             userId: me.id,
@@ -940,17 +940,25 @@ export default {
 
   UserOptional: {
     streak: async (user, args, { models }) => {
-      if (user.hideCowboyHat) {
+      if (user.hideBadges) {
         return null
       }
 
       return user.streak
     },
     hasWallet: async (user, args, { models }) => {
+      if (user.hideBadges) {
+        return false
+      }
+
       const account = await models.moneroAccount.findFirst({ where: { ownerUserId: user.id } })
       return !!account
     },
     tippedRecently: async (user, args, { models }) => {
+      if (user.hideBadges) {
+        return false
+      }
+
       const rows = await models.$queryRaw`
         SELECT 1 AS n FROM "ObservedTip"
         WHERE "tipperId" = ${user.id}::INTEGER AND state = 'CONFIRMED'
@@ -959,7 +967,7 @@ export default {
       return rows.length > 0
     },
     maxStreak: async (user, args, { models }) => {
-      if (user.hideCowboyHat) {
+      if (user.hideBadges) {
         return null
       }
 

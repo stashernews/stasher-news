@@ -111,9 +111,9 @@ export default function Settings ({ ssrData }) {
             noteMentions: settings?.noteMentions,
             noteItemMentions: settings?.noteItemMentions,
             noteInvites: settings?.noteInvites,
-            noteCowboyHat: settings?.noteCowboyHat,
+            noteBadges: settings?.noteBadges,
             hideFromTopUsers: settings?.hideFromTopUsers,
-            hideCowboyHat: settings?.hideCowboyHat,
+            hideBadges: settings?.hideBadges,
             hideStashAmount: settings?.hideStashAmount,
             hideGithub: settings?.hideGithub,
             hideNostr: settings?.hideNostr,
@@ -220,8 +220,8 @@ export default function Settings ({ ssrData }) {
             groupClassName='mb-0'
           />
           <Checkbox
-            label='I find or lose cowboy essentials (e.g. cowboy hat)'
-            name='noteCowboyHat'
+            label='notify me about badge changes (flame streak, coin, verified check)'
+            name='noteBadges'
             groupClassName='mb-3'
           />
           <div className='form-label'>privacy</div>
@@ -231,8 +231,13 @@ export default function Settings ({ ssrData }) {
             groupClassName='mb-0'
           />
           <Checkbox
-            label={<>hide my cowboy essentials (e.g. cowboy hat)</>}
-            name='hideCowboyHat'
+            label={
+              <div>
+                hide my badges
+                <small className='d-block text-muted'>hides the flame (daily activity streak), gold coin (tipped in the last 24 hours), and verified check (wallet)</small>
+              </div>
+            }
+            name='hideBadges'
             groupClassName='mb-0'
           />
           <Checkbox
