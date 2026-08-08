@@ -318,9 +318,6 @@ services:
     restart: unless-stopped
     env_file: *env_file
     command:
-      - --network=stage
-      - --daemon=${MONEROD_ZMQ_RPC_URL}
-      - --sub=${MONEROD_ZMQ_PUB_URL}
       - --rest-server=https://0.0.0.0:8443
       - --admin-rest-server=https://0.0.0.0:8081/admin
       - --rest-ssl-key=/keys/lws.key
