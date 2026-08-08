@@ -96,6 +96,12 @@ async function work () {
   if (isServiceEnabled('images')) {
     await boss.work('imgproxy', jobWrapper(imgproxy))
     await boss.work('deleteUnusedImages', jobWrapper(deleteUnusedImages))
+    // daily unused-image sweep; self-requeues on a 24h startAfter. Seed on
+    // fresh installs (deferred 24h) so a brand-new stack lands a first run,
+    // mirroring the trust deferred-seed pattern.
+    if (await boss.getQueueSize('deleteUnusedImages') === 0) {
+      await boss.send('deleteUnusedImages', {}, { startAfter: 24 * 60 * 60 })
+    }
   }
   if (isServiceEnabled('domains')) {
     await boss.work('domainVerification', jobWrapper(domainVerification))
