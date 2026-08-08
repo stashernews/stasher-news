@@ -20,6 +20,7 @@ export async function getInitial (models, { uploadIds }, { me }) {
     payInType: 'MEDIA_UPLOAD',
     userId: me?.id,
     piconeros: 0n,
+    payOutCustodialTokens: [],
     uploadPayIns: uploadIds.map(id => ({ uploadId: id }))
   }
 }

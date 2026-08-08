@@ -18,6 +18,7 @@
 //   docker exec -u apprunner app npx jest test/engine/payInItemCreate.test.js
 
 import { PrismaClient } from '@prisma/client'
+import pay from '@/api/payIn/index'
 import { onPaid, getInitial } from '@/api/payIn/types/itemCreate'
 import { performBotBehavior } from '@/api/payIn/lib/item'
 import { USER_ID } from '@/lib/constants'
@@ -52,6 +53,18 @@ jest.mock('../../api/monero/feePool', () => ({
     address: '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
   }))
 }))
+
+// The engine test below drives `pay('ITEM_CREATE', ...)` end-to-end, which
+// imports the api/payIn/types barrel. Following payInTerritoryCreate.test.js,
+// the barrel is mocked to expose ONLY the real ITEM_CREATE and MEDIA_UPLOAD
+// modules (MEDIA_UPLOAD must be present too: begin()/onPaid() recurse into
+// beneficiaries through the barrel). The comments in payInTerritoryCreate.test.js
+// explain why the path must be relative.
+jest.mock('../../api/payIn/types', () => {
+  const itemCreate = jest.requireActual('../../api/payIn/types/itemCreate')
+  const mediaUpload = jest.requireActual('../../api/payIn/types/mediaUpload')
+  return { __esModule: true, default: { ITEM_CREATE: itemCreate, MEDIA_UPLOAD: mediaUpload } }
+})
 
 const prisma = new PrismaClient()
 
@@ -267,4 +280,69 @@ test('getInitial includes the upload fee in the posting-fee URI for a >10MB uplo
   expect(result.moneroUri).toMatch(/^monero:/)
   expect(result.moneroUri).toContain('tx_amount=0.002') // 0.001 posting fee + 0.001 upload fee
   expect(result.beneficiaries?.some(b => b.payInType === 'MEDIA_UPLOAD')).toBe(true)
+})
+
+// --- End-to-end: a >10MB upload drives the full pay('ITEM_CREATE', ...) engine ---
+//
+// The other tests call getInitial() directly, which never reaches
+// assertBalancedPayInAndPayOuts. That assert iterates the beneficiaries and
+// reduces each beneficiary.payOutCustodialTokens — the MEDIA_UPLOAD beneficiary
+// must keep the always-array contract (payOutCustodialTokens: []), or every
+// upload-carrying pay() call crashes with
+// "Cannot read properties of undefined (reading 'reduce')" and rolls back.
+test('pay("ITEM_CREATE", { uploadIds }) completes and flips the upload paid', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 }) // >10MB -> upload fee
+
+  const result = await pay(
+    'ITEM_CREATE',
+    {
+      userId,
+      title: 'e2e upload fee post ' + Date.now(),
+      url: 'https://example.com/' + Date.now(),
+      text: '',
+      uploadIds: [uploadId],
+      subNames: []
+    },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+
+  // fork engine: piconeros 0n + monero fee URI -> the payIn is created PAID, and
+  // the post itself is gated PENDING_FEE until the rewardsWalletObserver sees
+  // the on-chain fee (the assert below documents what actually happens)
+  expect(result.payInType).toBe('ITEM_CREATE')
+  expect(result.payInState).toBe('PAID')
+  expect(result.moneroUri).toMatch(/^monero:/)
+
+  const beneficiary = result.beneficiaries.find(b => b.payInType === 'MEDIA_UPLOAD')
+  expect(beneficiary).toBeTruthy()
+
+  const beneficiaryPayIn = await prisma.payIn.findUnique({
+    where: { id: beneficiary.id },
+    include: { uploadPayIns: true }
+  })
+  expect(beneficiaryPayIn.payInState).toBe('PAID')
+  expect(beneficiaryPayIn.piconeros).toBe(0n)
+  expect(beneficiaryPayIn.uploadPayIns).toHaveLength(1)
+  expect(beneficiaryPayIn.uploadPayIns[0].uploadId).toBe(uploadId)
+
+  const uploadPayIn = await prisma.uploadPayIn.findFirst({ where: { payInId: beneficiary.id, uploadId } })
+  expect(uploadPayIn).toBeTruthy()
+
+  // MEDIA_UPLOAD.onPaid flips the upload paid
+  const upload = await prisma.upload.findUnique({ where: { id: uploadId } })
+  expect(upload.paid).toBe(true)
+
+  const itemPayIn = await prisma.itemPayIn.findFirst({ where: { payInId: result.id } })
+  expect(itemPayIn).toBeTruthy()
+  const item = await prisma.item.findUnique({ where: { id: itemPayIn.itemId } })
+  created.items.push(item.id)
+  expect(item.feeStatus).toBe('PENDING_FEE')
+  expect(item.feePayInId).toBe(result.id)
+
+  // the onPaid streak job references the test user (deleted in afterAll); drop
+  // it here so the worker never executes it against a deleted row
+  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
