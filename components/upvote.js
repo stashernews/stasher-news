@@ -1,7 +1,6 @@
 import UpArrow from '@/svgs/up-arrow.svg'
 import styles from './upvote.module.css'
 import ActionTooltip from './action-tooltip'
-import ItemAct from './item-act'
 import TipModal from './tip-modal'
 import { useMe } from './me'
 import getColor from '@/lib/rainbow'
@@ -16,10 +15,7 @@ export function DropdownItemUpVote ({ item }) {
 
   return (
     <Dropdown.Item
-      onClick={async () => {
-        showModal(onClose =>
-          <ItemAct onClose={onClose} item={item} />)
-      }}
+      onClick={() => showModal(onClose => <TipModal item={item} onClose={onClose} />)}
     >
       <span className='text-success'>tip</span>
     </Dropdown.Item>
