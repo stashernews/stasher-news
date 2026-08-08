@@ -183,16 +183,71 @@ async function seedDownvote (postId, piconeros, confirmedAt) {
   return downvote
 }
 
+// Self-healing purge of residue from a prior INTERRUPTED run of this test.
+// afterAll's teardown deletes by the in-memory `created` lists, which are
+// empty/incomplete if the process was killed, the app container restarted, or
+// beforeAll threw after partial seeding. Those orphaned fixtures then flow into
+// the dev DB's /rewards pool display (rdfee FeeObservations feed rewards.total)
+// and accumulate across runs. This runs first in beforeAll and deletes by STABLE
+// patterns (txHash prefixes, the test item title, the prior-distribution shape),
+// chasing FK linkages, so every run starts from a clean slate. Idempotent:
+// deletes nothing on a fresh DB.
+async function purgePriorResidue () {
+  // Capture linkages from prior-run fixtures BEFORE deleting them.
+  const priorFees = await prisma.feeObservation.findMany({ where: { txHash: { startsWith: 'rdfee' } }, select: { payInId: true } })
+  const feePayInIds = [...new Set(priorFees.map(f => f.payInId))]
+  const priorTips = await prisma.observedTip.findMany({ where: { txHash: { startsWith: 'rdtip' } }, select: { tipperId: true, postId: true } })
+  const tipperIds = [...new Set(priorTips.map(t => t.tipperId).filter(Boolean))]
+  const testPostIds = [...new Set(priorTips.map(t => t.postId).filter(Boolean))]
+  const priorAuthorIds = (await prisma.item.findMany({ where: { title: 'rewards test post' }, select: { userId: true } })).map(i => i.userId)
+  const testUserIds = [...new Set([...tipperIds, ...priorAuthorIds])]
+
+  // Prior-run "prior" distributions (8 days old, so missed by the 7-day stale
+  // cleanup below) plus their payouts/earn.
+  const staleDists = await prisma.rewardDistribution.findMany({
+    where: { poolPiconeros: PRIOR_ROLLOVER_PICONEROS, distributedPiconeros: 0n, payoutCount: 0, status: 'COMPLETE' },
+    select: { id: true }
+  })
+  const staleDistIds = staleDists.map(d => d.id)
+
+  // FK-safe deletion (mirrors afterAll's proven cascade behavior).
+  await prisma.earn.deleteMany({ where: { OR: [{ distributionId: null }, { distributionId: { in: staleDistIds } }] } })
+  if (staleDistIds.length) {
+    await prisma.rewardPayout.deleteMany({ where: { distributionId: { in: staleDistIds } } })
+    await prisma.rewardDistribution.deleteMany({ where: { id: { in: staleDistIds } } })
+  }
+  // Fee/tip/downvote fixtures (clears Item/ObservedTip FK RESTRICTs first).
+  await prisma.feeObservation.deleteMany({ where: { txHash: { startsWith: 'rdfee' } } })
+  await prisma.observedTip.deleteMany({ where: { txHash: { startsWith: 'rdtip' } } })
+  await prisma.observedDownvote.deleteMany({ where: { txHash: { startsWith: 'rddv' } } })
+  // PayIns linked to the rdfee fees.
+  if (feePayInIds.length) await prisma.payIn.deleteMany({ where: { id: { in: feePayInIds } } })
+  // Test items (cascade-clears ItemUserAgg).
+  if (testPostIds.length) await prisma.item.deleteMany({ where: { id: { in: testPostIds } } })
+  await prisma.item.deleteMany({ where: { title: 'rewards test post' } })
+  // Test MoneroAccounts (recipient accounts with ownerUserId NULL + payout
+  // accounts owned by test users) all use makeAddress's deterministic throwaway
+  // address: '5' + digits + 90 'A's. No real Monero address ends in 90 identical
+  // chars, so the trailing-A signature is unambiguous AND reaches the NULL-owned
+  // recipient accounts that testUserIds cannot.
+  await prisma.$executeRaw`DELETE FROM "MoneroAccount" WHERE address ~ 'A{90}$'`
+  // Test users (safe now: their items/tips/earn/payins/accounts are gone).
+  if (testUserIds.length) await prisma.user.deleteMany({ where: { id: { in: testUserIds } } })
+}
+
 beforeAll(async () => {
+  // Self-heal any residue from a prior interrupted run before seeding anew.
+  await purgePriorResidue()
+
   // Ensure the PlatformFeeConfig singleton exists with schema defaults
   // (downvoteRewardsPct=100, postingFeeRewardsPct=70, territoryFeeRewardsPct=30,
   //  distributionMinPayoutPiconeros=1e9, distributionTopN=100).
   await prisma.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
 
-  // Clear any distribution left over from a prior run of THIS test whose
-  // periodEnd falls inside the coming week (otherwise runDistributionOnce's
-  // idempotency guard would short-circuit and reuse a stale row). The prior
-  // distribution seeded below (periodEnd ~8 days ago) is left untouched.
+  // Clear any RESULT distribution left over from a prior run whose periodEnd
+  // falls inside the coming week (otherwise runDistributionOnce's idempotency
+  // guard would short-circuit and reuse a stale row). The 8-day-old "prior"
+  // distribution shape is purged by purgePriorResidue above.
   const weekAgo = new Date(Date.now() - 7 * DAY)
   const stale = await prisma.rewardDistribution.findMany({ where: { periodEnd: { gte: weekAgo } } })
   for (const d of stale) {
