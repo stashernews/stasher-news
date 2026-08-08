@@ -36,6 +36,13 @@ if [ -n "${BACKUP_DIR:-}" ]; then
       exit 1
       ;;
   esac
+  # Reverse direction: BACKUP_DIR must not live inside MASTERKEY_BACKUP_DIR.
+  case "$bk_norm/" in
+    "$mk_norm"|"$mk_norm"/*)
+      echo "MASTERKEY_BACKUP_DIR ($MASTERKEY_BACKUP_DIR) must not be a parent of BACKUP_DIR ($BACKUP_DIR)" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 # Optionally import the recipient's public key from a file before encrypting.
