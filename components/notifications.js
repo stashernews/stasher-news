@@ -197,7 +197,6 @@ function Bulletinification ({ n }) {
 }
 
 function Flame ({ n }) {
-  const Icon = FlameIcon
   const lost = !!n.days
   let body = ''
   if (lost) {
@@ -211,7 +210,7 @@ function Flame ({ n }) {
 
   return (
     <div className='d-flex'>
-      <div style={{ fontSize: '2rem' }}><Icon className='fill-grey' height={40} width={40} /></div>
+      <div style={{ fontSize: '2rem' }}><FlameIcon className='fill-grey' height={40} width={40} /></div>
       <div className='ms-1 p-1'>
         <span className='fw-bold'>{body}</span>
         <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{blurb(n)}</small></div>

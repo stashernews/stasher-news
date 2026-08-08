@@ -20,7 +20,7 @@ describe('initialTipAmount', () => {
 
   test('picks an amount within range when random tips are on', () => {
     const privates = { tipRandom: true, tipRandomMin: 500000000, tipRandomMax: 2000000000 }
-    // randomness: assert each call lands in [0.0005, 0.002], never equality
+    // randomness: assert bounds only ([0.0005, 0.002] XMR), never exact equality
     expect(Number(initialTipAmount(privates))).toBeGreaterThanOrEqual(0.0005)
     expect(Number(initialTipAmount(privates))).toBeLessThanOrEqual(0.002)
     expect(Number(initialTipAmount(privates))).toBeGreaterThanOrEqual(0.0005)
