@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { getMasterKey, getCurrentVersion, setActiveKey } from './masterkey'
+import { getMasterKey, getCurrentVersion, addMasterKeyVersion } from './masterkey'
 
 // View-key envelope encryption (Task 2 / spec Q3).
 //
@@ -93,13 +93,50 @@ export function decryptViewKey (envelope) {
   return Buffer.concat([decipher.update(envelope.ciphertext), decipher.final()]).toString('utf8')
 }
 
-// Rotate the active master key in-process and bump dekVersion. Subsequent
-// encryptViewKey calls wrap under the new key + new version. Returns the new
-// dekVersion. Delegates to the masterkey seam's destructive hot-swap.
+// Production-safe master-key rotation (Task C2). Registers `newKeyB64` as the
+// next version via the non-destructive, idempotent registry (old versions are
+// RETAINED so prior envelopes and backups keep decrypting), then re-wraps every
+// MoneroViewKey row whose dekVersion is below the new target: decrypt under the
+// row's old master key, re-encrypt under the new version with a fresh DEK + IV,
+// and stamp dekVersion + rotatedAt. On completion every row decrypts under the
+// new current key; old keys stay registered. Returns { version, rotated }.
 //
-// This is UNSAFE (pre-C2): it drops prior versions, so envelopes written under
-// the previous master key stop decrypting. Task C2 replaces this with a
-// non-destructive rotation that re-wraps every row and retains old versions.
-export function rotateMasterKey (newKeyB64) {
-  return setActiveKey(newKeyB64)
+// Resumable/idempotent: only rows with dekVersion < targetVersion are touched,
+// so a crash mid-rotation leaves a consistent mix (each row decrypts under its
+// own retained key) and a re-run with the same key finishes the stragglers
+// without bumping the version again (addMasterKeyVersion is byte-idempotent).
+//
+// The function needs DB access to re-wrap rows, hence the `{ models }` arg
+// (same shape as the worker jobs: models.moneroViewKey.{findMany,update}).
+// The operator script persists the new key to env + restarts app/worker BEFORE
+// running this, so the version it mints is durable, not in-process only.
+export async function rotateMasterKey ({ newKeyB64, models }) {
+  if (!newKeyB64) {
+    throw new Error('rotateMasterKey requires { newKeyB64 }')
+  }
+  if (!models || typeof models.moneroViewKey?.findMany !== 'function' || typeof models.moneroViewKey?.update !== 'function') {
+    throw new Error('rotateMasterKey requires { models } with moneroViewKey.{findMany,update} to re-wrap rows')
+  }
+  const targetVersion = addMasterKeyVersion(newKeyB64)
+  const rows = await models.moneroViewKey.findMany({
+    where: { dekVersion: { lt: targetVersion } }
+  })
+  let rotated = 0
+  for (const row of rows) {
+    const plaintext = decryptViewKey(row)
+    const fresh = encryptViewKey(plaintext)
+    await models.moneroViewKey.update({
+      where: { id: row.id },
+      data: {
+        ciphertext: fresh.ciphertext,
+        iv: fresh.iv,
+        tag: fresh.tag,
+        wrappedDek: fresh.wrappedDek,
+        dekVersion: fresh.dekVersion,
+        rotatedAt: new Date()
+      }
+    })
+    rotated += 1
+  }
+  return { version: targetVersion, rotated }
 }

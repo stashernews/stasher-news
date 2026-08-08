@@ -148,15 +148,37 @@ export function getCurrentVersion () {
   return currentVersion
 }
 
-// Destructive in-process hot-swap used by the pre-C2 rotateMasterKey: registers
-// `newKeyB64` as the next version, makes it current, and DROPS all prior
-// versions — so envelopes sealed under an older key stop decrypting. Task C2
-// replaces this with a non-destructive rotation that retains old versions.
+// Destructive in-process hot-swap: registers `newKeyB64` as the next version,
+// makes it current, and DROPS all prior versions — so envelopes sealed under an
+// older key stop decrypting. Retained as an explicit "nuclear" primitive; the
+// safe rotation path (Task C2) uses addMasterKeyVersion below instead.
 export function setActiveKey (newKeyB64) {
   ensureLoaded()
-  const decoded = decodeBase64Key(newKeyB64, 'rotateMasterKey: newKey')
+  const decoded = decodeBase64Key(newKeyB64, 'setActiveKey: newKey')
   const nextVersion = currentVersion + 1
   registry = new Map([[nextVersion, decoded]])
+  currentVersion = nextVersion
+  return nextVersion
+}
+
+// Non-destructive master-key rotation (Task C2). Registers `newKeyB64` as the
+// next version and elects it current while RETAINING every prior version, so
+// envelopes sealed under an old key keep decrypting (backup-restore path + a
+// crash mid-rotation that leaves a mix of dekVersions). Idempotent: if the
+// exact key bytes are already registered, that version is (re)elected current
+// and no new version is minted — so re-running a rotation with the same key
+// re-wraps only the rows still lagging behind. Returns the now-current version.
+export function addMasterKeyVersion (newKeyB64) {
+  ensureLoaded()
+  const decoded = decodeBase64Key(newKeyB64, 'addMasterKeyVersion: newKey')
+  for (const [v, k] of registry) {
+    if (k.equals(decoded)) {
+      currentVersion = v
+      return v
+    }
+  }
+  const nextVersion = currentVersion + 1
+  registry.set(nextVersion, decoded)
   currentVersion = nextVersion
   return nextVersion
 }

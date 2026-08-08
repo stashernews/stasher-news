@@ -167,6 +167,58 @@ describe('setActiveKey (destructive in-process hot-swap)', () => {
   })
 })
 
+describe('addMasterKeyVersion (non-destructive, idempotent rotation)', () => {
+  test('mints the next version, elects it current, and RETAINS prior versions', () => {
+    process.env.VIEWKEY_MASTER_KEY = KEY_A_B64
+    const mk = require(MASTERKEY_PATH)
+    expect(mk.addMasterKeyVersion(KEY_B_B64)).toBe(2)
+    expect(mk.getCurrentVersion()).toBe(2)
+    expect(mk.getMasterKey(2).equals(Buffer.from('b'.repeat(32)))).toBe(true)
+    expect(mk.getMasterKey(1).equals(Buffer.from('a'.repeat(32)))).toBe(true)
+  })
+
+  test('is idempotent: the same key bytes re-elect the existing version (no bump)', () => {
+    process.env.VIEWKEY_MASTER_KEYS_V1 = KEY_A_B64
+    process.env.VIEWKEY_MASTER_KEYS_V2 = KEY_B_B64
+    process.env.VIEWKEY_MASTER_KEY_CURRENT_VERSION = '1'
+    const mk = require(MASTERKEY_PATH)
+    expect(mk.addMasterKeyVersion(KEY_B_B64)).toBe(2)
+    expect(mk.addMasterKeyVersion(KEY_B_B64)).toBe(2)
+    expect(mk.getCurrentVersion()).toBe(2)
+    expect(() => mk.getMasterKey(3)).toThrow(/no master key registered for dekVersion 3/)
+  })
+
+  test('can stack several versions without losing any', () => {
+    process.env.VIEWKEY_MASTER_KEY = KEY_A_B64
+    const mk = require(MASTERKEY_PATH)
+    expect(mk.addMasterKeyVersion(KEY_B_B64)).toBe(2)
+    expect(mk.addMasterKeyVersion(KEY_C_B64)).toBe(3)
+    expect(mk.getCurrentVersion()).toBe(3)
+    expect(mk.getMasterKey(1).equals(Buffer.from('a'.repeat(32)))).toBe(true)
+    expect(mk.getMasterKey(2).equals(Buffer.from('b'.repeat(32)))).toBe(true)
+    expect(mk.getMasterKey(3).equals(Buffer.from('c'.repeat(32)))).toBe(true)
+  })
+
+  test('rejects a wrong-length key without changing state', () => {
+    process.env.VIEWKEY_MASTER_KEY = KEY_A_B64
+    const mk = require(MASTERKEY_PATH)
+    expect(() => mk.addMasterKeyVersion(Buffer.from('short').toString('base64'))).toThrow(/32 bytes/)
+    expect(mk.getCurrentVersion()).toBe(1)
+  })
+
+  test('old-version envelopes keep decrypting after a new version is added', () => {
+    process.env.VIEWKEY_MASTER_KEY = KEY_A_B64
+    const vk = require(VIEWKEY_PATH)
+    const v1 = vk.encryptViewKey(VIEWKEY_HEX)
+    require(MASTERKEY_PATH).addMasterKeyVersion(KEY_B_B64)
+    const v2 = vk.encryptViewKey(VIEWKEY_HEX)
+    expect(v1.dekVersion).toBe(1)
+    expect(v2.dekVersion).toBe(2)
+    expect(vk.decryptViewKey(v1)).toBe(VIEWKEY_HEX)
+    expect(vk.decryptViewKey(v2)).toBe(VIEWKEY_HEX)
+  })
+})
+
 describe('fail-closed loading', () => {
   test('no master-key env at all throws', () => {
     const mk = require(MASTERKEY_PATH)
