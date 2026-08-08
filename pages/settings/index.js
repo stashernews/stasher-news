@@ -102,8 +102,8 @@ export default function Settings ({ ssrData }) {
           initial={{
             tipDefault: piconerosToXmrDecimal(BigInt(settings?.tipDefault ?? 1000000000)),
             tipRandom: settings?.tipRandom,
-            tipRandomMin: piconerosToXmrDecimal(BigInt(settings?.tipRandomMin ?? 1)),
-            tipRandomMax: piconerosToXmrDecimal(BigInt(settings?.tipRandomMax ?? 10)),
+            tipRandomMin: piconerosToXmrDecimal(BigInt(settings?.tipRandomMin ?? 1000000000)),
+            tipRandomMax: piconerosToXmrDecimal(BigInt(settings?.tipRandomMax ?? 10000000000)),
             fiatCurrency: settings?.fiatCurrency || 'USD',
             noteItemPiconeros: settings?.noteItemPiconeros,
             noteEarning: settings?.noteEarning,
@@ -152,9 +152,9 @@ export default function Settings ({ ssrData }) {
               await setSettings({
                 variables: {
                   settings: {
-                    tipDefault: Number(xmrToPiconeros(String(tipDefault))),
-                    tipRandomMin: tipRandom ? Number(xmrToPiconeros(String(tipRandomMin))) : null,
-                    tipRandomMax: tipRandom ? Number(xmrToPiconeros(String(tipRandomMax))) : null,
+                    tipDefault: String(xmrToPiconeros(String(tipDefault))),
+                    tipRandomMin: tipRandom ? String(xmrToPiconeros(String(tipRandomMin))) : null,
+                    tipRandomMax: tipRandom ? String(xmrToPiconeros(String(tipRandomMax))) : null,
                     postsPiconerosFilter: postsPiconerosFilter == null ? null : Number(signedXmrToPiconeros(postsPiconerosFilter)),
                     commentsPiconerosFilter: commentsPiconerosFilter == null ? null : Number(signedXmrToPiconeros(commentsPiconerosFilter)),
                     nostrPubkey,

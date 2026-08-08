@@ -100,9 +100,9 @@ export default gql`
     noteMentions: Boolean!
     noteItemMentions: Boolean!
     nsfwMode: Boolean!
-    tipDefault: Int!
-    tipRandomMin: Int
-    tipRandomMax: Int
+    tipDefault: BigInt!
+    tipRandomMin: BigInt
+    tipRandomMax: BigInt
   }
 
   type AuthMethods {
@@ -169,10 +169,10 @@ export default gql`
     noteMentions: Boolean!
     noteItemMentions: Boolean!
     nsfwMode: Boolean!
-    tipDefault: Int!
+    tipDefault: BigInt!
     tipRandom: Boolean!
-    tipRandomMin: Int
-    tipRandomMax: Int
+    tipRandomMin: BigInt
+    tipRandomMax: BigInt
     autoWithdrawThreshold: Int
   }
 
