@@ -65,15 +65,17 @@ const fakeSigner = async (payouts, { models } = {}) => {
 }
 
 // Seed amounts (piconeros). Picked so the allocation math is exact:
-//   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100 + 3e12 (extra @100%)
-//                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 = 11.4e12
-//   pool          = 11.4e12 + 1e12 (prior rollover) = 12.4e12
+//   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100 + 3e12 (DONATE @100%)
+//                 + 2e12*50/100 (TIP_UNWALLETED @50%)
+//                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 + 1e12 = 12.4e12
+//   pool          = 12.4e12 + 1e12 (prior rollover) = 13.4e12
 const DOWNVOTE_PICONEROS = 5_000_000_000_000n
 const POSTING_FEE_PICONEROS = 4_000_000_000_000n
 const TERRITORY_FEE_PICONEROS = 2_000_000_000_000n
 const EXTRA_DONATE_PICONEROS = 3_000_000_000_000n
 const PRIOR_ROLLOVER_PICONEROS = 1_000_000_000_000n
-const EXPECTED_POOL_PICONEROS = 12_400_000_000_000n
+const EXPECTED_POOL_PICONEROS = 13_400_000_000_000n
+const WALLETLESS_TIP_PICONEROS = 2_000_000_000_000n
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -296,6 +298,11 @@ beforeAll(async () => {
   const donatePayIn = await seedPayIn(authorId, 'DONATE', 3, 1)
   await seedFee(donatePayIn.id, 'DONATE', 3, EXTRA_DONATE_PICONEROS, inPeriod)
 
+  // Wallet-less-author tip (TIP_UNWALLETED): funds the pool at
+  // walletlessTipRewardsPct (default 50). Lands on its dedicated major-4
+  // subaddress; payInId is null because a wallet-less tip creates no PayIn.
+  await seedFee(null, 'TIP_UNWALLETED', 4, WALLETLESS_TIP_PICONEROS, inPeriod)
+
   // --- Curators (tippers): c1, c2 get payout accounts; c3 does NOT ---
   const c1 = await createUser()
   const c2 = await createUser()
@@ -349,9 +356,18 @@ test('the rewards pool equals the exact allocation earmark + extra sources + pri
 })
 
 test('the DONATE extra source funds the pool 1:1 (no allocation %)', async () => {
-  // Without the extra term, pool would be 9.4e12; the DONATE observation adds
-  // its full amount at 100% (no downvoteRewardsPct/postingFeeRewardsPct split).
-  expect(result.poolPiconeros).toBe(9_400_000_000_000n + EXTRA_DONATE_PICONEROS)
+  // Without DONATE + TIP_UNWALLETED, pool would be 9.4e12; DONATE adds its full
+  // amount at 100% (no allocation % split).
+  expect(result.poolPiconeros).toBe(9_400_000_000_000n + EXTRA_DONATE_PICONEROS + WALLETLESS_TIP_PICONEROS * 50n / 100n)
+})
+
+test('the TIP_UNWALLETED source funds the pool at walletlessTipRewardsPct (50%), not 100%', async () => {
+  // If TIP_UNWALLETED were lumped into the 100% extra bucket (the old behavior),
+  // the pool would be EXPECTED_POOL_PICONEROS + WALLETLESS_TIP_PICONEROS * 50n / 100n
+  // higher than it should be. Pin the exact 50% contribution.
+  const poolWithoutWalletless = EXPECTED_POOL_PICONEROS - WALLETLESS_TIP_PICONEROS * 50n / 100n
+  expect(result.poolPiconeros - poolWithoutWalletless).toBe(WALLETLESS_TIP_PICONEROS * 50n / 100n)
+  expect(WALLETLESS_TIP_PICONEROS * 50n / 100n).toBe(1_000_000_000_000n)
 })
 
 test('distributedPiconeros + rolledOverPiconeros reconciles to the pool exactly', async () => {
