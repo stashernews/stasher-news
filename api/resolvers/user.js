@@ -939,23 +939,23 @@ export default {
   },
 
   UserOptional: {
-    streak: async (user, args, { models }) => {
-      if (user.hideBadges) {
+    streak: async (user, args, { models, me }) => {
+      if (user.hideBadges && (!me || me.id !== user.id)) {
         return null
       }
 
       return user.streak
     },
-    hasWallet: async (user, args, { models }) => {
-      if (user.hideBadges) {
+    hasWallet: async (user, args, { models, me }) => {
+      if (user.hideBadges && (!me || me.id !== user.id)) {
         return false
       }
 
       const account = await models.moneroAccount.findFirst({ where: { ownerUserId: user.id } })
       return !!account
     },
-    tippedRecently: async (user, args, { models }) => {
-      if (user.hideBadges) {
+    tippedRecently: async (user, args, { models, me }) => {
+      if (user.hideBadges && (!me || me.id !== user.id)) {
         return false
       }
 
@@ -966,8 +966,8 @@ export default {
         LIMIT 1`
       return rows.length > 0
     },
-    maxStreak: async (user, args, { models }) => {
-      if (user.hideBadges) {
+    maxStreak: async (user, args, { models, me }) => {
+      if (user.hideBadges && (!me || me.id !== user.id)) {
         return null
       }
 

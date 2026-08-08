@@ -95,28 +95,55 @@ test('tippedRecently is false without a confirmed tip in the last 24h', async ()
   expect(rec).toBe(false)
 })
 
-test('hasWallet returns false when hideBadges is on (never queries the DB)', async () => {
+test('hasWallet returns false for other viewers when hideBadges is on (never queries the DB)', async () => {
   const models = {
     moneroAccount: { findFirst: jest.fn() }
   }
-  const rec = await UserOptional.hasWallet(mkUser({ hideBadges: true }), {}, { models })
+  const rec = await UserOptional.hasWallet(mkUser({ hideBadges: true }), {}, { models, me: { id: 2 } })
   expect(rec).toBe(false)
   expect(models.moneroAccount.findFirst).not.toHaveBeenCalled()
 })
 
-test('tippedRecently returns false when hideBadges is on (never queries the DB)', async () => {
+test('hasWallet still resolves for the owner when hideBadges is on', async () => {
+  const models = {
+    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) }
+  }
+  const rec = await UserOptional.hasWallet(mkUser({ hideBadges: true }), {}, { models, me: { id: 1 } })
+  expect(rec).toBe(true)
+  expect(models.moneroAccount.findFirst).toHaveBeenCalledTimes(1)
+})
+
+test('tippedRecently returns false for other viewers when hideBadges is on (never queries the DB)', async () => {
   const models = {
     $queryRaw: jest.fn()
   }
-  const rec = await UserOptional.tippedRecently(mkUser({ hideBadges: true }), {}, { models })
+  const rec = await UserOptional.tippedRecently(mkUser({ hideBadges: true }), {}, { models, me: { id: 2 } })
   expect(rec).toBe(false)
   expect(models.$queryRaw).not.toHaveBeenCalled()
 })
 
-test('streak and maxStreak return null when hideBadges is on', async () => {
+test('tippedRecently still resolves for the owner when hideBadges is on', async () => {
+  const models = {
+    $queryRaw: jest.fn().mockResolvedValue([{ n: 1 }])
+  }
+  const rec = await UserOptional.tippedRecently(mkUser({ hideBadges: true }), {}, { models, me: { id: 1 } })
+  expect(rec).toBe(true)
+  expect(models.$queryRaw).toHaveBeenCalledTimes(1)
+})
+
+test('streak and maxStreak return null for other viewers when hideBadges is on', async () => {
   const user = mkUser({ hideBadges: true, streak: 5 })
-  expect(await UserOptional.streak(user, {}, { models: {} })).toBeNull()
-  expect(await UserOptional.maxStreak(user, {}, { models: {} })).toBeNull()
+  expect(await UserOptional.streak(user, {}, { models: {}, me: { id: 2 } })).toBeNull()
+  expect(await UserOptional.maxStreak(user, {}, { models: {}, me: { id: 2 } })).toBeNull()
+})
+
+test('streak and maxStreak stay visible to the owner when hideBadges is on', async () => {
+  const streakUser = mkUser({ hideBadges: true, streak: 5 })
+  expect(await UserOptional.streak(streakUser, {}, { models: {}, me: { id: 1 } })).toBe(5)
+  const models = {
+    $queryRaw: jest.fn().mockResolvedValue([{ max: 7 }])
+  }
+  expect(await UserOptional.maxStreak(mkUser({ hideBadges: true }), {}, { models, me: { id: 1 } })).toBe(7)
 })
 
 test('streak and maxStreak survive with the setting off (owner too)', async () => {
