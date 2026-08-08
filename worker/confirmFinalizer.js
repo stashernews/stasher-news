@@ -52,7 +52,7 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
   // confirmed (height set) on a later indexer poll.
   const tips = await models.observedTip.findMany({
     where: { state: 'DETECTED', height: { not: null } },
-    include: { post: { select: { userId: true } } },
+    include: { post: { select: { userId: true } }, recipientAccount: { select: { label: true } } },
     take: SCAN_BATCH_SIZE
   })
 
@@ -74,7 +74,7 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
           confirmedAt: new Date()
         }
       })
-      if (authorId != null) {
+      if (authorId != null && tip.recipientAccount?.label !== 'platform_rewards') {
         await tx.user.update({
           where: { id: authorId },
           data: { stackedPiconeros: { increment: tip.piconeros } }
@@ -83,6 +83,9 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     })
     if (authorId == null) {
       console.warn(`confirmFinalizer: tip ${tip.id} flipped to CONFIRMED but author could not be resolved (post ${tip.postId}); stackedPiconeros NOT bumped`)
+    }
+    if (authorId != null && tip.recipientAccount?.label === 'platform_rewards') {
+      console.log(`confirmFinalizer: tip ${tip.id} flipped to CONFIRMED (rewards-pool recipient); stackedPiconeros not bumped`)
     }
     confirmed += 1
   }
