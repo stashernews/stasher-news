@@ -34,6 +34,7 @@ import { rewardsDistributor } from './rewardsDistributor'
 import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
+import { healthProbe } from './healthProbe'
 import { dbBackup } from './dbBackup'
 import { writeWorkerHeartbeat } from './heartbeat'
 import { logInfo, logError } from '@/lib/logger'
@@ -143,6 +144,14 @@ async function work () {
   // only). Confirmation is low-frequency (CONFIRM_POLL_INTERVAL_MS, default 60s).
   if (await boss.getQueueSize('confirmFinalizer') === 0) {
     await boss.send('confirmFinalizer', {})
+  }
+
+  // healthProbe: probes lws + monerod reachability + chain-height advancement
+  // every HEALTH_PROBE_INTERVAL_SECONDS (default 60s), publishes the snapshot to
+  // lib/healthStatus, and alerts on lws/monerod outage or a stalled chain height.
+  await boss.work('healthProbe', jobWrapper(healthProbe))
+  if (await boss.getQueueSize('healthProbe') === 0) {
+    await boss.send('healthProbe', {})
   }
 
   // reconcilePendingTips: recover PENDING tips stranded by a missed 0-conf webhook, and
