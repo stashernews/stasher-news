@@ -7,6 +7,7 @@ export const INITIATE_TIP = gql`
     initiateTip(postId: $postId, amount: $amount) {
       uri
       paymentId
+      recipient
     }
   }
 `

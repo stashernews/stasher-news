@@ -30,8 +30,10 @@ function networkForEnv () {
 
 // Core tip-initiation logic, extracted so it can be reused/tested independently of
 // the GraphQL context. Enforces the min-tip floor, then: derives a payment ID,
-// mints an integrated address from the POST AUTHOR's primary address, registers a
-// lws tx-confirmation webhook, creates a PENDING ObservedTip, and returns the
+// mints an integrated address from the recipient's primary address (the POST
+// AUTHOR when they have a wallet, otherwise the platform rewards wallet — the
+// wallet-less/anon author redirect lands in the pool), registers a lws
+// tx-confirmation webhook, creates a PENDING ObservedTip, and returns the
 // Cake-compatible monero: URI. The tipper sends to the integrated address; the
 // webhook receiver (pages/api/monero/webhook.js) handles detection + confirmation
 // and calls applyTipDetected (the ranking hook). 100% P2P — no PayIn, no platform
@@ -49,10 +51,25 @@ export async function initiateTipCore ({ postId, amount, models, monero, me }) {
   const post = await models.item.findUnique({ where: { id } })
   if (!post) throw new GqlInputError('post not found')
 
-  // The recipient is the post author — their MoneroAccount holds the primary
-  // address the integrated address is derived from.
-  const account = await models.moneroAccount.findFirst({ where: { ownerUserId: post.userId } })
-  if (!account) throw new GqlInputError('post author has no monero account')
+  // Resolve the recipient: the post author's wallet when registered, otherwise
+  // the platform rewards wallet (the author has no wallet — e.g. an anonymous
+  // post — so the tip lands in the pool instead of erroring). The payment-ID
+  // namespace ("tip:" in api/monero/paymentId.js) is disjoint from downvotes
+  // ("dv:"), so the rewardsWalletObserver can attribute it as TIP_UNWALLETED.
+  let account = await models.moneroAccount.findFirst({ where: { ownerUserId: post.userId } })
+  let recipient = 'AUTHOR'
+  if (!account) {
+    const net = networkForEnv().prisma
+    // The schema constrains this to ONE platform_rewards row per network; when
+    // duplicates somehow exist (test seeding), the first-registered row wins by
+    // id so resolution is deterministic.
+    account = await models.moneroAccount.findFirst({
+      where: { label: 'platform_rewards', network: net },
+      orderBy: { id: 'asc' }
+    })
+    if (!account) throw new GqlInputError('rewards wallet not registered')
+    recipient = 'REWARDS'
+  }
 
   const nonce = Date.now()
   const paymentId = generateTipPaymentId(id, nonce)
@@ -92,7 +109,7 @@ export async function initiateTipCore ({ postId, amount, models, monero, me }) {
     { description: `tip on "${post.title ?? ''}" via StasherNews`, paymentId }
   )
 
-  return { integratedAddress, paymentId, uri }
+  return { integratedAddress, paymentId, uri, recipient }
 }
 
 export default {

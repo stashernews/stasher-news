@@ -84,6 +84,33 @@ async function registerFor (userId, overrides = {}, lws = makeMockLws()) {
   return { acct, lws }
 }
 
+// Unique placeholder address. Valid base58 (no 0/O/I/l) and 99 chars = 9 full
+// 11-char base58xmr blocks, so makeIntegratedAddress decodes it without error.
+const REWARDS_ADDR = '5Base58TipRedirect' + '1'.repeat(81) // unique stagenet placeholder
+
+async function createRewardsWallet () {
+  // initiateTipCore resolves the rewards wallet via findFirst (lowest id), and the
+  // live dev DB may already hold a registered platform_rewards row (seeded by
+  // `sndev monero register-rewards-wallet`, e.g. account 120). Insert this suite's
+  // row with an id BELOW any existing account so the resolver deterministically
+  // resolves OUR row; without this the redirect test would assert against the
+  // seeded row instead and its afterEach cleanup would miss the ObservedTip
+  // (recipientAccountId outside created.accounts), cascading FK failures.
+  const lowest = await prisma.moneroAccount.findFirst({ orderBy: { id: 'asc' } })
+  const acct = await prisma.moneroAccount.create({
+    data: {
+      id: lowest ? lowest.id - 1 : undefined,
+      ownerUserId: null,
+      address: REWARDS_ADDR,
+      label: 'platform_rewards',
+      network: 'STAGENET',
+      status: 'ACTIVE'
+    }
+  })
+  created.accounts.push(acct.id)
+  return acct
+}
+
 describe('Mutation.registerMoneroAccount', () => {
   test('validates, encrypts the view key, calls lws addAccount, sets User.privacyMode', async () => {
     const userId = await createUser()
@@ -282,6 +309,7 @@ describe('Mutation.initiateTip', () => {
     expect(result.integratedAddress).toHaveLength(106)
     expect(result.paymentId).toMatch(/^[0-9a-f]{16}$/)
     expect(result.uri).toContain(`monero:${result.integratedAddress}`)
+    expect(result.recipient).toBe('AUTHOR')
     // tx_amount is DECIMAL XMR (Cake Wallet convention), not raw piconeros:
     // 1e9 piconeros == 0.001 XMR. Emitting raw piconeros here is the load-bearing bug.
     expect(result.uri).toContain('tx_amount=0.001')
@@ -322,6 +350,7 @@ describe('Mutation.initiateTip', () => {
 
     expect(result.paymentId).toMatch(/^[0-9a-f]{16}$/)
     expect(result.uri).toContain(`monero:${result.integratedAddress}`)
+    expect(result.recipient).toBe('AUTHOR')
     expect(lws.addWebhook).toHaveBeenCalledTimes(1)
 
     // anonymous tips are stored with a null tipperId so they never earn curator
@@ -343,15 +372,58 @@ describe('Mutation.initiateTip', () => {
     }, { me: { id: tipperId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/post not found/i)
   })
 
-  test('rejects if the post author has no monero account', async () => {
+  test('redirects to the rewards wallet when the author has no MoneroAccount (wallet-less / anon)', async () => {
+    const authorId = await createUser()
+    const post = await createPost(authorId) // author has NO registered wallet
+    const rewards = await createRewardsWallet()
+    const tipperId = await createUser()
+    const lws = makeMockLws()
+
+    const result = await resolvers.Mutation.initiateTip(null, {
+      postId: String(post.id),
+      amount: '1000000000'
+    }, { me: { id: tipperId }, models: prisma, monero: lws })
+
+    // integrated address + payment ID + URI are derived from the REWARDS wallet
+    expect(result.paymentId).toMatch(/^[0-9a-f]{16}$/)
+    expect(result.uri).toContain(`monero:${result.integratedAddress}`)
+    expect(result.recipient).toBe('REWARDS')
+
+    // webhook registered against the rewards wallet's address
+    expect(lws.addWebhook).toHaveBeenCalledTimes(1)
+    expect(lws.addWebhook.mock.calls[0][0].address).toBe(rewards.address)
+
+    // ObservedTip PENDING, recipient = the rewards account (not the author)
+    const tip = await prisma.observedTip.findFirst({
+      where: { paymentId: result.paymentId },
+      include: { recipientAccount: true }
+    })
+    expect(tip.state).toBe('PENDING')
+    expect(tip.recipientAccountId).toBe(rewards.id)
+    expect(tip.recipientAccount.label).toBe('platform_rewards')
+  })
+
+  test('rejects when the author has no wallet AND the rewards wallet is not registered', async () => {
     const authorId = await createUser()
     const post = await createPost(authorId)
     const tipperId = await createUser()
 
-    await expect(resolvers.Mutation.initiateTip(null, {
-      postId: String(post.id),
-      amount: '1000000000'
-    }, { me: { id: tipperId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/no monero account/i)
+    // The rewards-wallet fallback lookup is scoped to networkForEnv(), so resolve
+    // it against MAINNET: no dev DB holds a MAINNET platform_rewards row (and the
+    // stagenet one seeded by `sndev monero register-rewards-wallet` is ignored),
+    // making the reject path deterministic in any environment. No account/webhook
+    // is created before the lookup rejects, so the toggle is side-effect free.
+    // (fail-closed REWARDS_PID_KEY mainnet guard in generateTipPaymentId is never
+    // reached — the lookup rejects before any payment ID is minted.)
+    process.env.MONERO_NETWORK = 'mainnet'
+    try {
+      await expect(resolvers.Mutation.initiateTip(null, {
+        postId: String(post.id),
+        amount: '1000000000'
+      }, { me: { id: tipperId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/rewards wallet not registered/i)
+    } finally {
+      process.env.MONERO_NETWORK = 'stagenet'
+    }
   })
 
   test('rejects an amount below PlatformFeeConfig.minTipPiconeros', async () => {
