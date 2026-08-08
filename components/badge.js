@@ -22,7 +22,7 @@ export default function Badges ({ user, badge, bot, showWalletBadges, className 
 
   const badges = buildBadges(user, { showWalletBadges, bot })
 
-  if (badges.length === 0) return null
+  if (!badges || badges.length === 0) return null
 
   return (
     <span className={classNames(className, 'd-inline-flex align-items-center justify-content-center')}>
