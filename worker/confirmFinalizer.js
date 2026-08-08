@@ -1,5 +1,6 @@
 import { daemonClient } from '@/api/monero/daemonClient'
 import { CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constants'
+import { createReorgDetector } from '@/lib/reorgDetector'
 
 // confirmFinalizer — matures provisional tips (Task 7 / spec §5.5, Q5).
 //
@@ -42,10 +43,17 @@ import { CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constant
 // query is state-filtered (DETECTED) and DETECTED rows only shrink over time.
 const SCAN_BATCH_SIZE = 500
 
+// Per-worker reorg detector (Task D5). Tracks the last chain height seen by
+// this job across runs and fires a debounced critical alert on regression.
+// Injectable on runConfirmFinalizerOnce so tests never trip the module-level
+// baseline (and can assert the wiring directly).
+const detectReorg = createReorgDetector()
+
 // One run of the confirmFinalizer. Returns the count of tips flipped to
 // CONFIRMED (useful for logs/metrics; not asserted by tests).
-export async function runConfirmFinalizerOnce ({ models, daemonClient: client = daemonClient }) {
+export async function runConfirmFinalizerOnce ({ models, daemonClient: client = daemonClient, detectReorg: detect = detectReorg } = {}) {
   const chainHeight = await client.getHeight()
+  detect(chainHeight)
 
   // Mempool tips (height == null) carry no block height to confirm against, so
   // they are excluded here — they become eligible the moment lws reports them
