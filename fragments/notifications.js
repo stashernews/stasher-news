@@ -74,24 +74,20 @@ export const NOTIFICATIONS = gql`
           earnedPiconeros
           subName
         }
-        ... on CowboyHat {
+        ... on Flame {
           id
           sortTime
           days
         }
-        ... on NewHorse {
+        ... on NewCoin {
           id
           sortTime
         }
-        ... on LostHorse {
+        ... on LostCoin {
           id
           sortTime
         }
-        ... on NewGun {
-          id
-          sortTime
-        }
-        ... on LostGun {
+        ... on NewVerified {
           id
           sortTime
         }

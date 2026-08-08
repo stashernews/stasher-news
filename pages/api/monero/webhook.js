@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 import { applyTipDetected } from '@/api/monero/ranking'
 import { lwsClient } from '@/api/monero/lwsClient'
+import { notifyNewStreak } from '@/lib/webPush'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 
 // lws tx-confirmation webhook receiver (spec §4.4).
@@ -55,6 +56,15 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
       if (claimed > 0) {
         await applyTipDetected(tip.postId, tip.tipperId, piconeros, tx)
         if (tip.tipperId != null) {
+          const [coin] = await tx.$queryRaw`
+            INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
+            SELECT ${tip.tipperId}::int, NOW(), 'COIN'::"StreakType", now_utc(), now_utc()
+            WHERE NOT EXISTS (
+              SELECT 1 FROM "Streak"
+              WHERE "userId" = ${tip.tipperId}::int AND type = 'COIN' AND "endedAt" IS NULL
+            )
+            RETURNING "Streak".*`
+          if (coin) notifyNewStreak(tip.tipperId, coin).catch(console.error)
           await tx.$executeRaw`
             INSERT INTO pgboss.job (id, name, data)
             VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${tip.tipperId}, 'type', 'FLAME'))`

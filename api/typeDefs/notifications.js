@@ -155,28 +155,23 @@ export default gql`
     sortTime: Date!
   }
 
-  type CowboyHat {
+  type Flame {
     id: ID!
     sortTime: Date!
     days: Int
   }
 
-  type NewHorse {
+  type NewCoin {
     id: ID!
     sortTime: Date!
   }
 
-  type LostHorse {
+  type LostCoin {
     id: ID!
     sortTime: Date!
   }
 
-  type NewGun {
-    id: ID!
-    sortTime: Date!
-  }
-
-  type LostGun {
+  type NewVerified {
     id: ID!
     sortTime: Date!
   }
@@ -185,7 +180,7 @@ export default gql`
     | Invitification | Earn | JobChanged | Referral
     | FollowActivity | Revenue | SubStatus
     | TerritoryPost | TerritoryTransfer | Reminder | ItemMention | PayInification
-    | ReferralReward | CowboyHat | NewHorse | LostHorse | NewGun | LostGun
+    | ReferralReward | Flame | NewCoin | LostCoin | NewVerified
     | Bulletinification
 
   type Notifications {

@@ -1,5 +1,6 @@
 /* eslint-env jest */
-import { checkStreak } from '@/worker/streak'
+import { checkStreak, computeStreaks } from '@/worker/streak'
+import { PrismaClient } from '@prisma/client'
 
 // A tagged-template call passes (stringsArray, ...values) to the mock; the
 // interpolated getStreakQuery result is a Prisma.sql object carrying the
@@ -56,4 +57,31 @@ test('skips users with an active streak', async () => {
   }
   await checkStreak({ data: { id: 5, type: 'FLAME' }, models })
   expect(models.$queryRaw).not.toHaveBeenCalled()
+})
+
+// Real-DB COIN streak lifecycle test (live migrated database, FK-safe teardown).
+// Run via the app container:
+//   docker exec -w /app -e NODE_OPTIONS=--experimental-vm-modules -u apprunner app npx jest test/worker/streak.test.js
+const prisma = new PrismaClient()
+let coinUserId
+
+beforeAll(async () => {
+  const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
+  coinUserId = rows[0].id
+})
+
+afterAll(async () => {
+  if (coinUserId) await prisma.$executeRaw`DELETE FROM users WHERE id = ${coinUserId}::int`
+  await prisma.$disconnect()
+})
+
+test('computeStreaks ends a COIN streak after 24h without a tip', async () => {
+  await prisma.$executeRaw`
+    INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
+    VALUES (${coinUserId}::int, now() - interval '2 days', 'COIN'::"StreakType", now_utc(), now_utc())`
+
+  await computeStreaks({ models: prisma })
+
+  const row = await prisma.streak.findFirst({ where: { userId: coinUserId, type: 'COIN' } })
+  expect(row.endedAt).toBeTruthy()
 })
