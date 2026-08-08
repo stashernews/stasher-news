@@ -44,6 +44,11 @@ const REWARDS_WALLET = gql`
       payoutCount
       status
       completedAt
+      opsInflowPiconeros
+      opsAvailablePiconeros
+      opsSweptPiconeros
+      opsSweepTxHash
+      opsSweepState
       payouts {
         id
         curatorId
@@ -65,6 +70,28 @@ function explorerFor (network) {
 
 function explorerTxUrl (network) {
   return network === 'MAINNET' ? 'https://xmrchain.net/tx/' : 'https://stagenet.xmrchain.net/tx/'
+}
+
+// Monero outputs take ~10 blocks to unlock, so a weekly sweep of the ops earmark
+// is sometimes deferred (SKIPPED_LOCKED): the funds stay in the rewards wallet
+// and roll into next period's opsAvailable. This makes that lag visible, not
+// mysterious. `pendingPiconeros` = what didn't sweep this run.
+function toBigInt (v) {
+  return typeof v === 'bigint' ? v : BigInt(v)
+}
+
+function pendingOpsPiconeros (d) {
+  return toBigInt(d.opsAvailablePiconeros) - toBigInt(d.opsSweptPiconeros)
+}
+
+function opsSweepLabel (state) {
+  switch (state) {
+    case 'SWEPT': return 'swept to ops wallet'
+    case 'SKIPPED_LOCKED': return 'deferred (locked change)'
+    case 'FAILED': return 'sweep failed (rolls over)'
+    case 'NOT_SWEEPED': return 'not swept (rolls over)'
+    default: return 'not swept'
+  }
 }
 
 function WalletField ({ label, value }) {
@@ -155,7 +182,10 @@ export default function Transparency ({ ssrData }) {
               Recent weekly curator distributions. Each payout is a real on-chain
               Monero transaction from the rewards wallet — verify any tx hash on
               the explorer. Curator handles are shown as nyms; sub-threshold
-              shares roll over to the next period.
+              shares roll over to the next period. The ops earmark is swept to the
+              ops wallet when the hot wallet has enough unlocked change; when it
+              doesn't (recent incoming outputs are still locked), the sweep is
+              deferred and the amount rolls into next week's opsAvailable.
             </small>
           </p>
           {dists.length === 0
@@ -178,6 +208,24 @@ export default function Transparency ({ ssrData }) {
                       <Stat label='Distributed' value={`${d.distributedPiconeros} pico`} />
                       <Stat label='Rolled over' value={`${d.rolledOverPiconeros} pico`} />
                     </div>
+                    <div className='d-flex flex-wrap justify-content-between align-items-start ms-2 mt-1'>
+                      <Stat label='Ops inflow' value={`${d.opsInflowPiconeros} pico`} sub="this period's ops share" />
+                      <Stat label='Ops swept' value={`${d.opsSweptPiconeros} pico`} sub={`ops sweep: ${opsSweepLabel(d.opsSweepState)}`} />
+                      <Stat
+                        label='Pending ops (rolled over)'
+                        value={`${pendingOpsPiconeros(d).toString()} pico`}
+                        sub={d.opsSweepState === 'SKIPPED_LOCKED' ? 'deferred — locked change, lands next period' : 'to next period'}
+                      />
+                    </div>
+                    {d.opsSweepTxHash && (
+                      <div className='ms-2 mt-1'>
+                        <a href={`${explorerTxUrl(w.network)}${d.opsSweepTxHash}`} target='_blank' rel='noreferrer'>
+                          <small className='text-monospace text-break text-decoration-none'>
+                            ops sweep tx: {d.opsSweepTxHash.slice(0, 24)}…
+                          </small>
+                        </a>
+                      </div>
+                    )}
                     {di === 0 && d.payouts.length > 0 && (
                       <div className='ms-2 mt-2'>
                         <small className='text-muted fw-bold d-block mb-1'>Payouts (latest distribution):</small>

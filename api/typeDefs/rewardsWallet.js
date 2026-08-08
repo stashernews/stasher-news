@@ -44,7 +44,11 @@ export default gql`
 
   # A weekly rewards distribution run (spec §5, §6.2). Each distribution records
   # the pool total, the amount distributed to curators, the rollover, and its
-  # individual RewardPayout rows with real on-chain tx hashes.
+  # individual RewardPayout rows with real on-chain tx hashes. The ops-sweep
+  # fields expose what happened to the ops earmark's share this period: it is
+  # swept to the ops wallet when the hot wallet has enough unlocked change,
+  # otherwise it is deferred (SKIPPED_LOCKED) and rolls into next period's
+  # opsAvailable.
   type RewardDistribution {
     id: Int!
     periodStart: Date!
@@ -56,6 +60,11 @@ export default gql`
     status: String!
     startedAt: Date
     completedAt: Date
+    opsInflowPiconeros: BigInt!
+    opsAvailablePiconeros: BigInt!
+    opsSweptPiconeros: BigInt!
+    opsSweepTxHash: String
+    opsSweepState: String!
     payouts: [RewardPayout!]!
   }
 
