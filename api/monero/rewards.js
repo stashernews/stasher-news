@@ -101,9 +101,11 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
 
   const w = wallet || await getRewardsWallet()
   // Coarse pre-filter: if the whole wallet's unlocked balance can't cover this
-  // payout, skip it (likely locked funds). Mid-loop exhaustion surfaces as a
-  // balance error from createTx and is also treated as a skip (see below).
-  const unlocked = BigInt(await w.getUnlockedBalance(0))
+  // payout, skip it (likely locked funds). The running balance is decremented
+  // after each relayed tx so it stays accurate mid-batch; any residual
+  // exhaustion (fees, races) still surfaces as a balance error from createTx
+  // and is treated as a skip (see below).
+  let unlocked = BigInt(await w.getUnlockedBalance(0))
 
   let sent = 0
   let failed = 0
@@ -141,8 +143,11 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
       failed += 1
       continue
     }
-    // Relay succeeded — funds are on-chain. Persist the hash BEFORE anything else
-    // and log it the instant relay succeeds so it is never silently lost.
+    // Relay succeeded — funds are on-chain. Deduct from the running pre-filter
+    // so the next iteration sees the reduced unlocked balance, then persist the
+    // hash BEFORE anything else and log it the instant relay succeeds so it is
+    // never silently lost.
+    unlocked -= payout.piconeros
     const txHash = toTxHash(tx.getHash())
     console.log(`sendPayouts: payout ${payout.id} relayed txHash=${txHash}`)
     try {
