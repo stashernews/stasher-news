@@ -269,7 +269,7 @@ function HeaderHeader ({ user }) {
             : <span>never</span>}
           </small>
           {user.optional.maxStreak !== null &&
-            <small className='text-muted d-flex-inline'>longest cowboy streak: {user.optional.maxStreak}</small>}
+            <small className='text-muted d-flex-inline'>longest streak: {user.optional.maxStreak}</small>}
           {user.optional.isContributor &&
             <small className='text-muted d-flex align-items-center'>
               <CodeIcon className='me-1' height={16} width={16} /> verified stasher.news contributor

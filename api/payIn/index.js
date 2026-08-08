@@ -187,7 +187,7 @@ export async function onPaid (tx, payInId) {
   await obtainRowLevelLocks(tx, payIn)
 
   if (!isWithdrawal(payIn) && !isProxyPayment(payIn)) {
-    // most paid actions are eligible for a cowboy hat streak
+    // most paid actions are eligible for a flame streak
     // pg-boss v9 dropped the DB-side default on pgboss.job.id (uuids are now minted
     // by the JS client), so this raw INSERT must supply it via gen_random_uuid.
     await tx.$executeRaw`

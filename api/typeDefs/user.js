@@ -81,7 +81,7 @@ export default gql`
     postsPiconerosFilter: BigInt
     commentsPiconerosFilter: BigInt
     hideBookmarks: Boolean!
-    hideCowboyHat: Boolean!
+    hideBadges: Boolean!
     hideGithub: Boolean!
     hideNostr: Boolean!
     hideTwitter: Boolean!
@@ -93,7 +93,7 @@ export default gql`
     nostrPubkey: String
     nostrRelays: [String!]
     noteAllDescendants: Boolean!
-    noteCowboyHat: Boolean!
+    noteBadges: Boolean!
     noteEarning: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!
@@ -150,7 +150,7 @@ export default gql`
     postsPiconerosFilter: BigInt
     commentsPiconerosFilter: BigInt
     hideBookmarks: Boolean!
-    hideCowboyHat: Boolean!
+    hideBadges: Boolean!
     hideGithub: Boolean!
     hideNostr: Boolean!
     hideTwitter: Boolean!
@@ -162,7 +162,7 @@ export default gql`
     nostrPubkey: String
     nostrRelays: [String!]
     noteAllDescendants: Boolean!
-    noteCowboyHat: Boolean!
+    noteBadges: Boolean!
     noteEarning: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!
