@@ -35,6 +35,7 @@ import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
 import { dbBackup } from './dbBackup'
+import { logInfo, logError } from '@/lib/logger'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -70,21 +71,21 @@ async function work () {
 
   const args = { boss, models, apollo }
 
-  boss.on('error', error => console.error(error))
+  boss.on('error', error => logError(error))
 
   function jobWrapper (fn) {
     return async function (job) {
-      console.log(`running ${job.name} with args`, job.data)
+      logInfo(`running ${job.name} with args`, job.data)
       if (job.retrycount > 0) {
-        console.log(`  ... retry #${job.retrycount}/${job.retrylimit}`)
+        logInfo(`  ... retry #${job.retrycount}/${job.retrylimit}`)
       }
       try {
         await fn({ ...job, ...args })
       } catch (error) {
-        console.error(`error running ${job.name}`, error)
+        logError(`error running ${job.name}`, error)
         throw error
       }
-      console.log(`finished ${job.name}`)
+      logInfo(`finished ${job.name}`)
     }
   }
 
@@ -196,7 +197,7 @@ async function work () {
     await boss.send('dbBackup', {}, { startAfter: 24 * 60 * 60 })
   }
 
-  console.log('working jobs')
+  logInfo('working jobs')
 }
 
 work()

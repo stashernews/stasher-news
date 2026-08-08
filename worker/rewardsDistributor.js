@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
 import { computeCuratorShares } from './curatorShares'
 import { sendPayouts as defaultSendPayouts, sweepOpsEarmark as defaultSweepOpsEarmark } from '@/api/monero/rewards'
+import logger, { logInfo, logError } from '@/lib/logger'
 
 // rewardsDistributor — StasherNews' weekly rewards-pool distribution job
 // (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
@@ -46,7 +47,7 @@ export async function runDistributionOnce ({ models, sendPayouts: injectSendPayo
       include: { payouts: true }
     })
   } finally {
-    if (ownsClient) db.$disconnect().catch(console.error)
+    if (ownsClient) db.$disconnect().catch(logError)
   }
 }
 
@@ -78,7 +79,7 @@ async function distribute (models) {
       include: { payouts: true }
     })
     if (existing) {
-      console.log('rewardsDistributor: distribution already exists for this period; skipping')
+      logInfo('rewardsDistributor: distribution already exists for this period; skipping')
       return existing
     }
 
@@ -227,7 +228,13 @@ async function distribute (models) {
     // this transaction commits, in finalizeDistribution (Task 9), so a signer
     // failure never rolls back the atomic ledger write above.
 
-    console.log(`rewardsDistributor: pool=${poolPiconeros.toString()} distributed=${distributedPiconeros.toString()} rolledOver=${finalRolledOverPiconeros.toString()} opsAvailable=${opsAvailable.toString()} payouts=${payoutRows.length}`)
+    logger.info({
+      pool: poolPiconeros.toString(),
+      distributed: distributedPiconeros.toString(),
+      rolledOver: finalRolledOverPiconeros.toString(),
+      opsAvailable: opsAvailable.toString(),
+      payouts: payoutRows.length
+    }, 'rewardsDistributor: distribution complete')
 
     return await tx.rewardDistribution.findUnique({
       where: { id: distribution.id },
@@ -293,7 +300,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
     await sendPayouts(payouts, { models })
     const sweep = await sweepOpsEarmark({ distribution, models })
     if (sweep.state === 'FAILED') {
-      console.error(`rewardsDistributor: CRITICAL — ops sweep FAILED for distribution ${distribution.id} after payouts were sent; manual reconciliation required`)
+      logError({ distributionId: distribution.id }, 'rewardsDistributor: CRITICAL — ops sweep FAILED after payouts were sent; manual reconciliation required')
       await models.rewardDistribution.update({
         where: { id: distribution.id },
         data: { status: 'FAILED' }
@@ -305,7 +312,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
       data: { status: 'COMPLETE', completedAt: new Date() }
     })
   } catch (err) {
-    console.error(`rewardsDistributor: finalization failed for distribution ${distribution.id}: ${err && err.message}`)
+    logError({ distributionId: distribution.id, err }, 'rewardsDistributor: finalization failed')
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { status: 'FAILED' }
