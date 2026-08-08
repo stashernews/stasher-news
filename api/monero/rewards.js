@@ -22,6 +22,11 @@ import { daemonClient } from '@/api/monero/daemonClient'
 
 const RESTORE_HEIGHT_MARGIN = 1000
 
+// Dust floor for the weekly ops sweep to cold storage: sweep only leaves the
+// hot wallet with at least this much unlocked, and only fires if the target
+// clears it. 0.001 XMR default (spec §6.4 / task B3).
+const REWARDS_OPS_SWEEP_MIN_PICONEROS = BigInt(process.env.REWARDS_OPS_SWEEP_MIN_PICONEROS || '1000000000')
+
 let walletPromise = null
 
 // Singleton: opens + syncs the wallet once, memoizing the promise so every
@@ -163,6 +168,95 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
   }
 
   return { sent, failed, skipped }
+}
+
+// Sweep the weekly ops earmark from the hot rewards wallet to offline cold
+// storage (spec §6.4 / task B3). Runs as ONE more sequential createTx on the
+// SAME singleton wallet, strictly AFTER sendPayouts returns (task B4 wires the
+// call site) — never concurrent, never a second wallet, so no same-output
+// double-spend (monero-ts marks an input spent in-memory the instant a tx
+// relays). The target is capped by the FRESH unlocked balance minus the dust
+// floor so the hot wallet is never drained to zero (locked change can still
+// defer it; the remainder rolls into next week's opsRolledOver).
+//
+// Relay-before-persist mirrors sendPayouts: a relayed tx hash is captured the
+// instant createTx succeeds and logged before any DB write, so it is never
+// silently lost; a persist failure retries once then logs CRITICAL (manual
+// reconciliation) rather than flipping FAILED — FAILED means funds STAYED in
+// the wallet, which a post-relay persist blip does not satisfy.
+//
+// `wallet` is injectable for unit tests; production leaves it unset and reuses
+// the getRewardsWallet() singleton.
+export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
+  if (distribution?.opsSweepState === 'SWEPT') {
+    return { state: 'SWEPT', txHash: distribution.opsSweepTxHash, swept: distribution.opsSweptPiconeros }
+  }
+
+  const coldAddress = process.env.REWARDS_COLD_STORAGE_ADDRESS
+  const sweepEnabled = String(process.env.REWARDS_OPS_SWEEP_ENABLED ?? 'true') !== 'false'
+  if (!sweepEnabled || !coldAddress) {
+    return { state: 'DISABLED' }
+  }
+
+  const w = wallet || await getRewardsWallet()
+  const unlocked = BigInt(await w.getUnlockedBalance(0))
+  const opsAvailable = BigInt(distribution.opsAvailablePiconeros)
+  const target = opsAvailable < unlocked - REWARDS_OPS_SWEEP_MIN_PICONEROS
+    ? opsAvailable
+    : unlocked - REWARDS_OPS_SWEEP_MIN_PICONEROS
+
+  if (target <= REWARDS_OPS_SWEEP_MIN_PICONEROS) {
+    await models.rewardDistribution.update({
+      where: { id: distribution.id },
+      data: { opsSweepState: 'SKIPPED_LOCKED' }
+    })
+    return { state: 'SKIPPED_LOCKED' }
+  }
+
+  let tx
+  try {
+    tx = await w.createTx({
+      accountIndex: 0,
+      address: coldAddress,
+      amount: target,
+      relay: true
+    })
+  } catch (err) {
+    if (isBalanceError(err)) {
+      await models.rewardDistribution.update({
+        where: { id: distribution.id },
+        data: { opsSweepState: 'SKIPPED_LOCKED' }
+      })
+      return { state: 'SKIPPED_LOCKED' }
+    }
+    console.error(`sweepOpsEarmark: distribution ${distribution.id} sweep FAILED: ${err && err.message}`)
+    await models.rewardDistribution.update({
+      where: { id: distribution.id },
+      data: { opsSweepState: 'FAILED' }
+    })
+    return { state: 'FAILED' }
+  }
+
+  const txHash = toTxHash(tx.getHash())
+  console.log(`sweepOpsEarmark: distribution ${distribution.id} relayed txHash=${txHash} swept=${target.toString()}`)
+  try {
+    await models.rewardDistribution.update({
+      where: { id: distribution.id },
+      data: { opsSweepState: 'SWEPT', opsSweptPiconeros: target, opsSweepTxHash: txHash }
+    })
+  } catch (err) {
+    console.error(`sweepOpsEarmark: CRITICAL — tx ${txHash} relayed for distribution ${distribution.id} but DB update failed: ${err && err.message}. Manual reconciliation required.`)
+    try {
+      await models.rewardDistribution.update({
+        where: { id: distribution.id },
+        data: { opsSweepState: 'SWEPT', opsSweptPiconeros: target, opsSweepTxHash: txHash }
+      })
+    } catch (err2) {
+      console.error(`sweepOpsEarmark: CRITICAL — retry also failed for distribution ${distribution.id} txHash=${txHash}: ${err2 && err2.message}`)
+    }
+  }
+
+  return { state: 'SWEPT', txHash, swept: target }
 }
 
 // monero-ts getHash() returns a hex string (verified on stagenet), but defend
