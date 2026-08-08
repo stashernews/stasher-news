@@ -31,7 +31,8 @@ function makeAccount (overrides = {}) {
 const CONFIG = {
   downvoteRewardsPct: 100,
   postingFeeRewardsPct: 70,
-  territoryFeeRewardsPct: 30
+  territoryFeeRewardsPct: 30,
+  walletlessTipRewardsPct: 50
 }
 
 function makeModels ({ account = makeAccount(), downvotes = 0n, feeGroups = [], config = CONFIG } = {}) {
@@ -106,6 +107,21 @@ describe('Query.rewardsWalletInfo', () => {
     expect(result.inflowBreakdown.downvoteRewardsPct).toBe(100)
     expect(result.inflowBreakdown.postingFeeRewardsPct).toBe(70)
     expect(result.inflowBreakdown.territoryFeeRewardsPct).toBe(30)
+  })
+
+  test('TIP_UNWALLETED is bucketed as wallet-less tips (NOT territory) and earmarked at walletlessTipRewardsPct', async () => {
+    const feeGroups = [{ feeType: 'TIP_UNWALLETED', _sum: { piconeros: 4_000_000_000n } }]
+    const models = makeModels({ downvotes: 0n, feeGroups })
+    const monero = makeMonero(4_000_000_000n, 0n) // balance === inflow, so earmark === rewardsInflow
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+
+    expect(result.inflowBreakdown.walletlessTipPiconeros).toBe(4_000_000_000n)
+    expect(result.inflowBreakdown.territoryFeePiconeros).toBe(0n) // NOT mislabeled as turf
+    expect(result.inflowBreakdown.walletlessTipRewardsPct).toBe(50)
+    // rewardsInflow = 4e9 * 50 / 100 = 2e9; opsInflow = 2e9
+    expect(result.inflowBreakdown.rewardsPiconeros).toBe(2_000_000_000n)
+    expect(result.inflowBreakdown.opsPiconeros).toBe(2_000_000_000n)
   })
 
   test('zero confirmed inflow puts the whole balance in ops earmark', async () => {
