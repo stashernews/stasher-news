@@ -8,6 +8,8 @@ export async function deleteUnusedImages ({ models, boss }) {
     FROM "Upload"
     WHERE NOT EXISTS (SELECT * FROM users WHERE "photoId" = "Upload".id)
       AND NOT EXISTS (SELECT * FROM "Item" WHERE "uploadId" = "Upload".id)
+      AND NOT EXISTS (SELECT * FROM "ItemUpload" WHERE "uploadId" = "Upload".id)
+      AND NOT EXISTS (SELECT * FROM "SubBranding" WHERE "logoId" = "Upload".id)
       AND created_at < date_trunc('hour', now() - CASE WHEN "userId" = ${USER_ID.anon} THEN interval '24 hours' ELSE interval '7 days' END)`
 
   const s3Keys = unpaidImages.map(({ id }) => id)
