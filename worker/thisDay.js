@@ -166,7 +166,6 @@ const THIS_DAY = gql`
           id
           optional {
             streak
-            hasRecvWallet
           }
         }
         nitems(when: "custom", from: $from, to: $to)

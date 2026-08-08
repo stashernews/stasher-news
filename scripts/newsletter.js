@@ -35,7 +35,6 @@ query TopCowboys($cursor: String) {
       name
       optional {
         streak
-        hasRecvWallet
       }
     }
     cursor

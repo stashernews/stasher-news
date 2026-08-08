@@ -91,7 +91,7 @@ export default function PayBounty ({ children, item }) {
     return null
   }
 
-  if (!item.user.optional?.hasRecvWallet) {
+  if (!item.user.optional?.hasWallet) {
     return (
       <ActionTooltip
         notForm
