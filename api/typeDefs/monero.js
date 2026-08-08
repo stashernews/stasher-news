@@ -61,6 +61,9 @@ export default gql`
     integratedAddress: String!
     paymentId: String!
     uri: String!
+    # 'AUTHOR' = P2P to the post author's wallet; 'REWARDS' = the author has no
+    # wallet, so the tip lands in the platform rewards pool instead.
+    recipient: String!
   }
 
   enum PrivacyMode {
