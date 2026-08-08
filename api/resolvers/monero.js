@@ -239,8 +239,10 @@ export default {
     // the min-tip floor, mints the integrated address + payment ID, registers the lws
     // webhook, and creates the PENDING ObservedTip). The webhook receiver handles
     // detection + confirmation and calls applyTipDetected (the ranking hook).
+    // Anonymous tippers are allowed: initiateTipCore stores a null tipperId, which
+    // the downstream pipeline already treats as "anonymous tip" (raw ranking only —
+    // no curator shares, streaks, or trust-weighted votes).
     async initiateTip (parent, { postId, amount }, { me, models, monero }) {
-      if (!me) throw new GqlAuthenticationError()
       return initiateTipCore({ postId, amount, models, monero, me })
     },
 

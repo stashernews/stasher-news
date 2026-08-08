@@ -74,6 +74,27 @@ test('expires a PENDING tip with no matching payment after PENDING_EXPIRY_MS (->
   expect(expiredWhere).toEqual({ id: 2n, state: 'PENDING' })
 })
 
+test('expires a PENDING tip older than 24h (PENDING_EXPIRY_MS default)', async () => {
+  // 2 days is inside the old 7-day default but past the 24h default: unpaid
+  // tips must not linger longer than downvote pid-maps or fee reservations.
+  const expiredDate = new Date(Date.now() - (2 * 24 * 60 * 60 * 1000))
+  const t = tip({ id: 5n, detectedAt: expiredDate })
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: {} }
+  const lws = { getAddressTxs: async () => ({ transactions: [], blockchain_height: 110 }) }
+  let expiredWhere = null
+  const models = {
+    observedTip: {
+      findMany: async () => [t],
+      updateMany: async ({ where }) => { expiredWhere = where; return { count: 1 } }
+    },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async () => {}
+  }
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => {} })
+  expect(out.expired).toBe(1)
+  expect(expiredWhere).toEqual({ id: 5n, state: 'PENDING' })
+})
+
 test('never calls lws for an account without a viewKey, but still expires its PENDING tips (soft-deleted account)', async () => {
   const expiredDate = new Date(Date.now() - (8 * 24 * 60 * 60 * 1000))
   const t = tip({ id: 4n, detectedAt: expiredDate })
