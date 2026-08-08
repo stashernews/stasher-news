@@ -37,6 +37,7 @@ services:
       # the prefix makes sure the seeds are executed in the correct order instead of alphabetical by default
       - ./docker/db/000_seed.sql.gz:/docker-entrypoint-initdb.d/000_seed.sql.gz
       - db:/var/lib/postgresql/data
+      - wal_archive:/wal-archive
     labels:
       CONNECT: "localhost:5431"
     cpu_shares: "${CPU_SHARES_IMPORTANT}"
@@ -46,6 +47,12 @@ services:
       - log_min_messages=notice
       - -c
       - log_error_verbosity=terse
+      - -c
+      - wal_level=replica
+      - -c
+      - 'archive_mode=${DB_ARCHIVE_MODE:-off}'
+      - -c
+      - 'archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f'
   app:
     container_name: app
     stdin_open: true
@@ -351,6 +358,7 @@ volumes:
   os:
   aws:
   backups:
+  wal_archive:
 
   dnsmasq:
   caddy_data:
