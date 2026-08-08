@@ -230,10 +230,20 @@ test('getInitial returns a comment-fee URI for authors past the freebie quota', 
   expect(result.moneroSubaddressMajor).toBe(1)
 })
 
-// --- A-06: anonymous comments pay the comment fee x ANON_FEE_MULTIPLIER ---
-test('getInitial returns a x10 anon comment-fee URI for anonymous comments', async () => {
+// --- anonymous comments pay the comment fee x ANON_COMMENT_FEE_MULTIPLIER ---
+test('getInitial returns a x3 anon comment-fee URI for anonymous comments', async () => {
   await ensureFeeConfig()
   const result = await getInitial(prisma, { parentId: '999' }, { me: { id: USER_ID.anon } })
+  expect(result.piconeros).toBe(0n)
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroUri).toContain('tx_amount=0.003') // 0.001 x 3
+  expect(result.moneroSubaddressMajor).toBe(1)
+})
+
+// --- anonymous posts pay the flat fee x ANON_POST_FEE_MULTIPLIER ---
+test('getInitial returns a x10 anon posting-fee URI for anonymous posts', async () => {
+  await ensureFeeConfig()
+  const result = await getInitial(prisma, {}, { me: { id: USER_ID.anon } })
   expect(result.piconeros).toBe(0n)
   expect(result.moneroUri).toMatch(/^monero:/)
   expect(result.moneroUri).toContain('tx_amount=0.01') // 0.001 x 10

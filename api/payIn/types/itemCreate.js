@@ -1,4 +1,4 @@
-import { ANON_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
+import { ANON_COMMENT_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ANON_POST_FEE_MULTIPLIER, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { notifyItemMention, notifyItemParents, notifyMention, notifyTerritorySubscribers, notifyUserSubscribers, notifyThreadSubscribers } from '@/lib/webPush'
 import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
@@ -59,13 +59,13 @@ export async function getInitial (models, args, { me }) {
     // freebies left (15/month for all users); beyond the quota each comment costs
     // the flat comment fee (postingFeeFloorPiconeros) to the platform rewards
     // wallet, observed by the rewardsWalletObserver like the posting fee. Anon comments
-    // pay the comment fee x ANON_FEE_MULTIPLIER.
+    // pay the comment fee x ANON_COMMENT_FEE_MULTIPLIER.
     if (me.id === USER_ID.anon) {
-      // anon has no freebie quota and pays the comment fee x ANON_FEE_MULTIPLIER.
+      // anon has no freebie quota and pays the comment fee x ANON_COMMENT_FEE_MULTIPLIER.
       // No spam escalation: ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0.
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       if (!config) throw new GqlInputError('fee config not initialized')
-      const fee = postingFeePiconeros(config) * BigInt(ANON_FEE_MULTIPLIER)
+      const fee = postingFeePiconeros(config) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
       const sub = await reserveFeeSubaddress(models, 'POSTING')
       const moneroUri = buildMoneroUri(
         [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
@@ -152,12 +152,16 @@ export async function getInitial (models, args, { me }) {
     }
   }
 
-  // low-rep user: reserve a rewards-wallet posting-fee subaddress and build the URI
-  const fee = await escalatedFeePiconeros(models, {
-    parentId: null,
-    userId: me.id,
-    basePiconeros: postingFeePiconeros(config)
-  })
+  // low-rep user: reserve a rewards-wallet posting-fee subaddress and build the URI.
+  // Anon posts pay the flat fee x ANON_POST_FEE_MULTIPLIER (no spam escalation:
+  // ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0).
+  const fee = me.id === USER_ID.anon
+    ? postingFeePiconeros(config) * BigInt(ANON_POST_FEE_MULTIPLIER)
+    : await escalatedFeePiconeros(models, {
+      parentId: null,
+      userId: me.id,
+      basePiconeros: postingFeePiconeros(config)
+    })
   const sub = await reserveFeeSubaddress(models, 'POSTING')
   const moneroUri = buildMoneroUri(
     [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
