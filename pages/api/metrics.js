@@ -3,11 +3,15 @@ import { register, collectDBBackedMetrics, collectHealthGauges } from '@/lib/met
 
 // Prometheus scrape endpoint (Task D7).
 //
-// Unauthenticated: the exposition contains only metric names + aggregate
-// counts (no secrets, no PII, no user data). In production this endpoint MUST
-// sit behind a private network or a reverse-proxy scrape allowlist (e.g.
-// allow only the Prometheus server's IP) — it is intentionally NOT gated by
-// auth so a scrape can run without credentials.
+// Token-gated: if METRICS_TOKEN is set, the scrape must carry ?token=<value>
+// matching it or the endpoint returns 401. When METRICS_TOKEN is unset the
+// endpoint is open (dev convenience) — production MUST either set METRICS_TOKEN
+// or restrict the endpoint at the network/reverse-proxy layer (e.g. allow only
+// the Prometheus server's IP). The exposition contains only metric names +
+// aggregate counts (no secrets, no PII, no user data), but on a privacy-focused
+// Monero platform even aggregate counts (treasury balance, pending-tip counts,
+// distribution status) are an avoidable info leak, so gate it in prod. See
+// docs/ops/mainnet-launch.md and docs/ops/security-review.md.
 //
 // On every GET it refreshes the DB-backed gauges (pending tips, latest
 // distribution status, pg-boss failed count, ops earmark) and the in-process
@@ -16,6 +20,11 @@ import { register, collectDBBackedMetrics, collectHealthGauges } from '@/lib/met
 export default async function handler (req, res) {
   if (req.method !== 'GET') {
     res.status(405).end()
+    return
+  }
+  const expectedToken = process.env.METRICS_TOKEN || ''
+  if (expectedToken && req.query.token !== expectedToken) {
+    res.status(401).end()
     return
   }
   res.setHeader('Cache-Control', 'no-store')
