@@ -28,7 +28,7 @@ async function captureStreakQuery () {
       return []
     }
   }
-  await checkStreak({ data: { id: 5, type: 'COWBOY_HAT' }, models })
+  await checkStreak({ data: { id: 5, type: 'FLAME' }, models })
   return captured
 }
 
@@ -37,6 +37,11 @@ test('counts P2P ObservedTip activity toward the streak (union branch)', async (
   expect(sql.text).toContain('ObservedTip')
   expect(sql.text).toContain('tipperId')
   expect(sql.values).toContain(5)
+})
+
+test('writes the FLAME streak type', async () => {
+  const sql = await captureStreakQuery()
+  expect(sql.values).toContain('FLAME')
 })
 
 test('thresholds a streak day at 0.001 XMR (1e9 piconeros)', async () => {
@@ -49,6 +54,6 @@ test('skips users with an active streak', async () => {
     user: { findUnique: async () => ({ streak: 3 }) },
     $queryRaw: jest.fn()
   }
-  await checkStreak({ data: { id: 5, type: 'COWBOY_HAT' }, models })
+  await checkStreak({ data: { id: 5, type: 'FLAME' }, models })
   expect(models.$queryRaw).not.toHaveBeenCalled()
 })
