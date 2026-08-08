@@ -35,6 +35,7 @@ import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
 import { dbBackup } from './dbBackup'
+import { writeWorkerHeartbeat } from './heartbeat'
 import { logInfo, logError } from '@/lib/logger'
 
 // WebSocket polyfill
@@ -75,6 +76,7 @@ async function work () {
 
   function jobWrapper (fn) {
     return async function (job) {
+      writeWorkerHeartbeat()
       logInfo(`running ${job.name} with args`, job.data)
       if (job.retrycount > 0) {
         logInfo(`  ... retry #${job.retrycount}/${job.retrylimit}`)
@@ -90,6 +92,7 @@ async function work () {
   }
 
   await boss.start()
+  writeWorkerHeartbeat()
 
   if (isServiceEnabled('search')) {
     await boss.work('indexItem', jobWrapper(indexItem))

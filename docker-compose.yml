@@ -65,7 +65,7 @@ services:
     restart: unless-stopped
     healthcheck:
       <<: *healthcheck
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
     depends_on: *depends_on_db
     env_file: *env_file
     expose:
@@ -108,6 +108,9 @@ services:
         - UID=${CURRENT_UID}
         - GID=${CURRENT_GID}
     restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "find ${WORKER_HEARTBEAT_PATH:-/tmp/worker-heartbeat} -mmin -5 | grep -q . || exit 1"]
     depends_on:
       <<:
          - *depends_on_db
