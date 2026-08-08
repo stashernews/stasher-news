@@ -32,7 +32,7 @@ async function createUser () {
 
 async function createUploads (userId, specs) {
   await prisma.upload.createMany({
-    data: specs.map(({ size }) => ({ userId, size, type: 'image/png', paid: false }))
+    data: specs.map(({ size, paid = false }) => ({ userId, size, type: 'image/png', paid }))
   })
   // userId is fresh per test, so all of its uploads are ours
   const rows = await prisma.upload.findMany({ where: { userId }, select: { id: true } })
@@ -62,5 +62,14 @@ describe('uploadFees — 10MB threshold', () => {
     const ids = await createUploads(27, [{ size: 11 * 1024 * 1024 }])
     const fees = await uploadFees(ids, { models: prisma, me: { id: 27 } })
     expect(fees.totalFeesPiconeros).toBe(UPLOAD_FEE_PICONEROS)
+  })
+
+  test('already-paid uploads over 10MB are exempt from the fee', async () => {
+    const userId = await createUser()
+    const ids = await createUploads(userId, [{ size: 11 * 1024 * 1024, paid: true }])
+    const fees = await uploadFees(ids, { models: prisma, me: { id: userId } })
+    expect(fees.nUnpaid).toBe(0n)
+    expect(fees.bytesUnpaid).toBe(0n)
+    expect(fees.totalFeesPiconeros).toBe(0n)
   })
 })
