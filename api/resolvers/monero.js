@@ -4,6 +4,7 @@ import { makeIntegratedAddress } from '../monero/integratedAddress'
 import { generateTipPaymentId } from '../monero/paymentId'
 import { buildMoneroUri } from '../monero/uri'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
+import { notifyNewStreak } from '@/lib/webPush'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 
 // StasherNews Monero wallet-setup + tip-initiation resolvers (spec §4.5, §7.3).
@@ -206,7 +207,19 @@ export default {
         return account
       })
 
-      // 4. Return with the owner User eager-loaded so the privacyMode field
+      // 4. Verified badge notification: grant the VERIFIED streak row once
+      //    (the badge itself is dynamic — hasWallet — so removal needs no
+      //    cleanup; the row only drives the one-time "found" notification).
+      const [verified] = await models.$queryRaw`
+        INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
+        SELECT ${me.id}::int, NOW(), 'VERIFIED'::"StreakType", now_utc(), now_utc()
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "Streak" WHERE "userId" = ${me.id}::int AND type = 'VERIFIED'
+        )
+        RETURNING "Streak".*`
+      if (verified) notifyNewStreak(me.id, verified).catch(console.error)
+
+      // 5. Return with the owner User eager-loaded so the privacyMode field
       //    resolver can read parent.user.privacyMode without an extra round
       //    trip.
       return models.moneroAccount.findUnique({

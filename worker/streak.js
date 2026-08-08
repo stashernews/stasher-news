@@ -52,6 +52,23 @@ export async function computeStreaks ({ models }) {
     RETURNING "Streak".*`
 
   Promise.allSettled(endingStreaks.map(streak => notifyStreakLost(streak.userId, streak)))
+
+  // End COIN badge streaks whose tipper hasn't tipped in the last 24h
+  const coldCoins = await models.$queryRaw`
+    WITH cold AS (
+      SELECT s."userId", s.id
+      FROM "Streak" s
+      WHERE s.type = 'COIN' AND s."endedAt" IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM "ObservedTip" t
+          WHERE t."tipperId" = s."userId" AND t.state = 'CONFIRMED'
+            AND t."confirmedAt" > now() - interval '24 hours'
+        )
+    )
+    UPDATE "Streak" SET "endedAt" = NOW(), updated_at = now_utc()
+    FROM cold WHERE cold.id = "Streak".id AND "endedAt" IS NULL
+    RETURNING "Streak".*`
+  Promise.allSettled(coldCoins.map(streak => notifyStreakLost(streak.userId, streak)))
 }
 
 export async function checkStreak ({ data: { id, type = 'FLAME' }, models }) {

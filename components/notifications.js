@@ -13,10 +13,9 @@ import Check from '@/svgs/check-double-line.svg'
 import HandCoin from '@/svgs/hand-coin-fill.svg'
 import UserAdd from '@/svgs/user-add-fill.svg'
 import { LOST_BLURBS, FOUND_BLURBS, PAY_IN_ACT_TYPES } from '@/lib/constants'
-import CowboyHatIcon from '@/svgs/cowboy.svg'
-import BaldIcon from '@/svgs/bald.svg'
-import GunIcon from '@/svgs/revolver.svg'
-import HorseIcon from '@/svgs/horse.svg'
+import FlameIcon from '@/svgs/flame.svg'
+import CoinIcon from '@/svgs/coin.svg'
+import VerifiedIcon from '@/svgs/verified.svg'
 import { RootProvider } from './root'
 import Alert from 'react-bootstrap/Alert'
 import styles from './notifications.module.css'
@@ -34,8 +33,6 @@ import LinkToContext from './link-to-context'
 import { Badge, Button } from 'react-bootstrap'
 import { useToast } from './toast'
 import classNames from 'classnames'
-import HolsterIcon from '@/svgs/holster.svg'
-import SaddleIcon from '@/svgs/saddle.svg'
 import CCInfo from './info/cc'
 import { useMe } from './me'
 import { getFailedRetryPayIn, runManualRetry, useRetryPayIn } from './payIn/hooks/use-retry-pay-in'
@@ -55,9 +52,9 @@ function Notification ({ n, fresh }) {
         (type === 'Revenue' && <RevenueNotification n={n} />) ||
         (type === 'Invitification' && <Invitification n={n} />) ||
         (type === 'Referral' && <Referral n={n} />) ||
-        (type === 'CowboyHat' && <CowboyHat n={n} />) ||
-        (['NewHorse', 'LostHorse'].includes(type) && <Horse n={n} />) ||
-        (['NewGun', 'LostGun'].includes(type) && <Gun n={n} />) ||
+        (type === 'Flame' && <Flame n={n} />) ||
+        (['NewCoin', 'LostCoin'].includes(type) && <Coin n={n} />) ||
+        (type === 'NewVerified' && <Verified n={n} />) ||
         (type === 'Votification' && <Votification n={n} />) ||
         (type === 'BountyPayment' && <BountyPayment n={n} />) ||
         (type === 'Mention' && <Mention n={n} />) ||
@@ -165,7 +162,7 @@ const defaultOnClick = n => {
   if (type === 'SubStatus') return { href: `/~${n.sub.name}` }
   if (type === 'Invitification') return { href: '/invites' }
   if (type === 'PayInification') return { href: `/transactions/${n.payIn.id}` }
-  if (['CowboyHat', 'NewHorse', 'LostHorse', 'NewGun', 'LostGun'].includes(type)) return {}
+  if (['Flame', 'NewCoin', 'LostCoin', 'NewVerified'].includes(type)) return {}
   if (type === 'TerritoryTransfer') return { href: `/~${n.sub.name}` }
 
   if (!n.item) return {}
@@ -175,12 +172,15 @@ const defaultOnClick = n => {
 }
 
 function blurb (n) {
-  const type = n.__typename === 'CowboyHat'
-    ? 'COWBOY_HAT'
-    : (n.__typename.includes('Horse') ? 'HORSE' : 'GUN')
-  const index = Number(n.id) % Math.min(FOUND_BLURBS[type].length, LOST_BLURBS[type].length)
+  const type = n.__typename.includes('Flame')
+    ? 'FLAME'
+    : n.__typename.includes('Coin')
+      ? 'COIN'
+      : 'VERIFIED'
   const lost = n.days || n.__typename.includes('Lost')
-  return lost ? LOST_BLURBS[type][index] : FOUND_BLURBS[type][index]
+  const blurbs = lost ? (LOST_BLURBS[type] || FOUND_BLURBS[type]) : FOUND_BLURBS[type]
+  const index = Number(n.id) % blurbs.length
+  return blurbs[index]
 }
 
 function Bulletinification ({ n }) {
@@ -196,19 +196,18 @@ function Bulletinification ({ n }) {
   )
 }
 
-function CowboyHat ({ n }) {
-  const Icon = n.days ? BaldIcon : CowboyHatIcon
-
+function Flame ({ n }) {
+  const Icon = FlameIcon
+  const lost = !!n.days
   let body = ''
-  if (n.days) {
+  if (lost) {
     body = `After ${numWithUnits(n.days, {
       abbreviate: false,
       unitSingular: 'day',
       unitPlural: 'days'
     })}, `
   }
-
-  body += `you ${n.days ? 'lost your' : 'found a'} cowboy hat`
+  body += lost ? 'you lost your flame' : "You're on fire!"
 
   return (
     <div className='d-flex'>
@@ -221,30 +220,26 @@ function CowboyHat ({ n }) {
   )
 }
 
-function Horse ({ n }) {
+function Coin ({ n }) {
   const found = n.__typename.includes('New')
-  const Icon = found ? HorseIcon : SaddleIcon
 
   return (
     <div className='d-flex'>
-      <div style={{ fontSize: '2rem', alignSelf: 'center' }}><Icon className='fill-grey' height={40} width={40} /></div>
+      <div style={{ fontSize: '2rem', alignSelf: 'center' }}><CoinIcon className='fill-grey' height={40} width={40} /></div>
       <div className='ms-1 p-1'>
-        <span className='fw-bold'>you {found ? 'found a' : 'lost your'} horse</span>
+        <span className='fw-bold'>{found ? 'You found a coin' : 'You lost your coin!'}</span>
         <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{blurb(n)}</small></div>
       </div>
     </div>
   )
 }
 
-function Gun ({ n }) {
-  const found = n.__typename.includes('New')
-  const Icon = found ? GunIcon : HolsterIcon
-
+function Verified ({ n }) {
   return (
     <div className='d-flex'>
-      <div style={{ fontSize: '2rem', alignSelf: 'center' }}><Icon className='fill-grey' height={40} width={40} /></div>
+      <div style={{ fontSize: '2rem', alignSelf: 'center' }}><VerifiedIcon className='fill-grey' height={40} width={40} /></div>
       <div className='ms-1 p-1'>
-        <span className='fw-bold'>you {found ? 'found a' : 'lost your'} gun</span>
+        <span className='fw-bold'>your account is verified</span>
         <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{blurb(n)}</small></div>
       </div>
     </div>

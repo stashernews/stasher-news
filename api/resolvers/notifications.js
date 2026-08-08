@@ -259,15 +259,15 @@ export default {
 
       if (meFull.noteCowboyHat) {
         queries.push(
-          `(SELECT id::text, updated_at AS "sortTime", 0::INTEGER as "earnedPiconeros", 'CowboyHat' AS type
+          `(SELECT id::text, updated_at AS "sortTime", 0::INTEGER as "earnedPiconeros", 'Flame' AS type
           FROM "Streak"
           WHERE "userId" = $1
           AND updated_at < $2
-          AND type = 'COWBOY_HAT'
+          AND type = 'FLAME'
           ORDER BY "sortTime" DESC
           LIMIT ${LIMIT})`
         )
-        for (const type of ['HORSE', 'GUN']) {
+        for (const type of ['COIN', 'VERIFIED']) {
           const gqlType = type.charAt(0) + type.slice(1).toLowerCase()
           queries.push(
             `(SELECT id::text, "startedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros", 'New${gqlType}' AS type
@@ -278,17 +278,17 @@ export default {
             ORDER BY "sortTime" DESC
             LIMIT ${LIMIT})`
           )
-          queries.push(
-            `(SELECT id::text AS id, "endedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros", 'Lost${gqlType}' AS type
-            FROM "Streak"
-            WHERE "userId" = $1
-            AND updated_at < $2
-            AND "endedAt" IS NOT NULL
-            AND type = '${type}'::"StreakType"
-            ORDER BY "sortTime" DESC
-            LIMIT ${LIMIT})`
-          )
         }
+        queries.push(
+          `(SELECT id::text AS id, "endedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros", 'LostCoin' AS type
+          FROM "Streak"
+          WHERE "userId" = $1
+          AND updated_at < $2
+          AND "endedAt" IS NOT NULL
+          AND type = 'COIN'::"StreakType"
+          ORDER BY "sortTime" DESC
+          LIMIT ${LIMIT})`
+        )
       }
 
       queries.push(
@@ -499,7 +499,7 @@ export default {
       }
     }
   },
-  CowboyHat: {
+  Flame: {
     days: async (n, args, { models }) => {
       const res = await models.$queryRaw`
         SELECT "endedAt"::date - "startedAt"::date AS days
