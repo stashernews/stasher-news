@@ -1,6 +1,5 @@
 import React from 'react'
 import styles from './pay-bounty.module.css'
-import ActionTooltip from './action-tooltip'
 import { useMe } from './me'
 import { piconerosToXmr } from '@/lib/format'
 import { useShowModal } from './modal'
@@ -89,17 +88,6 @@ export default function PayBounty ({ children, item }) {
 
   if (!me || item.mine || root.user.name !== me.name) {
     return null
-  }
-
-  if (!item.user.optional?.hasWallet) {
-    return (
-      <ActionTooltip
-        notForm
-        overlayText={`${item.user.name} doesn't have a receive wallet to pay to`}
-      >
-        <div className={styles.noWallet}>no receive wallet</div>
-      </ActionTooltip>
-    )
   }
 
   return (
