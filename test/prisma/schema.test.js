@@ -176,3 +176,14 @@ test('User has no gun/horse streak columns', () => {
     expect(fields).not.toContain(c)
   }
 })
+
+test('User badge settings use the re-themed names (hideBadges/noteBadges)', () => {
+  const fields = fieldsOf('User')
+  for (const c of ['hideBadges', 'noteBadges']) {
+    expect(fields).toContain(c)
+  }
+  // cowboy-era names removed by the 20260808105600_badge_settings_rename migration
+  for (const c of ['hideCowboyHat', 'noteCowboyHat']) {
+    expect(fields).not.toContain(c)
+  }
+})

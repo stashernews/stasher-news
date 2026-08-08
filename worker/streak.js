@@ -1,7 +1,7 @@
 import { notifyNewStreak, notifyStreakLost } from '@/lib/webPush'
 import { Prisma } from '@prisma/client'
 
-const COWBOY_HAT_STREAK_THRESHOLD_PICONEROS = 1000000000
+const FLAME_STREAK_THRESHOLD_PICONEROS = 1000000000
 
 export async function computeStreaks ({ models }) {
   // get all eligible users in the last day
@@ -126,7 +126,7 @@ function getStreakQuery (type, userId) {
             GROUP BY "ObservedTip"."tipperId"
         ) AS "activity"
         GROUP BY "activity"."userId"
-        HAVING sum("activity"."piconeros") >= ${COWBOY_HAT_STREAK_THRESHOLD_PICONEROS}`
+        HAVING sum("activity"."piconeros") >= ${FLAME_STREAK_THRESHOLD_PICONEROS}`
 }
 
 function isStreakActive (type, user) {

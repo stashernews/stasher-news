@@ -37,6 +37,13 @@ describe('buildBadges — Stasher identity', () => {
     expect(badges.map(b => b.overlayText)).toEqual(['1 day'])
   })
 
+  test('zero-length flame reads "new"', () => {
+    const user = { id: 1, optional: { streak: 0, tippedRecently: false } }
+    const badges = buildBadges(user)
+
+    expect(badges.map(b => b.overlayText)).toEqual(['new'])
+  })
+
   test('no flame when streak is null', () => {
     const user = { id: 1, optional: { streak: null, hasWallet: true, tippedRecently: false } }
     expect(buildBadges(user, { showWalletBadges: true }).map(b => b.overlayText)).toEqual(['verified wallet'])

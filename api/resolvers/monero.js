@@ -217,7 +217,14 @@ export default {
           SELECT 1 FROM "Streak" WHERE "userId" = ${me.id}::int AND type = 'VERIFIED'
         )
         RETURNING "Streak".*`
-      if (verified) notifyNewStreak(me.id, verified).catch(console.error)
+      if (verified) {
+        try {
+          await notifyNewStreak(me.id, verified)
+        } catch (err) {
+          // best-effort notification; registration already succeeded
+          console.error('error sending verified badge notification:', err)
+        }
+      }
 
       // 5. Return with the owner User eager-loaded so the privacyMode field
       //    resolver can read parent.user.privacyMode without an extra round
