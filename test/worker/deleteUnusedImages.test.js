@@ -7,7 +7,7 @@
 // regardless of the paid flag, while recent or referenced uploads survive.
 // References cover every real attachment path: the ItemUpload join table (the
 // path posts/comments actually use), Item.uploadId (job listings), the
-// SubBranding.logoId (territory logos) and users.photoId.
+// SubBranding.logoId and faviconId (territory logos/favicons) and users.photoId.
 //
 // S3 is stubbed (deleteObjects returns its input keys) so the test is hermetic:
 // with NODE_ENV=test the real @/api/s3 targets Amazon S3 with the localstack
@@ -68,6 +68,7 @@ async function createItem (userId, { uploadId = null } = {}) {
 //   - 'itemUpload': the ItemUpload join table — the real path for posts/comments
 //   - 'itemUploadId': Item.uploadId — job listings
 //   - 'logo': SubBranding.logoId — territory logos
+//   - 'favicon': SubBranding.faviconId — territory favicons
 //   - 'photo': users.photoId — user profile photos
 async function seedUpload ({ userId, ageMs, paid = false, reference = null }) {
   const upload = await prisma.upload.create({
@@ -97,6 +98,18 @@ async function seedUpload ({ userId, ageMs, paid = false, reference = null }) {
     })
     created.subs.push(sub.name)
     await prisma.subBranding.create({ data: { subName: sub.name, logoId: upload.id } })
+  } else if (reference === 'favicon') {
+    const sub = await prisma.sub.create({
+      data: {
+        name: `sub-favicon-${upload.id}`,
+        userId,
+        rankingType: 'WOT',
+        billingType: 'ONCE',
+        billingCost: 1000000000
+      }
+    })
+    created.subs.push(sub.name)
+    await prisma.subBranding.create({ data: { subName: sub.name, faviconId: upload.id } })
   } else if (reference === 'photo') {
     await prisma.user.update({ where: { id: userId }, data: { photoId: upload.id } })
   }
@@ -114,6 +127,7 @@ test('deleteUnusedImages deletes old unreferenced uploads (7d registered / 24h a
   const refItemUpload = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'itemUpload' })
   const refItemUploadId = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'itemUploadId' })
   const refLogo = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'logo' })
+  const refFavicon = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'favicon' })
   const refPhoto = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'photo' })
   // anon uploads are deleted after 24h instead of 7d
   const oldAnon = await seedUpload({ userId: USER_ID.anon, ageMs: 2 * DAY_MS })
@@ -123,12 +137,12 @@ test('deleteUnusedImages deletes old unreferenced uploads (7d registered / 24h a
 
   const remaining = await prisma.upload.findMany({
     where: {
-      id: { in: [oldUnpaid.id, oldPaid.id, recent.id, refItemUpload.id, refItemUploadId.id, refLogo.id, refPhoto.id, oldAnon.id] }
+      id: { in: [oldUnpaid.id, oldPaid.id, recent.id, refItemUpload.id, refItemUploadId.id, refLogo.id, refFavicon.id, refPhoto.id, oldAnon.id] }
     },
     select: { id: true }
   })
   const remainingIds = remaining.map(({ id }) => id).sort()
-  expect(remainingIds).toEqual([recent.id, refItemUpload.id, refItemUploadId.id, refLogo.id, refPhoto.id].sort())
+  expect(remainingIds).toEqual([recent.id, refItemUpload.id, refItemUploadId.id, refLogo.id, refFavicon.id, refPhoto.id].sort())
   // the daily sweep re-queues itself for the next run
   expect(boss.send).toHaveBeenCalledWith('deleteUnusedImages', {}, { startAfter: 24 * 60 * 60 })
 })
