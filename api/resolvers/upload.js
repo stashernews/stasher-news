@@ -1,4 +1,4 @@
-import { USER_ID, IMAGE_PIXELS_MAX, UPLOAD_SIZE_MAX, UPLOAD_SIZE_MAX_AVATAR, UPLOAD_TYPES_ALLOW, AWS_S3_URL_REGEXP, AVATAR_TYPES_ALLOW, MEDIA_URL, DOMAIN_BETA_IDS } from '@/lib/constants'
+import { USER_ID, IMAGE_PIXELS_MAX, UPLOAD_SIZE_MAX, UPLOAD_SIZE_MAX_AVATAR, UPLOAD_FREE_BYTES_MAX, UPLOAD_FEE_PICONEROS, UPLOAD_TYPES_ALLOW, AWS_S3_URL_REGEXP, AVATAR_TYPES_ALLOW, MEDIA_URL, DOMAIN_BETA_IDS } from '@/lib/constants'
 import { createPresignedPost } from '@/api/s3'
 import { GqlAuthenticationError, GqlAuthorizationError, GqlInputError } from '@/lib/error'
 import { Prisma } from '@prisma/client'
@@ -107,40 +107,26 @@ export async function uploadFees (s3Keys, { models, me }) {
     }
   }
 
-  const [{
-    bytes24h,
+  const [{ bytesUnpaid, nUnpaid }] = await models.$queryRaw`
+    SELECT
+      COALESCE(SUM(size) FILTER (WHERE id IN (${Prisma.join(s3Keys)})), 0)::BIGINT AS "bytesUnpaid",
+      COALESCE(COUNT(id) FILTER (WHERE id IN (${Prisma.join(s3Keys)}) AND size > ${UPLOAD_FREE_BYTES_MAX}::INTEGER), 0)::BIGINT AS "nUnpaid"
+    FROM "Upload"
+    WHERE "Upload"."userId" = ${userId}
+      AND id IN (${Prisma.join(s3Keys)})`
+
+  const uploadFeesPiconeros = nUnpaid > 0n ? UPLOAD_FEE_PICONEROS : 0n
+  const totalFeesPiconeros = BigInt(nUnpaid) * uploadFeesPiconeros
+
+  return {
+    bytes24h: 0n,
     bytesUnpaid,
     nUnpaid,
-    uploadFeesPiconeros
-  }] = await models.$queryRaw`
-    SELECT uploadinfo.*,
-      CASE
-          -- anons always pay the base upload fee in piconeros no matter the size
-          WHEN ${userId} = 27 THEN 100000::BIGINT
-          ELSE CASE
-          -- 250MB are free per stacker and 24 hours
-          WHEN uploadinfo."bytes24h" + uploadinfo."bytesUnpaid" <= 250 * 1024 * 1024 THEN 0::BIGINT
-          -- base upload fee in piconeros per upload
-          ELSE 100000::BIGINT
-      END
-    END AS "uploadFeesPiconeros"
-    FROM (
-      SELECT
-          -- how much bytes did stacker upload in last 24 hours?
-          COALESCE(SUM(size) FILTER(WHERE paid = 't'), 0)::INTEGER AS "bytes24h",
-          -- how much unpaid bytes do they want to upload now?
-          COALESCE(SUM(size) FILTER(WHERE paid = 'f' AND id IN (${Prisma.join(s3Keys)})), 0)::INTEGER AS "bytesUnpaid",
-          -- how many unpaid images do they want to upload now?
-          COALESCE(COUNT(id) FILTER(WHERE paid = 'f' AND id IN (${Prisma.join(s3Keys)})), 0)::INTEGER AS "nUnpaid"
-      FROM "Upload"
-      WHERE "Upload"."userId" = ${userId}
-      AND created_at >= NOW() - interval '24 hours'
-    ) uploadinfo`
-
-  const uploadFees = uploadFeesPiconeros
-  const totalFeesPiconeros = BigInt(nUnpaid) * uploadFeesPiconeros
-  const totalFees = totalFeesPiconeros
-  return { bytes24h, bytesUnpaid, nUnpaid, uploadFees, uploadFeesPiconeros, totalFees, totalFeesPiconeros }
+    uploadFees: Number(uploadFeesPiconeros),
+    uploadFeesPiconeros,
+    totalFees: Number(totalFeesPiconeros),
+    totalFeesPiconeros
+  }
 }
 
 export async function throwOnExpiredUploads (uploadIds, { tx }) {
