@@ -108,6 +108,7 @@ services:
     env_file: *env_file
     volumes:
       - ./:/app
+      - backups:/backups
     entrypoint: ["/bin/sh", "-c"]
     command:
       - npm run worker:dev
@@ -349,6 +350,7 @@ volumes:
   db:
   os:
   aws:
+  backups:
 
   dnsmasq:
   caddy_data:
