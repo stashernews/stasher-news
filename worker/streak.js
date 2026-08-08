@@ -7,7 +7,7 @@ export async function computeStreaks ({ models }) {
   // get all eligible users in the last day
   // if the user doesn't have an active streak, add one
   // if they have an active streak but didn't maintain it, end it
-  const type = 'COWBOY_HAT'
+  const type = 'FLAME'
   const endingStreaks = await models.$queryRaw`
     WITH day_streaks (id) AS (
       ${getStreakQuery(type)}
@@ -54,7 +54,7 @@ export async function computeStreaks ({ models }) {
   Promise.allSettled(endingStreaks.map(streak => notifyStreakLost(streak.userId, streak)))
 }
 
-export async function checkStreak ({ data: { id, type = 'COWBOY_HAT' }, models }) {
+export async function checkStreak ({ data: { id, type = 'FLAME' }, models }) {
   // if user is actively streaking skip
   const user = await models.user.findUnique({
     where: {

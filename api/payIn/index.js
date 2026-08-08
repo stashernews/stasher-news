@@ -192,7 +192,7 @@ export async function onPaid (tx, payInId) {
     // by the JS client), so this raw INSERT must supply it via gen_random_uuid.
     await tx.$executeRaw`
       INSERT INTO pgboss.job (id, name, data)
-      VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${payIn.userId}, 'type', 'COWBOY_HAT'))`
+      VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${payIn.userId}, 'type', 'FLAME'))`
   }
 
   const payInModule = payInTypeModules[payIn.payInType]

@@ -57,7 +57,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
         if (tip.tipperId != null) {
           await tx.$executeRaw`
             INSERT INTO pgboss.job (id, name, data)
-            VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${tip.tipperId}, 'type', 'COWBOY_HAT'))`
+            VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${tip.tipperId}, 'type', 'FLAME'))`
         }
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })

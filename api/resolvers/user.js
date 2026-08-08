@@ -960,7 +960,7 @@ export default {
       const [{ max }] = await models.$queryRaw`
         SELECT MAX(COALESCE("endedAt"::date, (now() AT TIME ZONE 'America/Chicago')::date) - "startedAt"::date)
         FROM "Streak" WHERE "userId" = ${user.id}
-        AND type = 'COWBOY_HAT'`
+        AND type = 'FLAME'`
       return max
     },
     isContributor: async (user, args, { me }) => {

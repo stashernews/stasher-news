@@ -158,3 +158,21 @@ test('User and Sub filter fields are BigInt piconero filters', () => {
 test('User has no forward-notification setting residue', () => {
   expect(fieldsOf('User')).not.toContain('noteForwardedPiconeros')
 })
+
+test('StreakType enum is the badge re-theme set (FLAME, COIN, VERIFIED)', () => {
+  expect(valuesOf('StreakType').sort()).toEqual(['COIN', 'FLAME', 'VERIFIED'])
+})
+
+test('Streak defaults its type to FLAME', () => {
+  const typeField = allModels.find(m => m.name === 'Streak')?.fields.find(f => f.name === 'type')
+  expect(typeField).toBeTruthy()
+  expect(typeField.type).toBe('StreakType')
+  expect(typeField.default).toBe('FLAME')
+})
+
+test('User has no gun/horse streak columns', () => {
+  const fields = fieldsOf('User')
+  for (const c of ['gunStreak', 'horseStreak']) {
+    expect(fields).not.toContain(c)
+  }
+})
