@@ -305,7 +305,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
       data: { status: 'COMPLETE', completedAt: new Date() }
     })
   } catch (err) {
-    console.error(`rewardsDistributor: sendPayouts failed for distribution ${distribution.id}: ${err && err.message}`)
+    console.error(`rewardsDistributor: finalization failed for distribution ${distribution.id}: ${err && err.message}`)
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { status: 'FAILED' }
