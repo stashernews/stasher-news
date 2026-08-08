@@ -328,12 +328,12 @@ services:
       - --access-control-origin=stasher.news
       - --confirm-external-bind
       - --disable-admin-auth
-      - --webhook-ssl-verification=none
+      - --webhook-ssl-verification=${MONERO_LWS_WEBHOOK_SSL_VERIFICATION:-none}
       - --exchange-rate-interval=0
       - --log-level=4
     volumes:
       - monerolws:/home/monero-lws
-      - lws-keys:/keys
+      - ${LWS_KEYS_VOLUME:-lws-keys:/keys}
     healthcheck:
       test: ["CMD-SHELL", "curl -sk -o /dev/null https://127.0.0.1:8443/login || exit 1"]
       interval: 30s
