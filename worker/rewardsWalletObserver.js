@@ -6,6 +6,7 @@ import {
 import { reverseMapPaymentId } from '@/api/monero/downvote'
 import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
 import { MONERO_POLL_INTERVAL_MS } from '@/lib/constants'
+import { createReorgDetector } from '@/lib/reorgDetector'
 import { Prisma } from '@prisma/client'
 
 // rewardsWalletObserver — observes posting/territory fees AND downvote payments paid to
@@ -257,13 +258,19 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
 // same (lastTxId) forward dimension as moneroIndexer; full reorg reconciliation
 // for fees is deferred (a reorged fee re-appears in a later poll and the
 // idempotent FeeObservation insert handles it; confirmFinalizer gates finality).
-export async function rewardsWalletObserver ({ boss, models }) {
+// Reorg DETECTION (Task D5) runs here on lws's top-level blockchain_height: a
+// regression vs the last poll fires a debounced critical alert. Reversal stays
+// deferred (detect+alert only).
+const detectReorg = createReorgDetector()
+
+export async function rewardsWalletObserver ({ boss, models, detectReorg: detect = detectReorg }) {
   const account = await models.moneroAccount.findFirst({
     where: { label: 'platform_rewards', network: (process.env.MONERO_NETWORK || 'STAGENET').toUpperCase() },
     include: { viewKey: true }
   })
   if (account) {
     const resp = await lwsClient.getAddressTxs(account, account.lastTxId, account.lastBlockHash)
+    if (resp && typeof resp.blockchain_height === 'number') detect(resp.blockchain_height)
     const txs = (resp && resp.transactions) || []
     // bootstrapping filter: skip confirmed txs already behind the cursor. null
     // lastTxId = nothing seen yet, so process the whole returned history (this

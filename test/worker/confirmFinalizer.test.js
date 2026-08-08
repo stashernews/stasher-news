@@ -218,3 +218,9 @@ test('a DETECTED ObservedDownvote stays DETECTED below 10 confirmations', async 
   expect(after.state).toBe('DETECTED')
   expect(after.confirmedAt).toBeNull()
 })
+
+test('invokes the reorg detector with the current chain height (Task D5 wiring)', async () => {
+  const detectReorg = jest.fn()
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(210), detectReorg })
+  expect(detectReorg).toHaveBeenCalledWith(210)
+})
