@@ -63,3 +63,34 @@ test('stashAmountHidden is true only for non-owners with the setting on', async 
   expect(UserOptional.stashAmountHidden(mkUser({ hideStashAmount: false }), {}, { me: null })).toBe(false)
   expect(UserOptional.stashAmountHidden(user, {}, { me: null })).toBe(true)
 })
+
+test('hasWallet is true only when a MoneroAccount exists', async () => {
+  const models = {
+    moneroAccount: {
+      findFirst: jest.fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 1 })
+    }
+  }
+  const a = await UserOptional.hasWallet(mkUser({ id: 10 }), {}, { models })
+  const b = await UserOptional.hasWallet(mkUser({ id: 11 }), {}, { models })
+  expect(a).toBe(false)
+  expect(b).toBe(true)
+  expect(models.moneroAccount.findFirst).toHaveBeenCalledTimes(2)
+})
+
+test('tippedRecently is true within 24h of a confirmed tip', async () => {
+  const models = {
+    $queryRaw: jest.fn().mockResolvedValue([{ n: 1 }])
+  }
+  const rec = await UserOptional.tippedRecently(mkUser(), {}, { models })
+  expect(rec).toBe(true)
+})
+
+test('tippedRecently is false without a confirmed tip in the last 24h', async () => {
+  const models = {
+    $queryRaw: jest.fn().mockResolvedValue([])
+  }
+  const rec = await UserOptional.tippedRecently(mkUser(), {}, { models })
+  expect(rec).toBe(false)
+})

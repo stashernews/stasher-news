@@ -185,9 +185,8 @@ export default gql`
     referrals(when: String, from: String, to: String): Int
     stashAmountHidden: Boolean!
     streak: Int
-    gunStreak: Int
-    horseStreak: Int
-    hasRecvWallet: Boolean
+    hasWallet: Boolean
+    tippedRecently: Boolean
     maxStreak: Int
     isContributor: Boolean
     githubId: String

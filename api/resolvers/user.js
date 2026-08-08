@@ -946,11 +946,17 @@ export default {
 
       return user.streak
     },
-    hasRecvWallet: async (user, args, { models }) => {
-      if (user.hideCowboyHat) {
-        return false
-      }
-      return user.hasRecvWallet
+    hasWallet: async (user, args, { models }) => {
+      const account = await models.moneroAccount.findFirst({ where: { ownerUserId: user.id } })
+      return !!account
+    },
+    tippedRecently: async (user, args, { models }) => {
+      const rows = await models.$queryRaw`
+        SELECT 1 AS n FROM "ObservedTip"
+        WHERE "tipperId" = ${user.id}::INTEGER AND state = 'CONFIRMED'
+          AND "confirmedAt" > now() - interval '24 hours'
+        LIMIT 1`
+      return rows.length > 0
     },
     maxStreak: async (user, args, { models }) => {
       if (user.hideCowboyHat) {
