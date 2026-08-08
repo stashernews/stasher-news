@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
 import { computeCuratorShares } from './curatorShares'
-import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
+import { sendPayouts as defaultSendPayouts, sweepOpsEarmark as defaultSweepOpsEarmark } from '@/api/monero/rewards'
 
 // rewardsDistributor — StasherNews' weekly rewards-pool distribution job
 // (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
@@ -35,12 +35,12 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 // (no real keys/wallet); production leaves it unset and uses the real signer.
 // Returns the created (or pre-existing, via idempotency) RewardDistribution
 // with its RewardPayout rows included (post-send state).
-export async function runDistributionOnce ({ models, sendPayouts: injectSendPayouts } = {}) {
+export async function runDistributionOnce ({ models, sendPayouts: injectSendPayouts, sweepOpsEarmark: injectSweepOpsEarmark } = {}) {
   const ownsClient = !models
   const db = ownsClient ? createPrisma() : models
   try {
     const distribution = await distribute(db)
-    await finalizeDistribution(db, distribution, injectSendPayouts || defaultSendPayouts)
+    await finalizeDistribution(db, distribution, injectSendPayouts || defaultSendPayouts, injectSweepOpsEarmark || defaultSweepOpsEarmark)
     return await db.rewardDistribution.findUnique({
       where: { id: distribution.id },
       include: { payouts: true }
@@ -261,7 +261,7 @@ function toBigInt (v) {
 //     the run already finished).
 //   - Catastrophic signer failure: flip to FAILED. QUEUED payouts are untouched
 //     (funds never left the wallet), so the next run resumes as above.
-export async function finalizeDistribution (models, distribution, sendPayouts) {
+export async function finalizeDistribution (models, distribution, sendPayouts, sweepOpsEarmark = defaultSweepOpsEarmark) {
   // SENDING = another process is mid-send; COMPLETE = already done. Nothing for
   // this call to drive. (PENDING and FAILED fall through — FAILED is resumable
   // if it still has QUEUED payouts.)
@@ -291,6 +291,15 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
 
   try {
     await sendPayouts(payouts, { models })
+    const sweep = await sweepOpsEarmark({ distribution, models })
+    if (sweep.state === 'FAILED') {
+      console.error(`rewardsDistributor: CRITICAL — ops sweep FAILED for distribution ${distribution.id} after payouts were sent; manual reconciliation required`)
+      await models.rewardDistribution.update({
+        where: { id: distribution.id },
+        data: { status: 'FAILED' }
+      })
+      return
+    }
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { status: 'COMPLETE', completedAt: new Date() }
