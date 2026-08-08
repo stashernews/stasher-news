@@ -7,6 +7,7 @@ import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { GqlInputError } from '@/lib/error'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
+import { uploadFees } from '@/api/resolvers/upload'
 
 export const anonable = false
 
@@ -16,20 +17,24 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-export async function getInitial (models, { billingType, uploadIds }, { me }) {
+export async function getInitial (models, { billingType, uploadIds = [] }, { me }) {
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
   const fee = territoryFeePiconeros(billingType, config)
   const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UNARCHIVE') // major 2
-  const moneroUri = buildMoneroUri(
-    [{ address: reserved.address, amount: fee }],
-    { description: `StasherNews turf reactivation (${billingType})` }
-  )
 
   const beneficiaries = []
+  let uploadFeesPiconeros = 0n
   if (uploadIds.length > 0) {
+    const fees = await uploadFees(uploadIds, { models, me })
+    uploadFeesPiconeros = fees.totalFeesPiconeros
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
   }
+
+  const moneroUri = buildMoneroUri(
+    [{ address: reserved.address, amount: fee + uploadFeesPiconeros }],
+    { description: `StasherNews turf reactivation (${billingType})` }
+  )
 
   return {
     payInType: 'TERRITORY_UNARCHIVE',

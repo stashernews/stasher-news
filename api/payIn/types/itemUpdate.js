@@ -1,14 +1,14 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
 import { uploadFees } from '../../resolvers/upload'
-import { getItemMentions, getMentions, getSubs, performBotBehavior } from '../lib/item'
+import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
 import { notifyItemMention, notifyMention } from '@/lib/webPush'
-import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
 import * as MEDIA_UPLOAD from './mediaUpload'
-import { getBeneficiariesPiconeros } from '../lib/beneficiaries'
 import { getItem } from '@/api/resolvers/item'
 import { subsDiff } from '@/lib/subs'
 import { getTempImgproxyUrls } from '../lib/upload'
+import { reserveFeeSubaddress } from '@/api/monero/feePool'
+import { buildMoneroUri } from '@/api/monero/uri'
 export const anonable = true
 
 export const paymentMethods = [
@@ -17,52 +17,44 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-async function getPiconeros (models, { id, uploadIds, bio }, { me }) {
-  // the only reason updating items costs anything is when it has new uploads
-  const old = await models.item.findUnique({
-    where: {
-      id: parseInt(id)
-    },
-    include: {
-      itemPayIns: {
-        where: {
-          payIn: {
-            payInType: 'ITEM_CREATE',
-            payInState: 'PAID'
-          }
-        }
-      }
+export async function getInitial (models, { id, uploadIds = [], bio, subNames }, { me }) {
+  const beneficiaries = []
+  let uploadFeesPiconeros = 0n
+  if (uploadIds.length > 0) {
+    const fees = await uploadFees(uploadIds, { models, me })
+    uploadFeesPiconeros = fees.totalFeesPiconeros
+    beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
+    // the only reason updating an item costs anything is new uploads; refuse if
+    // the item has no paid ITEM_CREATE payIn to attach the upload fee to
+    if (uploadFeesPiconeros > 0n) {
+      const oldWithPayIns = await models.item.findUnique({
+        where: { id: parseInt(id) },
+        include: { itemPayIns: { where: { payIn: { payInType: 'ITEM_CREATE', payInState: 'PAID' } }, select: { payInId: true } } }
+      })
+      if (oldWithPayIns.itemPayIns.length === 0) throw new Error('cannot increase item cost with unpaid invoice')
     }
-  })
-
-  const { totalFeesMsats } = await uploadFees(uploadIds, { models, me })
-
-  const piconeros = 0n
-
-  if (totalFeesMsats > 0 && old.itemPayIns.length === 0) {
-    throw new Error('cannot increase item cost with unpaid invoice')
   }
 
-  return piconeros
-}
-
-export async function getInitial (models, { id, uploadIds, bio, subNames }, { me }) {
-  const old = await models.item.findUnique({ where: { id: parseInt(id) } })
-  const subs = await getSubs(models, { subNames, parentId: old.parentId })
-  const piconeros = await getPiconeros(models, { id, uploadIds, bio }, { me })
-
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs, piconeros })
-
-  const beneficiaries = []
-  if (uploadIds.length > 0) {
-    beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me, subs }))
+  let moneroUri = null
+  let moneroSubaddressMajor = null
+  let moneroSubaddressMinor = null
+  if (uploadFeesPiconeros > 0n) {
+    const sub = await reserveFeeSubaddress(models, 'POSTING')
+    moneroUri = buildMoneroUri(
+      [{ address: sub.address, amount: uploadFeesPiconeros }],
+      { description: 'StasherNews upload fee' }
+    )
+    moneroSubaddressMajor = sub.major
+    moneroSubaddressMinor = sub.minor
   }
 
   return {
     payInType: 'ITEM_UPDATE',
     userId: me?.id,
-    piconeros: piconeros + getBeneficiariesPiconeros(beneficiaries),
-    payOutCustodialTokens,
+    piconeros: 0n,
+    moneroUri,
+    moneroSubaddressMajor,
+    moneroSubaddressMinor,
     itemPayIn: { itemId: parseInt(id) },
     beneficiaries
   }

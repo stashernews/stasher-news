@@ -9,6 +9,8 @@ import { incrementFreeCommentCount, commentsFreeLeft } from '../lib/freebie'
 import { canPostFree, postingFeePiconeros } from '@/api/monero/postingFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
+import { uploadFees } from '@/api/resolvers/upload'
+import * as MEDIA_UPLOAD from './mediaUpload'
 
 export const anonable = true
 
@@ -44,6 +46,14 @@ export async function getInitial (models, args, { me }) {
   // FEE_PAID when it observes the fee output.
   // Comments are free within the 15/month freebie quota; beyond it each comment
   // costs the flat comment fee (see below).
+  const beneficiaries = []
+  let uploadFeesPiconeros = 0n
+  if (args.uploadIds?.length) {
+    const fees = await uploadFees(args.uploadIds, { models, me })
+    uploadFeesPiconeros = fees.totalFeesPiconeros
+    beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds: args.uploadIds }, { me }))
+  }
+
   if (args.parentId) {
     // StasherNews comment fee (spec §6.2): comments are free while the author has
     // freebies left (15/month for all users); beyond the quota each comment costs
@@ -58,7 +68,7 @@ export async function getInitial (models, args, { me }) {
       const fee = postingFeePiconeros(config) * BigInt(ANON_FEE_MULTIPLIER)
       const sub = await reserveFeeSubaddress(models, 'POSTING')
       const moneroUri = buildMoneroUri(
-        [{ address: sub.address, amount: fee }],
+        [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
         { description: 'StasherNews anon comment fee' }
       )
       return {
@@ -67,11 +77,28 @@ export async function getInitial (models, args, { me }) {
         piconeros: 0n,
         moneroUri,
         moneroSubaddressMajor: sub.major,
-        moneroSubaddressMinor: sub.minor
+        moneroSubaddressMinor: sub.minor,
+        beneficiaries
       }
     }
     const commenter = await models.user.findUnique({ where: { id: me.id } })
     if (commentsFreeLeft(commenter) > 0) {
+      if (uploadFeesPiconeros > 0n) {
+        const sub = await reserveFeeSubaddress(models, 'POSTING')
+        const moneroUri = buildMoneroUri(
+          [{ address: sub.address, amount: uploadFeesPiconeros }],
+          { description: 'StasherNews upload fee' }
+        )
+        return {
+          payInType: 'ITEM_CREATE',
+          userId: me.id,
+          piconeros: 0n,
+          moneroUri,
+          moneroSubaddressMajor: sub.major,
+          moneroSubaddressMinor: sub.minor,
+          beneficiaries
+        }
+      }
       return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
     }
     const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
@@ -83,7 +110,7 @@ export async function getInitial (models, args, { me }) {
     })
     const sub = await reserveFeeSubaddress(models, 'POSTING')
     const moneroUri = buildMoneroUri(
-      [{ address: sub.address, amount: fee }],
+      [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
       { description: 'StasherNews comment fee' }
     )
     return {
@@ -92,7 +119,8 @@ export async function getInitial (models, args, { me }) {
       piconeros: 0n,
       moneroUri,
       moneroSubaddressMajor: sub.major,
-      moneroSubaddressMinor: sub.minor
+      moneroSubaddressMinor: sub.minor,
+      beneficiaries
     }
   }
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
@@ -101,6 +129,22 @@ export async function getInitial (models, args, { me }) {
   if (!user) throw new GqlInputError('user not found')
 
   if (canPostFree(user, config)) {
+    if (uploadFeesPiconeros > 0n) {
+      const sub = await reserveFeeSubaddress(models, 'POSTING')
+      const moneroUri = buildMoneroUri(
+        [{ address: sub.address, amount: uploadFeesPiconeros }],
+        { description: 'StasherNews upload fee' }
+      )
+      return {
+        payInType: 'ITEM_CREATE',
+        userId: me.id,
+        piconeros: 0n,
+        moneroUri,
+        moneroSubaddressMajor: sub.major,
+        moneroSubaddressMinor: sub.minor,
+        beneficiaries
+      }
+    }
     return {
       payInType: 'ITEM_CREATE',
       userId: me.id,
@@ -116,7 +160,7 @@ export async function getInitial (models, args, { me }) {
   })
   const sub = await reserveFeeSubaddress(models, 'POSTING')
   const moneroUri = buildMoneroUri(
-    [{ address: sub.address, amount: fee }],
+    [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
     { description: 'StasherNews posting fee' }
   )
   return {
@@ -125,7 +169,8 @@ export async function getInitial (models, args, { me }) {
     piconeros: 0n,
     moneroUri,
     moneroSubaddressMajor: sub.major,
-    moneroSubaddressMinor: sub.minor
+    moneroSubaddressMinor: sub.minor,
+    beneficiaries
   }
 }
 
