@@ -1,4 +1,5 @@
 import { daemonClient } from '@/api/monero/daemonClient'
+import { logInfo, logError } from '@/lib/logger'
 
 // Rewards hot-wallet signer (Phase 4 Task 9 / design spec §5.6, §6.2).
 //
@@ -135,7 +136,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
         skipped += 1
         continue
       }
-      console.error(`sendPayouts: payout ${payout.id} to ${payout.recipientAddress.slice(0, 12)}… FAILED: ${err && err.message}`)
+      logError({ payoutId: payout.id, recipient: payout.recipientAddress.slice(0, 12), err }, 'sendPayouts: payout FAILED (funds stayed in wallet)')
       await models.rewardPayout.update({
         where: { id: payout.id },
         data: { state: 'FAILED' }
@@ -149,7 +150,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
     // never silently lost.
     unlocked -= payout.piconeros
     const txHash = toTxHash(tx.getHash())
-    console.log(`sendPayouts: payout ${payout.id} relayed txHash=${txHash}`)
+    logInfo({ payoutId: payout.id, txHash }, 'sendPayouts: payout relayed')
     try {
       await models.rewardPayout.update({
         where: { id: payout.id },
@@ -159,7 +160,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
     } catch (err) {
       // The tx IS sent (funds left). Retry once; on failure do NOT mark FAILED —
       // a CRITICAL log is the reconciliation signal for a manual fix.
-      console.error(`sendPayouts: CRITICAL — tx ${txHash} relayed for payout ${payout.id} but DB update failed: ${err && err.message}. Manual reconciliation required.`)
+      logError({ payoutId: payout.id, txHash, err }, 'sendPayouts: CRITICAL — tx relayed but DB update failed; manual reconciliation required')
       try {
         await models.rewardPayout.update({
           where: { id: payout.id },
@@ -167,7 +168,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
         })
         sent += 1
       } catch (err2) {
-        console.error(`sendPayouts: CRITICAL — retry also failed for payout ${payout.id} txHash=${txHash}: ${err2 && err2.message}`)
+        logError({ payoutId: payout.id, txHash, err: err2 }, 'sendPayouts: CRITICAL — DB-update retry also failed')
       }
     }
   }
@@ -234,7 +235,7 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
       })
       return { state: 'SKIPPED_LOCKED' }
     }
-    console.error(`sweepOpsEarmark: distribution ${distribution.id} sweep FAILED: ${err && err.message}`)
+    logError({ distributionId: distribution.id, err }, 'sweepOpsEarmark: sweep FAILED')
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { opsSweepState: 'FAILED' }
@@ -243,21 +244,21 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
   }
 
   const txHash = toTxHash(tx.getHash())
-  console.log(`sweepOpsEarmark: distribution ${distribution.id} relayed txHash=${txHash} swept=${target.toString()}`)
+  logInfo({ distributionId: distribution.id, txHash, swept: target.toString() }, 'sweepOpsEarmark: ops sweep relayed')
   try {
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { opsSweepState: 'SWEPT', opsSweptPiconeros: target, opsSweepTxHash: txHash }
     })
   } catch (err) {
-    console.error(`sweepOpsEarmark: CRITICAL — tx ${txHash} relayed for distribution ${distribution.id} but DB update failed: ${err && err.message}. Manual reconciliation required.`)
+    logError({ distributionId: distribution.id, txHash, err }, 'sweepOpsEarmark: CRITICAL — tx relayed but DB update failed; manual reconciliation required')
     try {
       await models.rewardDistribution.update({
         where: { id: distribution.id },
         data: { opsSweepState: 'SWEPT', opsSweptPiconeros: target, opsSweepTxHash: txHash }
       })
     } catch (err2) {
-      console.error(`sweepOpsEarmark: CRITICAL — retry also failed for distribution ${distribution.id} txHash=${txHash}: ${err2 && err2.message}`)
+      logError({ distributionId: distribution.id, txHash, err: err2 }, 'sweepOpsEarmark: CRITICAL — DB-update retry also failed')
     }
   }
 
