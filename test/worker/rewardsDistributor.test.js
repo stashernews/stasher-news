@@ -76,6 +76,10 @@ const EXTRA_DONATE_PICONEROS = 3_000_000_000_000n
 const PRIOR_ROLLOVER_PICONEROS = 1_000_000_000_000n
 const EXPECTED_POOL_PICONEROS = 13_400_000_000_000n
 const WALLETLESS_TIP_PICONEROS = 2_000_000_000_000n
+// Ops earmark = totalInflow - rewardsInflow.
+//   downvote (100% rewards -> 0 ops) + posting 4e12*30% + territory 2e12*70%
+//   + donate (0 ops) + walletless 2e12*50% = 1.2e12 + 1.4e12 + 1e12 = 3.6e12
+const EXPECTED_OPS_INFLOW_PICONEROS = 3_600_000_000_000n
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -372,6 +376,24 @@ test('the TIP_UNWALLETED source funds the pool at walletlessTipRewardsPct (50%),
 
 test('distributedPiconeros + rolledOverPiconeros reconciles to the pool exactly', async () => {
   expect(result.distributedPiconeros + result.rolledOverPiconeros).toBe(result.poolPiconeros)
+})
+
+test('opsInflowPiconeros is the exact complement of the rewards earmark (totalInflow - rewardsInflow)', async () => {
+  // Drift-robust: recompute the period's actual confirmed inflow from the DB
+  // (genuine stagenet activity may add to the pool on the live dev DB).
+  const dv = await prisma.observedDownvote.aggregate({ _sum: { piconeros: true }, where: { state: 'CONFIRMED', confirmedAt: { gte: result.periodStart, lt: result.periodEnd } } })
+  const fees = await prisma.feeObservation.aggregate({ _sum: { piconeros: true }, where: { state: 'CONFIRMED', confirmedAt: { gte: result.periodStart, lt: result.periodEnd } } })
+  const totalInflow = (dv._sum.piconeros ?? 0n) + (fees._sum.piconeros ?? 0n)
+  // rewardsInflow is definitional: pool = rewardsInflow + priorRolledOver.
+  const rewardsInflow = result.poolPiconeros - PRIOR_ROLLOVER_PICONEROS
+  expect(result.opsInflowPiconeros).toBe(totalInflow - rewardsInflow)
+  // Sanity: the walletless-tip ops share (50% of 2e12 = 1e12) is included.
+  expect(result.opsInflowPiconeros).toBeGreaterThanOrEqual(EXPECTED_OPS_INFLOW_PICONEROS)
+})
+
+test('opsAvailablePiconeros equals opsInflow + opsRolledOver (prior had no ops, so rollover is 0)', async () => {
+  expect(result.opsRolledOverPiconeros).toBe(0n)
+  expect(result.opsAvailablePiconeros).toBe(result.opsInflowPiconeros + result.opsRolledOverPiconeros)
 })
 
 test('the distributor pays out (>0) when weightedVotes is populated through the real tip path', async () => {

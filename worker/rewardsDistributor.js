@@ -131,10 +131,24 @@ async function distribute (models) {
       donateBoostPiconeros +
       walletlessTipPiconeros * BigInt(config.walletlessTipRewardsPct) / 100n
 
+    const totalInflow =
+      downvotePiconeros +
+      postingFeePiconeros +
+      territoryFeePiconeros +
+      donateBoostPiconeros +
+      walletlessTipPiconeros
+    const opsInflow = totalInflow - rewardsInflow
+
     // --- Pool: this week's earmark + the prior period's rollover ---
     const lastDistribution = await tx.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
     const rolledOver = toBigInt(lastDistribution?.rolledOverPiconeros)
     const poolPiconeros = rewardsInflow + rolledOver
+
+    // Ops earmark rollover: prior period's unswept ops carried in. opsSwept is
+    // populated by the ops-sweep job (B-sweep); until then it stays 0, so the
+    // full prior opsAvailable rolls forward each week.
+    const opsRolledOver = toBigInt(lastDistribution?.opsAvailablePiconeros) - toBigInt(lastDistribution?.opsSweptPiconeros)
+    const opsAvailable = opsInflow + opsRolledOver
 
     // --- Curator shares (Task 7). Read-only, so it COULD run outside the tx,
     // but passing tx keeps the reads in the same serializable snapshot as the
@@ -173,6 +187,9 @@ async function distribute (models) {
         poolPiconeros,
         distributedPiconeros,
         rolledOverPiconeros: finalRolledOverPiconeros,
+        opsInflowPiconeros: opsInflow,
+        opsRolledOverPiconeros: opsRolledOver,
+        opsAvailablePiconeros: opsAvailable,
         payoutCount: payoutRows.length,
         status: 'PENDING'
       }
@@ -210,7 +227,7 @@ async function distribute (models) {
     // this transaction commits, in finalizeDistribution (Task 9), so a signer
     // failure never rolls back the atomic ledger write above.
 
-    console.log(`rewardsDistributor: pool=${poolPiconeros.toString()} distributed=${distributedPiconeros.toString()} rolledOver=${finalRolledOverPiconeros.toString()} payouts=${payoutRows.length}`)
+    console.log(`rewardsDistributor: pool=${poolPiconeros.toString()} distributed=${distributedPiconeros.toString()} rolledOver=${finalRolledOverPiconeros.toString()} opsAvailable=${opsAvailable.toString()} payouts=${payoutRows.length}`)
 
     return await tx.rewardDistribution.findUnique({
       where: { id: distribution.id },
