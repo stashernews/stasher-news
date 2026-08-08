@@ -39,7 +39,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
 
   const tip = await models.observedTip.findFirst({
     where: { paymentId },
-    include: { post: { select: { userId: true } } }
+    include: { post: { select: { userId: true } }, recipientAccount: { select: { label: true } } }
   })
   if (!tip) return res.status(200).end()
 
@@ -83,10 +83,16 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
         where: { id: tip.id },
         data
       })
-      await tx.user.update({
-        where: { id: tip.post.userId },
-        data: { stackedPiconeros: { increment: tip.piconeros } }
-      })
+      // Skip the author lifetime-received denorm when the tip went to the
+      // rewards pool (wallet-less author) — nobody was paid, so there is no
+      // recipient to credit. The ranking bump (Item.piconeros) already ran at
+      // DETECTION and is unaffected.
+      if (tip.recipientAccount?.label !== 'platform_rewards') {
+        await tx.user.update({
+          where: { id: tip.post.userId },
+          data: { stackedPiconeros: { increment: tip.piconeros } }
+        })
+      }
     })
     if (tip.webhookEventId) {
       try {

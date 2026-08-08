@@ -115,7 +115,7 @@ test('does NOT apply ranking delta when the conditional claim loses (race with r
 })
 
 test('flips DETECTED -> CONFIRMED at REQUIRED_CONFIRMATIONS, bumps stackedPiconeros, deletes webhook', async () => {
-  const tip = { id: 1, postId: 10, state: 'DETECTED', paymentId: 'abc123', piconeros: 1000000000n, height: 2172600, webhookEventId: 'evt-1', post: { userId: 99 } }
+  const tip = { id: 1, postId: 10, state: 'DETECTED', paymentId: 'abc123', piconeros: 1000000000n, height: 2172600, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: { label: 'author' } }
   const txUpdate = jest.fn().mockResolvedValue({})
   const userUpdate = jest.fn().mockResolvedValue({})
   const models = mockModels({
@@ -134,6 +134,38 @@ test('flips DETECTED -> CONFIRMED at REQUIRED_CONFIRMATIONS, bumps stackedPicone
     where: { id: 99 },
     data: { stackedPiconeros: { increment: 1000000000n } }
   }))
+  expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-1')
+})
+
+test('does NOT bump author stackedPiconeros when the recipient is the rewards wallet (wallet-less tip)', async () => {
+  const tip = {
+    id: 1,
+    postId: 10,
+    state: 'DETECTED',
+    paymentId: 'abc123',
+    piconeros: 1000000000n,
+    height: 2172600,
+    webhookEventId: 'evt-1',
+    post: { userId: 99 },
+    recipientAccount: { label: 'platform_rewards' }
+  }
+  const userUpdate = jest.fn().mockResolvedValue({})
+  const txUpdate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
+    txUpdate,
+    userUpdate
+  })
+  const monero = mockMonero()
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // the tip row still flips to CONFIRMED ...
+  expect(txUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ state: 'CONFIRMED' }) }))
+  // ... but the author stackedPiconeros bump is SKIPPED (nobody was paid)
+  expect(userUpdate).not.toHaveBeenCalled()
   expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-1')
 })
 
