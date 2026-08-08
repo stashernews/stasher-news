@@ -50,6 +50,29 @@ function makeMonero (received = 0n, sent = 0n) {
   }
 }
 
+function makeDistribution (overrides = {}) {
+  return {
+    id: 1,
+    periodStart: new Date('2026-01-01'),
+    periodEnd: new Date('2026-01-08'),
+    poolPiconeros: 5_000_000_000_000n,
+    distributedPiconeros: 4_000_000_000_000n,
+    rolledOverPiconeros: 1_000_000_000_000n,
+    payoutCount: 2,
+    status: 'COMPLETE',
+    startedAt: new Date('2026-01-08'),
+    completedAt: new Date('2026-01-08'),
+    opsInflowPiconeros: 1_500_000_000_000n,
+    opsRolledOverPiconeros: 500_000_000_000n,
+    opsAvailablePiconeros: 2_000_000_000_000n,
+    opsSweptPiconeros: 2_000_000_000_000n,
+    opsSweepTxHash: 'ab'.repeat(32),
+    opsSweepState: 'SWEPT',
+    payouts: [],
+    ...overrides
+  }
+}
+
 describe('Query.rewardsWalletInfo', () => {
   test('returns a valid address, decrypted view key, and balance = received - sent', async () => {
     const models = makeModels({ downvotes: 0n, feeGroups: [] })
@@ -150,5 +173,66 @@ describe('Query.rewardsWalletInfo', () => {
 
     await expect(resolvers.Query.rewardsWalletInfo(null, null, { models, monero }))
       .rejects.toThrow(/rewards wallet/i)
+  })
+})
+
+describe('Query.rewardDistributions', () => {
+  function makeDistModels (distributions = []) {
+    return {
+      rewardDistribution: {
+        findMany: jest.fn(async () => distributions)
+      }
+    }
+  }
+
+  test('surfaces the ops-sweep fields on each distribution', async () => {
+    const dist = makeDistribution()
+    const models = makeDistModels([dist])
+
+    const result = await resolvers.Query.rewardDistributions(null, {}, { models })
+
+    expect(result).toHaveLength(1)
+    expect(result[0].opsInflowPiconeros).toBe(1_500_000_000_000n)
+    expect(result[0].opsAvailablePiconeros).toBe(2_000_000_000_000n)
+    expect(result[0].opsSweptPiconeros).toBe(2_000_000_000_000n)
+    expect(result[0].opsSweepTxHash).toBe('ab'.repeat(32))
+    expect(result[0].opsSweepState).toBe('SWEPT')
+  })
+
+  test('passes a SKIPPED_LOCKED sweep through unchanged (deferred, non-swept)', async () => {
+    const dist = makeDistribution({
+      opsSweptPiconeros: 0n,
+      opsSweepTxHash: null,
+      opsSweepState: 'SKIPPED_LOCKED'
+    })
+    const models = makeDistModels([dist])
+
+    const result = await resolvers.Query.rewardDistributions(null, {}, { models })
+
+    expect(result[0].opsSweepState).toBe('SKIPPED_LOCKED')
+    expect(result[0].opsSweptPiconeros).toBe(0n)
+    expect(result[0].opsSweepTxHash).toBeNull()
+    // pending (rolled over) = opsAvailable - opsSwept = full amount deferred
+    expect(result[0].opsAvailablePiconeros - result[0].opsSweptPiconeros)
+      .toBe(result[0].opsAvailablePiconeros)
+  })
+
+  test('resolves curator nym and renders payout XMR amount alongside raw piconeros', async () => {
+    const dist = makeDistribution({
+      payouts: [{
+        id: 7,
+        curatorId: 42,
+        curator: { name: 'satoshi' },
+        piconeros: 1_000_000_000_000n,
+        txHash: 'cd'.repeat(32),
+        state: 'SENT'
+      }]
+    })
+    const models = makeDistModels([dist])
+
+    const result = await resolvers.Query.rewardDistributions(null, {}, { models })
+
+    expect(result[0].payouts[0].curatorNym).toBe('satoshi')
+    expect(result[0].payouts[0].amountXmr).toBe('1')
   })
 })
