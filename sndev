@@ -698,10 +698,23 @@ __sndev_monero_ensure_up() {
   docker__compose --profile monero up -d monerod monero-lws >/dev/null 2>&1
 }
 
+__sndev_monero_rpc_port() {
+  if [ -n "$MONEROD_RPC_PORT" ]; then
+    echo "$MONEROD_RPC_PORT"
+  else
+    case "${MONERO_NETWORK:-stagenet}" in
+      mainnet) echo 18081 ;;
+      testnet) echo 28081 ;;
+      stagenet|*) echo 38081 ;;
+    esac
+  fi
+}
+
 sndev__monero__status() {
   __sndev_monero_ensure_up
+  rpc_port=$(__sndev_monero_rpc_port)
   echo "== monerod (get_height) =="
-  docker__compose --profile monero exec -T monerod curl -sf http://127.0.0.1:38081/get_height 2>/dev/null \
+  docker__compose --profile monero exec -T monerod curl -sf "http://127.0.0.1:${rpc_port}/get_height" 2>/dev/null \
     || echo "  unreachable"
   echo
   echo "== monero-lws (admin /list_accounts) =="
@@ -733,7 +746,7 @@ sndev__monero__accounts() {
 sndev__monero__add_account() {
   if [ $# -lt 2 ]; then
     echo "Usage: sndev monero add_account <address> <viewkey>" >&2
-    echo "  <address> = base58 stagenet primary address (95 chars)" >&2
+    echo "  <address> = base58 primary address for the active network (95 chars)" >&2
     echo "  <viewkey> = private view key (64 hex chars)" >&2
     return 1
   fi
@@ -753,7 +766,38 @@ sndev__monero__faucet() {
     return 1
   fi
   address="$1"
-  cat <<EOF
+  case "${MONERO_NETWORK:-stagenet}" in
+    mainnet)
+      cat <<EOF
+Mainnet has no faucet — XMR is real money. To fund:
+
+  $address
+
+buy XMR on an exchange (e.g. Kraken) and withdraw, or receive from another
+wallet. Then verify the transaction on the mainnet explorer:
+  https://xmrchain.net/
+
+After sending, wait 1-2 blocks (~2 min each), then poll: sndev monero status
+EOF
+      ;;
+    testnet)
+      cat <<EOF
+Testnet XMR is worthless and freely faucet-able. Send some to:
+
+  $address
+
+Community testnet faucets are scarce and change often — check the Monero
+community / https://www.getmonero.org/ for a currently-working one, or mine
+testnet XMR locally with 'monerod --testnet'.
+
+Testnet explorer (verify transactions landed):
+  https://testnet.xmrchain.net/
+
+After sending, wait 1-2 blocks (~2 min each), then poll: sndev monero status
+EOF
+      ;;
+    stagenet|*)
+      cat <<EOF
 Stagenet XMR is worthless and freely faucet-able. Send some to:
 
   $address
@@ -767,6 +811,8 @@ Stagenet explorer (verify transactions landed):
 
 After sending, wait 1-2 blocks (~2 min each), then poll: sndev monero status
 EOF
+      ;;
+  esac
 }
 
 sndev__monero__register_rewards_wallet() {
@@ -833,7 +879,7 @@ sndev__monero() {
 
 sndev__help_monero() {
   help="
-manage the stagenet monerod + monero-lws stack
+manage the monerod + monero-lws stack (network set by MONERO_NETWORK)
 
 USAGE
   $ sndev monero COMMAND [ARGS]
@@ -842,7 +888,7 @@ COMMANDS
   status                         monerod + lws health
   accounts                       list lws-watched accounts
   add_account <addr> <viewkey>   register an account with lws
-  faucet <addr>                  print stagenet faucet URLs for <addr>
+  faucet <addr>                  print faucet/explorer URLs for <addr> (network-aware)
   rescan <addr> <height>         rescan an account from <height>
   distribute                    run one weekly rewards distribution now
 "
@@ -900,7 +946,7 @@ COMMANDS
     domains                custom domains dev management
 
   monero:
-    monero                 stagenet monerod + monero-lws management
+    monero                 monerod + monero-lws management (network set by MONERO_NETWORK)
 
   dev:
     pr                     fetch and checkout a pr
