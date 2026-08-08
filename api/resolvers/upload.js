@@ -109,8 +109,8 @@ export async function uploadFees (s3Keys, { models, me }) {
 
   const [{ bytesUnpaid, nUnpaid }] = await models.$queryRaw`
     SELECT
-      COALESCE(SUM(size) FILTER (WHERE id IN (${Prisma.join(s3Keys)})), 0)::BIGINT AS "bytesUnpaid",
-      COALESCE(COUNT(id) FILTER (WHERE id IN (${Prisma.join(s3Keys)}) AND size > ${UPLOAD_FREE_BYTES_MAX}::INTEGER), 0)::BIGINT AS "nUnpaid"
+      COALESCE(SUM(size) FILTER (WHERE paid = 'f' AND id IN (${Prisma.join(s3Keys)})), 0)::BIGINT AS "bytesUnpaid",
+      COALESCE(COUNT(id) FILTER (WHERE paid = 'f' AND id IN (${Prisma.join(s3Keys)}) AND size > ${UPLOAD_FREE_BYTES_MAX}::INTEGER), 0)::BIGINT AS "nUnpaid"
     FROM "Upload"
     WHERE "Upload"."userId" = ${userId}
       AND id IN (${Prisma.join(s3Keys)})`
