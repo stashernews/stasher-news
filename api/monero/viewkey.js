@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { getMasterKey, getCurrentVersion, setActiveKey } from './masterkey'
 
 // View-key envelope encryption (Task 2 / spec Q3).
 //
@@ -14,9 +15,11 @@ import crypto from 'node:crypto'
 //   - the wrapped DEK is itself AES-256-GCM authenticated, so DB tampering
 //     of `wrappedDek` is detected on unwrap (not just on data decrypt).
 //
-// The master key is `process.env.VIEWKEY_MASTER_KEY`: base64-encoded 32
-// bytes. In production this is backed by a KMS alias (Phase 5); the
-// `getMasterKey` lazy-init below is the seam to swap in KMS fetch+cache.
+// The master key is provisioned by the pluggable provider seam in
+// ./masterkey.js (env registry by default; KMS-ready). It is versioned so
+// rotation (Task C2) can keep old keys around to decrypt prior envelopes.
+// `dekVersion` is mixed into the HKDF salt below, so each version derives a
+// distinct KEK under the same master key.
 //
 // All return values are Buffers, matching the `MoneroViewKey` model fields
 // (`ciphertext`, `iv`, `tag`, `wrappedDek` are `Bytes`; `dekVersion` is `Int`),
@@ -33,39 +36,6 @@ const HKDF_INFO = Buffer.from('stealthnews/monero/viewkey-kek/v1', 'utf8')
 const WRAP_IV_OFFSET = 0
 const WRAP_TAG_OFFSET = IV_LEN
 const WRAP_BODY_OFFSET = IV_LEN + TAG_LEN
-
-// In-process master-key cache. Lazily loaded from the env on first use; a
-// Phase 5 KMS integration would populate this from the KMS instead.
-let activeMasterKey = null
-
-// Current dekVersion used by encryptViewKey. decryptViewKey uses the
-// envelope's dekVersion, so it can read rows written under any version that
-// shares the active master key.
-let currentDekVersion = 1
-
-function decodeBase64Key (b64, what) {
-  if (!b64) {
-    throw new Error(`${what} is not set; refusing to derive a weak key`)
-  }
-  let buf
-  try {
-    buf = Buffer.from(b64, 'base64')
-  } catch {
-    throw new Error(`${what} is not valid base64`)
-  }
-  if (buf.length !== KEK_LEN) {
-    throw new Error(`${what} must decode to ${KEK_LEN} bytes (got ${buf.length})`)
-  }
-  return buf
-}
-
-// Fail-closed: a missing/empty/malformed VIEWKEY_MASTER_KEY throws rather
-// than silently deriving a zero/weak key for a security primitive.
-function getMasterKey () {
-  if (activeMasterKey) return activeMasterKey
-  activeMasterKey = decodeBase64Key(process.env.VIEWKEY_MASTER_KEY, 'VIEWKEY_MASTER_KEY')
-  return activeMasterKey
-}
 
 // HKDF-SHA256: dekVersion is the salt, so bumping the version derives a
 // distinct KEK under the same master key (forward freshness during rotation).
@@ -98,15 +68,16 @@ function unwrapDek (packed, kek) {
 // Returns { ciphertext, iv, tag, wrappedDek, dekVersion }, all Buffers except
 // dekVersion (Int) — spread-safe into a prisma MoneroViewKey create.
 export function encryptViewKey (plaintext) {
-  const masterKey = getMasterKey()
-  const kek = deriveKek(masterKey, currentDekVersion)
+  const dekVersion = getCurrentVersion()
+  const masterKey = getMasterKey(dekVersion)
+  const kek = deriveKek(masterKey, dekVersion)
   const dek = crypto.randomBytes(DEK_LEN)
   const iv = crypto.randomBytes(IV_LEN)
   const cipher = crypto.createCipheriv('aes-256-gcm', dek, iv, { authTagLength: TAG_LEN })
   const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
   const tag = cipher.getAuthTag()
   const wrappedDek = wrapDek(dek, kek)
-  return { ciphertext, iv, tag, wrappedDek, dekVersion: currentDekVersion }
+  return { ciphertext, iv, tag, wrappedDek, dekVersion }
 }
 
 // Decrypt an envelope-shaped object ({ ciphertext, iv, tag, wrappedDek,
@@ -114,7 +85,7 @@ export function encryptViewKey (plaintext) {
 // DB lookup — the caller (Task 3's lwsClient) fetches the MoneroViewKey row
 // and passes it here. Throws on any tamper (GCM auth failure).
 export function decryptViewKey (envelope) {
-  const masterKey = getMasterKey()
+  const masterKey = getMasterKey(envelope.dekVersion)
   const kek = deriveKek(masterKey, envelope.dekVersion)
   const dek = unwrapDek(envelope.wrappedDek, kek)
   const decipher = crypto.createDecipheriv('aes-256-gcm', dek, envelope.iv)
@@ -124,15 +95,11 @@ export function decryptViewKey (envelope) {
 
 // Rotate the active master key in-process and bump dekVersion. Subsequent
 // encryptViewKey calls wrap under the new key + new version. Returns the new
-// dekVersion.
+// dekVersion. Delegates to the masterkey seam's destructive hot-swap.
 //
-// This does NOT re-wrap existing rows: envelopes written under a previous
-// master key will fail to decrypt (their wrappedDek was sealed with a KEK
-// derived from the old key). Phase 5's rotation job must, BEFORE calling this,
-// read+decrypt every row under the old key, then re-encrypt+persist each under
-// the new key (or load both keys into a keychain during a gradual migration).
+// This is UNSAFE (pre-C2): it drops prior versions, so envelopes written under
+// the previous master key stop decrypting. Task C2 replaces this with a
+// non-destructive rotation that re-wraps every row and retains old versions.
 export function rotateMasterKey (newKeyB64) {
-  activeMasterKey = decodeBase64Key(newKeyB64, 'rotateMasterKey: newKey')
-  currentDekVersion += 1
-  return currentDekVersion
+  return setActiveKey(newKeyB64)
 }
