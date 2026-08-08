@@ -4,6 +4,7 @@ import InputGroup from 'react-bootstrap/InputGroup'
 import React, { useCallback, useState } from 'react'
 import { useMutation, useApolloClient } from '@apollo/client/react'
 import AccordianItem from './accordian-item'
+import { defaultTipIncludingRandom } from './upvote'
 import MoneroPaymentView from './monero-payment-view'
 import { useAnimation } from './animation'
 import { useMe } from './me'
@@ -21,6 +22,13 @@ import UpArrow from '@/svgs/up-arrow.svg'
 //   - uses initiateTip (P2P, 100% to the author) not act/PayIn
 //   - XMR-decimal amount entry (not a piconeros slider)
 //   - polls tipStatus and bumps the item counter at DETECTED, then closes
+
+// The amount the modal opens prefilled with: the user's saved default, or a
+// fresh random within range when random tips are on (lazy useState init runs on
+// each modal open, so every open rolls the dice). Fallback 1e9 = 0.001 XMR.
+export const initialTipAmount = (privates) =>
+  piconerosToXmrDecimal(BigInt(defaultTipIncludingRandom(privates) || 1000000000))
+
 const PRESETS = ['0.001', '0.01', '0.025']
 const MIN_XMR = '0.0001' // = 1e8 piconeros, the server's minTipPiconeros floor
 // quick-slider bounds (XMR): 0.001–0.025 in 0.001 steps, in piconeros
@@ -34,7 +42,7 @@ export default function TipModal ({ item, onClose }) {
   const animate = useAnimation()
   const toaster = useToast()
   const [initiateTip] = useMutation(INITIATE_TIP)
-  const [amount, setAmount] = useState('')
+  const [amount, setAmount] = useState(() => initialTipAmount(me?.privates))
   const [tip, setTip] = useState(null) // { uri, paymentId, piconeros }
   const [tipPaid, setTipPaid] = useState(false)
 
