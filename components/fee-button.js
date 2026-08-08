@@ -5,7 +5,7 @@ import Info from './info'
 import styles from './fee-button.module.css'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
-import { ANON_FEE_MULTIPLIER, DEFAULT_POSTING_FEE_PICONEROS, FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
+import { ANON_COMMENT_FEE_MULTIPLIER, ANON_POST_FEE_MULTIPLIER, DEFAULT_POSTING_FEE_PICONEROS, FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
 import { piconerosToXmr } from '@/lib/format'
 import { useMe } from './me'
 import AnonIcon from '@/svgs/spy-fill.svg'
@@ -16,14 +16,17 @@ import { SubmitButton } from './form'
 const FeeButtonContext = createContext()
 
 export function postCommentBaseLineItems ({ comment = false, bio = false, me }) {
+  // anon multiplier is context-dependent: comments x ANON_COMMENT_FEE_MULTIPLIER (3),
+  // posts/bios x ANON_POST_FEE_MULTIPLIER (10).
+  const anonMultiplier = comment ? ANON_COMMENT_FEE_MULTIPLIER : ANON_POST_FEE_MULTIPLIER
   const anonCharge = me
     ? {}
     : {
         anonCharge: {
-          term: `x ${ANON_FEE_MULTIPLIER}`,
+          term: `x ${anonMultiplier}`,
           label: 'anon mult',
           op: '*',
-          modifier: (cost) => cost * ANON_FEE_MULTIPLIER
+          modifier: (cost) => cost * anonMultiplier
         }
       }
 
@@ -84,7 +87,8 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
       modifier: () => Number(feePiconeros / 1000n),
       allowFreebies: false,
       isComment: false
-    }
+    },
+    ...anonCharge
   }
 }
 
