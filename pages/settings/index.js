@@ -232,9 +232,13 @@ export default function Settings ({ ssrData }) {
           />
           <Checkbox
             label={
-              <div>
-                hide my badges
-                <small className='d-block text-muted'>hides the flame (daily activity streak), gold coin (tipped in the last 24 hours), and verified check (wallet)</small>
+              <div className='d-flex align-items-center'>hide my badges
+                <Info>
+                  <ul>
+                    <li>Hides your flame (daily activity streak), gold coin (tipped in the last 24 hours), and verified check (wallet) from other users</li>
+                    <li>Your own badges stay visible to you on your profile</li>
+                  </ul>
+                </Info>
               </div>
             }
             name='hideBadges'

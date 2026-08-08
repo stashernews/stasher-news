@@ -9,7 +9,7 @@ import { USER_ID } from '@/lib/constants'
 describe('buildBadges — Stasher identity', () => {
   test('verified-wallet check, coin, and flame in order', () => {
     const user = { id: 1, optional: { streak: 5, hasWallet: true, tippedRecently: true } }
-    const badges = buildBadges(user, { showWalletBadges: true })
+    const badges = buildBadges(user)
 
     expect(badges.map(b => b.overlayText)).toEqual([
       'verified wallet',
@@ -20,8 +20,8 @@ describe('buildBadges — Stasher identity', () => {
     expect(badges.every(b => b.icon)).toBe(true)
   })
 
-  test('no verified-wallet check without showWalletBadges', () => {
-    const user = { id: 1, optional: { streak: 3, hasWallet: true, tippedRecently: true } }
+  test('no verified-wallet check without a wallet', () => {
+    const user = { id: 1, optional: { streak: 3, hasWallet: false, tippedRecently: true } }
     const badges = buildBadges(user)
 
     expect(badges.map(b => b.overlayText)).toEqual([
@@ -46,7 +46,7 @@ describe('buildBadges — Stasher identity', () => {
 
   test('no flame when streak is null', () => {
     const user = { id: 1, optional: { streak: null, hasWallet: true, tippedRecently: false } }
-    expect(buildBadges(user, { showWalletBadges: true }).map(b => b.overlayText)).toEqual(['verified wallet'])
+    expect(buildBadges(user).map(b => b.overlayText)).toEqual(['verified wallet'])
   })
 
   test('no flame when streak is absent', () => {
@@ -55,12 +55,12 @@ describe('buildBadges — Stasher identity', () => {
   })
 
   test('anon returns null', () => {
-    expect(buildBadges({ id: USER_ID.anon, optional: { streak: 5, hasWallet: true } }, { showWalletBadges: true })).toBeNull()
+    expect(buildBadges({ id: USER_ID.anon, optional: { streak: 5, hasWallet: true } })).toBeNull()
   })
 
   test('bot override returns only the bot badge', () => {
     const user = { id: 1, optional: { streak: 5, hasWallet: true, tippedRecently: true } }
-    const badges = buildBadges(user, { showWalletBadges: true, bot: true })
+    const badges = buildBadges(user, { bot: true })
 
     expect(badges.map(b => b.overlayText)).toEqual(['posted as bot'])
   })

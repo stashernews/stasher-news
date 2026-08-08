@@ -10,7 +10,7 @@ import { numWithUnits } from '@/lib/format'
 import { USER_ID } from '@/lib/constants'
 import classNames from 'classnames'
 
-export default function Badges ({ user, badge, bot, showWalletBadges, className = 'ms-1', badgeClassName, spacingClassName = 'ms-1', height = 16, width = 16 }) {
+export default function Badges ({ user, badge, bot, className = 'ms-1', badgeClassName, spacingClassName = 'ms-1', height = 16, width = 16 }) {
   if (!user) return null
   if (Number(user.id) === USER_ID.anon) {
     return (
@@ -20,7 +20,7 @@ export default function Badges ({ user, badge, bot, showWalletBadges, className 
     )
   }
 
-  const badges = buildBadges(user, { showWalletBadges, bot })
+  const badges = buildBadges(user, { bot })
 
   if (!badges || badges.length === 0) return null
 
@@ -44,11 +44,11 @@ export default function Badges ({ user, badge, bot, showWalletBadges, className 
   )
 }
 
-export function buildBadges (user, { showWalletBadges = false, bot = false } = {}) {
+export function buildBadges (user, { bot = false } = {}) {
   if (!user) return null
   if (Number(user.id) === USER_ID.anon) return null
   const badges = []
-  if (showWalletBadges && user.optional?.hasWallet) {
+  if (user.optional?.hasWallet) {
     badges.push({ icon: VerifiedIcon, overlayText: 'verified wallet', style: { color: 'var(--theme-grey)' } })
   }
   if (user.optional?.tippedRecently) {
