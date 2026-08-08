@@ -327,7 +327,6 @@ services:
       - --create-queue-max=50000
       - --access-control-origin=stasher.news
       - --confirm-external-bind
-      - --disable-admin-auth
       - --webhook-ssl-verification=${MONERO_LWS_WEBHOOK_SSL_VERIFICATION:-none}
       - --exchange-rate-interval=0
       - --log-level=4
