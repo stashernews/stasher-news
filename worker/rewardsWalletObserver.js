@@ -185,7 +185,7 @@ function feeTypeFor (major, payInType) {
 
 // Flip the gated Item/Sub to live. Idempotent: the WHERE on the PENDING state
 // means a second call (or a fee already paid by another path) is a no-op.
-async function flipPendingToLive (models, payIn, feePiconeros) {
+export async function flipPendingToLive (models, payIn, feePiconeros) {
   if (payIn.payInType === 'ITEM_CREATE') {
     // Credit the observed posting fee as the post's non-tip investment so the
     // restored item_net_investment trigger produces netInvestment >= 0.001 XMR
@@ -204,6 +204,24 @@ async function flipPendingToLive (models, payIn, feePiconeros) {
       where: { billingPayInId: payIn.id, billingStatus: 'PENDING_FEE' },
       data: { billingStatus: 'PAID' }
     })
+  }
+
+  // The fee that unlocks the >10MB uploads was just observed: flip them paid so
+  // uploadFees stops charging them (the paid gate in api/resolvers/upload.js).
+  // The UploadPayIn rows live on the MEDIA_UPLOAD beneficiaries of the observed
+  // payIn (the benefactor carries the subaddress and the fee), so both shapes
+  // are matched. Runs for ANY observed fee (ITEM_CREATE / ITEM_UPDATE /
+  // TERRITORY_* / DONATE / ...); it is a no-op when the payIn covers no uploads.
+  // Fires exactly once per observation: re-polls of the same tx are stopped by
+  // the ON CONFLICT DO NOTHING guard upstream, before this point is reached.
+  if (payIn?.id != null) {
+    await models.$executeRaw`
+      UPDATE "Upload"
+      SET "paid" = true
+      FROM "UploadPayIn"
+      WHERE ("UploadPayIn"."payInId" = ${payIn.id}
+        OR "UploadPayIn"."payInId" IN (SELECT id FROM "PayIn" WHERE "benefactorId" = ${payIn.id}))
+        AND "Upload"."id" = "UploadPayIn"."uploadId"`
   }
 }
 
