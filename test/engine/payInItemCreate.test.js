@@ -21,6 +21,7 @@ import { PrismaClient } from '@prisma/client'
 import pay from '@/api/payIn/index'
 import { onPaid, getInitial } from '@/api/payIn/types/itemCreate'
 import { performBotBehavior } from '@/api/payIn/lib/item'
+import { flipPendingToLive } from '@/worker/rewardsWalletObserver'
 import { USER_ID } from '@/lib/constants'
 
 // itemCreate.js statically imports @/lib/lexical/server/mentions (ESM-only
@@ -290,7 +291,7 @@ test('getInitial includes the upload fee in the posting-fee URI for a >10MB uplo
 // must keep the always-array contract (payOutCustodialTokens: []), or every
 // upload-carrying pay() call crashes with
 // "Cannot read properties of undefined (reading 'reduce')" and rolls back.
-test('pay("ITEM_CREATE", { uploadIds }) completes and flips the upload paid', async () => {
+test('pay("ITEM_CREATE", { uploadIds }) completes without flipping the upload; the observed fee (flipPendingToLive) marks it paid', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
   const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 }) // >10MB -> upload fee
@@ -325,15 +326,19 @@ test('pay("ITEM_CREATE", { uploadIds }) completes and flips the upload paid', as
   })
   expect(beneficiaryPayIn.payInState).toBe('PAID')
   expect(beneficiaryPayIn.piconeros).toBe(0n)
+  // the MEDIA_UPLOAD beneficiary is associated to its benefactor payIn
+  expect(beneficiaryPayIn.benefactorId).toBe(result.id)
   expect(beneficiaryPayIn.uploadPayIns).toHaveLength(1)
   expect(beneficiaryPayIn.uploadPayIns[0].uploadId).toBe(uploadId)
 
   const uploadPayIn = await prisma.uploadPayIn.findFirst({ where: { payInId: beneficiary.id, uploadId } })
   expect(uploadPayIn).toBeTruthy()
 
-  // MEDIA_UPLOAD.onPaid flips the upload paid
+  // attaching must NOT flip the upload: MEDIA_UPLOAD.onPaid is a no-op, so a fee
+  // that is never paid can never be exempted (dummy-post evasion). The flip only
+  // happens when the rewardsWalletObserver observes the covering fee on-chain.
   const upload = await prisma.upload.findUnique({ where: { id: uploadId } })
-  expect(upload.paid).toBe(true)
+  expect(upload.paid).toBe(false)
 
   const itemPayIn = await prisma.itemPayIn.findFirst({ where: { payInId: result.id } })
   expect(itemPayIn).toBeTruthy()
@@ -341,6 +346,14 @@ test('pay("ITEM_CREATE", { uploadIds }) completes and flips the upload paid', as
   created.items.push(item.id)
   expect(item.feeStatus).toBe('PENDING_FEE')
   expect(item.feePayInId).toBe(result.id)
+
+  // drive the observation-time flip: the observer sees the covering fee on the
+  // rewards wallet (0.002 XMR = posting fee + upload fee) and flips the upload
+  await flipPendingToLive(prisma, result, 2_000_000_000n)
+  const flippedUpload = await prisma.upload.findUnique({ where: { id: uploadId } })
+  expect(flippedUpload.paid).toBe(true)
+  const liveItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(liveItem.feeStatus).toBe('FEE_PAID')
 
   // the onPaid streak job references the test user (deleted in afterAll); drop
   // it here so the worker never executes it against a deleted row

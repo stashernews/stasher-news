@@ -4,9 +4,10 @@
 // `totalFeesMsats` off uploadFees (renamed to totalFeesPiconeros in Task 1),
 // which crashed the prospect with piconeros: undefined. Now getInitial builds a
 // POSTING-subaddress URI covering the upload fee and attaches a MEDIA_UPLOAD
-// beneficiary (which flips Upload.paid on onPaid). The fee only attaches when
-// the item already has a paid ITEM_CREATE payIn; otherwise getInitial throws
-// ('cannot increase item cost with unpaid invoice').
+// beneficiary (onPaid is a no-op; Upload.paid flips in rewardsWalletObserver's
+// flipPendingToLive when the covering fee is observed). The fee only attaches
+// when the item already has a paid ITEM_CREATE payIn; otherwise getInitial
+// throws ('cannot increase item cost with unpaid invoice').
 //
 // Real-DB integration test (mirrors test/engine/payInItemCreate.test.js):
 //   docker exec -u apprunner app npx jest test/engine/payInItemUpdate.test.js
