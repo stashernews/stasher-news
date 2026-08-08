@@ -24,8 +24,8 @@ model User {
   foundNotesAt        DateTime?
   apiKeyHash          String?              @unique(map: "users.apikeyhash_unique") @db.Char(64)
   apiKeyEnabled       Boolean              @default(false)
-  tipRandomMin        Int?
-  tipRandomMax        Int?
+  tipRandomMin        BigInt?
+  tipRandomMax        BigInt?
   bioId               Int?
   pubkey              String?              @unique(map: "users.pubkey_unique")
   inviteId            String?
@@ -115,7 +115,7 @@ model User {
   privacyMode         PrivacyMode?
   stackedPiconeros    BigInt       @default(0)
   downvotePiconeros   BigInt       @default(0)
-  tipDefaultPiconeros Int          @default(1000000000)
+  tipDefaultPiconeros BigInt       @default(1000000000)
 
   // back-relations for the Monero observation models
   moneroAccounts MoneroAccount[]

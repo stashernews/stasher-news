@@ -31,4 +31,13 @@ describe('initialTipAmount', () => {
     expect(initialTipAmount({})).toBe('0.001')
     expect(initialTipAmount(undefined)).toBe('0.001')
   })
+
+  test('handles BigInt-scalar string values from the GraphQL privates', () => {
+    // tipDefault/tipRandomMin/tipRandomMax are BigInt GraphQL fields — Apollo
+    // delivers them as strings (e.g. '1000000000').
+    expect(initialTipAmount({ tipDefault: '1000000000' })).toBe('0.001')
+    const privates = { tipRandom: true, tipRandomMin: '1000000000', tipRandomMax: '10000000000' }
+    expect(Number(initialTipAmount(privates))).toBeGreaterThanOrEqual(0.001)
+    expect(Number(initialTipAmount(privates))).toBeLessThanOrEqual(0.01)
+  })
 })
