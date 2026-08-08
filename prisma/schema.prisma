@@ -1443,7 +1443,7 @@ model ObservedDownvote {
 model FeeObservation {
   id             BigInt        @id @default(autoincrement())
   txHash         String
-  payInId        Int?
+  payInId        Int?          @unique
   feeType        FeeType
   postId         Int?
   subName        String?       @db.Citext
