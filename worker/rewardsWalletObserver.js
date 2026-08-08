@@ -54,7 +54,11 @@ async function attributeOutput (models, tx, account) {
   if (await attributeFeeBySubaddress(models, tx)) return
   // PHASE 4: downvotes arrive on the PRIMARY address (major 0) carrying a
   // decrypted payment_id that encodes (postId, nonce) via the DownvotePidMap.
-  if (tx.payment_id) await attributeDownvoteByPaymentId(models, tx)
+  if (tx.payment_id && await attributeDownvoteByPaymentId(models, tx)) return
+  // Wallet-less-author tips arrive the same way (primary address + payment_id)
+  // but carry a "tip:"-namespace id (disjoint from "dv:"). Attribute them as a
+  // TIP_UNWALLETED FeeObservation so the pool + transparency surfaces see them.
+  if (tx.payment_id) await attributeTipByPaymentId(models, tx)
 }
 
 // Attribute an output to a pending fee by its receiving subaddress. Returns the
@@ -97,14 +101,14 @@ async function attributeFeeBySubaddress (models, tx) {
 // a row only on the fresh insert, so a re-poll never double-penalises.
 async function attributeDownvoteByPaymentId (models, tx) {
   const map = await reverseMapPaymentId(tx.payment_id, models)
-  if (!map) return
+  if (!map) return null
 
   const rows = await models.$queryRaw`
     INSERT INTO "ObservedDownvote" ("txHash","postId","downvoterId","paymentId","piconeros","height","state","detectedAt")
     VALUES (${tx.hash}, ${map.postId}, ${map.userId}::INT, ${tx.payment_id}, ${tx.piconeros}, ${tx.height ?? null}, 'DETECTED'::"ObservedState", NOW())
     ON CONFLICT ("txHash","paymentId") DO NOTHING
     RETURNING id`
-  if (!rows || rows.length === 0) return
+  if (!rows || rows.length === 0) return null
 
   const item = await models.item.findUnique({ where: { id: map.postId } })
   if (item) {
@@ -118,6 +122,29 @@ async function attributeDownvoteByPaymentId (models, tx) {
   }
 
   await models.downvotePidMap.update({ where: { paymentId: tx.payment_id }, data: { consumedAt: new Date() } })
+  return rows[0].id
+}
+
+// Attribute a primary-address output carrying a "tip:"-namespace payment_id to
+// a wallet-less-author tip. Looks the payment_id up on ObservedTip; if found,
+// idempotently records a FeeObservation(TIP_UNWALLETED, payInId=null) so the
+// rewards pool and transparency surfaces reflect the inflow. confirmFinalizer
+// matures it DETECTED -> CONFIRMED like every other fee. Returns the
+// FeeObservation id on a fresh attribution, or null if no tip matches / already
+// attributed (so the dispatcher can short-circuit).
+async function attributeTipByPaymentId (models, tx) {
+  const tip = await models.observedTip.findFirst({ where: { paymentId: tx.payment_id } })
+  if (!tip) return null
+
+  const major = tx.recipient?.maj_i ?? 0
+  const minor = tx.recipient?.min_i ?? 0
+  const rows = await models.$queryRaw`
+    INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","height","state","detectedAt")
+    VALUES (${tx.hash}, NULL, 'TIP_UNWALLETED'::"FeeType", ${tip.postId}, NULL, ${major}, ${minor}, ${tx.piconeros}, ${tx.height ?? null}, 'DETECTED'::"ObservedState", NOW())
+    ON CONFLICT ("txHash","recipientMajor","recipientMinor") DO NOTHING
+    RETURNING id`
+  if (!rows || rows.length === 0) return null
+  return rows[0].id
 }
 
 // Apply the LOG-scaled ranking penalty to the downvoted item and its ancestors.
