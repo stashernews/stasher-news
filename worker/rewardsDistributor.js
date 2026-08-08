@@ -3,6 +3,7 @@ import createPrisma from '@/lib/create-prisma'
 import { computeCuratorShares } from './curatorShares'
 import { sendPayouts as defaultSendPayouts, sweepOpsEarmark as defaultSweepOpsEarmark } from '@/api/monero/rewards'
 import logger, { logInfo, logError } from '@/lib/logger'
+import { alert } from '@/lib/alert'
 
 // rewardsDistributor — StasherNews' weekly rewards-pool distribution job
 // (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
@@ -301,6 +302,9 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
     const sweep = await sweepOpsEarmark({ distribution, models })
     if (sweep.state === 'FAILED') {
       logError({ distributionId: distribution.id }, 'rewardsDistributor: CRITICAL — ops sweep FAILED after payouts were sent; manual reconciliation required')
+      alert('critical', 'rewards distribution failed (ops sweep)',
+        `distribution ${distribution.id}: ops sweep FAILED after payouts were sent; manual reconciliation required`,
+        { dedupeKey: `dist-${distribution.id}-sweep-failed` })
       await models.rewardDistribution.update({
         where: { id: distribution.id },
         data: { status: 'FAILED' }
@@ -313,6 +317,9 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
     })
   } catch (err) {
     logError({ distributionId: distribution.id, err }, 'rewardsDistributor: finalization failed')
+    alert('critical', 'rewards distribution finalization failed',
+      `distribution ${distribution.id}: ${err?.message || err}`,
+      { dedupeKey: `dist-${distribution.id}-failed` })
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { status: 'FAILED' }

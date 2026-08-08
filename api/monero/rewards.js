@@ -1,5 +1,6 @@
 import { daemonClient } from '@/api/monero/daemonClient'
 import { logInfo, logError } from '@/lib/logger'
+import { alert } from '@/lib/alert'
 
 // Rewards hot-wallet signer (Phase 4 Task 9 / design spec §5.6, §6.2).
 //
@@ -169,6 +170,9 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
         sent += 1
       } catch (err2) {
         logError({ payoutId: payout.id, txHash, err: err2 }, 'sendPayouts: CRITICAL — DB-update retry also failed')
+        alert('critical', 'relayed-but-unpersisted payout',
+          `payout ${payout.id} tx ${txHash} relayed but DB persist failed (retry also failed); manual reconciliation required`,
+          { dedupeKey: `relay-unpersisted-${txHash}` })
       }
     }
   }
@@ -259,6 +263,9 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
       })
     } catch (err2) {
       logError({ distributionId: distribution.id, txHash, err: err2 }, 'sweepOpsEarmark: CRITICAL — DB-update retry also failed')
+      alert('critical', 'relayed-but-unpersisted ops sweep',
+        `distribution ${distribution.id} sweep tx ${txHash} relayed but DB persist failed (retry also failed); manual reconciliation required`,
+        { dedupeKey: `relay-unpersisted-${txHash}` })
     }
   }
 
