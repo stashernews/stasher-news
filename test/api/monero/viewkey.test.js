@@ -140,6 +140,7 @@ describe('rotateMasterKey (production-safe, non-destructive)', () => {
     expect(rows.every(r => r.dekVersion === 2)).toBe(true)
     expect(viewkey.decryptViewKey(rows[0])).toBe(VIEWKEY_HEX)
     expect(viewkey.decryptViewKey(rows[1])).toBe(VIEWKEY_HEX)
+    expect(rows[0].rotatedAt).toEqual(rows[1].rotatedAt)
   })
 
   test('subsequent encrypts wrap under the new version (fresh wrapping)', async () => {
@@ -188,6 +189,48 @@ describe('rotateMasterKey (production-safe, non-destructive)', () => {
     expect(viewkey.decryptViewKey(models.store[0])).toBe(VIEWKEY_HEX)
     expect(viewkey.decryptViewKey(models.store[1])).toBe(VIEWKEY_HEX)
     expect(Buffer.from(models.store[1].wrappedDek).equals(beforeWrap)).toBe(true)
+  })
+
+  test('a poison row that fails to decrypt does not block the other rows (resumable)', async () => {
+    const good1 = viewkey.encryptViewKey(VIEWKEY_HEX) // id 1, v1
+    const poison = viewkey.encryptViewKey(VIEWKEY_HEX) // id 2, v1 — corrupted below
+    const good2 = viewkey.encryptViewKey(VIEWKEY_HEX) // id 3, v1
+
+    // Corrupt the poison row's ciphertext so decryptViewKey throws a GCM auth
+    // failure — simulating a corrupted/undecryptable envelope stranded in the DB.
+    poison.ciphertext = Buffer.from(poison.ciphertext)
+    poison.ciphertext[0] ^= 0x01
+
+    const models = makeFakeModels([good1, poison, good2])
+
+    let caught
+    try {
+      await viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models })
+    } catch (err) {
+      caught = err
+    }
+
+    // The function throws an aggregate error naming the failed row …
+    expect(caught).toBeDefined()
+    expect(caught.message).toMatch(/2 of 3/)
+    expect(caught.message).toMatch(/ids: 2/)
+    expect(caught.rotated).toBe(2)
+    expect(caught.targetVersion).toBe(2)
+    expect(Array.isArray(caught.failures)).toBe(true)
+    expect(caught.failures).toHaveLength(1)
+    expect(caught.failures[0].id).toBe(2)
+    expect(caught.failures[0].dekVersion).toBe(1)
+
+    // … but the two good rows WERE re-wrapped to v2 and still decrypt correctly.
+    expect(models.store[0].dekVersion).toBe(2)
+    expect(viewkey.decryptViewKey(models.store[0])).toBe(VIEWKEY_HEX)
+    expect(models.store[2].dekVersion).toBe(2)
+    expect(viewkey.decryptViewKey(models.store[2])).toBe(VIEWKEY_HEX)
+
+    // The poison row is untouched: still v1 (so a re-run will retry only it) and
+    // still undecryptable. Critically, good2 (after the poison row) was NOT stranded.
+    expect(models.store[1].dekVersion).toBe(1)
+    expect(() => viewkey.decryptViewKey(models.store[1])).toThrow()
   })
 
   test('old-key retention allows restoring a v1 backup envelope after rotation', async () => {

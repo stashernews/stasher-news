@@ -106,6 +106,14 @@ export function decryptViewKey (envelope) {
 // own retained key) and a re-run with the same key finishes the stragglers
 // without bumping the version again (addMasterKeyVersion is byte-idempotent).
 //
+// Per-row error handling: if a single row fails to decrypt (GCM auth failure /
+// corruption), it is skipped — NOT fatal. The rest of the rows are still
+// re-wrapped (already-committed rows stay rotated), and after the loop an
+// aggregate Error is thrown listing the failed row ids (with `.failures`,
+// `.rotated`, `.targetVersion` attached). A poison row therefore never strands
+// the rows after it; the operator investigates and re-runs, which retries only
+// the rows still below the target version.
+//
 // The function needs DB access to re-wrap rows, hence the `{ models }` arg
 // (same shape as the worker jobs: models.moneroViewKey.{findMany,update}).
 // The operator script persists the new key to env + restarts app/worker BEFORE
@@ -121,22 +129,52 @@ export async function rotateMasterKey ({ newKeyB64, models }) {
   const rows = await models.moneroViewKey.findMany({
     where: { dekVersion: { lt: targetVersion } }
   })
+  // One timestamp for the whole batch so every row re-wrapped in this run shares
+  // the same `rotatedAt` (avoids per-row clock skew muddying audit logs).
+  const now = new Date()
   let rotated = 0
+  const failures = []
   for (const row of rows) {
-    const plaintext = decryptViewKey(row)
-    const fresh = encryptViewKey(plaintext)
-    await models.moneroViewKey.update({
-      where: { id: row.id },
-      data: {
-        ciphertext: fresh.ciphertext,
-        iv: fresh.iv,
-        tag: fresh.tag,
-        wrappedDek: fresh.wrappedDek,
-        dekVersion: fresh.dekVersion,
-        rotatedAt: new Date()
-      }
-    })
-    rotated += 1
+    // Per-row try/catch preserves the resumable guarantee: a single "poison"
+    // row that can't be decrypted (GCM auth failure / corruption) does NOT
+    // strand every later row. The failure is collected and the loop continues;
+    // the offending row keeps its old dekVersion and stays decryptable under its
+    // retained key, so a re-run retries only the stragglers (dekVersion < target).
+    try {
+      const plaintext = decryptViewKey(row)
+      const fresh = encryptViewKey(plaintext)
+      await models.moneroViewKey.update({
+        where: { id: row.id },
+        data: {
+          ciphertext: fresh.ciphertext,
+          iv: fresh.iv,
+          tag: fresh.tag,
+          wrappedDek: fresh.wrappedDek,
+          dekVersion: fresh.dekVersion,
+          rotatedAt: now
+        }
+      })
+      rotated += 1
+    } catch (err) {
+      failures.push({ id: row.id, dekVersion: row.dekVersion, error: err })
+    }
+  }
+  if (failures.length > 0) {
+    // Successfully-rotated rows are already committed (per-row autocommit) and
+    // remain on the new version; we only throw so the operator learns which rows
+    // still lag and can investigate. This never rolls back the good re-wraps.
+    const ids = failures.map(f => f.id).join(', ')
+    const err = new Error(
+      `rotateMasterKey: re-wrapped ${rotated} of ${rows.length} rows to version ${targetVersion}; ` +
+      `${failures.length} row(s) failed (ids: ${ids}). The rotated rows are committed and remain on ` +
+      `version ${targetVersion}; each failed row keeps its prior dekVersion and stays decryptable ` +
+      'under its retained key. Fix/investigate the failed rows, then re-run — only rows still below ' +
+      `version ${targetVersion} are retried.`
+    )
+    err.failures = failures
+    err.rotated = rotated
+    err.targetVersion = targetVersion
+    throw err
   }
   return { version: targetVersion, rotated }
 }
