@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { applyTipDetected } from '@/api/monero/ranking'
 import { RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
+import { alert } from '@/lib/alert'
 
 // reconcilePendingTips — recover tips stranded in PENDING by a missed 0-conf webhook.
 //
@@ -25,6 +26,8 @@ import { RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
 
 const RECONCILE_INTERVAL_SECONDS = 2 * 60 // every 2 min
 
+const STUCK_ALERT_THRESHOLD = Number(process.env.RECONCILE_STUCK_ALERT_THRESHOLD) || 10
+
 export async function runReconcilePendingTipsOnce ({
   models, lwsClient: client = lwsClient, apply = applyTipDetected
 }) {
@@ -36,6 +39,17 @@ export async function runReconcilePendingTipsOnce ({
     where: { state: 'PENDING', detectedAt: { lt: reconcileBefore } }
   })
   if (eligible.length === 0) return { recovered: 0, expired: 0 }
+
+  if (eligible.length >= STUCK_ALERT_THRESHOLD) {
+    const oldestMs = eligible.reduce((m, t) => {
+      const ts = new Date(t.detectedAt).getTime()
+      return ts < m ? ts : m
+    }, now)
+    const oldestAgeMin = Math.max(0, Math.round((now - oldestMs) / 60000))
+    alert('critical', 'stuck pending tips',
+      `${eligible.length} tips PENDING past reconcile age (oldest ${oldestAgeMin}m); webhook backlog suspected`,
+      { dedupeKey: 'stuck-pending' })
+  }
 
   // Group stranded tips by the author account whose address lws must scan.
   const byAccount = new Map()
