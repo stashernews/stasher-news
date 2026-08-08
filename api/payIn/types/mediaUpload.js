@@ -1,8 +1,10 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
-import { getRedistributedPayOutCustodialTokens } from '../lib/payOutCustodialTokens'
-import { throwOnExpiredUploads, uploadFees } from '@/api/resolvers/upload'
+import { throwOnExpiredUploads } from '@/api/resolvers/upload'
 
-// currently, media upload is only ever a beneficiary of other payIns
+// MEDIA_UPLOAD is only ever a beneficiary of other payIns. The fee itself lives
+// in the BENEFACTOR's moneroUri (the benefactor reads it from uploadFees and
+// folds it into its URI amount); this beneficiary carries piconeros 0n so the
+// engine marks it PAID at creation and onPaid flips Upload.paid.
 
 export const anonable = false
 
@@ -12,19 +14,12 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-export async function getInitial (models, { uploadIds }, { me, subs }) {
+export async function getInitial (models, { uploadIds }, { me }) {
   await throwOnExpiredUploads(uploadIds, { tx: models })
-
-  const { totalFeesMsats } = await uploadFees(uploadIds, { models, me })
-
-  const piconeros = totalFeesMsats
-  const payOutCustodialTokens = getRedistributedPayOutCustodialTokens({ subs: subs ?? [], piconeros })
-
   return {
     payInType: 'MEDIA_UPLOAD',
     userId: me?.id,
-    piconeros,
-    payOutCustodialTokens,
+    piconeros: 0n,
     uploadPayIns: uploadIds.map(id => ({ uploadId: id }))
   }
 }

@@ -6,6 +6,7 @@ import { buildMoneroUri } from '@/api/monero/uri'
 import { GqlInputError } from '@/lib/error'
 import * as MEDIA_UPLOAD from './mediaUpload'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
+import { uploadFees } from '@/api/resolvers/upload'
 
 export const anonable = false
 
@@ -23,7 +24,7 @@ export function needsCadenceFee (oldSub, newBillingType) {
   return newBillingType === 'YEARLY' || newBillingType === 'ONCE'
 }
 
-export async function getInitial (models, { oldName, billingType, uploadIds }, { me }) {
+export async function getInitial (models, { oldName, billingType, uploadIds = [] }, { me }) {
   const oldSub = await models.sub.findUnique({
     where: {
       name: oldName
@@ -31,7 +32,10 @@ export async function getInitial (models, { oldName, billingType, uploadIds }, {
   })
 
   const beneficiaries = []
+  let uploadFeesPiconeros = 0n
   if (uploadIds.length > 0) {
+    const fees = await uploadFees(uploadIds, { models, me })
+    uploadFeesPiconeros = fees.totalFeesPiconeros
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
   }
 
@@ -45,14 +49,17 @@ export async function getInitial (models, { oldName, billingType, uploadIds }, {
   // cadence switch to a longer/once plan: charge the FULL new fee on-chain at the
   // switch; the new period starts at the end of the current paid coverage so the
   // remaining days are never double-charged (spec §4b).
-  if (needsCadenceFee(oldSub, billingType)) {
-    const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
-    if (!config) throw new GqlInputError('fee config not initialized')
-    const fee = territoryFeePiconeros(billingType, config)
-    const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UPDATE') // major 2
+  const cadenceFee = needsCadenceFee(oldSub, billingType)
+  if (cadenceFee || uploadFeesPiconeros > 0n) {
+    const config = cadenceFee ? await models.platformFeeConfig.findUnique({ where: { id: 1 } }) : null
+    if (cadenceFee && !config) throw new GqlInputError('fee config not initialized')
+    const cadencePiconeros = cadenceFee ? territoryFeePiconeros(billingType, config) : 0n
+    // cadence fee + uploads share the territory subaddress when both apply; uploads-only use POSTING
+    const feeType = cadenceFee ? 'TERRITORY_UPDATE' : 'POSTING'
+    const reserved = await reserveFeeSubaddress(models, feeType)
     prospect.moneroUri = buildMoneroUri(
-      [{ address: reserved.address, amount: fee }],
-      { description: `StasherNews turf ${oldSub.name} switch to ${billingType}` }
+      [{ address: reserved.address, amount: cadencePiconeros + uploadFeesPiconeros }],
+      { description: cadenceFee ? `StasherNews turf ${oldSub.name} switch to ${billingType}` : 'StasherNews upload fee' }
     )
     prospect.moneroSubaddressMajor = reserved.major
     prospect.moneroSubaddressMinor = reserved.minor

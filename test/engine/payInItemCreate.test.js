@@ -58,13 +58,19 @@ const prisma = new PrismaClient()
 // FK-safe teardown tracking. Item and PayIn cascade their ItemPayIn / Reminder
 // children, so only the parents (items, payIns, users) plus the pgboss jobs we
 // created need explicit cleanup.
-const created = { users: [], items: [], payIns: [], reminderIds: [] }
+const created = { users: [], items: [], payIns: [], reminderIds: [], uploads: [] }
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
   const id = rows[0].id
   created.users.push(id)
   return id
+}
+
+async function createUpload (userId, { size }) {
+  const upload = await prisma.upload.create({ data: { userId, size, type: 'image/png' } })
+  created.uploads.push(upload.id)
+  return upload.id
 }
 
 // Minimal root post (parentId null, freebie false) — enough for onPaid and
@@ -106,6 +112,7 @@ afterAll(async () => {
     await deleteJobsForItem(id)
   }
   await prisma.reminder.deleteMany({ where: { id: { in: created.reminderIds } } }).catch(() => {})
+  await prisma.upload.deleteMany({ where: { id: { in: created.uploads } } }).catch(() => {})
   for (const id of created.items) {
     await prisma.item.deleteMany({ where: { id } }).catch(() => {})
   }
@@ -249,4 +256,15 @@ test('getInitial escalates the comment fee x10 for a repeat reply within 10m', a
   const result = await getInitial(prisma, { parentId: String(parentId) }, { me: { id: userId } })
   expect(result.moneroUri).toMatch(/^monero:/)
   expect(result.moneroUri).toContain('tx_amount=0.01') // 0.001 x 10^1
+})
+
+// --- A-07: uploads over 10MB are charged on new posts ---
+test('getInitial includes the upload fee in the posting-fee URI for a >10MB upload', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 }) // >10MB -> 0.001 XMR
+  const result = await getInitial(prisma, { uploadIds: [uploadId] }, { me: { id: userId } })
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroUri).toContain('tx_amount=0.002') // 0.001 posting fee + 0.001 upload fee
+  expect(result.beneficiaries?.some(b => b.payInType === 'MEDIA_UPLOAD')).toBe(true)
 })
