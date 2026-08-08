@@ -13,6 +13,7 @@ const MODULE_PATH = require.resolve('../../../api/monero/viewkey')
 
 // A 32-byte master key, base64-encoded, used for the "valid key" tests.
 const VALID_MASTER_B64 = Buffer.from('a'.repeat(32)).toString('base64')
+const KEY_B_B64 = Buffer.from('b'.repeat(32)).toString('base64')
 
 // 64-hex-char Monero private view key (per controller resolution #6 — a clean
 // literal, not the brief's escaped template artifact).
@@ -21,6 +22,43 @@ const VIEWKEY_HEX = '7e3d' + '0'.repeat(60)
 // Fields of the MoneroViewKey prisma model that the envelope must match so a
 // caller can spread encryptViewKey(...) straight into a prisma create.
 const ENVELOPE_KEYS = ['ciphertext', 'iv', 'tag', 'wrappedDek', 'dekVersion']
+
+// In-memory stand-in for the prisma client surface that rotateMasterKey uses
+// (models.moneroViewKey.{findMany,update}). findMany honours the
+// { dekVersion: { lt: n } } filter the rotation uses to pick lagging rows.
+// Buffer fields are cloned on read so update() mutations never leak into the
+// snapshots a test may hold, mirroring prisma's value semantics.
+function cloneRow (r) {
+  return {
+    ...r,
+    ciphertext: Buffer.from(r.ciphertext),
+    iv: Buffer.from(r.iv),
+    tag: Buffer.from(r.tag),
+    wrappedDek: Buffer.from(r.wrappedDek)
+  }
+}
+
+function makeFakeModels (seed = []) {
+  const store = seed.map((r, i) => ({ id: r.id ?? i + 1, ...r }))
+  return {
+    store,
+    moneroViewKey: {
+      async findMany ({ where } = {}) {
+        let out = store
+        if (where && where.dekVersion && typeof where.dekVersion.lt === 'number') {
+          out = store.filter(r => r.dekVersion < where.dekVersion.lt)
+        }
+        return out.map(cloneRow)
+      },
+      async update ({ where, data }) {
+        const row = store.find(r => r.id === where.id)
+        if (!row) throw new Error(`fake models: row ${where.id} not found`)
+        Object.assign(row, data)
+        return cloneRow(row)
+      }
+    }
+  }
+}
 
 let viewkey
 
@@ -88,34 +126,95 @@ describe('GCM tamper detection', () => {
   })
 })
 
-describe('rotateMasterKey', () => {
-  test('bumps dekVersion and changes the wrapping of subsequent encrypts', () => {
-    const before = viewkey.encryptViewKey(VIEWKEY_HEX)
-    expect(before.dekVersion).toBe(1)
+describe('rotateMasterKey (production-safe, non-destructive)', () => {
+  test('rewraps every MoneroViewKey row to the new version and all decrypt under it', async () => {
+    const r1 = viewkey.encryptViewKey(VIEWKEY_HEX)
+    const r2 = viewkey.encryptViewKey(VIEWKEY_HEX)
+    expect(r1.dekVersion).toBe(1)
+    const models = makeFakeModels([r1, r2])
 
-    const newKeyB64 = Buffer.from('b'.repeat(32)).toString('base64')
-    const nextVersion = viewkey.rotateMasterKey(newKeyB64)
-    expect(nextVersion).toBe(2)
+    const out = await viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models })
+
+    expect(out).toEqual({ version: 2, rotated: 2 })
+    const rows = models.store
+    expect(rows.every(r => r.dekVersion === 2)).toBe(true)
+    expect(viewkey.decryptViewKey(rows[0])).toBe(VIEWKEY_HEX)
+    expect(viewkey.decryptViewKey(rows[1])).toBe(VIEWKEY_HEX)
+  })
+
+  test('subsequent encrypts wrap under the new version (fresh wrapping)', async () => {
+    const before = viewkey.encryptViewKey(VIEWKEY_HEX)
+    const models = makeFakeModels()
+    const out = await viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models })
+    expect(out.version).toBe(2)
 
     const after = viewkey.encryptViewKey(VIEWKEY_HEX)
     expect(after.dekVersion).toBe(2)
     expect(Buffer.from(after.wrappedDek).equals(Buffer.from(before.wrappedDek))).toBe(false)
+    expect(viewkey.decryptViewKey(after)).toBe(VIEWKEY_HEX)
   })
 
-  test('envelopes encrypted after rotation still round-trip', () => {
-    viewkey.rotateMasterKey(Buffer.from('b'.repeat(32)).toString('base64'))
-    const enc = viewkey.encryptViewKey(VIEWKEY_HEX)
-    expect(viewkey.decryptViewKey(enc)).toBe(VIEWKEY_HEX)
-  })
-
-  test('envelopes encrypted under the OLD master key fail to decrypt after rotation (Phase 5 must re-wrap)', () => {
+  test('envelopes sealed under the OLD key still decrypt after rotation (old keys retained)', async () => {
     const oldEnc = viewkey.encryptViewKey(VIEWKEY_HEX)
-    viewkey.rotateMasterKey(Buffer.from('c'.repeat(32)).toString('base64'))
-    expect(() => viewkey.decryptViewKey(oldEnc)).toThrow()
+    const models = makeFakeModels()
+    await viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models })
+    expect(viewkey.decryptViewKey(oldEnc)).toBe(VIEWKEY_HEX)
   })
 
-  test('rejects a new key that does not decode to 32 bytes', () => {
-    expect(() => viewkey.rotateMasterKey(Buffer.from('short').toString('base64'))).toThrow(/32 bytes/)
+  test('is idempotent: re-running with the same key rewraps zero rows', async () => {
+    const models = makeFakeModels([viewkey.encryptViewKey(VIEWKEY_HEX), viewkey.encryptViewKey(VIEWKEY_HEX)])
+    const first = await viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models })
+    expect(first).toEqual({ version: 2, rotated: 2 })
+
+    const second = await viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models })
+    expect(second).toEqual({ version: 2, rotated: 0 })
+    expect(models.store.every(r => r.dekVersion === 2)).toBe(true)
+  })
+
+  test('resumable: a mixed v1/v2 DB (simulated crash) stays decryptable and a follow-up finishes the stragglers', async () => {
+    const v1Row = viewkey.encryptViewKey(VIEWKEY_HEX)
+    const masterkey = require('../../../api/monero/masterkey')
+    masterkey.addMasterKeyVersion(KEY_B_B64)
+    const v2Row = viewkey.encryptViewKey(VIEWKEY_HEX)
+
+    const models = makeFakeModels([v1Row, v2Row])
+    const beforeWrap = Buffer.from(v2Row.wrappedDek)
+
+    const out = await viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models })
+
+    expect(out).toEqual({ version: 2, rotated: 1 })
+    expect(models.store[0].dekVersion).toBe(2)
+    expect(models.store[1].dekVersion).toBe(2)
+    expect(viewkey.decryptViewKey(models.store[0])).toBe(VIEWKEY_HEX)
+    expect(viewkey.decryptViewKey(models.store[1])).toBe(VIEWKEY_HEX)
+    expect(Buffer.from(models.store[1].wrappedDek).equals(beforeWrap)).toBe(true)
+  })
+
+  test('old-key retention allows restoring a v1 backup envelope after rotation', async () => {
+    const backup = viewkey.encryptViewKey(VIEWKEY_HEX)
+    const models = makeFakeModels([viewkey.encryptViewKey(VIEWKEY_HEX)])
+    await viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models })
+
+    const masterkey = require('../../../api/monero/masterkey')
+    expect(masterkey.getMasterKey(1).equals(Buffer.from('a'.repeat(32)))).toBe(true)
+    expect(viewkey.decryptViewKey(backup)).toBe(VIEWKEY_HEX)
+  })
+
+  test('rejects a wrong-length new key without changing state or touching rows', async () => {
+    const models = makeFakeModels([viewkey.encryptViewKey(VIEWKEY_HEX)])
+    await expect(viewkey.rotateMasterKey({ newKeyB64: Buffer.from('short').toString('base64'), models })).rejects.toThrow(/32 bytes/)
+    expect(models.store[0].dekVersion).toBe(1)
+    expect(viewkey.decryptViewKey(models.store[0])).toBe(VIEWKEY_HEX)
+  })
+
+  test('throws when models is missing or lacks the required methods', async () => {
+    await expect(viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64 })).rejects.toThrow(/requires \{ models \}/)
+    await expect(viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models: {} })).rejects.toThrow(/requires \{ models \}/)
+    await expect(viewkey.rotateMasterKey({ newKeyB64: KEY_B_B64, models: { moneroViewKey: {} } })).rejects.toThrow(/requires \{ models \}/)
+  })
+
+  test('throws when newKeyB64 is not provided', async () => {
+    await expect(viewkey.rotateMasterKey({ models: makeFakeModels() })).rejects.toThrow(/requires \{ newKeyB64 \}/)
   })
 })
 

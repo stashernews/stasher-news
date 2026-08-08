@@ -7,11 +7,11 @@ import { decryptViewKey, encryptViewKey } from '@/api/monero/viewkey'
 // master key, persist, stamp rotatedAt. This bounds the lifetime of any single DEK
 // (limiting blast radius of a memory dump) WITHOUT touching the master key.
 //
-// Why not rotateMasterKey(): that helper swaps the active master key, which breaks
-// decryption of every row wrapped under the old key (their wrappedDek was sealed with
-// a KEK derived from the old key). A safe master-key rotation needs a multi-key
-// keychain enhancement (decrypt under N old keys, re-wrap under new) — deferred to
-// Phase 6. This job delivers the per-row DEK freshness that matters most for hygiene.
+// This is DISTINCT from a master-key rotation (Task C2's api/monero/viewkey.js
+// rotateMasterKey, wired via `sndev monero rotate-master-key`): that one mints a
+// new master-key version and re-wraps every row under it, retaining old versions.
+// Master-key rotation is a deliberate, operator-initiated, announced operation;
+// THIS job is the automatic, quarterly, same-key DEK freshness sweep.
 //
 // Exports the testable per-run core (no pg-boss) + the self-requeuing pg-boss handler.
 
