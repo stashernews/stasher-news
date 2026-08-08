@@ -37,7 +37,20 @@ else
   echo "[monero-lws entrypoint] existing TLS certificate found, reusing."
 fi
 
-echo "[monero-lws entrypoint] network=${LWS_NETWORK} daemon=${DAEMON_URL} sub=${SUB_URL}"
+# Admin auth is ON by default (secure/prod posture). Dev opts out by setting
+# LWS_ADMIN_AUTH_ENABLED=false so local flows need no admin key; prod MUST leave
+# this unset (or =true) and set MONERO_LWS_ADMIN_AUTH in .env.local.
+case "${LWS_ADMIN_AUTH_ENABLED}" in
+  false|0|no)
+    set -- --disable-admin-auth "$@"
+    ADMIN_AUTH_STATE=disabled
+    ;;
+  *)
+    ADMIN_AUTH_STATE=enabled
+    ;;
+esac
+
+echo "[monero-lws entrypoint] network=${LWS_NETWORK} daemon=${DAEMON_URL} sub=${SUB_URL} admin-auth=${ADMIN_AUTH_STATE}"
 
 exec monero-lws-daemon \
   --network="$LWS_NETWORK" \
