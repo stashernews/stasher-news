@@ -30,6 +30,12 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 file="$BACKUP_DIR/${POSTGRES_DB}-${timestamp}.sql.gpg"
 tmp="${file}.tmp"
 
+# Clean up the partial .tmp if pg_dump/gpg aborts mid-stream (bad creds, disk
+# full, missing key). The pruner only matches /\.sql\.gpg$/, so without this
+# trap a stranded .tmp would accumulate on every failed run and fill the volume.
+# No-op on success — by exit time the .tmp has been renamed away.
+trap 'rm -f "$tmp"' EXIT
+
 PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
   --host "$POSTGRES_HOST" \
   --port "$POSTGRES_PORT" \
