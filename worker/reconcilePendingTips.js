@@ -3,6 +3,7 @@ import { lwsClient } from '@/api/monero/lwsClient'
 import { applyTipDetected } from '@/api/monero/ranking'
 import { RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
 import { alert } from '@/lib/alert'
+import { moneroPendingTips } from '@/lib/metrics'
 
 // reconcilePendingTips — recover tips stranded in PENDING by a missed 0-conf webhook.
 //
@@ -38,6 +39,7 @@ export async function runReconcilePendingTipsOnce ({
   const eligible = await models.observedTip.findMany({
     where: { state: 'PENDING', detectedAt: { lt: reconcileBefore } }
   })
+  moneroPendingTips.set(eligible.length)
   if (eligible.length === 0) return { recovered: 0, expired: 0 }
 
   if (eligible.length >= STUCK_ALERT_THRESHOLD) {

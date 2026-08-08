@@ -4,6 +4,7 @@ import { computeCuratorShares } from './curatorShares'
 import { sendPayouts as defaultSendPayouts, sweepOpsEarmark as defaultSweepOpsEarmark } from '@/api/monero/rewards'
 import logger, { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
+import { moneroDistributionStatus } from '@/lib/metrics'
 
 // rewardsDistributor — StasherNews' weekly rewards-pool distribution job
 // (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
@@ -30,6 +31,8 @@ import { alert } from '@/lib/alert'
 //                            weekly run (pgboss.schedule cron, Monday 00:00 UTC).
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+const DISTRIBUTION_STATUS_GAUGE = { PENDING: 0, SENDING: 1, COMPLETE: 2, FAILED: 3 }
 
 // One weekly distribution. The testable core: no pg-boss, no network. Accepts
 // the Prisma client (so tests pass their own); creates a throwaway client if
@@ -286,6 +289,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
       where: { id: distribution.id },
       data: { status: 'COMPLETE', completedAt: new Date() }
     })
+    moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.COMPLETE)
     return
   }
 
@@ -296,6 +300,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
     UPDATE "RewardDistribution" SET status = 'SENDING', "startedAt" = NOW()
     WHERE id = ${distribution.id} AND status IN ('PENDING','FAILED') RETURNING id`
   if (!flipped || flipped.length === 0) return
+  moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.SENDING)
 
   try {
     await sendPayouts(payouts, { models })
@@ -309,12 +314,14 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
         where: { id: distribution.id },
         data: { status: 'FAILED' }
       })
+      moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
       return
     }
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { status: 'COMPLETE', completedAt: new Date() }
     })
+    moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.COMPLETE)
   } catch (err) {
     logError({ distributionId: distribution.id, err }, 'rewardsDistributor: finalization failed')
     alert('critical', 'rewards distribution finalization failed',
@@ -324,6 +331,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
       where: { id: distribution.id },
       data: { status: 'FAILED' }
     })
+    moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
   }
 }
 

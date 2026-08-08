@@ -2,6 +2,7 @@ import { lwsClient } from '@/api/monero/lwsClient'
 import { alert } from '@/lib/alert'
 import { setHealthStatus } from '@/lib/healthStatus'
 import { logWarn } from '@/lib/logger'
+import { moneroLwsUp, moneroMonerodUp, moneroMonerodHeight } from '@/lib/metrics'
 
 // healthProbe (Task D4) — periodic lws + monerod health probe.
 //
@@ -84,6 +85,10 @@ export async function runHealthProbeOnce ({
     stalled,
     updatedAt: new Date(ts).toISOString()
   })
+
+  moneroLwsUp.set(lwsOk ? 1 : 0)
+  moneroMonerodUp.set(monerodOk && !stalled ? 1 : 0)
+  moneroMonerodHeight.set(height || 0)
 
   if (!lwsOk) {
     doAlert('critical', 'lws down', 'monero-lws wallet endpoint unreachable', { dedupeKey: 'lws-down' })

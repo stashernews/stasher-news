@@ -3,6 +3,7 @@ import { applyTipDetected } from '@/api/monero/ranking'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { notifyNewStreak } from '@/lib/webPush'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
+import { moneroWebhooksReceivedTotal } from '@/lib/metrics'
 
 // lws tx-confirmation webhook receiver (spec §4.4).
 //
@@ -30,6 +31,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   if (expected && token !== expected) {
     return res.status(401).end()
   }
+
+  moneroWebhooksReceivedTotal.inc()
 
   const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {})
   const { payment_id: paymentId, confirmations = 0, tx_info: txInfo = {} } = body

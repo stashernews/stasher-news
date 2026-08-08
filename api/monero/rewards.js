@@ -1,6 +1,7 @@
 import { daemonClient } from '@/api/monero/daemonClient'
 import { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
+import { moneroRewardsWalletBalancePiconeros } from '@/lib/metrics'
 
 // Rewards hot-wallet signer (Phase 4 Task 9 / design spec §5.6, §6.2).
 //
@@ -177,7 +178,12 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
     }
   }
 
+  setBalanceGauge(unlocked)
   return { sent, failed, skipped }
+}
+
+function setBalanceGauge (unlocked) {
+  try { moneroRewardsWalletBalancePiconeros.set(Number(unlocked)) } catch { /* NaN/overflow — skip */ }
 }
 
 // Sweep the weekly ops earmark from the hot rewards wallet to offline cold
@@ -249,6 +255,7 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
 
   const txHash = toTxHash(tx.getHash())
   logInfo({ distributionId: distribution.id, txHash, swept: target.toString() }, 'sweepOpsEarmark: ops sweep relayed')
+  setBalanceGauge(unlocked - target)
   try {
     await models.rewardDistribution.update({
       where: { id: distribution.id },
