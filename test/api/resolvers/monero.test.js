@@ -309,15 +309,30 @@ describe('Mutation.initiateTip', () => {
     expect(tip.recipientAccountId).toBe(acct.id)
   })
 
-  test('rejects if the tipper is not logged in', async () => {
+  test('allows anonymous tippers: P2P tip with a null tipperId', async () => {
     const authorId = await createUser()
-    await registerFor(authorId)
+    const { acct } = await registerFor(authorId)
     const post = await createPost(authorId)
+    const lws = makeMockLws()
 
-    await expect(resolvers.Mutation.initiateTip(null, {
+    const result = await resolvers.Mutation.initiateTip(null, {
       postId: String(post.id),
       amount: '1000000000'
-    }, { models: prisma, monero: makeMockLws() })).rejects.toThrow(/you must be logged in/i)
+    }, { models: prisma, monero: lws })
+
+    expect(result.paymentId).toMatch(/^[0-9a-f]{16}$/)
+    expect(result.uri).toContain(`monero:${result.integratedAddress}`)
+    expect(lws.addWebhook).toHaveBeenCalledTimes(1)
+
+    // anonymous tips are stored with a null tipperId so they never earn curator
+    // shares, streaks, or trust-weighted votes (the downstream pipeline keys on null)
+    const tip = await prisma.observedTip.findFirst({ where: { paymentId: result.paymentId } })
+    expect(tip).not.toBeNull()
+    expect(tip.tipperId).toBeNull()
+    expect(tip.postId).toBe(post.id)
+    expect(tip.recipientAccountId).toBe(acct.id)
+    expect(tip.state).toBe('PENDING')
+    expect(tip.piconeros).toBe(1000000000n)
   })
 
   test('rejects if the post does not exist', async () => {

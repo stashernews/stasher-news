@@ -225,6 +225,27 @@ test('an empty period yields no shares and a full rollover', async () => {
   expect(BigInt(rolledOverPiconeros)).toBe(POOL)
 })
 
+test('anonymous tips (null tipperId) never create curator shares', async () => {
+  // Anonymous tippers (logged-out initiateTip) must not earn curator rewards:
+  // their payouts would be unpayable (no registered receiving account). The
+  // shares + proportions must be bit-for-bit identical with and without a large
+  // anonymous tip on the top-ranked post.
+  const params = { minPayout: 0n, topN: 100 }
+  const before = await computeCuratorShares(periodStart, periodEnd, POOL, params, prisma)
+
+  await seedTip({
+    postId: seed.items.item1,
+    tipperId: null,
+    piconeros: 50_000_000_000_000n,
+    confirmedAt: new Date(),
+    recipientAccountId: seed.account.id
+  })
+
+  const after = await computeCuratorShares(periodStart, periodEnd, POOL, params, prisma)
+  expect(after.shares.map(s => Number(s.curatorId)).sort()).toEqual(before.shares.map(s => Number(s.curatorId)).sort())
+  expect(after.shares.map(s => Number(s.sharePiconeros)).sort()).toEqual(before.shares.map(s => Number(s.sharePiconeros)).sort())
+})
+
 test('each share carries per-type earns that sum exactly to the share', async () => {
   const { shares } = await computeCuratorShares(
     periodStart, periodEnd, POOL, { minPayout: 1_000_000_000n, topN: 100 }, prisma)
