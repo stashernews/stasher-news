@@ -1,5 +1,6 @@
 import { useQuery } from '@apollo/client/react'
 import Item, { ItemSkeleton } from './item'
+import ItemCard from './item-card'
 import ItemJob from './item-job'
 import styles from './item.module.css'
 import MoreFooter from './more-footer'
@@ -7,6 +8,7 @@ import { Fragment, useCallback, useMemo } from 'react'
 import { CommentFlat } from './comment'
 import { SUB_ITEMS } from '@/fragments/subs'
 import { LIMIT } from '@/lib/cursor'
+import { useRebrand } from '@/lib/rebrand'
 
 import { useData } from './use-data'
 
@@ -69,14 +71,25 @@ export default function Items ({ ssrData, variables = DEFAULT_VARIABLES, query, 
   )
 }
 
+// Selects the row renderer for a plain (non-comment, non-job) item: the card
+// wrapper when the rebrand flag is on, the legacy row otherwise. Pure and
+// exported so the flag choice is testable without a render harness.
+export function itemRenderer (rebrand) {
+  return rebrand ? ItemCard : Item
+}
+
 export function ListItem ({ item, ...props }) {
-  return (
-    item.parentId
-      ? <CommentFlat item={item} noReply includeParent search {...props} />
-      : (item.isJob
-          ? <ItemJob item={item} />
-          : <Item item={item} {...props} />)
-  )
+  const rebrand = useRebrand()
+
+  if (item.parentId) {
+    return <CommentFlat item={item} noReply includeParent search {...props} />
+  }
+  if (item.isJob) {
+    return <ItemJob item={item} />
+  }
+
+  const Comp = itemRenderer(rebrand)
+  return <Comp item={item} {...props} />
 }
 
 export function ItemsSkeleton ({ rank, startRank = 0, limit = LIMIT, Footer }) {
