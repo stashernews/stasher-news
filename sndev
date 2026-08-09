@@ -822,7 +822,7 @@ sndev__monero__register_rewards_wallet() {
     return 1
   fi
   echo "Registering platform rewards wallet with lws + DB..."
-  docker__compose exec -T -u apprunner app node scripts/register-rewards-wallet.mjs
+  docker__compose exec -T -u apprunner app npx tsx --tsconfig jsconfig.json scripts/register-rewards-wallet.js
 }
 
 sndev__monero__derive_fee_pool() {
