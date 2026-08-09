@@ -1,12 +1,11 @@
 import { useRouter } from 'next/router'
-import { USER_ID } from '@/lib/constants'
 import { USER } from '@/fragments/users'
 import { useQuery } from '@apollo/client/react'
 import { UserListRow } from '@/components/user-list'
 import useCookie from '@/components/use-cookie'
 import Link from 'next/link'
 import AddIcon from '@/svgs/add-fill.svg'
-import { cookieOptions, MULTI_AUTH_ANON, MULTI_AUTH_LIST, MULTI_AUTH_POINTER } from '@/lib/auth'
+import { cookieOptions, MULTI_AUTH_LIST, MULTI_AUTH_POINTER } from '@/lib/auth'
 import { useBranding } from '@/components/territory-branding'
 
 const b64Decode = str => Buffer.from(str, 'base64').toString('utf-8')
@@ -27,11 +26,6 @@ export default function SwitchAccountList () {
       <div className='my-2'>
         <div className='d-flex flex-column flex-wrap mt-2 mb-3'>
           <h4 className='text-muted'>Accounts</h4>
-          <AccountListRow
-            account={{ id: USER_ID.anon, name: 'anon' }}
-            selected={pointerCookie === MULTI_AUTH_ANON}
-            showHat={false}
-          />
           {
             accounts.map((account) =>
               <AccountListRow
@@ -73,8 +67,7 @@ const AccountListRow = ({ account, selected, ...props }) => {
 
     // update pointer cookie
     const options = cookieOptions({ httpOnly: false })
-    const anon = account.id === USER_ID.anon
-    setPointerCookie(anon ? MULTI_AUTH_ANON : account.id, options)
+    setPointerCookie(account.id, options)
 
     // reload whatever page we're on to avoid any bugs due to missing authorization etc.
     router.reload()
@@ -104,4 +97,27 @@ export const useIsLurker = () => {
 export const useAccounts = () => {
   const [listCookie] = useCookie(MULTI_AUTH_LIST)
   return listCookie ? JSON.parse(b64Decode(listCookie)) : []
+}
+
+// parked-account chooser for the /login page: lists resumable accounts so a
+// logged-out user can resume one without re-authenticating. anon is not listed —
+// it's the logged-out state, not a switchable account.
+export function AccountChooser () {
+  const accounts = useAccounts()
+  const [pointerCookie] = useCookie(MULTI_AUTH_POINTER)
+  if (accounts.length === 0) return null
+
+  return (
+    <div className='d-flex flex-column flex-wrap mb-3'>
+      <h4 className='text-muted'>Your accounts</h4>
+      {accounts.map(account => (
+        <AccountListRow
+          key={account.id}
+          account={account}
+          selected={Number(pointerCookie) === account.id}
+          showHat={false}
+        />
+      ))}
+    </div>
+  )
 }

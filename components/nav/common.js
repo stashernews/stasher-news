@@ -6,12 +6,13 @@ import BackArrow from '../../svgs/arrow-left-line.svg'
 import { useCallback, useEffect, useState } from 'react'
 import Price from '../price'
 import SubSelect from '../sub-select'
-import { PUBLIC_MEDIA_URL, USER_ID } from '../../lib/constants'
+import { PUBLIC_MEDIA_URL } from '../../lib/constants'
 import NoteIcon from '../../svgs/notification-4-fill.svg'
 import { useMe } from '../me'
 import { abbrNum } from '../../lib/format'
 import { useServiceWorker } from '../serviceworker'
-import { signOut } from 'next-auth/react'
+import useCookie from '@/components/use-cookie'
+import { cookieOptions, MULTI_AUTH_ANON, MULTI_AUTH_POINTER } from '@/lib/auth'
 import Badges from '../badge'
 import LightningIcon from '../../svgs/bolt.svg'
 import SearchIcon from '../../svgs/search-line.svg'
@@ -19,7 +20,7 @@ import classNames from 'classnames'
 import SnIcon from '@/svgs/sn.svg'
 import { useHasNewNotes } from '../use-has-new-notes'
 import { useWalletIndicator } from '@/wallets/client/hooks'
-import SwitchAccountList, { nextAccount, useAccounts, useIsLurker } from '@/components/account'
+import SwitchAccountList, { useIsLurker } from '@/components/account'
 import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
 import { piconerosToXmr } from '@/lib/format'
@@ -240,7 +241,7 @@ export function SignUpButton ({ className, width }) {
   )
 }
 
-export default function LoginButton () {
+export default function LoginButton ({ className, width }) {
   const router = useRouter()
   const handleLogin = useCallback(async pathname => await router.push({
     pathname,
@@ -249,9 +250,9 @@ export default function LoginButton () {
 
   return (
     <Button
-      className='align-items-center px-3 py-1'
+      className={classNames('align-items-center px-3 py-1', className)}
       id='login'
-      style={{ borderWidth: '2px', width: SWITCH_ACCOUNT_BUTTON_WIDTH }}
+      style={{ borderWidth: '2px', width: width || SWITCH_ACCOUNT_BUTTON_WIDTH }}
       variant='outline-grey-darkmode'
       onClick={() => handleLogin('/login')}
     >
@@ -263,24 +264,21 @@ export default function LoginButton () {
 function LogoutObstacle ({ onClose }) {
   const { registration: swRegistration, togglePushSubscription } = useServiceWorker()
   const router = useRouter()
+  const [, setPointerCookie] = useCookie(MULTI_AUTH_POINTER)
 
   const handleLogout = async () => {
-    const next = await nextAccount()
-    // only signout if we did not find a next account
-    if (next) {
-      onClose()
-      // reload whatever page we're on to avoid any bugs
-      router.reload()
-      return
-    }
-
     // order is important because we need to be logged in to delete push subscription on server
     const pushSubscription = await swRegistration?.pushManager.getSubscription()
     if (pushSubscription) {
       await togglePushSubscription().catch(console.error)
     }
 
-    await signOut({ callbackUrl: window.location.origin + '/' })
+    // switch to anon: we become unauthenticated but keep parked accounts
+    // resumable via /login
+    setPointerCookie(MULTI_AUTH_ANON, cookieOptions({ httpOnly: false }))
+    onClose()
+    // reload whatever page we're on to avoid any bugs
+    router.reload()
   }
 
   return (
@@ -318,30 +316,7 @@ export function LogoutDropdownItem ({ handleClose }) {
   )
 }
 
-function SwitchAccountButton ({ handleClose }) {
-  const showModal = useShowModal()
-  const accounts = useAccounts()
-
-  if (accounts.length === 0) return null
-
-  return (
-    <Button
-      className='align-items-center px-3 py-1'
-      variant='outline-grey-darkmode'
-      style={{ borderWidth: '2px', width: SWITCH_ACCOUNT_BUTTON_WIDTH }}
-      onClick={() => {
-        // login buttons rendered in offcanvas aren't wrapped inside <Dropdown>
-        // so we manually close the offcanvas in that case by passing down handleClose here
-        handleClose?.()
-        showModal(onClose => <SwitchAccountList onClose={onClose} />)
-      }}
-    >
-      switch account
-    </Button>
-  )
-}
-
-export function LoginButtons ({ handleClose }) {
+export function LoginButtons () {
   return (
     <>
       <Dropdown.Item className='py-1'>
@@ -350,27 +325,7 @@ export function LoginButtons ({ handleClose }) {
       <Dropdown.Item className='py-1'>
         <SignUpButton className='py-1' />
       </Dropdown.Item>
-      <Dropdown.Item className='py-1'>
-        <SwitchAccountButton handleClose={handleClose} />
-      </Dropdown.Item>
     </>
-  )
-}
-
-export function AnonDropdown ({ path }) {
-  return (
-    <div className='position-relative'>
-      <Dropdown className={classNames(styles.dropdown, 'pe-0')} align='end' autoClose>
-        <Dropdown.Toggle className='nav-link nav-item pe-0' id='profile' variant='custom'>
-          <Nav.Link eventKey='anon' as='span' className='p-0 fw-normal'>
-            @anon<Badges user={{ id: USER_ID.anon }} />
-          </Nav.Link>
-        </Dropdown.Toggle>
-        <Dropdown.Menu className='p-3'>
-          <LoginButtons />
-        </Dropdown.Menu>
-      </Dropdown>
-    </div>
   )
 }
 
@@ -403,16 +358,13 @@ export function PostItem ({ className, prefix }) {
   )
 }
 
-export function RightCorner ({ dropNavKey, path, className = 'd-none d-md-flex' }) {
+export function RightCorner ({ dropNavKey, className = 'd-none d-md-flex' }) {
   const { me } = useMe()
-  const isLurker = useIsLurker()
   return (
     <>
       {me
         ? <MeCorner dropNavKey={dropNavKey} me={me} className={className} />
-        : isLurker
-          ? <LurkerCorner className={className} />
-          : <AnonCorner path={path} className={className} />}
+        : <LoggedOutCorner className={className} />}
     </>
   )
 }
@@ -427,19 +379,13 @@ export function MeCorner ({ dropNavKey, me, className }) {
   )
 }
 
-export function AnonCorner ({ dropNavKey, className }) {
+// logged-out corner: anon is the logged-out state, so we just show sign-up + login.
+// parked accounts are surfaced on /login rather than as a switchable @anon account.
+export function LoggedOutCorner ({ className }) {
   return (
-    <div className={className}>
-      <AnonDropdown dropNavKey={dropNavKey} />
-    </div>
-  )
-}
-
-// add signup button to lurker corner
-export function LurkerCorner ({ className }) {
-  return (
-    <div className={className}>
-      <SignUpButton width='auto' />
+    <div className={classNames(className, 'd-flex align-items-center')}>
+      <SignUpButton className='py-1' width='auto' />
+      <LoginButton className='ms-2' />
     </div>
   )
 }
