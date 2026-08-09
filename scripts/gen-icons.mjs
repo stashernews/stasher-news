@@ -7,8 +7,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
 const ORANGE = '#FF6600'
 
-// sn.svg has no fill attribute (CSS drives it). For rasterization we bake in orange.
-const svgRaw = readFileSync(resolve(root, 'svgs/sn.svg'), 'utf8')
+// s-monogram.svg has explicit fills for tile, glyph, and dot.
+// For legacy sn.svg (no fill attribute, CSS drives it) we baked in orange —
+// the root-level fill attr below is harmless as a fallback for either source.
+const svgRaw = readFileSync(resolve(root, process.argv[2] || 'svgs/s-monogram.svg'), 'utf8')
 const svgFilled = svgRaw.replace('<svg', `<svg fill="${ORANGE}"`)
 
 const SIZES = [48, 72, 96, 128, 192, 384, 512]

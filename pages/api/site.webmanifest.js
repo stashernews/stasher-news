@@ -3,6 +3,7 @@ import { PUBLIC_MEDIA_URL } from '@/lib/constants'
 import { imgProxyEnabled, processResize } from '@/lib/imgproxy'
 import { getRequestOrigin } from '@/lib/safe-url'
 import { truncateString } from '@/lib/format'
+import { REBRAND_ENABLED } from '@/lib/rebrand'
 
 const PWA_ICON_SIZES = [48, 72, 96, 128, 192, 384, 512]
 const black = '#121214'
@@ -10,7 +11,7 @@ const orange = '#FF6600'
 
 const defaultManifest = {
   name: 'Stasher News',
-  short_name: 'SN',
+  short_name: REBRAND_ENABLED ? 'stasher' : 'SN',
   icons: [
     {
       src: '/icons/icon_x48.png',
