@@ -1,6 +1,7 @@
 import { USER } from '@/fragments/users'
 import { isAbortError } from '@/lib/error'
 import errorStyles from '@/styles/error.module.css'
+import { DISPLAY_FONT, REBRAND_ENABLED } from '@/lib/rebrand'
 import { useLazyQuery } from '@apollo/client/react'
 import classNames from 'classnames'
 import Link from 'next/link'
@@ -43,7 +44,7 @@ export default function UserPopover ({ name, children }) {
       body={!data || loading
         ? <UserSkeleton />
         : !data.user
-            ? <h1 className={classNames(errorStyles.status, errorStyles.describe)}>USER NOT FOUND</h1>
+            ? <h1 className={classNames(errorStyles.status, errorStyles.describe)} style={{ fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}>USER NOT FOUND</h1>
             : (
               <UserBase user={data.user} className='mb-0 pb-0'>
                 <StackingSince since={data.user.since} />

@@ -1,5 +1,6 @@
 import { StaticLayout } from '@/components/layout'
 import styles from '@/styles/error.module.css'
+import { DISPLAY_FONT, REBRAND_ENABLED } from '@/lib/rebrand'
 import LoopVideo from '@/components/loop-video'
 
 const statusDescribe = {
@@ -66,7 +67,7 @@ export default function Error ({ statusCode }) {
   return (
     <StaticLayout>
       <ErrorImage statusCode={statusCode} />
-      <h1 className={styles.status}><span>{statusCode}</span><span className={styles.describe}>{statusDescribe[statusCode].toUpperCase()}</span></h1>
+      <h1 className={styles.status} style={{ fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}><span>{statusCode}</span><span className={styles.describe}>{statusDescribe[statusCode].toUpperCase()}</span></h1>
     </StaticLayout>
   )
 }

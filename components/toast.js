@@ -5,6 +5,7 @@ import Toast from 'react-bootstrap/Toast'
 import ToastBody from 'react-bootstrap/ToastBody'
 import ToastContainer from 'react-bootstrap/ToastContainer'
 import styles from './toast.module.css'
+import { DISPLAY_FONT, REBRAND_ENABLED } from '@/lib/rebrand'
 
 const ToastContext = createContext(() => {})
 
@@ -145,7 +146,7 @@ export const ToastProvider = ({ children }) => {
                     className='p-0 ps-2'
                     aria-label='close'
                     onClick={onClose}
-                  ><div className={`${styles.toastClose} ${textStyle}`}>X</div>
+                  ><div className={`${styles.toastClose} ${textStyle}`} style={{ fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}>X</div>
                   </Button>
                 </div>
               </ToastBody>

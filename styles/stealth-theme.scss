@@ -4,10 +4,10 @@
 // specificity/!important only while the class is present.
 .stealth-rebrand {
   // these selectors mirror the base rules but swap the family
-  .modal-close, .toast-close { font-family: 'chakra-petch' !important; }
+  .modal-close, .toast-close { font-family: 'Chakra Petch' !important; }
 
   // mirrors styles/globals.scss .alert-dismissible .btn-close, .offcanvas-header .btn-close
   .alert-dismissible .btn-close, .offcanvas-header .btn-close {
-    font-family: 'chakra-petch' !important;
+    font-family: 'Chakra Petch' !important;
   }
 }
