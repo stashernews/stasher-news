@@ -3,6 +3,7 @@ import { StaticLayout } from '@/components/layout'
 import Login from '@/components/login'
 import { useRebrand } from '@/lib/rebrand'
 import { rebrandCopy } from '@/lib/rebrand-copy'
+import AmbientBg from '@/components/ambient-bg'
 export { getServerSideProps } from './login'
 
 function SignUpHeader ({ domainData }) {
@@ -28,12 +29,14 @@ function SignUpFooter ({ callbackUrl, domain }) {
 export default function SignUp ({ ...props }) {
   return (
     <StaticLayout footerLinks={false}>
-      <Login
-        Header={() => <SignUpHeader domainData={props.domainData} />}
-        Footer={() => <SignUpFooter callbackUrl={props.callbackUrl} domain={props.canonicalDomain} />}
-        text='Continue'
-        {...props}
-      />
+      <AmbientBg>
+        <Login
+          Header={() => <SignUpHeader domainData={props.domainData} />}
+          Footer={() => <SignUpFooter callbackUrl={props.callbackUrl} domain={props.canonicalDomain} />}
+          text='Continue'
+          {...props}
+        />
+      </AmbientBg>
     </StaticLayout>
   )
 }

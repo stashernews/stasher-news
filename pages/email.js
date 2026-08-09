@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Form, SubmitButton, MultiInput } from '@/components/form'
 import { emailTokenSchema } from '@/lib/validate'
 import ArrowRightLineIcon from '@/svgs/arrow-right-line.svg'
-import LoopVideo from '@/components/loop-video'
+import AmbientBg from '@/components/ambient-bg'
 
 // force SSR to include CSP nonces
 export const getServerSideProps = getGetServerSideProps({ query: null })
@@ -43,10 +43,10 @@ export default function Email () {
       <div className='p-4 text-center'>
         {signin
           ? (
-            <LoopVideo src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/coming-home.mp4`} width='480' height='270' />
+            <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/coming-home.mp4`} width='480' height='270' />
             )
           : (
-            <LoopVideo src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/signup-email.mp4`} width='640' height='302' />
+            <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/signup-email.mp4`} width='640' height='302' />
             )}
         <h2 className='pt-4'>Check your email</h2>
         <h4 className='text-muted pt-2 pb-4'>{buildMessage()}</h4>
