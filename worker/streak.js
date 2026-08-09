@@ -110,25 +110,27 @@ function getStreakQuery (type, userId) {
     : Prisma.sql`(now() AT TIME ZONE 'America/Chicago' - interval '1 day')::date`
 
   return Prisma.sql`
-      SELECT "activity"."userId"
-        FROM (
-          SELECT "PayIn"."userId", sum("PayIn"."piconeros") AS piconeros
-            FROM "PayIn"
-            WHERE "PayIn"."payInState" = 'PAID'
-            AND ("PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
-            ${userId ? Prisma.sql`AND "PayIn"."userId" = ${userId}` : Prisma.empty}
-            GROUP BY "PayIn"."userId"
-          UNION ALL
-          SELECT "ObservedTip"."tipperId" AS "userId", sum("ObservedTip"."piconeros") AS piconeros
-            FROM "ObservedTip"
-            WHERE "ObservedTip"."state" IN ('DETECTED', 'CONFIRMED')
-            AND "ObservedTip"."tipperId" IS NOT NULL
-            AND ("ObservedTip"."detectedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
-            ${userId ? Prisma.sql`AND "ObservedTip"."tipperId" = ${userId}` : Prisma.empty}
-            GROUP BY "ObservedTip"."tipperId"
-        ) AS "activity"
-        GROUP BY "activity"."userId"
-        HAVING sum("activity"."piconeros") >= ${FLAME_STREAK_THRESHOLD_PICONEROS}`
+      SELECT "userId" FROM (
+        SELECT "PayIn"."userId"
+          FROM "PayIn"
+          WHERE "PayIn"."payInState" = 'PAID'
+          AND ("PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
+          ${userId ? Prisma.sql`AND "PayIn"."userId" = ${userId}` : Prisma.empty}
+          GROUP BY "PayIn"."userId"
+          HAVING sum("PayIn"."piconeros") >= ${FLAME_STREAK_THRESHOLD_PICONEROS}
+      ) paid_actions
+      INTERSECT
+      SELECT "userId" FROM (
+        SELECT ma."ownerUserId" AS "userId"
+          FROM "ObservedTip"
+          JOIN "MoneroAccount" ma ON ma.id = "ObservedTip"."recipientAccountId"
+          WHERE "ObservedTip"."state" IN ('DETECTED', 'CONFIRMED')
+          AND ma."ownerUserId" IS NOT NULL
+          AND ("ObservedTip"."detectedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
+          ${userId ? Prisma.sql`AND ma."ownerUserId" = ${userId}` : Prisma.empty}
+          GROUP BY ma."ownerUserId"
+          HAVING sum("ObservedTip"."piconeros") >= ${FLAME_STREAK_THRESHOLD_PICONEROS}
+      ) tips_received`
 }
 
 function isStreakActive (type, user) {
