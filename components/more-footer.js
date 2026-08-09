@@ -1,6 +1,7 @@
 import Button from 'react-bootstrap/Button'
 import { useState } from 'react'
 import Link from 'next/link'
+import { DISPLAY_FONT } from '@/lib/rebrand'
 
 const FooterFetchMore = ({ cursor, fetchMore, setLoading }) => {
   return (
@@ -32,7 +33,7 @@ export default function MoreFooter ({ cursor, count, fetchMore, Skeleton, invisi
   let Footer = FooterFetchMore
   if (!cursor) {
     Footer = () => (
-      <div className='text-muted' style={{ fontFamily: 'lightning', fontSize: '2rem', opacity: '0.75' }}>{count === 0 ? 'EMPTY' : noMoreText}</div>
+      <div className='text-muted' style={{ fontFamily: DISPLAY_FONT, fontSize: '2rem', opacity: '0.75' }}>{count === 0 ? 'EMPTY' : noMoreText}</div>
     )
   }
 
@@ -47,7 +48,7 @@ export function NavigateFooter ({ cursor, count, fetchMore, href, text, invisibl
     )
   } else {
     Footer = () => (
-      <div className='text-muted' style={{ fontFamily: 'lightning', fontSize: '2rem', opacity: '0.75' }}>{count === 0 ? 'EMPTY' : noMoreText}</div>
+      <div className='text-muted' style={{ fontFamily: DISPLAY_FONT, fontSize: '2rem', opacity: '0.75' }}>{count === 0 ? 'EMPTY' : noMoreText}</div>
     )
   }
 
