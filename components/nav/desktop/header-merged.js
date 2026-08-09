@@ -42,7 +42,7 @@ export default function HeaderMerged (props) {
 
   return (
     <div className='d-none d-md-block'>
-      <Container as='header' className='px-0'>
+      <Container fluid as='header' className='px-0'>
         <Navbar className='navMerged'>
           <Nav
             className={`${styles.navbarNav} navMergedRow`}

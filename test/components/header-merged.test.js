@@ -182,8 +182,8 @@ describe('HeaderMerged zero-removal', () => {
 
     // back arrow (top-bar), back arrow visible because asPath is not '/'
     expect(container.querySelector('a[role="button"] svg')).toBeTruthy()
-    // brand (top-bar)
-    expect(container.querySelector('a[href="/"] svg')).toBeTruthy()
+    // brand (top-bar): logo svg (flag off) or wordmark (flag on)
+    expect(container.querySelector('a[href="/"] svg, a[href="/"] .brandWordmark')).toBeTruthy()
     // turf selector (second-bar)
     expect(container.querySelector('[data-testid="turf-select"]')).toBeTruthy()
     // lit/new/top sorts (second-bar)
@@ -221,8 +221,8 @@ describe('HeaderMerged zero-removal', () => {
     expect(container.querySelector('[data-testid="turf-select"]')).toBeNull()
     const linkTexts = Array.from(container.querySelectorAll('a')).map(a => a.textContent)
     expect(linkTexts).not.toEqual(expect.arrayContaining(['post']))
-    // top-bar elements still present
-    expect(container.querySelector('a[href="/"] svg')).toBeTruthy()
+    // top-bar elements still present (brand link: logo svg or wordmark)
+    expect(container.querySelector('a[href="/"] svg, a[href="/"] .brandWordmark')).toBeTruthy()
   })
 })
 
