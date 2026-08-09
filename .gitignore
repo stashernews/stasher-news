@@ -92,3 +92,5 @@ docker/dnsmasq/dnsmasq.d/*
 
 # personal admin guide (maintained privately by the project admin, not part of the project)
 ADMIN-GUIDE.md
+# local opencode tooling
+.opencode/
