@@ -223,8 +223,8 @@ test('skips token check when LWS_WEBHOOK_TOKEN is not set (dev default)', async 
   expect(res.status).toHaveBeenCalledWith(200)
 })
 
-test('enqueues a checkStreak job for the tipper when a PENDING tip is claimed', async () => {
-  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, tipperId: 5, webhookEventId: 'evt-1', post: { userId: 99 } }
+test('enqueues a checkStreak job for the recipient when a PENDING tip is claimed', async () => {
+  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, tipperId: 5, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: { ownerUserId: 99 } }
   const execRaw = jest.fn().mockResolvedValue(1)
   const models = mockModels({
     observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
@@ -240,8 +240,8 @@ test('enqueues a checkStreak job for the tipper when a PENDING tip is claimed', 
   expect(sqls.some(sql => sql.includes('jsonb_build_object'))).toBe(true)
 })
 
-test('does NOT enqueue checkStreak for anonymous tips', async () => {
-  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, tipperId: null, webhookEventId: 'evt-1', post: { userId: 99 } }
+test('does NOT enqueue checkStreak when the recipient has no wallet owner', async () => {
+  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, tipperId: 5, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: { ownerUserId: null } }
   const execRaw = jest.fn().mockResolvedValue(1)
   const models = mockModels({
     observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
