@@ -1,6 +1,6 @@
 import { StaticLayout } from '@/components/layout'
 import styles from '@/styles/error.module.css'
-import { DISPLAY_FONT, REBRAND_ENABLED } from '@/lib/rebrand'
+import { DISPLAY_FONT } from '@/lib/rebrand'
 import { useRouter } from 'next/router'
 import Button from 'react-bootstrap/Button'
 import AmbientBg from '@/components/ambient-bg'
@@ -19,14 +19,14 @@ export default function AuthError ({ error }) {
   if (error === 'AccessDenied') {
     return (
       <StaticLayout>
-        <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
-        <h1 className={[styles.status, styles.smaller].join(' ')} style={{ fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}><span>ACCESS DENIED</span></h1>
+        <AmbientBg width='640' height='288' />
+        <h1 className={[styles.status, styles.smaller].join(' ')} style={{ fontFamily: DISPLAY_FONT }}><span>ACCESS DENIED</span></h1>
       </StaticLayout>
     )
   } else if (error === 'Verification') {
     return (
       <StaticLayout>
-        <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
+        <AmbientBg width='640' height='288' />
         <h2 className='pt-4'>Incorrect magic code</h2>
         <Button
           className='align-items-center my-3'
@@ -42,17 +42,16 @@ export default function AuthError ({ error }) {
   } else if (error === 'Configuration') {
     return (
       <StaticLayout>
-        <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
-        <h1 className={[styles.status, styles.smaller].join(' ')} style={{ fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}><span>configuration error</span></h1>
+        <AmbientBg width='640' height='288' />
+        <h1 className={[styles.status, styles.smaller].join(' ')} style={{ fontFamily: DISPLAY_FONT }}><span>configuration error</span></h1>
       </StaticLayout>
     )
   }
 
   return (
     <StaticLayout>
-      <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
-      <h1 className={[styles.status, styles.smaller].join(' ')} style={{ fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}><span>auth error</span></h1>
+      <AmbientBg width='640' height='288' />
+      <h1 className={[styles.status, styles.smaller].join(' ')} style={{ fontFamily: DISPLAY_FONT }}><span>auth error</span></h1>
     </StaticLayout>
-
   )
 }

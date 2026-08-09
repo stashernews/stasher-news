@@ -4,7 +4,6 @@ import ActionTooltip from './action-tooltip'
 import TipModal from './tip-modal'
 import { useMe } from './me'
 import getColor from '@/lib/rainbow'
-import { useRebrand } from '@/lib/rebrand'
 import { useMemo } from 'react'
 import { piconerosToXmr } from '@/lib/format'
 import { useShowModal } from './modal'
@@ -32,7 +31,6 @@ export const defaultTipIncludingRandom = ({ tipDefault, tipRandom, tipRandomMin,
 export default function UpVote ({ item, className, collapsed }) {
   const showModal = useShowModal()
   const { me } = useMe()
-  const rebrand = useRebrand()
 
   const disabled = useMemo(() => collapsed || item?.mine || item?.deletedAt,
     [collapsed, item?.mine, item?.deletedAt])
@@ -51,7 +49,7 @@ export default function UpVote ({ item, className, collapsed }) {
 
     return [
       meSats, overlayTextContent,
-      getColor(meSats, rebrand), getColor(meSats + sats, rebrand)]
+      getColor(meSats), getColor(meSats + sats)]
   }, [
     me, item?.mePiconeros, item?.meAnonPiconeros, me?.privates?.tipDefault,
     me?.privates?.tipRandom, me?.privates?.tipRandomMin, me?.privates?.tipRandomMax])

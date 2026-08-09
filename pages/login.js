@@ -6,8 +6,7 @@ import { StaticLayout } from '@/components/layout'
 import Login from '@/components/login'
 import { isExternal } from '@/lib/url'
 import { formatHost, parseSafeHost } from '@/lib/safe-url'
-import { useRebrand } from '@/lib/rebrand'
-import { rebrandCopy } from '@/lib/rebrand-copy'
+import { COPY } from '@/lib/rebrand-copy'
 import { MULTI_AUTH_ANON, MULTI_AUTH_LIST, MULTI_AUTH_POINTER } from '@/lib/auth'
 import { getDomainBranding } from '@/lib/domains'
 import AmbientBg from '@/components/ambient-bg'
@@ -82,25 +81,22 @@ export async function getServerSideProps ({ req, res, query: { callbackUrl, mult
 
 function LoginFooter ({ callbackUrl, domain }) {
   const query = { ...(domain && { domain }), callbackUrl }
-  const rebrand = useRebrand()
 
   return (
-    <small className='fw-bold text-muted pt-4'>{rebrandCopy(rebrand).loginPrompt} <Link href={{ pathname: '/signup', query }}>sign up</Link></small>
+    <small className='fw-bold text-muted pt-4'>{COPY.loginPrompt} <Link href={{ pathname: '/signup', query }}>sign up</Link></small>
   )
 }
 
 function LoginHeader ({ domainData }) {
-  const rebrand = useRebrand()
   return (
     <>
-      {rebrand &&
-        <div className='stealth-login-wordmark w-100 text-start pb-2'>
-          stasher news<span className='stealth-login-wordmark-dot'>.</span>
-        </div>}
+      <div className='stealth-login-wordmark w-100 text-start pb-2'>
+        stasher news<span className='stealth-login-wordmark-dot'>.</span>
+      </div>
       <h3 className='w-100 pb-2'>
         Log in {domainData && ` to ${domainData.title}`}
       </h3>
-      <div className='fw-bold text-muted w-100 text-start pb-4 line-height-md'>{rebrandCopy(rebrand).loginResumeLine}</div>
+      <div className='fw-bold text-muted w-100 text-start pb-4 line-height-md'>{COPY.loginResumeLine}</div>
     </>
   )
 }

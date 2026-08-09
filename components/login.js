@@ -13,11 +13,9 @@ import { cookieOptions, MULTI_AUTH_ANON, MULTI_AUTH_POINTER } from '@/lib/auth'
 import Link from 'next/link'
 import useCookie from './use-cookie'
 import { AccountChooser } from './account'
-import { useRebrand } from '@/lib/rebrand'
 
 export function EmailLoginForm ({ text, callbackUrl, multiAuth }) {
   const disabled = multiAuth
-  const rebrand = useRebrand()
 
   return (
     <Form
@@ -38,7 +36,7 @@ export function EmailLoginForm ({ text, callbackUrl, multiAuth }) {
         autoFocus
         disabled={disabled}
       />
-      <SubmitButton disabled={disabled} variant={rebrand ? 'outline-primary' : 'secondary'} className={styles.providerButton}>{text || 'Login'} with Email</SubmitButton>
+      <SubmitButton disabled={disabled} variant='outline-primary' className={styles.providerButton}>{text || 'Login'} with Email</SubmitButton>
     </Form>
   )
 }

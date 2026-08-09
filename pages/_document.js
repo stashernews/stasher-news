@@ -3,7 +3,6 @@ import Script from 'next/script'
 import { getDomainBranding } from '@/lib/domains'
 import { buildSubBrandingCSS } from '@/lib/domains/custom-css'
 import { PUBLIC_MEDIA_URL } from '@/lib/constants'
-import { REBRAND_ENABLED, rebrandClass } from '@/lib/rebrand'
 
 class MyDocument extends Document {
   // https://nextjs.org/docs/pages/building-your-application/routing/custom-document#customizing-renderpage
@@ -56,36 +55,15 @@ class MyDocument extends Document {
       : '/api/site.webmanifest'
 
     return (
-      <Html lang='en' data-scroll-behavior='smooth' className={rebrandClass()}>
+      <Html lang='en' data-scroll-behavior='smooth' className='stealth-rebrand'>
         <Head nonce={nonce}>
           <link rel='manifest' href={manifestHref} />
-          {!REBRAND_ENABLED && (
-            <>
-              <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff2`} as='font' type='font/woff2' crossOrigin='' />
-              <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff`} as='font' type='font/woff' crossOrigin='' />
-              <style
-                nonce={nonce}
-                dangerouslySetInnerHTML={{
-                  __html:
-                ` @font-face {
-                    font-family: 'lightning';
-                    src:
-                      url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff2) format('woff2'),
-                      url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff) format('woff');
-                    font-display: swap;
-                  }`
-                }}
-              />
-            </>
-          )}
-          {REBRAND_ENABLED && (
-            <>
-              <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-500.woff2`} as='font' type='font/woff2' crossOrigin='' />
-              <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-600.woff2`} as='font' type='font/woff2' crossOrigin='' />
-              <style
-                nonce={nonce}
-                dangerouslySetInnerHTML={{
-                  __html:
+          <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-500.woff2`} as='font' type='font/woff2' crossOrigin='' />
+          <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-600.woff2`} as='font' type='font/woff2' crossOrigin='' />
+          <style
+            nonce={nonce}
+            dangerouslySetInnerHTML={{
+              __html:
                 ` @font-face {
                     font-family: 'Chakra Petch';
                     font-style: normal;
@@ -102,10 +80,8 @@ class MyDocument extends Document {
                     src:
                       url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-600.woff2) format('woff2');
                   }`
-                }}
-              />
-            </>
-          )}
+            }}
+          />
           {themeCss && (
             <style
               id='sn-branding-theme'

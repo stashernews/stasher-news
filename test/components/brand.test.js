@@ -7,7 +7,6 @@ import { act } from 'react'
 import { parseHTML } from 'linkedom'
 import { Brand } from '@/components/nav/common'
 
-var mockRebrand = false
 var mockBranding = {}
 
 jest.mock(`${process.cwd()}/components/territory-branding`, () => ({
@@ -15,13 +14,11 @@ jest.mock(`${process.cwd()}/components/territory-branding`, () => ({
 }))
 
 jest.mock(`${process.cwd()}/lib/rebrand`, () => ({
-  get REBRAND_ENABLED () { return mockRebrand },
-  get DISPLAY_FONT () { return mockRebrand ? 'Chakra Petch' : 'lightning' },
-  get useRebrand () { return () => mockRebrand }
+  DISPLAY_FONT: 'Chakra Petch'
 }))
 
 jest.mock(`${process.cwd()}/lib/rebrand-copy`, () => ({
-  rebrandCopy: () => ({})
+  COPY: {}
 }))
 
 jest.mock(`${process.cwd()}/components/sub-select`, () => () => null)
@@ -67,8 +64,6 @@ jest.mock('react-bootstrap', () => {
   }
 })
 
-jest.mock(`${process.cwd()}/svgs/sn.svg`, () => () => <svg data-testid='sn-logo' />)
-
 let win
 let container
 
@@ -102,27 +97,16 @@ async function renderBrand (props = {}) {
 }
 
 describe('Brand', () => {
-  it('renders the legacy sn logo when the rebrand is off', async () => {
-    mockRebrand = false
-    const root = await renderBrand()
-    expect(container.querySelector('[data-testid="sn-logo"]')).toBeTruthy()
-    expect(container.textContent).not.toMatch(/stasher news/)
-    await act(async () => { root.unmount() })
-  })
-
-  it('renders the wordmark with an orange dot when the rebrand is on', async () => {
-    mockRebrand = true
+  it('renders the wordmark with an orange dot', async () => {
     const root = await renderBrand()
     const wordmark = container.querySelector('.brandWordmark')
     expect(wordmark).toBeTruthy()
     expect(wordmark.textContent).toContain('stasher news')
     expect(wordmark.querySelector('.brandDot')).toBeTruthy()
-    expect(container.querySelector('[data-testid="sn-logo"]')).toBeNull()
     await act(async () => { root.unmount() })
   })
 
-  it('renders the compact s. mark when compact and rebrand on', async () => {
-    mockRebrand = true
+  it('renders the compact s. mark when compact', async () => {
     const root = await renderBrand({ compact: true })
     const mark = container.querySelector('.brandMark')
     expect(mark).toBeTruthy()
@@ -132,7 +116,6 @@ describe('Brand', () => {
   })
 
   it('keeps the territory logo image when a territory is active', async () => {
-    mockRebrand = true
     mockBranding = { logoId: 'logo-1' }
     const root = await renderBrand()
     expect(container.querySelector('img')).toBeTruthy()

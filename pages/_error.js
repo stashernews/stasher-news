@@ -1,6 +1,6 @@
 import { StaticLayout } from '@/components/layout'
 import styles from '@/styles/error.module.css'
-import { DISPLAY_FONT, REBRAND_ENABLED } from '@/lib/rebrand'
+import { DISPLAY_FONT } from '@/lib/rebrand'
 import AmbientBg from '@/components/ambient-bg'
 
 const statusDescribe = {
@@ -49,25 +49,25 @@ const statusDescribe = {
 
 function ErrorImage ({ statusCode }) {
   if (statusCode === 404) {
-    return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/tumbleweed.mp4`} width='640' height='640' />
+    return <AmbientBg width='640' height='640' />
   }
   if (statusCode >= 500) {
-    return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/ladygun.mp4`} width='540' height='400' />
+    return <AmbientBg width='540' height='400' />
   }
   if (statusCode >= 400) {
-    return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
+    return <AmbientBg width='640' height='288' />
   }
   if (statusCode >= 300) {
-    return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
+    return <AmbientBg width='640' height='288' />
   }
-  return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/ladygun.mp4`} width='540' height='400' />
+  return <AmbientBg width='540' height='400' />
 }
 
 export default function Error ({ statusCode }) {
   return (
     <StaticLayout>
       <ErrorImage statusCode={statusCode} />
-      <h1 className={styles.status} style={{ fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}><span>{statusCode}</span><span className={styles.describe}>{statusDescribe[statusCode].toUpperCase()}</span></h1>
+      <h1 className={styles.status} style={{ fontFamily: DISPLAY_FONT }}><span>{statusCode}</span><span className={styles.describe}>{statusDescribe[statusCode].toUpperCase()}</span></h1>
     </StaticLayout>
   )
 }

@@ -1,19 +1,17 @@
 import Link from 'next/link'
 import { StaticLayout } from '@/components/layout'
 import Login from '@/components/login'
-import { useRebrand } from '@/lib/rebrand'
-import { rebrandCopy } from '@/lib/rebrand-copy'
+import { COPY } from '@/lib/rebrand-copy'
 import AmbientBg from '@/components/ambient-bg'
 export { getServerSideProps } from './login'
 
 function SignUpHeader ({ domainData }) {
-  const rebrand = useRebrand()
   return (
     <>
       <h3 className='w-100 pb-2'>
         Sign up {domainData && ` to ${domainData.title}`}
       </h3>
-      <div className='fw-bold text-muted w-100 text-start pb-4 line-height-md'>{rebrandCopy(rebrand).signupTagline}</div>
+      <div className='fw-bold text-muted w-100 text-start pb-4 line-height-md'>{COPY.signupTagline}</div>
     </>
   )
 }

@@ -17,7 +17,6 @@ import { parseHTML } from 'linkedom'
 import fs from 'fs'
 import path from 'path'
 import ItemCard from '@/components/item-card'
-import { itemRenderer } from '@/components/items'
 import Item from '@/components/item'
 
 jest.mock(`${process.cwd()}/components/item`, () => {
@@ -119,15 +118,5 @@ describe('ItemCard', () => {
     expect(Item.mock.calls[0][0]).toEqual(expect.objectContaining({ item, rank: 4, itemClassName: 'py-2', pinnable: false }))
 
     await act(async () => { root.unmount() })
-  })
-})
-
-describe('items.js renderer selection', () => {
-  it('keeps the plain Item row when the rebrand flag is off', () => {
-    expect(itemRenderer(false)).toBe(Item)
-  })
-
-  it('switches to the card when the rebrand flag is on', () => {
-    expect(itemRenderer(true)).toBe(ItemCard)
   })
 })

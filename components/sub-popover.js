@@ -1,7 +1,7 @@
 import { SUB_FULL } from '@/fragments/subs'
 import { isAbortError } from '@/lib/error'
 import errorStyles from '@/styles/error.module.css'
-import { DISPLAY_FONT, REBRAND_ENABLED } from '@/lib/rebrand'
+import { DISPLAY_FONT } from '@/lib/rebrand'
 import { useLazyQuery } from '@apollo/client/react'
 import classNames from 'classnames'
 import HoverablePopover from './hoverable-popover'
@@ -28,7 +28,7 @@ export default function SubPopover ({ sub, children }) {
       body={!data || loading
         ? <TerritoryInfoSkeleton />
         : !data.sub
-            ? <h1 className={classNames(errorStyles.status, errorStyles.describe)} style={{ fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}>SUB NOT FOUND</h1>
+            ? <h1 className={classNames(errorStyles.status, errorStyles.describe)} style={{ fontFamily: DISPLAY_FONT }}>SUB NOT FOUND</h1>
             : <TerritoryInfo truncated sub={{ ...data.sub, desc: truncateString(data.sub.desc, 280) }} />}
     />
   )
