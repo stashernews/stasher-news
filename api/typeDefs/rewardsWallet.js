@@ -22,6 +22,11 @@ export default gql`
     totalSentPiconeros: BigInt!
     balancePiconeros: BigInt!
     balanceXmr: String!
+    # True when lws reports lifetime sent > lifetime received for the account.
+    # A real wallet can never hold negative XMR, so this flags an accounting
+    # gap (e.g. fee-pool subaddress receipts not yet reflected in total_received)
+    # instead of displaying a misleading negative balance.
+    balanceNeedsReconciliation: Boolean!
     rewardsEarmarkPiconeros: BigInt!
     opsEarmarkPiconeros: BigInt!
     inflowBreakdown: RewardsInflowBreakdown!
