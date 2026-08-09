@@ -14,6 +14,8 @@
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { parseHTML } from 'linkedom'
+import fs from 'fs'
+import path from 'path'
 import VoteColumn from '@/components/vote-column'
 import DownvoteModal from '@/components/downvote-modal'
 
@@ -26,7 +28,11 @@ jest.mock(`${process.cwd()}/components/form`, () => ({
   SubmitButton: 'button',
   CopyButton: 'button'
 }))
-jest.mock(`${process.cwd()}/svgs/up-arrow.svg`, () => ({ className }) => <svg data-testid='up-arrow' className={className} />)
+// next/jest maps every .svg to a single shared fileMock module, so one mock
+// factory covers BOTH the up-arrow and down-arrow imports (per-icon mock ids
+// would collapse into the last factory — see header-merged.test.js). The exact
+// down-arrow glyph is instead asserted against the svg file itself below.
+jest.mock(`${process.cwd()}/svgs/up-arrow.svg`, () => ({ className }) => <svg className={className}><path d='arrow' /></svg>)
 
 // var, not let/const: jest.mock factories may only reference out-of-scope
 // names prefixed with "mock", and const/let here would be in TDZ when the
@@ -83,10 +89,18 @@ describe('VoteColumn', () => {
     expect(downvote.getAttribute('role')).toBe('button')
     expect(downvote.getAttribute('title')).toBe('downvote')
     expect(downvote.getAttribute('tabindex')).toBe('0')
-    // the down chevron svg
-    expect(downvote.querySelector('svg path').getAttribute('d')).toBe('M13 14L0 0h26L13 14z')
+    // the down arrow is an svg glyph
+    expect(downvote.querySelector('svg')).toBeTruthy()
 
     await act(async () => { root.unmount() })
+  })
+
+  it('downvote uses a down arrow that mirrors the up arrow', () => {
+    const up = fs.readFileSync(path.join(process.cwd(), 'svgs/up-arrow.svg'), 'utf8')
+    const down = fs.readFileSync(path.join(process.cwd(), 'svgs/down-arrow.svg'), 'utf8')
+    // down-arrow is the up-arrow path mirrored on the Y axis (y -> 24 - y)
+    expect(up).toContain('M12 3L20 12L15 12L15 21L9 21L9 12L4 12Z')
+    expect(down).toContain('M12 21L20 12L15 12L15 3L9 3L9 12L4 12Z')
   })
 
   it('clicking the downvote opens the same DownvoteModal the ⋮ menu uses', async () => {
@@ -123,7 +137,7 @@ describe('VoteColumn', () => {
   it('passes className and collapsed through to the up arrow', async () => {
     const root = await renderVoteColumn({ className: 'fancy-up', collapsed: true })
 
-    const upArrow = container.querySelector('[data-testid="up-arrow"]')
+    const upArrow = container.querySelector('.upvoteParent svg')
     expect(upArrow.getAttribute('class')).toContain('fancy-up')
     // collapsed disables the upvote, adding the no-self-tip class
     expect(container.querySelector('.upvoteParent .noSelfTips')).toBeTruthy()
