@@ -26,6 +26,10 @@ RUN curl -sL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
 # volume copies this ownership into itself on first mount.
 RUN mkdir -p /backups && chown apprunner:apprunner /backups
 
+# Mount point for the master-key escrow volume (scripts/backup-master-key.sh
+# writes MASTERKEY_BACKUP_DIR here). Same ownership pattern as /backups.
+RUN mkdir -p /masterkey-backups && chown apprunner:apprunner /masterkey-backups
+
 USER apprunner
 
 WORKDIR /app
