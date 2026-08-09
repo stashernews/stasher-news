@@ -42,7 +42,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
 
   const tip = await models.observedTip.findFirst({
     where: { paymentId },
-    include: { post: { select: { userId: true } }, recipientAccount: { select: { label: true } } }
+    include: { post: { select: { userId: true } }, recipientAccount: { select: { label: true, ownerUserId: true } } }
   })
   if (!tip) return res.status(200).end()
 
@@ -68,9 +68,12 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
             )
             RETURNING "Streak".*`
           if (coin) notifyNewStreak(tip.tipperId, coin).catch(console.error)
+        }
+        const recipientUserId = tip.recipientAccount?.ownerUserId
+        if (recipientUserId != null) {
           await tx.$executeRaw`
             INSERT INTO pgboss.job (id, name, data)
-            VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${tip.tipperId}, 'type', 'FLAME'))`
+            VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${recipientUserId}, 'type', 'FLAME'))`
         }
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
