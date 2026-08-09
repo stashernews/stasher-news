@@ -5,6 +5,7 @@ import { useCallback } from 'react'
 import { SUB_SEARCH } from '@/fragments/subs'
 import Items from '@/components/items'
 import styles from '@/styles/search.module.css'
+import { DISPLAY_FONT } from '@/lib/rebrand'
 
 export const getServerSideProps = getGetServerSideProps({
   query: SUB_SEARCH,
@@ -56,7 +57,7 @@ export default function Index ({ ssrData }) {
           <div className={styles.content}>
             <div className={styles.box}>
               <div className={styles.header}>
-                <div className='text-muted text-center' style={{ fontFamily: 'lightning', fontSize: '2rem', opacity: '0.75' }}>
+                <div className='text-muted text-center' style={{ fontFamily: DISPLAY_FONT, fontSize: '2rem', opacity: '0.75' }}>
                   filters
                 </div>
               </div>

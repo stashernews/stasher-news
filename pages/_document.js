@@ -61,6 +61,12 @@ class MyDocument extends Document {
           <link rel='manifest' href={manifestHref} />
           <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff2`} as='font' type='font/woff2' crossOrigin='' />
           <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff`} as='font' type='font/woff' crossOrigin='' />
+          <link rel='preconnect' href='https://fonts.googleapis.com' />
+          <link rel='preconnect' href='https://fonts.gstatic.com' crossOrigin='' />
+          <link
+            href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&display=swap'
+            rel='stylesheet'
+          />
           <style
             nonce={nonce}
             dangerouslySetInnerHTML={{
@@ -70,6 +76,18 @@ class MyDocument extends Document {
                 src:
                   url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff2) format('woff2'),
                   url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff) format('woff');
+                font-display: swap;
+              }
+              @font-face {
+                font-family: 'chakra-petch';
+                src: local('Chakra Petch Medium'), local('ChakraPetch-Medium');
+                font-weight: 500;
+                font-display: swap;
+              }
+              @font-face {
+                font-family: 'chakra-petch';
+                src: local('Chakra Petch SemiBold'), local('ChakraPetch-SemiBold');
+                font-weight: 600;
                 font-display: swap;
               }`
             }}
