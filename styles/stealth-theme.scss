@@ -120,3 +120,37 @@
     mask-image: radial-gradient(700px 380px at 50% 30%, black, transparent 80%);
   }
 }
+
+// ---- payment-success glyph + login wordmark (rebrand) ----
+// Success state of the tip/downvote/posting-fee flow shows the keyhole mark in
+// an orange ring ("stash, locked away"). The login card gets the lowercase
+// Chakra Petch wordmark with the orange period as the brand hook.
+.stealth-rebrand {
+  .stealth-success-ring {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 12px;
+    border: 2px solid #FF6600;
+    border-radius: 50%;
+    box-shadow: 0 0 18px rgba(255, 102, 0, 0.45);
+  }
+
+  .stealth-success-glyph {
+    display: block;
+    margin: 0 auto;
+    filter: drop-shadow(0 0 12px rgba(255, 102, 0, 0.45));
+  }
+
+  .stealth-login-wordmark {
+    font-family: 'Chakra Petch', sans-serif;
+    font-size: 22px;
+    color: #f0f0f0;
+  }
+
+  .stealth-login-wordmark-dot {
+    color: #FF6600;
+  }
+}
