@@ -1,5 +1,6 @@
 import '@/styles/globals.scss'
 import '@/styles/text.scss'
+import '@/styles/stealth-theme.scss'
 import { gql } from '@apollo/client'
 import { ApolloProvider } from '@apollo/client/react'
 import { MeProvider } from '@/components/me'

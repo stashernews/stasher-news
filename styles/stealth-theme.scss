@@ -10,4 +10,33 @@
   .alert-dismissible .btn-close, .offcanvas-header .btn-close {
     font-family: 'Chakra Petch' !important;
   }
+
+  // ---- dark surfaces (default theme) ----
+  --stealth-surface: #16161a;
+  --stealth-surface-2: #1e1e21;
+  --stealth-border: rgba(255, 255, 255, 0.1);
+  --stealth-border-strong: rgba(255, 255, 255, 0.14);
+  --stealth-muted: #969696;
+
+  // card + modal chrome
+  --bs-card-bg: var(--stealth-surface);
+  --bs-card-border-color: var(--stealth-border);
+  --bs-modal-bg: var(--stealth-surface);
+  --bs-modal-border-color: var(--stealth-border);
+  --bs-border-color: var(--stealth-border);
+  --theme-inputBg: var(--stealth-surface-2);
+
+  // link focus ring shifts from yellow to orange
+  --bs-focus-ring-color: rgba(255, 102, 0, 0.25);
+}
+
+// ---- light theme restyle (pale "paper stealth") ----
+.stealth-rebrand[data-bs-theme='light'] {
+  --stealth-surface: #ffffff;
+  --stealth-surface-2: #f4f4f7;
+  --stealth-border: #e2e2e6;
+  --stealth-muted: #707070;
+  --bs-card-bg: var(--stealth-surface);
+  --bs-card-border-color: var(--stealth-border);
+  --theme-inputBg: var(--stealth-surface-2);
 }
