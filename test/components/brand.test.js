@@ -55,9 +55,12 @@ jest.mock('next/link', () => {
 jest.mock('react-bootstrap', () => {
   const React = require('react')
   return {
-    Navbar: { Brand: ({ as: As, href, className, children }) =>
-      As ? React.createElement(As, { href, className }, children)
-        : React.createElement('a', { href, className }, children) },
+    Navbar: {
+      Brand: ({ as: As, href, className, children }) =>
+        As
+          ? React.createElement(As, { href, className }, children)
+          : React.createElement('a', { href, className }, children)
+    },
     Button: ({ children, ...rest }) => React.createElement('button', rest, children),
     Dropdown: ({ children }) => React.createElement('div', null, children),
     Nav: ({ children }) => React.createElement('div', null, children)
