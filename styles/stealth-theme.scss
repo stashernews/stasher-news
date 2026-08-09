@@ -69,3 +69,15 @@
     overflow: hidden;
   }
 }
+
+// ---- merged single-row desktop header (rebrand) ----
+// One row holds back arrow, brand, turf selector, sorts, search, price ticker,
+// comment navigator, block-height pill, post button and the user corner. The
+// row wraps (instead of clipping or dropping elements) at narrow desktop
+// widths; every element of the previous two-bar header is retained.
+.stealth-rebrand {
+  .navMerged {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+}
