@@ -6,7 +6,7 @@ import { StaticLayout } from '@/components/layout'
 import Login from '@/components/login'
 import { isExternal } from '@/lib/url'
 import { formatHost, parseSafeHost } from '@/lib/safe-url'
-import { MULTI_AUTH_ANON, MULTI_AUTH_POINTER } from '@/lib/auth'
+import { MULTI_AUTH_ANON, MULTI_AUTH_LIST, MULTI_AUTH_POINTER } from '@/lib/auth'
 import { getDomainBranding } from '@/lib/domains'
 
 export async function getServerSideProps ({ req, res, query: { callbackUrl, multiAuth = false, domain = null, error = null } }) {
@@ -68,7 +68,11 @@ export async function getServerSideProps ({ req, res, query: { callbackUrl, mult
       error,
       multiAuth,
       canonicalDomain,
-      domainData
+      domainData,
+      ssrPublicCookies: {
+        [MULTI_AUTH_POINTER]: req.cookies[MULTI_AUTH_POINTER] || null,
+        [MULTI_AUTH_LIST]: req.cookies[MULTI_AUTH_LIST] || null
+      }
     }
   }
 }
@@ -94,12 +98,9 @@ function LoginHeader ({ domainData }) {
 
 function MultiAuthHeader () {
   return (
-    <>
-      <h3 className='w-100 pb-2'>
-        Switch to existing account
-      </h3>
-      <div className='text-muted w-100 text-start pb-4 line-height-md'>Hint: go back and switch to @anon to sign up with a new account.</div>
-    </>
+    <h3 className='w-100 pb-2'>
+      Switch to existing account
+    </h3>
   )
 }
 

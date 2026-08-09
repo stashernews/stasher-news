@@ -72,19 +72,21 @@ export default function OffCanvas ({ me, dropNavKey }) {
                   <LogoutDropdownItem handleClose={handleClose} />
                 </>
                 )
-              : <LoginButtons handleClose={handleClose} />}
-            <div className={classNames(styles.footerPadding, 'mt-auto')}>
-              <Navbar className={classNames('container d-flex flex-row px-0 text-muted')}>
-                <Nav>
-                  <Link href={`/${me?.name || 'anon'}`} className='d-flex flex-row p-2 mt-auto text-muted'>
-                    <MeImage me={me} />
-                    <div className='ms-2'>
-                      <Indicator show={indicator} top='2px' right='-5px'>@{me?.name || 'anon'}</Indicator>
-                    </div>
-                  </Link>
-                </Nav>
-              </Navbar>
-            </div>
+              : <LoginButtons />}
+            {me && (
+              <div className={classNames(styles.footerPadding, 'mt-auto')}>
+                <Navbar className={classNames('container d-flex flex-row px-0 text-muted')}>
+                  <Nav>
+                    <Link href={`/${me.name}`} className='d-flex flex-row p-2 mt-auto text-muted'>
+                      <MeImage me={me} />
+                      <div className='ms-2'>
+                        <Indicator show={indicator} top='2px' right='-5px'>@{me.name}</Indicator>
+                      </div>
+                    </Link>
+                  </Nav>
+                </Navbar>
+              </div>
+            )}
           </div>
         </Offcanvas.Body>
       </Offcanvas>

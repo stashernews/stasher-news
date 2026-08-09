@@ -12,6 +12,7 @@ import * as cookie from 'cookie'
 import { cookieOptions, MULTI_AUTH_ANON, MULTI_AUTH_POINTER } from '@/lib/auth'
 import Link from 'next/link'
 import useCookie from './use-cookie'
+import { AccountChooser } from './account'
 
 export function EmailLoginForm ({ text, callbackUrl, multiAuth }) {
   const disabled = multiAuth
@@ -125,6 +126,7 @@ export default function Login ({ providers, callbackUrl, multiAuth, error, text,
           callbackUrl={callbackUrl}
         />
       )}
+      {signin && !multiAuth && !domainData && <AccountChooser />}
       {sortedProviders.map(provider => {
         switch (provider.name) {
           case 'Email':

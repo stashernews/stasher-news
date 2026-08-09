@@ -6,7 +6,7 @@ import { useMe } from '@/components/me'
 import classNames from 'classnames'
 import { CommentsNavigator, useCommentsNavigatorContext } from '../use-comments-navigator'
 
-export default function StickyBar ({ prefix, sub, path, topNavKey, dropNavKey, hideMobileNav = false }) {
+export default function StickyBar ({ prefix, sub, topNavKey, dropNavKey, hideMobileNav = false }) {
   const ref = useRef()
   const { me } = useMe()
   const { navigator, commentCount } = useCommentsNavigatorContext()
@@ -40,7 +40,7 @@ export default function StickyBar ({ prefix, sub, path, topNavKey, dropNavKey, h
             <SearchItem className='me-0 ms-2' />
             <NavPrice />
             <CommentsNavigator navigator={navigator} commentCount={commentCount} className='d-flex' />
-            <RightCorner dropNavKey={dropNavKey} path={path} className='d-flex' />
+            <RightCorner dropNavKey={dropNavKey} className='d-flex' />
           </Nav>
         </Navbar>
       </Container>
