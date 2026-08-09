@@ -189,6 +189,8 @@ const relationClause = (type) => {
 // carried no per-item cost). Keeps the badge (components/item-info.js) and the
 // `freebies` feed filter consistent with creation semantics in
 // api/payIn/types/itemCreate.js.
+export const excerptResolver = (item) => item.excerpt ?? makeExcerpt(item.text)
+
 export function isFreebieItem (item) {
   return !!item.freebie
 }
@@ -917,7 +919,7 @@ export default {
   },
 
   Item: {
-    excerpt: (item) => item.excerpt ?? makeExcerpt(item.text),
+    excerpt: excerptResolver,
     payIn: async (item, args, { models }) => {
       if (typeof item.payIn !== 'undefined') {
         return item.payIn
