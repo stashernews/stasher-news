@@ -1,19 +1,8 @@
 /* eslint-env jest */
-import { REBRAND_ENABLED, useRebrand, DISPLAY_FONT } from '@/lib/rebrand'
+import { DISPLAY_FONT } from '@/lib/rebrand'
 
-describe('rebrand flag', () => {
-  it('exposes a boolean REBRAND_ENABLED', () => {
-    expect(typeof REBRAND_ENABLED).toBe('boolean')
-  })
-
-  it('useRebrand returns the same value as the constant', () => {
-    expect(useRebrand()).toBe(REBRAND_ENABLED)
-  })
-})
-
-describe('display font', () => {
-  it('picks Chakra Petch or lightning', () => {
-    expect(['Chakra Petch', 'lightning']).toContain(DISPLAY_FONT)
-    expect(DISPLAY_FONT).toBe(REBRAND_ENABLED ? 'Chakra Petch' : 'lightning')
+describe('rebrand constants', () => {
+  it('uses the self-hosted Chakra Petch display font', () => {
+    expect(DISPLAY_FONT).toBe('Chakra Petch')
   })
 })

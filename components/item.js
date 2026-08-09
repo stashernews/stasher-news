@@ -2,7 +2,6 @@ import Link from 'next/link'
 import styles from './item.module.css'
 import UpVote from './upvote'
 import VoteColumn from './vote-column'
-import { useRebrand } from '@/lib/rebrand'
 import { useRef } from 'react'
 import { UNKNOWN_LINK_REL } from '@/lib/constants'
 import Pin from '@/svgs/pushpin-fill.svg'
@@ -90,7 +89,6 @@ export default function Item ({
 }) {
   const titleRef = useRef()
   const router = useRouter()
-  const rebrand = useRebrand()
 
   const media = mediaType({ url: item.url, imgproxyUrls: item.imgproxyUrls })
   const MediaIcon = media === 'video' ? VideoIcon : ImageIcon
@@ -110,9 +108,7 @@ export default function Item ({
             ? null
             : item.meDontLikePiconeros > item.mePiconeros
               ? <DownZap width={24} height={24} className={styles.dontLike} item={item} />
-              : rebrand
-                ? <VoteColumn item={item} className={styles.upvote} />
-                : <UpVote item={item} className={styles.upvote} />}
+              : <VoteColumn item={item} className={styles.upvote} />}
         <div className={styles.hunk}>
           <div className={`${styles.main} flex-wrap`}>
             <Link

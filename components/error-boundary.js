@@ -1,7 +1,7 @@
 import { Component } from 'react'
 import { StaticLayout } from './layout'
 import styles from '@/styles/error.module.css'
-import { DISPLAY_FONT, REBRAND_ENABLED } from '@/lib/rebrand'
+import { DISPLAY_FONT } from '@/lib/rebrand'
 import copy from 'clipboard-copy'
 import Button from 'react-bootstrap/Button'
 import { useToast } from './toast'
@@ -46,7 +46,7 @@ class ErrorBoundary extends Component {
       return (
         <StaticLayout footer={false}>
           <LoopVideo src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/robot-glitch.mp4`} width='480' height='270' />
-          <h1 className={styles.status} style={{ fontSize: '48px', fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}>something went wrong</h1>
+          <h1 className={styles.status} style={{ fontSize: '48px', fontFamily: DISPLAY_FONT }}>something went wrong</h1>
           {this.state.error && <CopyErrorButton errorDetails={errorDetails} />}
         </StaticLayout>
       )

@@ -13,8 +13,6 @@ import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { parseHTML } from 'linkedom'
 import HeaderMerged from '@/components/nav/desktop/header-merged'
-import DesktopHeader from '@/components/nav/desktop/header'
-import { desktopHeader } from '@/components/nav'
 import { PriceCarouselProvider } from '@/components/nav/price-carousel'
 
 // react-bootstrap's Dropdown keydown handler pulls the window from
@@ -46,7 +44,6 @@ jest.mock('next/link', () => {
     return React.createElement('a', { href: typeof href === 'string' ? href : '/', className, ...rest }, children)
   }
 })
-jest.mock(`${process.cwd()}/components/block-height`, () => ({ useBlockHeight: () => ({ height: mockHeight }) }))
 jest.mock(`${process.cwd()}/components/me`, () => ({ useMe: () => ({ me: mockMe }) }))
 jest.mock(`${process.cwd()}/components/sub-select`, () => () => <span data-testid='turf-select' />)
 jest.mock(`${process.cwd()}/components/badge`, () => () => null)
@@ -77,14 +74,11 @@ jest.mock(`${process.cwd()}/lib/auth`, () => ({
 // factory); icons are asserted structurally via their wrapper components
 jest.mock(`${process.cwd()}/svgs/arrow-left-line.svg`, () => ({ className, width }) => <svg className={className} width={width} />)
 jest.mock(`${process.cwd()}/svgs/search-line.svg`, () => ({ className, width }) => <svg className={className} width={width} />)
-jest.mock(`${process.cwd()}/svgs/sn.svg`, () => ({ width }) => <svg width={width} />)
-jest.mock(`${process.cwd()}/svgs/bolt.svg`, () => ({ width }) => <svg width={width} />)
 jest.mock(`${process.cwd()}/svgs/notification-4-fill.svg`, () => ({ width }) => <svg width={width} />)
 
 // var, not let/const: jest.mock factories may only reference out-of-scope
 // names prefixed with "mock", and const/let here would be in TDZ when the
 // hoisted jest.mock call runs.
-var mockHeight = 2301118
 var mockRouter = { asPath: '/~bitcoin' }
 var mockMe = null
 
@@ -138,7 +132,6 @@ afterAll(() => {
 })
 
 beforeEach(() => {
-  mockHeight = 2301118
   mockRouter = { asPath: '/~bitcoin' }
   mockMe = null
 })
@@ -157,33 +150,14 @@ async function renderHeader (props = TURF_PROPS) {
   })
 }
 
-describe('HeaderMerged block-height pill', () => {
-  it('shows the current block height', async () => {
-    mockHeight = 2301118
-    await renderHeader()
-
-    const pill = container.querySelector('.nav-block-height')
-    expect(pill).toBeTruthy()
-    expect(pill.textContent).toMatch(/2,301,118/)
-    expect(pill.textContent).toContain('◉')
-  })
-
-  it('is absent when the height is 0', async () => {
-    mockHeight = 0
-    await renderHeader()
-
-    expect(container.querySelector('.nav-block-height')).toBeNull()
-  })
-})
-
 describe('HeaderMerged zero-removal', () => {
   it('contains every element of the current two desktop bars', async () => {
     await renderHeader(TURF_PROPS)
 
     // back arrow (top-bar), back arrow visible because asPath is not '/'
     expect(container.querySelector('a[role="button"] svg')).toBeTruthy()
-    // brand (top-bar): logo svg (flag off) or wordmark (flag on)
-    expect(container.querySelector('a[href="/"] svg, a[href="/"] .brandWordmark')).toBeTruthy()
+    // brand wordmark
+    expect(container.querySelector('a[href="/"] .brandWordmark')).toBeTruthy()
     // turf selector (second-bar)
     expect(container.querySelector('[data-testid="turf-select"]')).toBeTruthy()
     // lit/new/top sorts (second-bar)
@@ -221,17 +195,7 @@ describe('HeaderMerged zero-removal', () => {
     expect(container.querySelector('[data-testid="turf-select"]')).toBeNull()
     const linkTexts = Array.from(container.querySelectorAll('a')).map(a => a.textContent)
     expect(linkTexts).not.toEqual(expect.arrayContaining(['post']))
-    // top-bar elements still present (brand link: logo svg or wordmark)
-    expect(container.querySelector('a[href="/"] svg, a[href="/"] .brandWordmark')).toBeTruthy()
-  })
-})
-
-describe('nav/index.js flag gating', () => {
-  it('keeps the two-bar header when the rebrand flag is off', () => {
-    expect(desktopHeader(false)).toBe(DesktopHeader)
-  })
-
-  it('switches to the merged single-row header when the flag is on', () => {
-    expect(desktopHeader(true)).toBe(HeaderMerged)
+    // top-bar elements still present (brand wordmark)
+    expect(container.querySelector('a[href="/"] .brandWordmark')).toBeTruthy()
   })
 })

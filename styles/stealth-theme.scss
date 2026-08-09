@@ -1,6 +1,6 @@
-// Stasher News visual-identity rebrand. Scoped under .stealth-rebrand
-// (applied to <html> when NEXT_PUBLIC_STASHER_REBRAND=true). These rules
-// mirror the base 'lightning' font rules and swap the family, winning by
+// Stasher News visual identity (permanent). Scoped under .stealth-rebrand,
+// which is always applied to <html> by pages/_document.js. These rules mirror
+// the base 'lightning' font rules and swap the family, winning by
 // specificity/!important only while the class is present.
 .stealth-rebrand {
   // these selectors mirror the base rules but swap the family
@@ -87,6 +87,52 @@
     row-gap: 4px;
     height: auto;
     min-height: 39px;
+  }
+
+  // cycling price ticker styled as an orange pill. The Price component already
+  // cycles fiat / XMR-per-fiat / block-height on click, so a standalone
+  // block-height element is redundant — the pill unifies all three modes.
+  // .navPricePill is a global class (not the CSS-module .price) so it survives
+  // Next.js class-name hashing.
+  .navMergedRow .navPricePill {
+    flex-grow: 0;
+  }
+
+  .navMergedRow .navPricePill button {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.75rem;
+    color: var(--bs-primary);
+    border: 1px solid rgba(255, 102, 0, 0.35);
+    background: rgba(255, 102, 0, 0.08);
+    border-radius: 6px;
+    padding: 3px 10px;
+    white-space: nowrap;
+    line-height: 1.4;
+    cursor: pointer;
+  }
+
+  .navMergedRow .navPricePill button:hover {
+    background: rgba(255, 102, 0, 0.16);
+  }
+
+  .navMergedRow .navPricePill button::before {
+    content: '◉\00a0';
+  }
+
+  // downvote arrow: dims by default, brightens to danger red on hover
+  // (fill="currentColor" on the SVG path picks up the color change). Arrow
+  // sizing/alignment matches the upvote via the shared item.module .upvote
+  // class (padding-right .2rem under box-sizing:border-box shrinks the drawn
+  // arrow identically).
+  .downvoteArrow {
+    margin-left: -.4rem;
+    opacity: 0.65;
+    transition: opacity 0.15s ease, color 0.15s ease;
+  }
+
+  .downvoteArrow:hover {
+    opacity: 1;
+    color: var(--bs-danger);
   }
 }
 

@@ -274,7 +274,7 @@ ${topCowboys.map((user, i) =>
 
 ------
 
-${process.env.NEXT_PUBLIC_STASHER_REBRAND === 'true' ? 'Fellow fugitives,' : 'Yeehaw,'}
+Fellow fugitives,
 Keyan
 A guy who works on Stasher News
 

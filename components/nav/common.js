@@ -10,16 +10,14 @@ import { PUBLIC_MEDIA_URL } from '../../lib/constants'
 import NoteIcon from '../../svgs/notification-4-fill.svg'
 import { useMe } from '../me'
 import { abbrNum } from '../../lib/format'
-import { useRebrand, DISPLAY_FONT } from '@/lib/rebrand'
-import { rebrandCopy } from '@/lib/rebrand-copy'
+import { DISPLAY_FONT } from '@/lib/rebrand'
+import { COPY } from '@/lib/rebrand-copy'
 import { useServiceWorker } from '../serviceworker'
 import useCookie from '@/components/use-cookie'
 import { cookieOptions, MULTI_AUTH_ANON, MULTI_AUTH_POINTER } from '@/lib/auth'
 import Badges from '../badge'
-import LightningIcon from '../../svgs/bolt.svg'
 import SearchIcon from '../../svgs/search-line.svg'
 import classNames from 'classnames'
-import SnIcon from '@/svgs/sn.svg'
 import { useHasNewNotes } from '../use-has-new-notes'
 import { useWalletIndicator } from '@/wallets/client/hooks'
 import SwitchAccountList, { useIsLurker } from '@/components/account'
@@ -30,18 +28,15 @@ import { useBranding } from '@/components/territory-branding'
 
 export function Brand ({ className, compact }) {
   const branding = useBranding()
-  const rebrand = useRebrand()
   const logoUrl = branding?.logoId ? `${PUBLIC_MEDIA_URL}/${branding.logoId}` : null
 
   return (
     <Navbar.Brand as={Link} href='/' className={classNames(styles.brand, className)}>
       {logoUrl
         ? <img src={logoUrl} alt='site logo' width={36} height={36} className={styles.brandImage} loading='eager' decoding='async' />
-        : rebrand
-          ? (compact
-              ? <span className='brandMark'><span className='brandMarkS' style={{ fontFamily: DISPLAY_FONT }}>s</span><span className='brandMarkDot'>.</span></span>
-              : <span className='brandWordmark' style={{ fontFamily: DISPLAY_FONT }}>stasher news<span className='brandDot'>.</span></span>)
-          : <SnIcon width={36} height={36} />}
+        : compact
+          ? <span className='brandMark'><span className='brandMarkS' style={{ fontFamily: DISPLAY_FONT }}>s</span><span className='brandMarkDot'>.</span></span>
+          : <span className='brandWordmark' style={{ fontFamily: DISPLAY_FONT }}>stasher news<span className='brandDot'>.</span></span>}
     </Navbar.Brand>
   )
 }
@@ -233,17 +228,12 @@ export function SignUpButton ({ className, width }) {
 
   return (
     <Button
-      className={classNames('align-items-center ps-2 pe-3 py-0', className)}
-      // 161px is the width of the 'switch account' button
+      className={classNames('align-items-center py-0 px-3', className)}
       style={{ borderWidth: '2px', width: width || SWITCH_ACCOUNT_BUTTON_WIDTH }}
       id='signup'
       onClick={() => handleLogin('/signup')}
     >
-      <LightningIcon
-        width={17}
-        height={17}
-        className='me-1'
-      />sign up
+      sign up
     </Button>
   )
 }
@@ -272,7 +262,6 @@ function LogoutObstacle ({ onClose }) {
   const { registration: swRegistration, togglePushSubscription } = useServiceWorker()
   const router = useRouter()
   const [, setPointerCookie] = useCookie(MULTI_AUTH_POINTER)
-  const rebrand = useRebrand()
 
   const handleLogout = async () => {
     // order is important because we need to be logged in to delete push subscription on server
@@ -291,7 +280,7 @@ function LogoutObstacle ({ onClose }) {
 
   return (
     <div className='text-center'>
-      <h4 className='mb-3'>{rebrandCopy(rebrand).logoutConfirm}</h4>
+      <h4 className='mb-3'>{COPY.logoutConfirm}</h4>
       <ObstacleButtons
         onClose={onClose}
         onConfirm={handleLogout}
@@ -393,7 +382,7 @@ export function LoggedOutCorner ({ className }) {
   return (
     <div className={classNames(className, 'd-flex align-items-center')}>
       <SignUpButton className='py-1' width='auto' />
-      <LoginButton className='ms-2' />
+      <LoginButton className='ms-2' width='auto' />
     </div>
   )
 }
