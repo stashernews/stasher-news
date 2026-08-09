@@ -33,10 +33,13 @@ async function captureStreakQuery () {
   return captured
 }
 
-test('counts P2P ObservedTip activity toward the streak (union branch)', async () => {
+test('requires BOTH paid actions and received tips for the streak (INTERSECT)', async () => {
   const sql = await captureStreakQuery()
+  expect(sql.text).toContain('INTERSECT')
   expect(sql.text).toContain('ObservedTip')
-  expect(sql.text).toContain('tipperId')
+  expect(sql.text).toContain('recipientAccountId')
+  expect(sql.text).toContain('ownerUserId')
+  expect(sql.text).not.toContain('tipperId')
   expect(sql.values).toContain(5)
 })
 
