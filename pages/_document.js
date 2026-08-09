@@ -3,6 +3,7 @@ import Script from 'next/script'
 import { getDomainBranding } from '@/lib/domains'
 import { buildSubBrandingCSS } from '@/lib/domains/custom-css'
 import { PUBLIC_MEDIA_URL } from '@/lib/constants'
+import { rebrandClass } from '@/lib/rebrand'
 
 class MyDocument extends Document {
   // https://nextjs.org/docs/pages/building-your-application/routing/custom-document#customizing-renderpage
@@ -55,7 +56,7 @@ class MyDocument extends Document {
       : '/api/site.webmanifest'
 
     return (
-      <Html lang='en' data-scroll-behavior='smooth'>
+      <Html lang='en' data-scroll-behavior='smooth' className={rebrandClass()}>
         <Head nonce={nonce}>
           <link rel='manifest' href={manifestHref} />
           <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff2`} as='font' type='font/woff2' crossOrigin='' />
