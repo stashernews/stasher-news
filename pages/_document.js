@@ -80,11 +80,29 @@ class MyDocument extends Document {
           )}
           {REBRAND_ENABLED && (
             <>
-              <link rel='preconnect' href='https://fonts.googleapis.com' />
-              <link rel='preconnect' href='https://fonts.gstatic.com' crossOrigin='' />
-              <link
-                href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&display=swap'
-                rel='stylesheet'
+              <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-500.woff2`} as='font' type='font/woff2' crossOrigin='' />
+              <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-600.woff2`} as='font' type='font/woff2' crossOrigin='' />
+              <style
+                nonce={nonce}
+                dangerouslySetInnerHTML={{
+                  __html:
+                ` @font-face {
+                    font-family: 'Chakra Petch';
+                    font-style: normal;
+                    font-weight: 500;
+                    font-display: swap;
+                    src:
+                      url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-500.woff2) format('woff2');
+                  }
+                  @font-face {
+                    font-family: 'Chakra Petch';
+                    font-style: normal;
+                    font-weight: 600;
+                    font-display: swap;
+                    src:
+                      url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-600.woff2) format('woff2');
+                  }`
+                }}
               />
             </>
           )}

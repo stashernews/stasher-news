@@ -155,4 +155,31 @@
   .stealth-login-wordmark-dot {
     color: #FF6600;
   }
+
+
+  .brandWordmark {
+    font-family: 'Chakra Petch', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    color: var(--bs-body-color);
+  }
+
+  .brandDot {
+    color: #FF6600;
+  }
+
+  .brandMark {
+    font-family: 'Chakra Petch', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--bs-body-color);
+  }
+
+  .brandMarkDot {
+    color: #FF6600;
+  }
 }

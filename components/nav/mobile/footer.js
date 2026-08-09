@@ -55,7 +55,7 @@ export default function BottomBar ({ sub }) {
       <div className={classNames(styles.footer, styles.footerPadding)}>
         <Navbar className='container px-0'>
           <Nav className={styles.footerNav}>
-            <Brand />
+            <Brand compact />
             <SearchItem {...props} />
             <PostItem {...props} className='btn-sm' />
             <NavNotifications />
