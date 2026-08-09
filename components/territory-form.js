@@ -141,8 +141,8 @@ export default function TerritoryForm ({ sub }) {
         initial={{
           name: sub?.name || '',
           desc: sub?.desc || '',
-          // Default xmr filter (0.001 XMR = the posting-fee default)
-          postsPiconerosFilter: sub?.postsPiconerosFilter == null ? 0.001 : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter)))),
+          // Default xmr filter (-0.002 XMR = show downvoted content by default)
+          postsPiconerosFilter: sub?.postsPiconerosFilter == null ? -0.002 : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter)))),
           postTypes: sub?.postTypes || POST_TYPES,
           billingType: sub?.billingType || 'MONTHLY',
           billingAutoRenew: sub?.billingAutoRenew || false,
