@@ -167,6 +167,36 @@ describe('Query.rewardsWalletInfo', () => {
     expect(result.balanceXmr).toBe('1')
   })
 
+  test('clamps a negative received - sent to 0 and flags balanceNeedsReconciliation', async () => {
+    // lws can report lifetime sent > lifetime received when subaddress receipts
+    // were never backfilled into total_received. A real wallet can never hold
+    // negative XMR, so the resolver must clamp to 0 and flag the gap.
+    const models = makeModels({ downvotes: 0n, feeGroups: [] })
+    const monero = makeMonero(1000n, 2500n)
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+
+    expect(result.balancePiconeros).toBe(0n)
+    expect(result.balanceXmr).toBe('0')
+    expect(result.balanceNeedsReconciliation).toBe(true)
+    // earmarks are computed against the clamped balance, never negative
+    expect(result.rewardsEarmarkPiconeros).toBe(0n)
+    expect(result.opsEarmarkPiconeros).toBe(0n)
+    // lifetime chain facts are still surfaced for independent audit
+    expect(result.totalReceivedPiconeros).toBe(1000n)
+    expect(result.totalSentPiconeros).toBe(2500n)
+  })
+
+  test('does not flag reconciliation when received >= sent', async () => {
+    const models = makeModels()
+    const monero = makeMonero(1000n, 250n)
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+
+    expect(result.balanceNeedsReconciliation).toBe(false)
+    expect(result.balancePiconeros).toBe(750n)
+  })
+
   test('throws when the platform rewards wallet is not registered', async () => {
     const models = makeModels({ account: null })
     const monero = makeMonero()

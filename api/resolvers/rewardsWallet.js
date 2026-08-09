@@ -75,7 +75,14 @@ export default {
       const info = await monero.getAddressInfo(account)
       const totalReceived = info.total_received ?? 0n
       const totalSent = info.total_sent ?? 0n
-      const balance = totalReceived - totalSent
+      const rawBalance = totalReceived - totalSent
+      // lws reports lifetime received per-account but lifetime sent can include
+      // spends of outputs on subaddresses whose receipts were never backfilled
+      // into total_received (subaddresses registered after funds arrived). A
+      // real wallet can never hold negative XMR, so clamp to 0 and flag the
+      // accounting gap instead of surfacing a misleading negative balance.
+      const balanceNeedsReconciliation = rawBalance < 0n
+      const balance = balanceNeedsReconciliation ? 0n : rawBalance
 
       const downvotes = await models.observedDownvote.aggregate({
         _sum: { piconeros: true },
@@ -103,6 +110,7 @@ export default {
         totalSentPiconeros: totalSent,
         balancePiconeros: balance,
         balanceXmr: piconerosToXmrDecimal(balance),
+        balanceNeedsReconciliation,
         rewardsEarmarkPiconeros: earmarks.rewardsEarmark,
         opsEarmarkPiconeros: earmarks.opsEarmark,
         inflowBreakdown: {

@@ -18,6 +18,7 @@ const REWARDS_WALLET = gql`
       totalSentPiconeros
       balancePiconeros
       balanceXmr
+      balanceNeedsReconciliation
       rewardsEarmarkPiconeros
       opsEarmarkPiconeros
       inflowBreakdown {
@@ -149,6 +150,11 @@ export default function Transparency ({ ssrData }) {
             <Stat label='Total received' value={`${w.totalReceivedPiconeros} piconeros`} />
             <Stat label='Total sent' value={`${w.totalSentPiconeros} piconeros`} />
           </div>
+          {w.balanceNeedsReconciliation && (
+            <div className='alert alert-warning mt-3 mb-0'>
+              Wallet balance needs reconciliation
+            </div>
+          )}
 
           <h4 className='text-muted mt-4'>Earmark split</h4>
           <p className='text-muted'>

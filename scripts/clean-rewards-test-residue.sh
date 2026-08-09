@@ -40,10 +40,18 @@ CREATE TEMP TABLE _tu AS SELECT id FROM users WHERE name IS NULL;
 CREATE TEMP TABLE _fee_payins AS
   SELECT DISTINCT "payInId" AS id FROM "FeeObservation" WHERE "txHash" LIKE 'rdfee%';
 
--- Recipient accounts referenced by test tips (capture before deleting tips).
+-- Recipient accounts referenced by test tips (capture before deleting tips):
+-- the test txHash prefixes, plus any account owned by a test (empty-name)
+-- user — a test-created tip may carry a random-looking txHash, so the
+-- recipient-account ownership is the reliable test signal. Real accounts are
+-- owned by named users and are never matched here.
 CREATE TEMP TABLE _tip_accounts AS
   SELECT DISTINCT "recipientAccountId" AS id FROM "ObservedTip"
-  WHERE "txHash" LIKE 'rdtip%' OR "txHash" LIKE 'dist-test-tip-%';
+  WHERE "txHash" LIKE 'rdtip%' OR "txHash" LIKE 'dist-test-tip-%'
+  UNION
+  SELECT DISTINCT t."recipientAccountId" FROM "ObservedTip" t
+  JOIN "MoneroAccount" a ON a.id = t."recipientAccountId"
+  WHERE a."ownerUserId" IN (SELECT id FROM _tu);
 
 -- Test distributions: prior shape + any distribution touched by fake-sent
 -- payouts or test-user Earn/payouts.
@@ -77,9 +85,12 @@ WHERE "distributionId" IN (SELECT id FROM _test_dists)
 -- Test distributions.
 DELETE FROM "RewardDistribution" WHERE id IN (SELECT id FROM _test_dists);
 
--- Observation fixtures by txHash prefix.
+-- Observation fixtures by txHash prefix, plus any tip whose recipient account
+-- is a test account (delete before those accounts go, or the FK aborts).
 DELETE FROM "FeeObservation" WHERE "txHash" LIKE 'rdfee%';
-DELETE FROM "ObservedTip" WHERE "txHash" LIKE 'rdtip%' OR "txHash" LIKE 'dist-test-tip-%';
+DELETE FROM "ObservedTip"
+WHERE "txHash" LIKE 'rdtip%' OR "txHash" LIKE 'dist-test-tip-%'
+   OR "recipientAccountId" IN (SELECT id FROM _tip_accounts);
 DELETE FROM "ObservedDownvote" WHERE "txHash" LIKE 'rddv%' OR "txHash" LIKE 'dist-test-downvote-%';
 
 -- Test PayIns (rdfee-linked or test-user-owned).
