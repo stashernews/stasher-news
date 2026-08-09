@@ -101,6 +101,7 @@ export default gql`
     searchTitle: String
     url: String
     searchText: String
+    excerpt: String
     text: String
     lexicalState: String
     html: String

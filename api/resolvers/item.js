@@ -21,6 +21,7 @@ import { actSchema, bountySchema, commentSchema, discussionSchema, jobSchema, li
 import { defaultCommentSort, isJob, deleteItemByAuthor } from '@/lib/item'
 import { datePivot, whenRange } from '@/lib/time'
 import { uploadIdsFromText } from './upload'
+import { makeExcerpt } from '@/lib/excerpt'
 import assertGofacYourself from './ofac'
 import assertApiKeyNotPermitted from './apiKey'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
@@ -916,6 +917,7 @@ export default {
   },
 
   Item: {
+    excerpt: (item) => item.excerpt ?? makeExcerpt(item.text),
     payIn: async (item, args, { models }) => {
       if (typeof item.payIn !== 'undefined') {
         return item.payIn

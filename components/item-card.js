@@ -5,11 +5,11 @@ import Item from './item'
 // amounts, comments with stashed/cost/boost tooltip, @user + badges, time,
 // turf, action dropdown) still renders inside <Item> — nothing is re-rendered
 // here, only a 2-line clamped excerpt of the post body added beneath. The
-// excerpt comes from item.text; feeds whose listing query does not fetch text
-// (SUB_ITEMS/ITEM_FIELDS) simply omit it until the query is extended. Flag-off
-// callers render the plain <Item> row instead (see components/items.js).
+// excerpt comes from the server-computed `excerpt` field (see lib/excerpt.js);
+// when absent (or on feeds that don't fetch it) the card shows title-only.
+// Flag-off callers render the plain <Item> row instead (see components/items.js).
 export default function ItemCard ({ item, rank, ...props }) {
-  const excerpt = item?.text?.trim?.()
+  const excerpt = item?.excerpt
   return (
     <div className='item-card'>
       <Item item={item} rank={rank} {...props} />
