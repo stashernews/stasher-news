@@ -45,7 +45,7 @@ export default function HeaderMerged (props) {
       <Container as='header' className='px-0'>
         <Navbar className='navMerged'>
           <Nav
-            className={styles.navbarNav}
+            className={`${styles.navbarNav} navMergedRow`}
             activeKey={topNavKey}
           >
             <Back />

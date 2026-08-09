@@ -74,10 +74,16 @@
 // One row holds back arrow, brand, turf selector, sorts, search, price ticker,
 // comment navigator, block-height pill, post button and the user corner. The
 // row wraps (instead of clipping or dropping elements) at narrow desktop
-// widths; every element of the previous two-bar header is retained.
+// widths; every element of the previous two-bar header is retained. The wrap
+// and height live on the inner flex row (stable .navMergedRow class, set in
+// components/nav/desktop/header-merged.js) rather than the outer .navMerged
+// Bootstrap Navbar, which is nowrap; height:auto + min-height:39px keep a
+// wrapped row from clipping against header.module.css's fixed 39px height.
 .stealth-rebrand {
-  .navMerged {
+  .navMergedRow {
     flex-wrap: wrap;
     row-gap: 4px;
+    height: auto;
+    min-height: 39px;
   }
 }
