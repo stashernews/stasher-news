@@ -1,7 +1,7 @@
 import { StaticLayout } from '@/components/layout'
 import styles from '@/styles/error.module.css'
 import { DISPLAY_FONT, REBRAND_ENABLED } from '@/lib/rebrand'
-import LoopVideo from '@/components/loop-video'
+import AmbientBg from '@/components/ambient-bg'
 
 const statusDescribe = {
   200: 'OK',
@@ -49,18 +49,18 @@ const statusDescribe = {
 
 function ErrorImage ({ statusCode }) {
   if (statusCode === 404) {
-    return <LoopVideo src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/tumbleweed.mp4`} width='640' height='640' />
+    return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/tumbleweed.mp4`} width='640' height='640' />
   }
   if (statusCode >= 500) {
-    return <LoopVideo src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/ladygun.mp4`} width='540' height='400' />
+    return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/ladygun.mp4`} width='540' height='400' />
   }
   if (statusCode >= 400) {
-    return <LoopVideo src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
+    return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
   }
   if (statusCode >= 300) {
-    return <LoopVideo src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
+    return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/blink-look.mp4`} width='640' height='288' />
   }
-  return <LoopVideo src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/ladygun.mp4`} width='540' height='400' />
+  return <AmbientBg src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/ladygun.mp4`} width='540' height='400' />
 }
 
 export default function Error ({ statusCode }) {
