@@ -71,17 +71,48 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (coinUserId) await prisma.$executeRaw`DELETE FROM users WHERE id = ${coinUserId}::int`
+  if (coinUserId) {
+    // cleanup BEFORE the user delete (ObservedTip.tipperId has no FK guard so
+    // this is just tidiness; Streak cascades on the user delete)
+    await prisma.$executeRaw`DELETE FROM "ObservedTip" WHERE "tipperId" = ${coinUserId}::int`
+    await prisma.$executeRaw`DELETE FROM users WHERE id = ${coinUserId}::int`
+  }
   await prisma.$disconnect()
 })
 
-test('computeStreaks ends a COIN streak after 24h without a tip', async () => {
-  await prisma.$executeRaw`
+async function seedCoinStreak () {
+  const rows = await prisma.$queryRaw`
     INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
-    VALUES (${coinUserId}::int, now() - interval '2 days', 'COIN'::"StreakType", now_utc(), now_utc())`
+    VALUES (${coinUserId}::int, now() - interval '2 days', 'COIN'::"StreakType", now_utc(), now_utc())
+    RETURNING id::int AS id`
+  return rows[0].id
+}
+
+test('computeStreaks ends a COIN streak after 24h without a tip', async () => {
+  const streakId = await seedCoinStreak()
 
   await computeStreaks({ models: prisma })
 
-  const row = await prisma.streak.findFirst({ where: { userId: coinUserId, type: 'COIN' } })
+  const row = await prisma.streak.findFirst({ where: { id: streakId } })
   expect(row.endedAt).toBeTruthy()
+})
+
+test('computeStreaks keeps a COIN streak alive within 24h of a DETECTED tip', async () => {
+  const streakId = await seedCoinStreak()
+  await prisma.$executeRaw`
+    INSERT INTO "ObservedTip" ("txHash", "postId", "tipperId", "recipientAccountId", "paymentId", "piconeros", "state", "detectedAt")
+    VALUES (
+      'test-coin-keep-' || gen_random_uuid()::text,
+      (SELECT id FROM "Item" LIMIT 1),
+      ${coinUserId}::int,
+      (SELECT id FROM "MoneroAccount" LIMIT 1),
+      'test-coin-pid-' || gen_random_uuid()::text,
+      1000000000,
+      'DETECTED'::"ObservedState",
+      now())`
+
+  await computeStreaks({ models: prisma })
+
+  const row = await prisma.streak.findFirst({ where: { id: streakId } })
+  expect(row.endedAt).toBeNull()
 })

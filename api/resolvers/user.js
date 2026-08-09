@@ -965,8 +965,8 @@ export default {
 
       const rows = await models.$queryRaw`
         SELECT 1 AS n FROM "ObservedTip"
-        WHERE "tipperId" = ${user.id}::INTEGER AND state = 'CONFIRMED'
-          AND "confirmedAt" > now() - interval '24 hours'
+        WHERE "tipperId" = ${user.id}::INTEGER AND state IN ('DETECTED', 'CONFIRMED')
+          AND "detectedAt" > now() - interval '24 hours'
         LIMIT 1`
       return rows.length > 0
     },
