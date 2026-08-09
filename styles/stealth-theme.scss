@@ -40,3 +40,32 @@
   --bs-card-border-color: var(--stealth-border);
   --theme-inputBg: var(--stealth-surface-2);
 }
+
+// ---- card feed layout (rebrand) ----
+// The listing grid is `auto minmax(0, 1fr)` with Item's rank/row fragment as
+// its direct children, so the card spans both columns and re-establishes the
+// same inner template — the row internals keep their exact layout.
+.stealth-rebrand {
+  .item-card {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    background: var(--stealth-surface);
+    border: 1px solid var(--stealth-border);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+
+  .item-excerpt {
+    grid-column: 1 / -1;
+    margin: 6px 0 0;
+    color: var(--stealth-muted);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
