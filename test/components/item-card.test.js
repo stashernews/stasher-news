@@ -77,8 +77,8 @@ async function renderCard (props = {}) {
 }
 
 describe('ItemCard', () => {
-  it('renders a clamped excerpt from item.text', async () => {
-    const root = await renderCard({ item: { id: '1', title: 'title', text: 'a long body of post content', user: { name: 'u' } } })
+  it('renders the server-computed excerpt from item.excerpt', async () => {
+    const root = await renderCard({ item: { id: '1', title: 'title', excerpt: 'a long body of post content', user: { name: 'u' } } })
 
     const excerpt = container.querySelector('.item-excerpt')
     expect(excerpt).toBeTruthy()
@@ -88,7 +88,7 @@ describe('ItemCard', () => {
     await act(async () => { root.unmount() })
   })
 
-  it('omits the excerpt when there is no body text', async () => {
+  it('omits the excerpt when there is no excerpt field', async () => {
     const root = await renderCard({ item: { id: '2', title: 'title', user: { name: 'u' } } })
 
     expect(container.querySelector('.item-excerpt')).toBeNull()

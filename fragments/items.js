@@ -21,6 +21,7 @@ export const ITEM_FIELDS = gql`
     deletedAt
     title
     url
+    excerpt
     user {
       id
       name
