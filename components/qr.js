@@ -1,15 +1,26 @@
 import { QRCodeSVG } from 'qrcode.react'
 import CopyChip from '@/components/copy-chip'
 import Clipboard from '@/svgs/clipboard-line.svg'
+import { REBRAND_ENABLED } from '@/lib/rebrand'
 
-export const qrImageSettings = {
-  src: 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 256 256\'%3E%3Cpath fill-rule=\'evenodd\' d=\'m46.7 96.4 37.858 53.837-71.787 62.934L117.5 155.4l-40.075-52.854 49.412-59.492Zm156.35 41.546-49.416-58.509-34.909 116.771 44.25-67.358 58.509 59.25L241.4 47.725Z\'/%3E%3C/svg%3E',
-  x: undefined,
-  y: undefined,
-  height: 60,
-  width: 60,
-  excavate: true
+const MONERO_MARK_DATA_URI =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cg fill='none' stroke='%23111' stroke-width='14'%3E%3Ccircle cx='128' cy='128' r='104'/%3E%3Ccircle cx='128' cy='128' r='40'/%3E%3C/g%3E%3C/svg%3E"
+
+const LEGACY_BOLT_DATA_URI =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cpath fill-rule='evenodd' d='m46.7 96.4 37.858 53.837-71.787 62.934L117.5 155.4l-40.075-52.854 49.412-59.492Zm156.35 41.546-49.416-58.509-34.909 116.771 44.25-67.358 58.509 59.25L241.4 47.725Z'/%3E%3C/svg%3E"
+
+export function qrImageSettingsFor (rebrand) {
+  return {
+    src: rebrand ? MONERO_MARK_DATA_URI : LEGACY_BOLT_DATA_URI,
+    x: undefined,
+    y: undefined,
+    height: 60,
+    width: 60,
+    excavate: true
+  }
 }
+
+export const qrImageSettings = qrImageSettingsFor(REBRAND_ENABLED)
 
 export default function Qr ({ value, qrTransform = (value) => value, description, copy = true }) {
   const qrValue = qrTransform(value)
