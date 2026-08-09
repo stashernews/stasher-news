@@ -5,16 +5,19 @@ import UserList from '@/components/user-list'
 import { MY_MUTED_USERS } from '@/fragments/users'
 import { SettingsHeader } from '../index'
 import { MuteUserContextProvider } from '@/components/mute'
+import { useRebrand } from '@/lib/rebrand'
+import { rebrandCopy } from '@/lib/rebrand-copy'
 
 export const getServerSideProps = getGetServerSideProps({ query: MY_MUTED_USERS, authRequired: true })
 
 export default function MyMutedUsers ({ ssrData }) {
   const muteUserContextValue = useMemo(() => ({ refetchQueries: ['MyMutedUsers'] }), [])
+  const rebrand = useRebrand()
   return (
     <Layout>
       <div className='pb-3 w-100 mt-2'>
         <SettingsHeader />
-        <div className='mb-4 text-muted'>Well now, reckon these here are the folks you've gone and silenced.</div>
+        <div className='mb-4 text-muted'>{rebrandCopy(rebrand).mutesHeader}</div>
         <MuteUserContextProvider value={muteUserContextValue}>
           <UserList
             ssrData={ssrData} query={MY_MUTED_USERS}

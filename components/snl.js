@@ -4,12 +4,15 @@ import { useEffect, useState } from 'react'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
 import { datePivot } from '@/lib/time'
+import { useRebrand } from '@/lib/rebrand'
+import { rebrandCopy } from '@/lib/rebrand-copy'
 
 export default function Snl ({ ignorePreference }) {
   const [show, setShow] = useState()
   const { data } = useQuery(gql`{ snl }`, {
     fetchPolicy: 'cache-and-network'
   })
+  const rebrand = useRebrand()
 
   useEffect(() => {
     const dismissed = window.localStorage.getItem('snl')
@@ -33,7 +36,7 @@ export default function Snl ({ ignorePreference }) {
         dismissible
       >
         <a href='https://www.youtube.com/@stackernews/live'>
-          <YouTube width={24} height={24} className='me-2 fill-info' />Stasher News Live is streaming this week's top stories
+          <YouTube width={24} height={24} className='me-2 fill-info' />{rebrandCopy(rebrand).liveStreamLine}
         </a>
       </Alert>
     </div>
