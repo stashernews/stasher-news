@@ -119,6 +119,7 @@ services:
     volumes:
       - ./:/app
       - backups:/backups
+      - masterkey_backups:/masterkey-backups
     entrypoint: ["/bin/sh", "-c"]
     command:
       - npm run worker:dev
@@ -352,6 +353,7 @@ volumes:
   os:
   aws:
   backups:
+  masterkey_backups:
   wal_archive:
 
   dnsmasq:
