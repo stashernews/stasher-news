@@ -12,8 +12,8 @@ describe('rebrand flag', () => {
 })
 
 describe('display font', () => {
-  it('picks chakra-petch or lightning', () => {
-    expect(['chakra-petch', 'lightning']).toContain(DISPLAY_FONT)
-    expect(DISPLAY_FONT).toBe(REBRAND_ENABLED ? 'chakra-petch' : 'lightning')
+  it('picks Chakra Petch or lightning', () => {
+    expect(['Chakra Petch', 'lightning']).toContain(DISPLAY_FONT)
+    expect(DISPLAY_FONT).toBe(REBRAND_ENABLED ? 'Chakra Petch' : 'lightning')
   })
 })

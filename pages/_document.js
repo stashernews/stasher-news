@@ -77,18 +77,6 @@ class MyDocument extends Document {
                   url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff2) format('woff2'),
                   url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/alarmclock.woff) format('woff');
                 font-display: swap;
-              }
-              @font-face {
-                font-family: 'chakra-petch';
-                src: local('Chakra Petch Medium'), local('ChakraPetch-Medium');
-                font-weight: 500;
-                font-display: swap;
-              }
-              @font-face {
-                font-family: 'chakra-petch';
-                src: local('Chakra Petch SemiBold'), local('ChakraPetch-SemiBold');
-                font-weight: 600;
-                font-display: swap;
               }`
             }}
           />

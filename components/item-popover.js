@@ -1,6 +1,7 @@
 import { ITEM } from '@/fragments/items'
 import { isAbortError } from '@/lib/error'
 import errorStyles from '@/styles/error.module.css'
+import { DISPLAY_FONT, REBRAND_ENABLED } from '@/lib/rebrand'
 import { useLazyQuery } from '@apollo/client/react'
 import classNames from 'classnames'
 import HoverablePopover from './hoverable-popover'
@@ -23,7 +24,7 @@ export default function ItemPopover ({ id, children }) {
       body={!data || loading
         ? <ItemSkeleton showUpvote={false} />
         : !data.item
-            ? <h1 className={classNames(errorStyles.status, errorStyles.describe)}>ITEM NOT FOUND</h1>
+            ? <h1 className={classNames(errorStyles.status, errorStyles.describe)} style={{ fontFamily: REBRAND_ENABLED ? DISPLAY_FONT : undefined }}>ITEM NOT FOUND</h1>
             : <ItemSummary item={data.item} />}
     />
   )
