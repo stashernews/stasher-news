@@ -45,6 +45,32 @@ describe('filterClause with BigInt filters', () => {
     expect(clause).toContain('>= 1000000000')
   })
 
+  test('homepage lit respects an explicit "-∞ show all" (null) filter instead of the floor', async () => {
+    // Regression: the homepage floor used to override a logged-in user's null
+    // filter, hiding heavily downvoted posts even with the filter at -∞.
+    const clause = await filterClause('links', undefined, 'lit', ctx({ postsPiconerosFilter: null, commentsPiconerosFilter: null }))
+    expect(clause).toBe('')
+  })
+
+  test('homepage lit respects a negative filter instead of clamping to the homepage floor', async () => {
+    const clause = await filterClause('links', undefined, 'lit', ctx({ postsPiconerosFilter: -2000000000n, commentsPiconerosFilter: -2000000000n }))
+    expect(clause).toContain('>= -2000000000')
+  })
+
+  test('logged-out homepage lit applies the homepage floor default', async () => {
+    const clause = await filterClause('links', undefined, 'lit', {
+      me: null,
+      userLoader: { load: async () => null },
+      subLoader: { load: async () => null }
+    })
+    expect(clause).toContain('>= -2000000000')
+  })
+
+  test('territory lit stays territory-authoritative even when the user set -∞', async () => {
+    const clause = await filterClause('links', 'tech', 'lit', ctx({ postsPiconerosFilter: null, commentsPiconerosFilter: null }, { postsPiconerosFilter: -2000000000n }))
+    expect(clause).toContain('>= -2000000000')
+  })
+
   test('non-curated territory feed (sort new) does not throw with BigInt territory filter', async () => {
     const clause = await filterClause('links', 'monero', 'new', ctx({}, { postsPiconerosFilter: 1000000000n }))
     expect(typeof clause).toBe('string')

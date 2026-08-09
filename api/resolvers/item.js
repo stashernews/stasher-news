@@ -337,11 +337,13 @@ export async function filterClause (type, sub, sort, { me, userLoader, subLoader
       ? (postsPiconerosFilter == null ? null : Math.min(Number(postsPiconerosFilter), Number(territory.postsPiconerosFilter)))
       : territory.postsPiconerosFilter
   } else if (isCurated) {
-    // homepage curated: enforce homepage minimum
-    // null (show all) defers to the homepage threshold
-    postsPiconerosFilter = postsPiconerosFilter == null
-      ? HOMEPAGE_POSTS_PICONEROS_FILTER
-      : Math.max(Number(postsPiconerosFilter), Number(HOMEPAGE_POSTS_PICONEROS_FILTER))
+    // homepage curated: the homepage floor applies only to logged-out viewers
+    // (whose filter is the DEFAULT_* default). A logged-in viewer's explicit
+    // filter — including "-∞ (show all)", i.e. null — must win so heavily
+    // downvoted posts are reachable; matches the top/logged-in branch above.
+    if (!me) {
+      postsPiconerosFilter = HOMEPAGE_POSTS_PICONEROS_FILTER
+    }
   }
 
   // On curated feeds (lit/top), your own items are filtered like everyone else's.
