@@ -10,6 +10,8 @@ import { PUBLIC_MEDIA_URL } from '../../lib/constants'
 import NoteIcon from '../../svgs/notification-4-fill.svg'
 import { useMe } from '../me'
 import { abbrNum } from '../../lib/format'
+import { useRebrand } from '@/lib/rebrand'
+import { rebrandCopy } from '@/lib/rebrand-copy'
 import { useServiceWorker } from '../serviceworker'
 import useCookie from '@/components/use-cookie'
 import { cookieOptions, MULTI_AUTH_ANON, MULTI_AUTH_POINTER } from '@/lib/auth'
@@ -265,6 +267,7 @@ function LogoutObstacle ({ onClose }) {
   const { registration: swRegistration, togglePushSubscription } = useServiceWorker()
   const router = useRouter()
   const [, setPointerCookie] = useCookie(MULTI_AUTH_POINTER)
+  const rebrand = useRebrand()
 
   const handleLogout = async () => {
     // order is important because we need to be logged in to delete push subscription on server
@@ -283,7 +286,7 @@ function LogoutObstacle ({ onClose }) {
 
   return (
     <div className='text-center'>
-      <h4 className='mb-3'>I reckon you want to logout?</h4>
+      <h4 className='mb-3'>{rebrandCopy(rebrand).logoutConfirm}</h4>
       <ObstacleButtons
         onClose={onClose}
         onConfirm={handleLogout}

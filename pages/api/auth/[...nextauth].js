@@ -16,6 +16,8 @@ import { isAuthProviderEnabled } from '@/lib/authProviderEnv'
 import { getDomainMapping } from '@/lib/domains'
 import { isSafeRedirectPath, parseSafeHost } from '@/lib/safe-url'
 import { BECH32_CHARSET } from '@/lib/constants'
+import { REBRAND_ENABLED } from '@/lib/rebrand'
+import { rebrandCopy } from '@/lib/rebrand-copy'
 import { NodeNextRequest } from 'next/dist/server/base-http/node'
 import * as cookie from 'cookie'
 
@@ -856,7 +858,7 @@ const newUserHtml = ({ url, token, site, email }) => {
                     </tr>
                     <tr>
                       <td align="left" style="font-size:0px;padding:10px 25px;word-break:break-word;">
-                        <div style="font-family:Helvetica, Arial, sans-serif;font-size:14px;line-height:20px;text-align:left;color:#000000;">Yeehaw,<br /> Stasher News</div>
+                        <div style="font-family:Helvetica, Arial, sans-serif;font-size:14px;line-height:20px;text-align:left;color:#000000;">${rebrandCopy(REBRAND_ENABLED).welcomeEmailGreeting}<br /> Stasher News</div>
                       </td>
                     </tr>
                   </tbody>
@@ -880,7 +882,7 @@ const newUserHtml = ({ url, token, site, email }) => {
                   <tbody>
                     <tr>
                       <td align="center" style="font-size:0px;padding:0px 25px 0px 25px;word-break:break-word;">
-                        <div style="font-family:Arial, sans-serif;font-size:14px;line-height:28px;text-align:center;color:#55575d;">P.S. We're thrilled you're joinin' the posse!</div>
+                        <div style="font-family:Arial, sans-serif;font-size:14px;line-height:28px;text-align:center;color:#55575d;">${rebrandCopy(REBRAND_ENABLED).welcomeEmailPs}</div>
                       </td>
                     </tr>
                   </tbody>
