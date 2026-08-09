@@ -79,7 +79,7 @@ test('hasWallet is true only when a MoneroAccount exists', async () => {
   expect(models.moneroAccount.findFirst).toHaveBeenCalledTimes(2)
 })
 
-test('tippedRecently is true within 24h of a confirmed tip', async () => {
+test('tippedRecently is true within 24h of a detected tip', async () => {
   const models = {
     $queryRaw: jest.fn().mockResolvedValue([{ n: 1 }])
   }
@@ -87,12 +87,27 @@ test('tippedRecently is true within 24h of a confirmed tip', async () => {
   expect(rec).toBe(true)
 })
 
-test('tippedRecently is false without a confirmed tip in the last 24h', async () => {
+test('tippedRecently is false without a tip in the last 24h', async () => {
   const models = {
     $queryRaw: jest.fn().mockResolvedValue([])
   }
   const rec = await UserOptional.tippedRecently(mkUser(), {}, { models })
   expect(rec).toBe(false)
+})
+
+test('tippedRecently counts DETECTED and CONFIRMED tips by detectedAt (mirrors the flame streak)', async () => {
+  let captured = ''
+  const models = {
+    $queryRaw: async (...args) => {
+      const [strings] = args
+      captured = strings.join('?')
+      return [{ n: 1 }]
+    }
+  }
+  await UserOptional.tippedRecently(mkUser(), {}, { models })
+  expect(captured).toContain('state IN (\'DETECTED\', \'CONFIRMED\')')
+  expect(captured).toContain('detectedAt')
+  expect(captured).not.toContain('confirmedAt')
 })
 
 test('hasWallet returns false for other viewers when hideBadges is on (never queries the DB)', async () => {

@@ -53,7 +53,9 @@ export async function computeStreaks ({ models }) {
 
   Promise.allSettled(endingStreaks.map(streak => notifyStreakLost(streak.userId, streak)))
 
-  // End COIN badge streaks whose tipper hasn't tipped in the last 24h
+  // End COIN badge streaks whose tipper hasn't tipped in the last 24h.
+  // Mirrors tippedRecently (api/resolvers/user.js): a DETECTED tip already
+  // counts, so the streak drains in sync with the badge.
   const coldCoins = await models.$queryRaw`
     WITH cold AS (
       SELECT s."userId", s.id
@@ -61,8 +63,8 @@ export async function computeStreaks ({ models }) {
       WHERE s.type = 'COIN' AND s."endedAt" IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM "ObservedTip" t
-          WHERE t."tipperId" = s."userId" AND t.state = 'CONFIRMED'
-            AND t."confirmedAt" > now() - interval '24 hours'
+          WHERE t."tipperId" = s."userId" AND t.state IN ('DETECTED', 'CONFIRMED')
+            AND t."detectedAt" > now() - interval '24 hours'
         )
     )
     UPDATE "Streak" SET "endedAt" = NOW(), updated_at = now_utc()
