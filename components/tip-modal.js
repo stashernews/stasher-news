@@ -16,6 +16,7 @@ import { INITIATE_TIP } from '@/fragments/monero'
 import { USER_ID } from '@/lib/constants'
 import { xmrToPiconeros, piconerosToXmr, piconerosToXmrDecimal } from '@/lib/format'
 import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
+import { DISPLAY_FONT, useRebrand } from '@/lib/rebrand'
 import UpArrow from '@/svgs/up-arrow.svg'
 
 // StealthNews tip modal (spec §8.3). Mirrors components/downvote-modal.js: call a
@@ -40,6 +41,7 @@ const TIP_SLIDER_STEP = 1000000000n
 export default function TipModal ({ item, onClose }) {
   const client = useApolloClient()
   const { me } = useMe()
+  const rebrand = useRebrand()
   const animate = useAnimation()
   const toaster = useToast()
   const [initiateTip] = useMutation(INITIATE_TIP)
@@ -97,7 +99,7 @@ export default function TipModal ({ item, onClose }) {
 
   return (
     <div className='d-flex flex-column'>
-      <h6 className='text-start'>Tip</h6>
+      <h6 className='text-start' style={rebrand ? { fontFamily: DISPLAY_FONT } : undefined}>Tip</h6>
       <p className='text-muted text-start'>
         {authorIsAnon
           ? <>This author has no wallet. Your tip up-ranks the post and funds the curator rewards pool.</>
@@ -136,7 +138,7 @@ export default function TipModal ({ item, onClose }) {
           <Button
             key={p}
             size='sm'
-            variant={amount === p ? 'success' : 'outline-success'}
+            variant={rebrand ? (amount === p ? 'primary' : 'outline-primary') : (amount === p ? 'success' : 'outline-success')}
             onClick={() => setAmount(p)}
           >
             <UpArrow className='me-1' width={14} height={14} />{p}
@@ -145,13 +147,18 @@ export default function TipModal ({ item, onClose }) {
       </div>
 
       <div className='d-flex mt-3'>
-        <Button variant='success' className='ms-auto px-4' onClick={onSubmit}>
+        <Button variant={rebrand ? 'primary' : 'success'} className='ms-auto px-4' onClick={onSubmit}>
           generate tip
         </Button>
       </div>
 
       <AccordianItem
-        header='how do tips work?' body={
+        header={
+          rebrand
+            ? <span style={{ fontFamily: DISPLAY_FONT }}>how do tips work?</span>
+            : 'how do tips work?'
+        }
+        body={
           <ul className='text-muted'>
             <li>your tip goes directly to the author's Monero wallet — Stasher News never holds it</li>
             <li>after you pay, the tip is detected within ~2 minutes (one stagenet block)</li>

@@ -93,6 +93,10 @@ function LoginHeader ({ domainData }) {
   const rebrand = useRebrand()
   return (
     <>
+      {rebrand &&
+        <div className='stealth-login-wordmark w-100 text-start pb-2'>
+          stasher news<span className='stealth-login-wordmark-dot'>.</span>
+        </div>}
       <h3 className='w-100 pb-2'>
         Log in {domainData && ` to ${domainData.title}`}
       </h3>
