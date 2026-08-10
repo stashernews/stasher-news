@@ -230,9 +230,25 @@ export const activeOrMine = (me) => {
   // StasherNews posting-fee gate (§6.2, Q8): a PENDING_FEE item is invisible to
   // everyone except its author until the rewardsWalletObserver observes its posting fee and
   // flips feeStatus to FEE_PAID. (Existing items default to FEE_NOT_REQUIRED.)
+  //
+  // StasherNews bounty gate (A-13): an unfunded bounty — bountyPiconeros = 0
+  // with bountyStatus UNFUNDED/PENDING_FUNDING/DETECTED — is likewise invisible
+  // to everyone except its author until the funding payment confirms (FUNDED).
+  // Non-bounty items are identified by bountyPiconeros = 0, NOT by bountyStatus
+  // (its column default is UNFUNDED for every non-bounty item). The inner
+  // "userId = me.id" lets the author watch their pending funding's progress;
+  // the outer OR is the existing per-viewer override.
   return me
-    ? `(("Item".status <> 'STOPPED' AND COALESCE("Item"."feeStatus", 'FEE_NOT_REQUIRED') <> 'PENDING_FEE') OR "Item"."userId" = ${me.id})`
-    : '("Item".status <> \'STOPPED\' AND COALESCE("Item"."feeStatus", \'FEE_NOT_REQUIRED\') <> \'PENDING_FEE\')'
+    ? `(("Item".status <> 'STOPPED'
+        AND COALESCE("Item"."feeStatus", 'FEE_NOT_REQUIRED') <> 'PENDING_FEE'
+        AND ("Item"."bountyPiconeros" = 0
+          OR "Item"."bountyStatus" IN ('FUNDED','EXPIRED','AWARDED','REFUNDED','ROLLED_OVER')
+          OR "Item"."userId" = ${me.id}))
+       OR "Item"."userId" = ${me.id})`
+    : `("Item".status <> 'STOPPED'
+        AND COALESCE("Item"."feeStatus", 'FEE_NOT_REQUIRED') <> 'PENDING_FEE'
+        AND ("Item"."bountyPiconeros" = 0
+          OR "Item"."bountyStatus" IN ('FUNDED','EXPIRED','AWARDED','REFUNDED','ROLLED_OVER')))`
 }
 
 export const muteClause = me =>
@@ -897,14 +913,6 @@ export default {
         return await pay('BOOST', { id: Number(id), piconeros }, { me })
       }
       throw new GqlInputError(`unsupported act ${act}`)
-    },
-    payBounty: async (parent, { id, sendProtocolId }, { me, models }) => {
-      if (!me) {
-        throw new GqlAuthenticationError()
-      }
-      assertApiKeyNotPermitted({ me })
-
-      throw new Error('Monero payments are not implemented until Phase 2')
     },
     updateCommentsViewAt: async (parent, { id, meCommentsViewedAt }, { me, models }) => {
       if (!me) {

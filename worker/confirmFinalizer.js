@@ -136,6 +136,29 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     })
   }
 
+  // ObservedBounty (A-13): mature DETECTED bounty fundings to CONFIRMED at the
+  // same threshold — the backstop for a missed webhook CONFIRMED callback.
+  // Unlike the tip/downvote flips, this is LEDGER-ONLY: the funding side
+  // effects (Item.bountyStatus -> FUNDED, bountyPiconeros, the BOUNTY_FEE
+  // FeeObservation, webhook teardown) ran on the webhook's CONFIRMED path
+  // (driveBountyFunding) and are NOT repeated here — the finalizer only
+  // matures the ObservedBounty row so the funding cannot stay provisional if
+  // the final callback is lost. A fully-missed funding (no DETECTED row) is
+  // out of scope here: the 24h BountyPidMap expiry makes stale payment ids
+  // unconsumable and the author retries.
+  const bounties = await models.observedBounty.findMany({
+    where: { state: 'DETECTED', height: { not: null } },
+    take: SCAN_BATCH_SIZE
+  })
+  for (const bounty of bounties) {
+    const confirmations = chainHeight - bounty.height + 1
+    if (confirmations < REQUIRED_CONFIRMATIONS) continue
+    await models.observedBounty.update({
+      where: { id: bounty.id },
+      data: { state: 'CONFIRMED', confirmations, confirmedAt: new Date() }
+    })
+  }
+
   return confirmed
 }
 

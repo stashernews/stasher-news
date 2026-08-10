@@ -28,11 +28,13 @@ const ADDR = '5' + '3'.repeat(94) // 95-char Monero address placeholder
 
 // Tracks every row created across tests so afterAll can tear them down in
 // FK-safe order: ObservedTip/ObservedDownvote -> Item -> MoneroAccount -> users.
-const created = { users: [], items: [], accounts: [], tips: [], downvotes: [] }
+const created = { users: [], items: [], accounts: [], tips: [], downvotes: [], bounties: [] }
 
 afterAll(async () => {
   await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } })
   await prisma.observedDownvote.deleteMany({ where: { id: { in: created.downvotes } } })
+  await prisma.observedBounty.deleteMany({ where: { id: { in: created.bounties } } })
+  await prisma.feeObservation.deleteMany({ where: { postId: { in: created.items }, feeType: 'BOUNTY_FEE' } })
   for (const id of created.items) {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
     await prisma.item.deleteMany({ where: { id } })
@@ -215,6 +217,62 @@ test('a DETECTED ObservedDownvote stays DETECTED below 10 confirmations', async 
   await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(508) })
 
   const after = await prisma.observedDownvote.findUnique({ where: { id: downvote.id } })
+  expect(after.state).toBe('DETECTED')
+  expect(after.confirmedAt).toBeNull()
+})
+
+// Seed a DETECTED ObservedBounty directly (bypassing the webhook) so the test
+// exercises ONLY the confirmFinalizer flip path. txHash/paymentId must be
+// unique under the @@unique([txHash, paymentId]).
+let bountySeq = 0
+async function seedBounty ({ postId, piconeros, height, recipientAccountId }) {
+  bountySeq += 1
+  const bounty = await prisma.observedBounty.create({
+    data: {
+      txHash: 'obv' + String(bountySeq),
+      postId,
+      payerId: null,
+      recipientAccountId,
+      paymentId: 'obtest' + String(bountySeq).padStart(8, '0') + '00000000',
+      piconeros,
+      height,
+      state: 'DETECTED'
+    }
+  })
+  created.bounties.push(bounty.id)
+  return bounty
+}
+
+test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations — ledger only, no Item flip, no fee booking', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'bounty-confirm-target'); created.items.push(postId)
+  const account = await seedAccount()
+  const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: 700, recipientAccountId: account.id })
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(709) })
+
+  const after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(after.state).toBe('CONFIRMED')
+  expect(after.confirmations).toBe(10)
+  expect(after.confirmedAt).toBeInstanceOf(Date)
+
+  // The funding side effects (Item flip, BOUNTY_FEE row) belong to the webhook
+  // CONFIRMED path (driveBountyFunding) — the finalizer must NOT repeat them.
+  const item = await prisma.item.findUnique({ where: { id: postId } })
+  expect(item.bountyStatus).toBe('UNFUNDED')
+  const fee = await prisma.feeObservation.findFirst({ where: { postId, feeType: 'BOUNTY_FEE' } })
+  expect(fee).toBeNull()
+})
+
+test('a DETECTED ObservedBounty stays DETECTED below 10 confirmations', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'bounty-not-yet'); created.items.push(postId)
+  const account = await seedAccount()
+  const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: 700, recipientAccountId: account.id })
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(708) })
+
+  const after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
   expect(after.state).toBe('DETECTED')
   expect(after.confirmedAt).toBeNull()
 })

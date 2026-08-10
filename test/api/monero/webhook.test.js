@@ -25,9 +25,24 @@ function mockModels (overrides = {}) {
       update: jest.fn().mockResolvedValue({}),
       ...overrides.observedTip
     },
+    // Bounty branch models (A-13): default to "no matching bounty payment id"
+    // so tip-only tests exercise the fall-through as a 200 no-op.
+    bountyPidMap: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      ...overrides.bountyPidMap
+    },
+    observedBounty: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({}),
+      ...overrides.observedBounty
+    },
     $transaction: jest.fn(async (fn) => fn({
       observedTip: { update: txUpdate },
       user: { update: userUpdate },
+      observedBounty: { update: overrides.txBountyUpdate || jest.fn().mockResolvedValue({}) },
+      bountyPidMap: { update: overrides.txPidMapUpdate || jest.fn().mockResolvedValue({}) },
+      item: { update: overrides.txItemUpdate || jest.fn().mockResolvedValue({}) },
+      platformFeeConfig: { findUnique: overrides.txConfigFind || jest.fn().mockResolvedValue({ bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }) },
       $executeRaw: execRaw,
       $queryRaw: queryRaw
     }))
@@ -290,4 +305,94 @@ test('enqueues a checkStreak job for the recipient but no COIN streak for an ano
   // contains 'COIN'::"StreakType", so check those captured calls too.
   const allSql = [...execRaw.mock.calls, ...queryRaw.mock.calls].map(sqlOf)
   expect(allSql.some(sql => sql.includes('COIN'))).toBe(false)
+})
+
+test('bounty branch: claims a PENDING ObservedBounty via the conditional UPDATE and consumes its BountyPidMap', async () => {
+  const bounty = { id: 7, postId: 5, state: 'PENDING', paymentId: 'bn123', webhookEventId: 'evt-b' }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const txPidMapUpdate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    bountyPidMap: { findUnique: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5, userId: 2 }) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
+    execRaw,
+    txPidMapUpdate
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bn123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 15000000000 } }
+  }, res, models)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // The claim is the atomic conditional UPDATE (mirrors the tip branch).
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const sqls = execRaw.mock.calls.map(sqlOf)
+  expect(sqls.some(sql => sql.includes('UPDATE "ObservedBounty"') && sql.includes("state = 'PENDING'"))).toBe(true)
+  // The pid map is consumed only when the claim won.
+  expect(txPidMapUpdate).toHaveBeenCalledWith({
+    where: { paymentId: 'bn123' },
+    data: expect.objectContaining({ consumedAt: expect.any(Date) })
+  })
+  // No ranking delta / streak side effects ran for a bounty.
+  expect(sqls.some(sql => sql.includes('checkStreak'))).toBe(false)
+})
+
+test('bounty branch: a DETECTED bounty at REQUIRED_CONFIRMATIONS runs the funding side effects and deletes the webhook', async () => {
+  const bounty = { id: 7, postId: 5, state: 'DETECTED', paymentId: 'bn123', txHash: 'deadbeef', webhookEventId: 'evt-b' }
+  const txBountyUpdate = jest.fn().mockResolvedValue({})
+  const txItemUpdate = jest.fn().mockResolvedValue({})
+  const queryRaw = jest.fn().mockResolvedValue([])
+  const models = mockModels({
+    bountyPidMap: { findUnique: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5 }) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
+    txBountyUpdate,
+    txItemUpdate,
+    queryRaw
+  })
+  const monero = mockMonero()
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bn123', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'beefbeef', block: 2172610, amount: 2000000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // ObservedBounty -> CONFIRMED with the callback's height/confirmations.
+  expect(txBountyUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    where: { id: 7 },
+    data: expect.objectContaining({ state: 'CONFIRMED', confirmations: 10, height: 2172610 })
+  }))
+  // Item -> FUNDED with the ACTUAL on-chain amount (2e12, not the expected 5e9).
+  expect(txItemUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    where: { id: 5 },
+    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 2000000000000n, bountyConfirmedAt: expect.any(Date) })
+  }))
+  // BOUNTY_FEE ledger row booked born-CONFIRMED inside the same transaction.
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const sqls = queryRaw.mock.calls.map(sqlOf)
+  expect(sqls.some(sql => sql.includes('BOUNTY_FEE') && sql.includes('CONFIRMED'))).toBe(true)
+  // The lws webhook is torn down after the transaction commits.
+  expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-b')
+})
+
+test('bounty branch: does NOT consume the BountyPidMap when the conditional claim loses (race with another claimer)', async () => {
+  const bounty = { id: 7, postId: 5, state: 'PENDING', paymentId: 'bn123', txHash: 'pending-bn123', webhookEventId: 'evt-b' }
+  const execRaw = jest.fn().mockResolvedValue(0)
+  const txPidMapUpdate = jest.fn().mockResolvedValue({})
+  const txBountyUpdate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    bountyPidMap: { findUnique: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5 }) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
+    execRaw,
+    txPidMapUpdate,
+    txBountyUpdate
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bn123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 15000000000 } }
+  }, res, models)
+  expect(res.status).toHaveBeenCalledWith(200)
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const sqls = execRaw.mock.calls.map(sqlOf)
+  expect(sqls.some(sql => sql.includes('UPDATE "ObservedBounty"') && sql.includes("state = 'PENDING'"))).toBe(true)
+  // A lost claim means the pid map is NOT consumed and no CONFIRMED side
+  // effects run (the row stays PENDING; the winner owns the transitions).
+  expect(txPidMapUpdate).not.toHaveBeenCalled()
+  expect(txBountyUpdate).not.toHaveBeenCalled()
 })
