@@ -184,7 +184,8 @@ function buildGlitchOverlay ({ root, ghostCount = 2, onDone }) {
     overlay,
     play: () => {
       if (removed) return
-      bands.forEach(band => {
+      const allBands = overlay.querySelectorAll('.glitch-band')
+      allBands.forEach(band => {
         band.classList.remove('run')
         void band.offsetWidth // eslint-disable-line no-void
         band.classList.add('run')
