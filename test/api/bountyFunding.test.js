@@ -260,6 +260,58 @@ test('re-entry: PENDING_FUNDING returns the SAME payment id and integrated addre
   expect(after.bountyStatus).toBe('PENDING_FUNDING')
 })
 
+test('re-entry after DETECTED (pid map consumed, payment in flight) returns the SAME payment id without re-minting', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+  const monero = makeMockLws()
+
+  const first = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
+  expect(monero.addWebhook).toHaveBeenCalledTimes(1)
+
+  // Mirror the webhook's PENDING -> DETECTED writes: the 0-conf callback fired,
+  // so the funding tx is on chain and the pid map is CONSUMED (it can never
+  // fund a second bounty). The payment is now awaiting REQUIRED_CONFIRMATIONS.
+  const txHash = 'cd'.repeat(32)
+  const observed = 11_000_000_000n
+  await prisma.$transaction(async (tx) => {
+    const bounty = await tx.observedBounty.findFirst({ where: { paymentId: first.paymentId } })
+    await tx.$executeRaw`
+      UPDATE "ObservedBounty"
+      SET state = 'DETECTED', "txHash" = ${txHash},
+          height = ${100000}, piconeros = ${observed}, confirmations = ${0}
+      WHERE id = ${bounty.id} AND state = 'PENDING'`
+    await tx.bountyPidMap.update({
+      where: { paymentId: first.paymentId },
+      data: { consumedAt: new Date() }
+    })
+  })
+
+  // The live pid map is gone, but the payment is still in flight — re-entry
+  // must hand back the SAME address/payment id instead of minting a second URI
+  // (paying twice would overfund the escrow for one bounty).
+  const second = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
+
+  expect(second.paymentId).toBe(first.paymentId)
+  expect(second.integratedAddress).toBe(first.integratedAddress)
+  expect(second.uri).toBe(first.uri)
+  expect(second.feePiconeros).toBe(first.feePiconeros)
+
+  // No second webhook registration, no second pid map or ObservedBounty row.
+  expect(monero.addWebhook).toHaveBeenCalledTimes(1)
+  const pidMaps = await prisma.bountyPidMap.findMany({ where: { postId: item.id } })
+  expect(pidMaps).toHaveLength(1)
+  expect(pidMaps[0].consumedAt).toBeInstanceOf(Date)
+  const bounties = await prisma.observedBounty.findMany({ where: { postId: item.id } })
+  expect(bounties).toHaveLength(1)
+  expect(bounties[0].state).toBe('DETECTED')
+
+  const after = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(after.bountyStatus).toBe('PENDING_FUNDING')
+})
+
 test('stale pid map: PENDING_FUNDING with an EXPIRED BountyPidMap mints a FRESH funding', async () => {
   await ensureFeeConfig()
   const userId = await createUser()
@@ -274,6 +326,16 @@ test('stale pid map: PENDING_FUNDING with an EXPIRED BountyPidMap mints a FRESH 
   await prisma.bountyPidMap.update({
     where: { paymentId: first.paymentId },
     data: { expiresAt: new Date(Date.now() - 1000) }
+  })
+  // End the old attempt's lifecycle: a PENDING/DETECTED ObservedBounty is
+  // "in-flight" for re-entry purposes (resumed, never re-minted), so the
+  // expired-payment-id attempt must leave that window for this case to be
+  // truly stale — only then does neither a live pid map NOR an in-flight
+  // observation exist and the fresh mint fires.
+  const oldBounty = await prisma.observedBounty.findFirst({ where: { paymentId: first.paymentId } })
+  await prisma.observedBounty.update({
+    where: { id: oldBounty.id },
+    data: { state: 'CONFIRMED', confirmedAt: new Date() }
   })
   // Distinct Date.now() nonce for the fresh mint (deterministic payment id).
   await new Promise(resolve => setTimeout(resolve, 10))
