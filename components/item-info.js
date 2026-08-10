@@ -215,7 +215,7 @@ export default function ItemInfo ({
             pay the posting fee
           </Button>
         </>}
-      {full && item.mine && Number(item.bountyPiconeros) > 0 && item.bountyStatus === 'UNFUNDED' &&
+      {full && item.mine && Number(item.bountyPiconeros) > 0 && ['UNFUNDED', 'PENDING_FUNDING'].includes(item.bountyStatus) &&
         <>{' '}
           <Button
             size='sm' variant='outline-success'
