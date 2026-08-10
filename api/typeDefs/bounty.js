@@ -26,9 +26,9 @@ export default gql`
   }
 
   extend type BountyPayment {
-    itemId: Int!
-    winnerUserId: Int!
-    piconeros: BigInt!
+    itemId: Int
+    winnerUserId: Int
+    piconeros: BigInt
     kind: BountyPayoutKind
     state: BountyPayoutState
     txHash: String
