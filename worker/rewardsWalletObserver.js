@@ -114,12 +114,12 @@ async function applyBoostDetected (models, payIn, piconeros) {
   await models.$executeRaw`
     WITH item_boosted AS (
       UPDATE "Item"
-      SET boost = boost + ${piconeros}::INTEGER
+      SET boost = boost + ${piconeros}::BIGINT
       WHERE id = ${itemId}::INTEGER
       RETURNING *
     )
     UPDATE "Item"
-    SET "commentBoost" = "Item"."commentBoost" + ${piconeros}::INTEGER
+    SET "commentBoost" = "Item"."commentBoost" + ${piconeros}::BIGINT
     FROM (
       SELECT "Item".id
       FROM "Item", item_boosted

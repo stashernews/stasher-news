@@ -49,7 +49,7 @@ test('ranking trigger sets ranktop on INSERT from piconeros', async () => {
 })
 
 test('ranking trigger recomputes ranktop on UPDATE OF piconeros', async () => {
-  // ranktop = cost*1000 + piconeros + boost*1000 + commentPiconeros*0.25 + ...
+  // ranktop = cost*1000 + piconeros + boost + commentPiconeros*0.25 + ...
   //          - downPiconeros - commentDownPiconeros*0.1
   // with only piconeros set to 1_000_000 and everything else 0 → ranktop == 1_000_000
   await prisma.$executeRaw`UPDATE "Item" SET piconeros = 1000000 WHERE id = ${testItemId}::int`
