@@ -88,7 +88,7 @@ async function distribute (models) {
     }
 
     // --- Inflow by source (all CONFIRMED, confirmedAt in [periodStart, periodEnd)) ---
-    const [downvoteAgg, postingAgg, territoryAgg, donateAgg, boostAgg, walletlessTipAgg] = await Promise.all([
+    const [downvoteAgg, postingAgg, territoryAgg, donateAgg, boostAgg, walletlessTipAgg, bountyRolloverAgg, bountyFeeAgg] = await Promise.all([
       tx.observedDownvote.aggregate({
         _sum: { piconeros: true },
         where: { state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
@@ -116,6 +116,14 @@ async function distribute (models) {
       tx.feeObservation.aggregate({
         _sum: { piconeros: true },
         where: { feeType: 'TIP_UNWALLETED', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
+      }),
+      tx.feeObservation.aggregate({
+        _sum: { piconeros: true },
+        where: { feeType: 'BOUNTY_ROLLOVER', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
+      }),
+      tx.feeObservation.aggregate({
+        _sum: { piconeros: true },
+        where: { feeType: 'BOUNTY_FEE', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
       })
     ])
 
@@ -125,6 +133,8 @@ async function distribute (models) {
     const donatePiconeros = toBigInt(donateAgg._sum.piconeros)
     const boostPiconeros = toBigInt(boostAgg._sum.piconeros)
     const walletlessTipPiconeros = toBigInt(walletlessTipAgg._sum.piconeros)
+    const bountyRolloverPiconeros = toBigInt(bountyRolloverAgg._sum.piconeros)
+    const bountyFeePiconeros = toBigInt(bountyFeeAgg._sum.piconeros)
 
     // --- Allocation config (platform singleton row, id=1) ---
     const config = await tx.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
@@ -134,22 +144,30 @@ async function distribute (models) {
     // BigInt division floors, so each term is rounded down independently.
     // DONATE goes 100% to the pool; BOOST goes boostRewardsPct% (default 50)
     // with the rest to ops; wallet-less-author tips go walletlessTipRewardsPct%
-    // (default 50); the rest is the ops share.
+    // (default 50); BOUNTY_ROLLOVER goes 100% to the pool (the escrow's bounty
+    // portion physically arrived at the rewards wallet; the fee was booked at
+    // funding as BOUNTY_FEE, 100% ops). The rest is the ops share.
     const rewardsInflow =
       downvotePiconeros * BigInt(config.downvoteRewardsPct) / 100n +
       postingFeePiconeros * BigInt(config.postingFeeRewardsPct) / 100n +
       territoryFeePiconeros * BigInt(config.territoryFeeRewardsPct) / 100n +
       donatePiconeros +
       boostPiconeros * BigInt(config.boostRewardsPct) / 100n +
-      walletlessTipPiconeros * BigInt(config.walletlessTipRewardsPct) / 100n
+      walletlessTipPiconeros * BigInt(config.walletlessTipRewardsPct) / 100n +
+      bountyRolloverPiconeros
 
+    // BOUNTY_FEE counts toward totalInflow (it physically arrived at the
+    // rewards wallet via the rollover) but 0% toward rewards — it was booked
+    // 100% ops at funding confirmation, so opsInflow absorbs all of it.
     const totalInflow =
       downvotePiconeros +
       postingFeePiconeros +
       territoryFeePiconeros +
       donatePiconeros +
       boostPiconeros +
-      walletlessTipPiconeros
+      walletlessTipPiconeros +
+      bountyRolloverPiconeros +
+      bountyFeePiconeros
     const opsInflow = totalInflow - rewardsInflow
 
     // --- Pool: this week's earmark + the prior period's rollover ---
