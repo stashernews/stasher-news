@@ -50,4 +50,29 @@ describe('bountySchema piconero validation (A-13)', () => {
   it('rejects amounts beyond safe-integer range (lossy BigInt conversion)', async () => {
     await expect(field.validate(1e30)).rejects.toThrow(/safe integer/)
   })
+  it('rejects a missing amount', async () => {
+    await expect(field.validate(undefined)).rejects.toThrow(/required/)
+  })
+  it('whole schema accepts a complete bounty and rejects a missing amount', async () => {
+    const withModels = bountySchema({
+      models: {
+        sub: {
+          findMany: async () => [{
+            name: 'monero', status: 'ACTIVE', postTypes: ['LINK', 'DISCUSSION', 'POLL', 'BOUNTY']
+          }]
+        }
+      }
+    })
+    await expect(withModels.validate({
+      title: 'test title',
+      text: 'x',
+      subNames: ['monero'],
+      bountyPiconeros: Number(BOUNTY_MIN_PICONEROS)
+    })).resolves.toEqual(expect.objectContaining({ bountyPiconeros: Number(BOUNTY_MIN_PICONEROS) }))
+    await expect(withModels.validate({
+      title: 'test title',
+      text: 'x',
+      subNames: ['monero']
+    })).rejects.toThrow(/required/)
+  })
 })
