@@ -75,7 +75,17 @@ async function getActiveRewards (models) {
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS walletlesstip,
       (date_trunc('week', now() AT TIME ZONE 'UTC') + interval '1 week') AT TIME ZONE 'UTC' AS time`
 
-  return [rewardsFromInflow({ downvote, posting, territory, extra, walletlesstip }, time, config)]
+  const { total, sources } = rewardsFromInflow({ downvote, posting, territory, extra, walletlesstip }, time, config)
+  // The next distribution's pool = this cycle's rewards earmark + the prior
+  // cycle's rollover (rewardsDistributor: poolPiconeros = rewardsInflow +
+  // lastDistribution.rolledOverPiconeros). Surface the rollover as a source so
+  // the pool shown on /rewards and the transparency countdown reflect what will
+  // actually be distributed, not just this cycle's new inflow.
+  const rolledOver = toBigInt(lastDistribution?.rolledOverPiconeros)
+  if (rolledOver > 0n) {
+    return [{ total: total + rolledOver, time, sources: [...sources, { name: 'rolled over', value: rolledOver.toString() }] }]
+  }
+  return [{ total, time, sources }]
 }
 
 async function getRewards (when, models) {

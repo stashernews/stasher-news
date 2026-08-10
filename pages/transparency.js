@@ -145,10 +145,18 @@ export default function Transparency ({ ssrData }) {
           </div>
 
           <h4 className='text-muted'>Live balance</h4>
+          <p className='text-muted'>
+            <small>
+              Received, sent, and balance are ledger-derived from the platform's
+              own records: confirmed observations in, recorded payouts and ops
+              sweeps out. Cross-check on-chain with the view key below — the
+              wallet's real on-chain history is independently verifiable.
+            </small>
+          </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
             <Stat label='Balance' value={`${w.balanceXmr} XMR`} sub={`${w.balancePiconeros} piconeros`} />
-            <Stat label='Total received' value={`${w.totalReceivedPiconeros} piconeros`} />
-            <Stat label='Total sent' value={`${w.totalSentPiconeros} piconeros`} />
+            <Stat label='Total received' value={`${w.totalReceivedPiconeros} piconeros`} sub='confirmed observations (ledger)' />
+            <Stat label='Total sent' value={`${w.totalSentPiconeros} piconeros`} sub='recorded payouts + ops sweeps' />
           </div>
           {w.balanceNeedsReconciliation && (
             <div className='alert alert-warning mt-3 mb-0'>

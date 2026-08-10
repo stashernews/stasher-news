@@ -75,6 +75,20 @@ describe('Query.rewards', () => {
     expect(reward.time).toBeInstanceOf(Date)
   })
 
+  test('active view adds the prior distribution rollover to the pool', async () => {
+    // A distribution with a rolled-over pool (no eligible curators) must be
+    // reflected in the pending pool — the next run's pool = this cycle's
+    // earmark + rolledOverPiconeros (mirrors rewardsDistributor).
+    const periodEnd = new Date(Date.now() - 2 * DAY_MS)
+    const models = makeModels({
+      lastDistribution: { periodEnd, rolledOverPiconeros: 6_800_000_000n }
+    })
+    const [reward] = await resolvers.Query.rewards(null, {}, { models })
+
+    expect(reward.total).toBe(1000000000n + 700000000n + 60000000000n + 6_800_000_000n)
+    expect(reward.sources).toContainEqual({ name: 'rolled over', value: '6800000000' })
+  })
+
   test('active view pools inflow since the last distribution', async () => {
     const periodEnd = new Date(Date.now() - 2 * DAY_MS)
     const models = makeModels({ lastDistribution: { periodEnd } })

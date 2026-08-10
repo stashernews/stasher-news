@@ -8,13 +8,22 @@ import { GqlInputError } from '@/lib/error'
 // receives all platform-bound revenue (downvotes, posting fees, territory fees).
 //
 // This resolver exposes — publicly, no auth — the wallet address, its PUBLIC
-// view key (Monero view keys are audit-by-design), the live balance from lws,
-// and the rewards/ops earmark split. The split is accounting-level: the wallet
-// holds one consolidated balance, so inflow is partitioned by source × each
-// source's allocation % (PlatformFeeConfig) and then scaled PROPORTIONALLY
-// against the live balance. By construction the two earmarks sum to the balance
-// exactly (opsEarmark is the floor remainder), so the transparency page never
-// shows rounding drift.
+// view key (Monero view keys are audit-by-design), the ledger-derived
+// received/sent/balance, and the rewards/ops earmark split. The split is
+// accounting-level: the wallet holds one consolidated balance, so inflow is
+// partitioned by source × each source's allocation % (PlatformFeeConfig) and
+// then scaled PROPORTIONALLY against the live balance. By construction the two
+// earmarks sum to the balance exactly (opsEarmark is the floor remainder), so
+// the transparency page never shows rounding drift.
+//
+// IMPORTANT: received/sent/balance come from the DATABASE LEDGER, NOT from
+// lws's get_address_info. lws's total_sent/spent_outputs are unreliable for
+// this account: lws attributes OTHER wallets' on-chain spends to it (observed:
+// 33 foreign txs shown as 37e9 piconeros sent from a wallet whose full-key scan
+// proves it never sent anything; lws's account-wide spent tracking includes
+// fee-pool subaddress spends that were never backfilled into total_received).
+// The ledger is the platform's own record: every piconero in is a CONFIRMED
+// observation, every piconero out is a recorded payout or ops sweep.
 
 // Bucket FeeObservation groupBy rows by source. TIP_UNWALLETED (wallet-less
 // anonymous tips) and DONATE/BOOST have allocation pcts of their own — they
@@ -61,7 +70,7 @@ function computeEarmarks (balance, sources, config) {
 
 export default {
   Query: {
-    async rewardsWalletInfo (parent, args, { models, monero }) {
+    async rewardsWalletInfo (parent, args, { models }) {
       const network = (process.env.MONERO_NETWORK || 'stagenet').toUpperCase()
       const account = await models.moneroAccount.findFirst({
         where: { label: 'platform_rewards', network },
@@ -72,18 +81,9 @@ export default {
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       if (!config) throw new GqlInputError('fee config not initialized')
 
-      const info = await monero.getAddressInfo(account)
-      const totalReceived = info.total_received ?? 0n
-      const totalSent = info.total_sent ?? 0n
-      const rawBalance = totalReceived - totalSent
-      // lws reports lifetime received per-account but lifetime sent can include
-      // spends of outputs on subaddresses whose receipts were never backfilled
-      // into total_received (subaddresses registered after funds arrived). A
-      // real wallet can never hold negative XMR, so clamp to 0 and flag the
-      // accounting gap instead of surfacing a misleading negative balance.
-      const balanceNeedsReconciliation = rawBalance < 0n
-      const balance = balanceNeedsReconciliation ? 0n : rawBalance
-
+      // --- Ledger-derived received: every CONFIRMED observation. ---
+      // This matches lws's total_received when lws is accurate, but never
+      // inherits lws's sent-side misattribution (see file header).
       const downvotes = await models.observedDownvote.aggregate({
         _sum: { piconeros: true },
         where: { state: 'CONFIRMED' }
@@ -96,6 +96,31 @@ export default {
         where: { state: 'CONFIRMED' }
       })
       const { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donateBoostPiconeros } = splitFeeGroups(feeGroups)
+      const totalReceived =
+        downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donateBoostPiconeros
+
+      // --- Ledger-derived sent: recorded payouts + ops sweeps. ---
+      // The wallet's only outflows are curator payouts and ops sweeps, both
+      // written to the DB before/after their on-chain tx. PENDING/FAILED
+      // payouts and NOT_SWEEPED amounts never left the wallet.
+      const [payoutAgg, sweepAgg] = await Promise.all([
+        models.rewardPayout.aggregate({
+          _sum: { piconeros: true },
+          where: { state: { in: ['SENT', 'CONFIRMED'] } }
+        }),
+        models.rewardDistribution.aggregate({
+          _sum: { opsSweptPiconeros: true }
+        })
+      ])
+      const payoutPiconeros = payoutAgg._sum?.piconeros ?? 0n
+      const opsSweptPiconeros = sweepAgg._sum?.opsSweptPiconeros ?? 0n
+      const totalSent = payoutPiconeros + opsSweptPiconeros
+
+      // The ledger is the platform's own record, so a negative balance is a
+      // REAL inconsistency (sent more than received), not an lws artifact —
+      // flag it, don't clamp.
+      const balance = totalReceived - totalSent
+      const balanceNeedsReconciliation = balance < 0n
 
       const earmarks = computeEarmarks(
         balance,

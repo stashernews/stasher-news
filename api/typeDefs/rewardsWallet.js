@@ -22,10 +22,12 @@ export default gql`
     totalSentPiconeros: BigInt!
     balancePiconeros: BigInt!
     balanceXmr: String!
-    # True when lws reports lifetime sent > lifetime received for the account.
-    # A real wallet can never hold negative XMR, so this flags an accounting
-    # gap (e.g. fee-pool subaddress receipts not yet reflected in total_received)
-    # instead of displaying a misleading negative balance.
+    # True when the LEDGER-derived balance is negative (recorded sent > recorded
+    # received — a real inconsistency, e.g. a payout recorded without matching
+    # inflow). A real wallet can never hold negative XMR. The balance is NOT
+    # clamped: a negative figure here is a genuine accounting bug to fix, not an
+    # lws reporting artifact (lws's total_sent/spent_outputs misattribute other
+    # wallets' spends to this account, so lws is never used for the balance).
     balanceNeedsReconciliation: Boolean!
     rewardsEarmarkPiconeros: BigInt!
     opsEarmarkPiconeros: BigInt!

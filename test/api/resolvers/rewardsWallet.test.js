@@ -3,10 +3,12 @@
 // Unit tests for Query.rewardsWalletInfo — the public transparency surface
 // for the platform rewards wallet (spec §4.4, §6.4).
 //
-// The lwsClient (`monero` context) and Prisma (`models` context) are stubbed
-// so no network or DB is touched. The view-key decrypt path is exercised for
-// real: the fixture envelope is produced by encryptViewKey under the same
-// VIEWKEY_MASTER_KEY the resolver decrypts with.
+// The Prisma (`models` context) is stubbed so no DB is touched; received/sent/
+// balance are ledger-derived (CONFIRMED observations vs recorded payouts + ops
+// sweeps), NOT lws get_address_info (which misattributes other wallets' spends).
+// The view-key decrypt path is exercised for real: the fixture envelope is
+// produced by encryptViewKey under the same VIEWKEY_MASTER_KEY the resolver
+// decrypts with.
 
 import resolvers from '@/api/resolvers/rewardsWallet'
 import { encryptViewKey } from '@/api/monero/viewkey'
@@ -35,18 +37,14 @@ const CONFIG = {
   walletlessTipRewardsPct: 50
 }
 
-function makeModels ({ account = makeAccount(), downvotes = 0n, feeGroups = [], config = CONFIG } = {}) {
+function makeModels ({ account = makeAccount(), downvotes = 0n, feeGroups = [], config = CONFIG, payoutsSent = 0n, opsSwept = 0n } = {}) {
   return {
     moneroAccount: { findFirst: jest.fn(async () => account) },
     platformFeeConfig: { findUnique: jest.fn(async () => config) },
     observedDownvote: { aggregate: jest.fn(async () => ({ _sum: { piconeros: downvotes } })) },
-    feeObservation: { groupBy: jest.fn(async () => feeGroups) }
-  }
-}
-
-function makeMonero (received = 0n, sent = 0n) {
-  return {
-    getAddressInfo: jest.fn(async () => ({ total_received: received, total_sent: sent }))
+    feeObservation: { groupBy: jest.fn(async () => feeGroups) },
+    rewardPayout: { aggregate: jest.fn(async () => ({ _sum: { piconeros: payoutsSent } })) },
+    rewardDistribution: { aggregate: jest.fn(async () => ({ _sum: { opsSweptPiconeros: opsSwept } })) }
   }
 }
 
@@ -74,11 +72,14 @@ function makeDistribution (overrides = {}) {
 }
 
 describe('Query.rewardsWalletInfo', () => {
-  test('returns a valid address, decrypted view key, and balance = received - sent', async () => {
-    const models = makeModels({ downvotes: 0n, feeGroups: [] })
-    const monero = makeMonero(1000n, 250n)
+  test('returns a valid address, decrypted view key, and balance = ledger received - ledger sent', async () => {
+    const models = makeModels({
+      downvotes: 600n,
+      feeGroups: [{ feeType: 'POSTING', _sum: { piconeros: 400n } }],
+      payoutsSent: 250n
+    })
 
-    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
     expect(result.address).toBe(STAGENET_ADDR)
     expect(result.address).toMatch(/^[1-9A-HJ-NP-Za-km-z]{95}$/)
@@ -90,18 +91,31 @@ describe('Query.rewardsWalletInfo', () => {
     expect(result.balancePiconeros).toBe(750n)
   })
 
+  test('counts ops sweeps toward ledger sent (they leave the wallet on-chain)', async () => {
+    const models = makeModels({
+      downvotes: 600n,
+      feeGroups: [{ feeType: 'POSTING', _sum: { piconeros: 400n } }],
+      payoutsSent: 200n,
+      opsSwept: 50n
+    })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(result.totalSentPiconeros).toBe(250n)
+    expect(result.balancePiconeros).toBe(750n)
+  })
+
   test('rewardsEarmark + opsEarmark === balance exactly (the split invariant)', async () => {
     const feeGroups = [
       { feeType: 'POSTING', _sum: { piconeros: 200n } },
       { feeType: 'TERRITORY_CREATE', _sum: { piconeros: 150n } },
       { feeType: 'TERRITORY_BILLING', _sum: { piconeros: 150n } }
     ]
-    const models = makeModels({ downvotes: 100n, feeGroups })
-    const monero = makeMonero(1000n, 100n)
+    const models = makeModels({ downvotes: 100n, feeGroups, payoutsSent: 100n })
 
-    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
-    expect(result.balancePiconeros).toBe(900n)
+    expect(result.balancePiconeros).toBe(500n)
     expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
   })
 
@@ -109,18 +123,17 @@ describe('Query.rewardsWalletInfo', () => {
     // inflow: downvote 100 (100%), posting 200 (70%), territory 300 (30%)
     // rewardsNumerator = 100*100 + 200*70 + 300*30 = 33000 -> rewardsInflow 330
     // totalInflow = 600, opsInflow = 270
-    // balance = 900 -> rewardsEarmark = 900*330/600 = 495, opsEarmark = 405
+    // balance = 600 (no sent) -> rewardsEarmark = 600*330/600 = 330, opsEarmark = 270
     const feeGroups = [
       { feeType: 'POSTING', _sum: { piconeros: 200n } },
       { feeType: 'TERRITORY_CREATE', _sum: { piconeros: 300n } }
     ]
     const models = makeModels({ downvotes: 100n, feeGroups })
-    const monero = makeMonero(1000n, 100n)
 
-    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
-    expect(result.rewardsEarmarkPiconeros).toBe(495n)
-    expect(result.opsEarmarkPiconeros).toBe(405n)
+    expect(result.rewardsEarmarkPiconeros).toBe(330n)
+    expect(result.opsEarmarkPiconeros).toBe(270n)
     expect(result.inflowBreakdown.rewardsPiconeros).toBe(330n)
     expect(result.inflowBreakdown.opsPiconeros).toBe(270n)
     expect(result.inflowBreakdown.totalPiconeros).toBe(600n)
@@ -134,10 +147,9 @@ describe('Query.rewardsWalletInfo', () => {
 
   test('TIP_UNWALLETED is bucketed as wallet-less tips (NOT territory) and earmarked at walletlessTipRewardsPct', async () => {
     const feeGroups = [{ feeType: 'TIP_UNWALLETED', _sum: { piconeros: 4_000_000_000n } }]
-    const models = makeModels({ downvotes: 0n, feeGroups })
-    const monero = makeMonero(4_000_000_000n, 0n) // balance === inflow, so earmark === rewardsInflow
+    const models = makeModels({ downvotes: 0n, feeGroups }) // no sent -> balance === inflow, so earmark === rewardsInflow
 
-    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
     expect(result.inflowBreakdown.walletlessTipPiconeros).toBe(4_000_000_000n)
     expect(result.inflowBreakdown.territoryFeePiconeros).toBe(0n) // NOT mislabeled as turf
@@ -147,51 +159,54 @@ describe('Query.rewardsWalletInfo', () => {
     expect(result.inflowBreakdown.opsPiconeros).toBe(2_000_000_000n)
   })
 
-  test('zero confirmed inflow puts the whole balance in ops earmark', async () => {
+  test('zero confirmed inflow and zero sent puts the whole (zero) balance in ops earmark', async () => {
     const models = makeModels({ downvotes: 0n, feeGroups: [] })
-    const monero = makeMonero(500n, 100n)
 
-    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
-    expect(result.balancePiconeros).toBe(400n)
+    expect(result.balancePiconeros).toBe(0n)
     expect(result.rewardsEarmarkPiconeros).toBe(0n)
-    expect(result.opsEarmarkPiconeros).toBe(400n)
+    expect(result.opsEarmarkPiconeros).toBe(0n)
   })
 
   test('balanceXmr renders the live balance as a decimal XMR string', async () => {
-    const models = makeModels()
-    const monero = makeMonero(1500000000000n, 500000000000n)
+    const models = makeModels({
+      downvotes: 1_000_000_000_000n,
+      feeGroups: [{ feeType: 'POSTING', _sum: { piconeros: 1_000_000_000_000n } }],
+      payoutsSent: 500_000_000_000n
+    })
 
-    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
-    expect(result.balanceXmr).toBe('1')
+    expect(result.balanceXmr).toBe('1.5')
   })
 
-  test('clamps a negative received - sent to 0 and flags balanceNeedsReconciliation', async () => {
-    // lws can report lifetime sent > lifetime received when subaddress receipts
-    // were never backfilled into total_received. A real wallet can never hold
-    // negative XMR, so the resolver must clamp to 0 and flag the gap.
-    const models = makeModels({ downvotes: 0n, feeGroups: [] })
-    const monero = makeMonero(1000n, 2500n)
+  test('flags balanceNeedsReconciliation on a genuinely negative LEDGER balance', async () => {
+    // Ledger sent (payouts) exceeding ledger received is a real accounting bug
+    // (money recorded as leaving the wallet that never arrived) — unlike the
+    // old lws artifact (lws claiming sent > received), this must be surfaced,
+    // not clamped away.
+    const models = makeModels({
+      downvotes: 100n,
+      feeGroups: [],
+      payoutsSent: 2500n
+    })
 
-    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
-    expect(result.balancePiconeros).toBe(0n)
-    expect(result.balanceXmr).toBe('0')
+    expect(result.balancePiconeros).toBe(-2400n)
+    expect(result.balanceXmr).toBe('-0.0000000024')
     expect(result.balanceNeedsReconciliation).toBe(true)
-    // earmarks are computed against the clamped balance, never negative
-    expect(result.rewardsEarmarkPiconeros).toBe(0n)
-    expect(result.opsEarmarkPiconeros).toBe(0n)
-    // lifetime chain facts are still surfaced for independent audit
-    expect(result.totalReceivedPiconeros).toBe(1000n)
-    expect(result.totalSentPiconeros).toBe(2500n)
   })
 
-  test('does not flag reconciliation when received >= sent', async () => {
-    const models = makeModels()
-    const monero = makeMonero(1000n, 250n)
+  test('does not flag reconciliation when ledger received >= ledger sent', async () => {
+    const models = makeModels({
+      downvotes: 600n,
+      feeGroups: [{ feeType: 'POSTING', _sum: { piconeros: 400n } }],
+      payoutsSent: 250n
+    })
 
-    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models, monero })
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
     expect(result.balanceNeedsReconciliation).toBe(false)
     expect(result.balancePiconeros).toBe(750n)
@@ -199,9 +214,8 @@ describe('Query.rewardsWalletInfo', () => {
 
   test('throws when the platform rewards wallet is not registered', async () => {
     const models = makeModels({ account: null })
-    const monero = makeMonero()
 
-    await expect(resolvers.Query.rewardsWalletInfo(null, null, { models, monero }))
+    await expect(resolvers.Query.rewardsWalletInfo(null, null, { models }))
       .rejects.toThrow(/rewards wallet/i)
   })
 })
