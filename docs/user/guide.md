@@ -30,7 +30,7 @@ Where possible, share links from original sources. Original sources tend to get 
 
 Take a moment to make sure your title is accurate, complete, and succinct. Precise and thoughtful titles help more people see your post, and help you stash more XMR.
 
-If someone has already shared your link, you'll see a "dupe" warning on the post screen. Consider tipping that link instead of posting a duplicate link. Duplicate links tend to be ignored, and by tipping the first person to post your link, you can stash XMR as part of our [daily rewards](/faq#how-do-i-earn-xmr-on-stasher-news).
+If someone has already shared your link, you'll see a "dupe" warning on the post screen. Consider tipping that link instead of posting a duplicate link. Duplicate links tend to be ignored, and by tipping the first person to post your link, you can stash XMR as part of our [weekly rewards](/faq#how-do-i-earn-xmr-on-stasher-news).
 
 ## Discussions
 
@@ -74,7 +74,7 @@ If you regularly stash XMR for your content, consider it a signal that other sta
 
 Generally speaking, referral links and repetitive content tend to be ignored by the Stasher News community.
 
-Because all posts cost money, anyone who is regularly posting content that the community ignores has a financial and social incentive to either share more relevant content or avoid posting at all.
+Because posting and commenting are gated by fees — posts cost 0.001 XMR until a stasher has stacked 0.01 XMR and been around for 7 days, and comments cost 0.001 XMR beyond 15 per month — anyone who is regularly posting content that the community ignores has a financial and social incentive to either share more relevant content or avoid posting at all.
 
 ## Connect with Stashers
 
