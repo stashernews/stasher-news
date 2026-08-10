@@ -825,6 +825,16 @@ sndev__monero__register_rewards_wallet() {
   docker__compose exec -T -u apprunner app npx tsx --tsconfig jsconfig.json scripts/register-rewards-wallet.js
 }
 
+sndev__monero__register_bounty_escrow_wallet() {
+  __sndev_monero_ensure_up
+  if [ -z "$BOUNTY_ESCROW_ADDRESS" ] || [ -z "$BOUNTY_ESCROW_VIEW_KEY" ]; then
+    echo "BOUNTY_ESCROW_ADDRESS and BOUNTY_ESCROW_VIEW_KEY must be set (use .env.local)" >&2
+    return 1
+  fi
+  echo "Registering bounty escrow wallet with lws + DB..."
+  docker__compose exec -T -u apprunner app npx tsx --tsconfig jsconfig.json scripts/register-bounty-escrow-wallet.js
+}
+
 sndev__monero__derive_fee_pool() {
   __sndev_monero_ensure_up
   if [ -z "$PLATFORM_REWARDS_SPEND_KEY" ]; then
@@ -875,7 +885,7 @@ sndev__monero__rotate_master_key() {
 sndev__monero() {
   shift
   if [ $# -eq 0 ]; then
-    echo "Usage: sndev monero {status|accounts|add_account|faucet|rescan|register-rewards-wallet|derive-fee-pool|distribute|rotate-master-key}" >&2
+    echo "Usage: sndev monero {status|accounts|add_account|faucet|rescan|register-rewards-wallet|register-bounty-escrow-wallet|derive-fee-pool|distribute|rotate-master-key}" >&2
     return 1
   fi
   sub="$1"; shift
@@ -886,6 +896,7 @@ sndev__monero() {
     faucet)      sndev__monero__faucet "$@" ;;
     rescan)      sndev__monero__rescan "$@" ;;
     register-rewards-wallet) sndev__monero__register_rewards_wallet "$@" ;;
+    register-bounty-escrow-wallet) sndev__monero__register_bounty_escrow_wallet "$@" ;;
     derive-fee-pool)         sndev__monero__derive_fee_pool "$@" ;;
     distribute)              sndev__monero__distribute "$@" ;;
     rotate-master-key)       sndev__monero__rotate_master_key "$@" ;;
