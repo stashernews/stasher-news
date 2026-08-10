@@ -1,5 +1,6 @@
 /* eslint-env jest */
-import { settingsSchema, territorySchema, filterXmrValidator } from '@/lib/validate'
+import { settingsSchema, territorySchema, filterXmrValidator, bountySchema } from '@/lib/validate'
+import { BOUNTY_MIN_PICONEROS } from '@/lib/constants'
 
 describe('settingsSchema piconero server bounds', () => {
   it('accepts the posting-fee default and 0 comments filter', async () => {
@@ -30,5 +31,23 @@ describe('filterXmrValidator client bounds', () => {
   })
   it('rejects beyond ±0.01 XMR', async () => {
     await expect(filterXmrValidator.validate(0.011)).rejects.toThrow(/at most 0.01 XMR/)
+  })
+})
+
+describe('bountySchema piconero validation (A-13)', () => {
+  const schema = bountySchema({})
+  const field = schema.fields.bountyPiconeros
+  it('accepts the floor amount (BigInt limit compared without TypeError)', async () => {
+    await expect(field.validate(Number(BOUNTY_MIN_PICONEROS))).resolves.toBe(Number(BOUNTY_MIN_PICONEROS))
+  })
+  it('rejects one piconero below the floor', async () => {
+    await expect(field.validate(Number(BOUNTY_MIN_PICONEROS) - 1)).rejects.toThrow(/at least/)
+  })
+  it('rejects non-whole and non-number amounts', async () => {
+    await expect(field.validate(1.5)).rejects.toThrow(/whole/)
+    await expect(field.validate('nope')).rejects.toThrow(/number/)
+  })
+  it('rejects amounts beyond safe-integer range (lossy BigInt conversion)', async () => {
+    await expect(field.validate(1e30)).rejects.toThrow(/safe integer/)
   })
 })
