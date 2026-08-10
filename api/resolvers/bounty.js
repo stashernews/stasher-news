@@ -155,6 +155,10 @@ export default {
       if (!winner || winner.id === item.id || winner.rootId !== (item.rootId ?? item.id)) {
         throw new GqlInputError('award target must be a comment on this bounty post')
       }
+      // No self-awards and no awards on deleted comments (upstream precedent:
+      // 'cannot pay bounty to yourself' + 'item is deleted').
+      if (winner.userId === me.id) throw new GqlInputError('you cannot award your own comment')
+      if (winner.deletedAt) throw new GqlInputError('award target comment was deleted')
       const winnerAccount = await models.moneroAccount.findFirst({ where: { ownerUserId: winner.userId } })
       if (!winnerAccount) throw new GqlInputError('the winner must attach a wallet to receive the bounty')
 
