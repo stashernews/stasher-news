@@ -51,16 +51,19 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
   // new pid map, ObservedBounty, or webhook is created in either case.
   //   1. A LIVE (unconsumed, unexpired) BountyPidMap for this post + payer —
   //      the payment has not been observed yet, so the webhook registered at
-  //      the first mint still watches this payment id.
-  //   2. An IN-FLIGHT ObservedBounty (PENDING/DETECTED) for this post + payer —
-  //      the pid map was CONSUMED at webhook DETECTED, so the payment already
-  //      landed and is awaiting REQUIRED_CONFIRMATIONS. Re-minting here would
-  //      let the author pay twice for one bounty (escrow overfunded,
-  //      bountyPiconeros overwritten by the later confirm).
-  // Only when neither a live pid map nor an in-flight observation exists
-  // (truly stale: 24h pid expiry with no payment) does the branch fall through
-  // to the fresh-initiation path below; the item stays PENDING_FUNDING either
-  // way.
+  //      the first mint still watches this payment id. A PENDING ObservedBounty
+  //      always coexists with an unconsumed pid map, so this lookup covers
+  //      every PENDING resume — a PENDING row left behind an EXPIRED map (the
+  //      webhook's expiresAt guard rejects late arrivals) carries a stale pid
+  //      that can never be resumed and must not block a fresh mint.
+  //   2. A DETECTED ObservedBounty for this post + payer — the pid map was
+  //      CONSUMED at webhook DETECTED, so the payment already landed and is
+  //      awaiting REQUIRED_CONFIRMATIONS. Re-minting here would let the author
+  //      pay twice for one bounty (escrow overfunded, bountyPiconeros
+  //      overwritten by the later confirm).
+  // Only when neither a live pid map nor a DETECTED observation exists (truly
+  // stale: 24h pid expiry with no payment) does the branch fall through to the
+  // fresh-initiation path below; the item stays PENDING_FUNDING either way.
   const buildFundingInfo = (paymentId) => {
     const { integratedAddress } = makeIntegratedAddress(escrow.address, paymentId)
     const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
@@ -77,7 +80,7 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
     if (live) return buildFundingInfo(live.paymentId)
 
     const inflight = await models.observedBounty.findFirst({
-      where: { postId: id, payerId: me.id, state: { in: ['PENDING', 'DETECTED'] } },
+      where: { postId: id, payerId: me.id, state: 'DETECTED' },
       orderBy: { id: 'desc' }
     })
     if (inflight) return buildFundingInfo(inflight.paymentId)
