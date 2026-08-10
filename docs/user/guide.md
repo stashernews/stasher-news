@@ -50,7 +50,13 @@ To get maximum participation from other stashers, bounty posts should clearly ar
 
 The body of the bounty post is a great place to elaborate on smaller details of your question or problem, to give readers additional context on what problem you're trying to solve.
 
-Finally, bounties give stashers the flexibility of deciding how much money the completion of a task is worth, so pick a number of XMR that accurately reflects the work required to come up with a solution and the urgency with which you'd like a sufficient answer. All else being equal, larger bounties will typically get answered before smaller ones.
+Bounties give stashers the flexibility of deciding how much the completion of a task is worth. When you create a bounty, set an amount of at least 0.001 XMR that accurately reflects the work required to come up with a solution and the urgency with which you'd like a sufficient answer. All else being equal, larger bounties will typically get answered before smaller ones.
+
+To fund a bounty, send the amount on-chain to the monero: URI shown on the post — an integrated address on the platform's dedicated bounty escrow wallet, with a payment ID that ties the payment to your bounty. The platform fee (the greater of 0.01 XMR or 1% of the bounty) is paid in the same funding payment, so include it in what you send. Until the funding payment is confirmed, your bounty is only visible to you; once confirmed, it appears in the feeds for other stashers to work on.
+
+Once a bounty is funded, you can award it to the stasher who wrote the comment that solved your problem. The winner receives the bounty on-chain from escrow to their registered wallet (they must have a wallet attached), and the fee goes to the platform.
+
+Bounties expire 30 days after they are funded. If no answer fits within that window, you can either reclaim the funds back to your wallet (the fee is still paid) or roll the funds over to the rewards pool.
 
 ## Comments
 
