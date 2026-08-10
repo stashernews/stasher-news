@@ -634,8 +634,6 @@ model Sub {
   TerritoryTransfer TerritoryTransfer[]
   UserSubTrust      UserSubTrust[]
   subPayIn          SubPayIn[]
-  AggPayIn          AggPayIn[]
-  AggPayOut         AggPayOut[]
   itemSubs          ItemSub[]
   domain            Domain?
   branding          SubBranding?
@@ -1181,82 +1179,6 @@ enum PayOutType {
   INVOICE_OVERPAY_SPILLOVER
   DEFUNCT_REFERRAL_ACT
   DEFUNCT_DELAYED_TERRITORY_REVENUE
-}
-
-// for aggregating payins
-
-enum AggGranularity {
-  HOUR
-  DAY
-  MONTH
-}
-
-enum AggSlice {
-  GLOBAL
-  GLOBAL_BY_TYPE
-  SUB_TOTAL
-  SUB_BY_TYPE
-  USER_TOTAL
-  USER_BY_TYPE
-  SUB_BY_USER
-  USER_SUB_BY_TYPE
-}
-
-model AggPayIn {
-  id          Int            @id @default(autoincrement())
-  timeBucket  DateTime       @db.Timestamptz(3)
-  granularity AggGranularity
-  payInType   PayInType?
-  subId       Int?
-  userId      Int?
-
-  // Minimal measures
-  sumMcost   BigInt
-  countUsers BigInt
-  countGroup BigInt
-
-  slice AggSlice
-
-  sub Sub? @relation(fields: [subId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@unique([granularity, timeBucket, payInType, subId, userId, slice], map: "AggPayIn_unique_key")
-  @@index([granularity, slice, timeBucket])
-  // Match the mine/sub growth resolver join path so those reads stay selective.
-  @@index([granularity, slice, userId, timeBucket, payInType], map: "AggPayIn_growth_user_idx")
-  @@index([granularity, slice, subId, timeBucket, payInType], map: "AggPayIn_growth_sub_idx")
-  @@index([granularity, timeBucket])
-  @@index([granularity, payInType])
-  @@index([granularity, subId])
-  @@index([granularity, userId])
-  @@index([subId])
-}
-
-model AggPayOut {
-  id          Int            @id @default(autoincrement())
-  timeBucket  DateTime       @db.Timestamptz(3)
-  granularity AggGranularity
-  payOutType  PayOutType?
-  payInType   PayInType?
-  subId       Int?
-  userId      Int?
-
-  // Minimal measures
-  sumMtokens BigInt
-  countUsers BigInt
-  countGroup BigInt
-
-  slice AggSlice
-
-  sub Sub? @relation(fields: [subId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@unique([granularity, timeBucket, payOutType, payInType, subId, userId, slice], map: "AggPayOut_unique_key")
-  @@index([granularity, slice, timeBucket])
-  @@index([granularity, timeBucket])
-  @@index([granularity, payInType])
-  @@index([granularity, payOutType])
-  @@index([granularity, subId])
-  @@index([granularity, userId])
-  @@index([subId])
 }
 
 // =====================================================================
