@@ -23,6 +23,11 @@ import { PrismaClient } from '@prisma/client'
 import { runDistributionOnce, finalizeDistribution } from '@/worker/rewardsDistributor'
 import { applyTipDetected } from '@/api/monero/ranking'
 
+// The beforeAll hook seeds + runs a real distribution against the live dev DB;
+// on a busy stack (residue purge, seeding, curator-share computation) it can
+// exceed Jest's 5s default. Give the hooks headroom.
+jest.setTimeout(30000)
+
 const prisma = new PrismaClient()
 
 // 95-char Monero address placeholder, made unique per call via a counter.
@@ -66,20 +71,22 @@ const fakeSigner = async (payouts, { models } = {}) => {
 
 // Seed amounts (piconeros). Picked so the allocation math is exact:
 //   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100 + 3e12 (DONATE @100%)
-//                 + 2e12*50/100 (TIP_UNWALLETED @50%)
-//                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 + 1e12 = 12.4e12
-//   pool          = 12.4e12 + 1e12 (prior rollover) = 13.4e12
+//                 + 1e12*50/100 (BOOST @50%) + 2e12*50/100 (TIP_UNWALLETED @50%)
+//                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 + 0.5e12 + 1e12 = 12.9e12
+//   pool          = 12.9e12 + 1e12 (prior rollover) = 13.9e12
 const DOWNVOTE_PICONEROS = 5_000_000_000_000n
 const POSTING_FEE_PICONEROS = 4_000_000_000_000n
 const TERRITORY_FEE_PICONEROS = 2_000_000_000_000n
 const EXTRA_DONATE_PICONEROS = 3_000_000_000_000n
+const BOOST_FEE_PICONEROS = 1_000_000_000_000n
 const PRIOR_ROLLOVER_PICONEROS = 1_000_000_000_000n
-const EXPECTED_POOL_PICONEROS = 13_400_000_000_000n
+const EXPECTED_POOL_PICONEROS = 13_900_000_000_000n
 const WALLETLESS_TIP_PICONEROS = 2_000_000_000_000n
 // Ops earmark = totalInflow - rewardsInflow.
 //   downvote (100% rewards -> 0 ops) + posting 4e12*30% + territory 2e12*70%
-//   + donate (0 ops) + walletless 2e12*50% = 1.2e12 + 1.4e12 + 1e12 = 3.6e12
-const EXPECTED_OPS_INFLOW_PICONEROS = 3_600_000_000_000n
+//   + donate (0 ops) + boost 1e12*50% + walletless 2e12*50%
+//   = 1.2e12 + 1.4e12 + 0.5e12 + 1e12 = 4.1e12
+const EXPECTED_OPS_INFLOW_PICONEROS = 4_100_000_000_000n
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -325,6 +332,12 @@ beforeAll(async () => {
   const donatePayIn = await seedPayIn(authorId, 'DONATE', 3, 1)
   await seedFee(donatePayIn.id, 'DONATE', 3, EXTRA_DONATE_PICONEROS, inPeriod)
 
+  // Boost (boostRewardsPct, default 50): funds the pool at 50%, the other 50%
+  // is ops. Lands on the BOOST fee subaddress major (5) per the fee-subaddress
+  // convention.
+  const boostPayIn = await seedPayIn(authorId, 'BOOST', 5, 1)
+  await seedFee(boostPayIn.id, 'BOOST', 5, BOOST_FEE_PICONEROS, inPeriod)
+
   // Wallet-less-author tip (TIP_UNWALLETED): funds the pool at
   // walletlessTipRewardsPct (default 50). Lands on its dedicated major-4
   // subaddress; payInId is null because a wallet-less tip creates no PayIn.
@@ -383,9 +396,18 @@ test('the rewards pool equals the exact allocation earmark + extra sources + pri
 })
 
 test('the DONATE extra source funds the pool 1:1 (no allocation %)', async () => {
-  // Without DONATE + TIP_UNWALLETED, pool would be 9.4e12; DONATE adds its full
-  // amount at 100% (no allocation % split).
-  expect(result.poolPiconeros).toBe(9_400_000_000_000n + EXTRA_DONATE_PICONEROS + WALLETLESS_TIP_PICONEROS * 50n / 100n)
+  // Without DONATE + BOOST + TIP_UNWALLETED, pool would be 9.4e12; DONATE adds
+  // its full amount at 100% (no allocation % split).
+  expect(result.poolPiconeros).toBe(9_400_000_000_000n + EXTRA_DONATE_PICONEROS + BOOST_FEE_PICONEROS * 50n / 100n + WALLETLESS_TIP_PICONEROS * 50n / 100n)
+})
+
+test('the BOOST source funds the pool at boostRewardsPct (50%), not 100%', async () => {
+  // If BOOST were lumped into the 100% extra bucket (the old behavior), the
+  // pool would be EXPECTED_POOL_PICONEROS + BOOST_FEE_PICONEROS * 50n / 100n
+  // higher than it should be. Pin the exact 50% contribution.
+  const poolWithoutBoost = EXPECTED_POOL_PICONEROS - BOOST_FEE_PICONEROS * 50n / 100n
+  expect(result.poolPiconeros - poolWithoutBoost).toBe(BOOST_FEE_PICONEROS * 50n / 100n)
+  expect(BOOST_FEE_PICONEROS * 50n / 100n).toBe(500_000_000_000n)
 })
 
 test('the TIP_UNWALLETED source funds the pool at walletlessTipRewardsPct (50%), not 100%', async () => {

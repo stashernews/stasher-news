@@ -41,6 +41,7 @@ const CONFIG = {
   downvoteRewardsPct: 100,
   postingFeeRewardsPct: 70,
   territoryFeeRewardsPct: 30,
+  boostRewardsPct: 50,
   walletlessTipRewardsPct: 50
 }
 
@@ -49,6 +50,8 @@ function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null } =
     downvote: 1000000000n,
     posting: 1000000000n,
     territory: 200000000000n,
+    donate: 0n,
+    boost: 0n,
     walletlesstip: 0n,
     time: new Date('2026-08-07T00:00:00.000Z'),
     ...inflow
@@ -110,11 +113,11 @@ describe('Query.rewards', () => {
     // in SQL so polling never sees a moving target.
     expect(sql.join('?')).toContain("date_trunc('week'")
     expect(sql.join('?')).toContain("interval '1 week'")
-    // the query binds only the inflow window start (periodStart, 5×: downvote,
-    // posting, territory, extra, walletlesstip) — no JS-computed time value. 1
-    // strings array + 5 values = 6 args (regression guard against re-introducing
-    // a bound now+7d time).
-    expect(models.$queryRaw.mock.calls[0].length).toBe(6)
+    // the query binds only the inflow window start (periodStart, 6×: downvote,
+    // posting, territory, donate, boost, walletlesstip) — no JS-computed time
+    // value. 1 strings array + 6 values = 7 args (regression guard against
+    // re-introducing a bound now+7d time).
+    expect(models.$queryRaw.mock.calls[0].length).toBe(7)
   })
 
   test('drops zero-earmark sources', async () => {
@@ -126,18 +129,29 @@ describe('Query.rewards', () => {
     expect(reward.sources).toEqual([{ name: 'posting fee', value: '700000000' }])
   })
 
-  test('the extra source (DONATE/BOOST) funds the pool at 100%', async () => {
-    // active path (getActiveRewards): a seeded DONATE observation flows in as the
-    // "extra" inflow term, added to the pool at 100% (no allocation % split).
-    const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, extra: 3_000_000_000n, walletlesstip: 0n } })
+  test('the donations source (DONATE) funds the pool at 100%', async () => {
+    // active path (getActiveRewards): a seeded DONATE observation flows in as
+    // the "donations" inflow term, added to the pool at 100% (no allocation %
+    // split).
+    const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, donate: 3_000_000_000n, boost: 0n, walletlesstip: 0n } })
     const [reward] = await resolvers.Query.rewards(null, {}, { models })
 
-    expect(reward.sources).toEqual([{ name: 'extra', value: '3000000000' }])
+    expect(reward.sources).toEqual([{ name: 'donations', value: '3000000000' }])
     expect(reward.total).toBe(3_000_000_000n)
   })
 
+  test('the boosts source (BOOST) funds the pool at boostRewardsPct (50%), not 100%', async () => {
+    // A seeded BOOST observation flows in as the "boosts" inflow term, added at
+    // boostRewardsPct (50); the other 50% is the ops share.
+    const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, donate: 0n, boost: 4_000_000_000n, walletlesstip: 0n } })
+    const [reward] = await resolvers.Query.rewards(null, {}, { models })
+
+    expect(reward.sources).toEqual([{ name: 'boosts', value: '2000000000' }])
+    expect(reward.total).toBe(2_000_000_000n) // 50% of 4e9
+  })
+
   test('wallet-less tips (TIP_UNWALLETED) fund the pool at walletlessTipRewardsPct%', async () => {
-    const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, extra: 0n, walletlesstip: 2_000_000_000n } })
+    const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, donate: 0n, boost: 0n, walletlesstip: 2_000_000_000n } })
     const [reward] = await resolvers.Query.rewards(null, {}, { models })
 
     expect(reward.sources).toEqual([{ name: 'wallet-less tips', value: '1000000000' }])
