@@ -65,7 +65,8 @@ export function bountyFeePiconeros (bountyPiconeros, { bountyFeeMinPiconeros, bo
 
 // Send QUEUED BountyPayments. `wallet` is injectable for tests. For each:
 //  - AWARD/RECLAIM: send `piconeros` to the winner's registered address, then
-//    send the fee to PLATFORM_REWARDS_ADDRESS (physical move; ledger already
+//    send the fee straight to the cold/ops wallet (REWARDS_COLD_STORAGE_ADDRESS,
+//    fallback PLATFORM_REWARDS_ADDRESS; physical move — the ledger already
 //    booked BOUNTY_FEE at funding confirmation).
 //  - ROLLOVER: send `piconeros` (bounty + fee = full escrow balance) to
 //    PLATFORM_REWARDS_ADDRESS and book the pool inflow directly
@@ -100,14 +101,20 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
     const txHash = toTxHash(tx.getHash())
     logInfo({ payoutId: payout.id, txHash, kind: payout.kind }, 'sendBountyPayments: payout relayed')
 
-    // Fee settlement (AWARD/RECLAIM): move the platform fee escrow -> rewards
-    // wallet. ROLLOVER sends the whole escrow balance in the payout tx above.
+    // Fee settlement (AWARD/RECLAIM): move the platform fee escrow -> cold/ops
+    // wallet directly (REWARDS_COLD_STORAGE_ADDRESS; fallback
+    // PLATFORM_REWARDS_ADDRESS for stacks without cold storage) — the ops funds
+    // are swept from the hot rewards wallet anyway, so skipping the hop avoids a
+    // second tx fee. The pool ledger is unaffected: BOUNTY_FEE rows are 100%
+    // ops (recipientMajor/minor 0). ROLLOVER sends the whole escrow balance in
+    // the payout tx above (the bounty portion is 100% pool, which physically
+    // lives in the rewards wallet).
     let feeTxHash = null
     if (payout.kind !== 'ROLLOVER' && payout.feePiconeros > 0n) {
       try {
         const feeTx = await w.createTx({
           accountIndex: 0,
-          address: process.env.PLATFORM_REWARDS_ADDRESS,
+          address: process.env.REWARDS_COLD_STORAGE_ADDRESS || process.env.PLATFORM_REWARDS_ADDRESS,
           amount: payout.feePiconeros,
           relay: true
         })
