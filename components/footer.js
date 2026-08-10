@@ -7,7 +7,7 @@ import Link from 'next/link'
 import Sun from '@/svgs/sun-fill.svg'
 import Moon from '@/svgs/moon-fill.svg'
 import No from '@/svgs/no.svg'
-import Bolt from '@/svgs/bolt.svg'
+import Prism from '@/svgs/prism.svg'
 import MoneroMark from '@/svgs/monero.svg'
 import Live from '@/svgs/chat-unread-fill.svg'
 import NoLive from '@/svgs/chat-off-fill.svg'
@@ -88,7 +88,7 @@ export default function Footer ({ links = true }) {
   const [disableLiveComments, toggleLiveComments] = useLiveCommentsToggle()
 
   const DarkModeIcon = darkMode ? Sun : Moon
-  const LnIcon = animationEnabled ? No : Bolt
+  const GlitchIcon = animationEnabled ? No : Prism
   const LiveIcon = disableLiveComments ? Live : NoLive
 
   const version = process.env.NEXT_PUBLIC_COMMIT_HASH
@@ -102,8 +102,8 @@ export default function Footer ({ links = true }) {
               <ActionTooltip notForm overlayText={`${darkMode ? 'disable' : 'enable'} dark mode`}>
                 <DarkModeIcon onClick={darkModeToggle} width={20} height={20} className='fill-grey theme' suppressHydrationWarning />
               </ActionTooltip>
-              <ActionTooltip notForm overlayText={`${animationEnabled ? 'disable' : 'enable'} lightning animations`}>
-                <LnIcon onClick={toggleAnimation} width={20} height={20} className='ms-2 fill-grey theme' suppressHydrationWarning />
+              <ActionTooltip notForm overlayText={`${animationEnabled ? 'disable' : 'enable'} glitch animations`}>
+                <GlitchIcon onClick={toggleAnimation} width={20} height={20} className='ms-2 fill-grey theme' suppressHydrationWarning />
               </ActionTooltip>
               <ActionTooltip notForm overlayText={`${disableLiveComments ? 'enable' : 'disable'} live comments`}>
                 <LiveIcon onClick={toggleLiveComments} width={20} height={20} className='ms-2 fill-grey theme' suppressHydrationWarning />
