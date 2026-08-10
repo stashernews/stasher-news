@@ -45,31 +45,46 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
   if (!payer) throw new GqlInputError('you must attach a wallet to fund a bounty')
 
   // Re-entry: the user closed the funding view before paying and is coming back
-  // via the post page. If a LIVE (unconsumed, unexpired) BountyPidMap for this
-  // post + payer still exists, hand back the SAME integrated address / payment
-  // id / URI instead of minting a second one (a fresh pid would strand the
-  // first webhook on a payment id nobody will ever fund). No new pid map,
-  // ObservedBounty, or webhook is created — the webhook registered at the
-  // first mint already watches this payment id. A stale/consumed pid map falls
-  // through to the fresh-initiation path below; the item stays PENDING_FUNDING.
+  // via the post page. Two payment-resume cases, both returning the SAME
+  // integrated address / payment id / URI the first mint produced (a fresh pid
+  // would strand the first webhook on a payment id nobody will ever fund). No
+  // new pid map, ObservedBounty, or webhook is created in either case.
+  //   1. A LIVE (unconsumed, unexpired) BountyPidMap for this post + payer —
+  //      the payment has not been observed yet, so the webhook registered at
+  //      the first mint still watches this payment id.
+  //   2. An IN-FLIGHT ObservedBounty (PENDING/DETECTED) for this post + payer —
+  //      the pid map was CONSUMED at webhook DETECTED, so the payment already
+  //      landed and is awaiting REQUIRED_CONFIRMATIONS. Re-minting here would
+  //      let the author pay twice for one bounty (escrow overfunded,
+  //      bountyPiconeros overwritten by the later confirm).
+  // Only when neither a live pid map nor an in-flight observation exists
+  // (truly stale: 24h pid expiry with no payment) does the branch fall through
+  // to the fresh-initiation path below; the item stays PENDING_FUNDING either
+  // way.
+  const buildFundingInfo = (paymentId) => {
+    const { integratedAddress } = makeIntegratedAddress(escrow.address, paymentId)
+    const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
+    const uri = buildMoneroUri(
+      [{ address: integratedAddress, amount: item.bountyPiconeros + feePiconeros }],
+      { description: `bounty on "${item.title ?? ''}" via StasherNews`, paymentId }
+    )
+    return { integratedAddress, paymentId, uri, feePiconeros }
+  }
   if (item.bountyStatus === 'PENDING_FUNDING') {
     const live = await models.bountyPidMap.findFirst({
       where: { postId: id, userId: me.id, consumedAt: null, expiresAt: { gt: new Date() } }
     })
-    if (live) {
-      const { integratedAddress } = makeIntegratedAddress(escrow.address, live.paymentId)
-      const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
-      const uri = buildMoneroUri(
-        [{ address: integratedAddress, amount: item.bountyPiconeros + feePiconeros }],
-        { description: `bounty on "${item.title ?? ''}" via StasherNews`, paymentId: live.paymentId }
-      )
-      return { integratedAddress, paymentId: live.paymentId, uri, feePiconeros }
-    }
+    if (live) return buildFundingInfo(live.paymentId)
+
+    const inflight = await models.observedBounty.findFirst({
+      where: { postId: id, payerId: me.id, state: { in: ['PENDING', 'DETECTED'] } },
+      orderBy: { id: 'desc' }
+    })
+    if (inflight) return buildFundingInfo(inflight.paymentId)
   }
 
   const nonce = Date.now()
   const paymentId = generateBountyPaymentId(id, nonce)
-  const { integratedAddress } = makeIntegratedAddress(escrow.address, paymentId)
 
   const webhook = await monero.addWebhook({
     type: 'tx-confirmation',
@@ -80,7 +95,6 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
     confirmations: REQUIRED_CONFIRMATIONS
   })
 
-  const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
   await models.$transaction(async (tx) => {
     await tx.bountyPidMap.create({
       data: { paymentId, postId: id, nonce, userId: me.id, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }
@@ -104,11 +118,7 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
     })
   })
 
-  const uri = buildMoneroUri(
-    [{ address: integratedAddress, amount: item.bountyPiconeros + feePiconeros }],
-    { description: `bounty on "${item.title ?? ''}" via StasherNews`, paymentId }
-  )
-  return { integratedAddress, paymentId, uri, feePiconeros }
+  return buildFundingInfo(paymentId)
 }
 
 async function assertBountyStatus (models, itemId, expected, label) {
