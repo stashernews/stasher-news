@@ -43,6 +43,13 @@ test('requires BOTH paid actions and received tips for the streak (INTERSECT)', 
   expect(sql.values).toContain(5)
 })
 
+test('paid actions count fee-pool payments via FeeObservation (POSTING/TERRITORY/DONATE/BOOST)', async () => {
+  const sql = await captureStreakQuery()
+  expect(sql.text).toContain('FeeObservation')
+  expect(sql.text).toContain('JOIN "PayIn"')
+  expect(sql.text).toContain('f."payInId" IS NOT NULL')
+})
+
 test('writes the FLAME streak type', async () => {
   const sql = await captureStreakQuery()
   expect(sql.values).toContain('FLAME')
@@ -75,9 +82,17 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (coinUserId) {
-    // cleanup BEFORE the user delete (ObservedTip.tipperId has no FK guard so
-    // this is just tidiness; Streak cascades on the user delete)
-    await prisma.$executeRaw`DELETE FROM "ObservedTip" WHERE "tipperId" = ${coinUserId}::int`
+    // cleanup BEFORE the user delete: ObservedTip has no tipper FK guard,
+    // FeeObservation RESTRICTs on payInId, MoneroAccount does not cascade
+    // from users, and Streak cascades on the user delete
+    await prisma.$executeRaw`
+      DELETE FROM "ObservedTip"
+      WHERE "tipperId" = ${coinUserId}::int
+         OR "recipientAccountId" IN (SELECT id FROM "MoneroAccount" WHERE "ownerUserId" = ${coinUserId}::int)`
+    await prisma.$executeRaw`
+      DELETE FROM "FeeObservation"
+      WHERE "payInId" IN (SELECT id FROM "PayIn" WHERE "userId" = ${coinUserId}::int)`
+    await prisma.$executeRaw`DELETE FROM "MoneroAccount" WHERE "ownerUserId" = ${coinUserId}::int`
     await prisma.$executeRaw`DELETE FROM users WHERE id = ${coinUserId}::int`
   }
   await prisma.$disconnect()
@@ -118,4 +133,43 @@ test('computeStreaks keeps a COIN streak alive within 24h of a DETECTED tip', as
 
   const row = await prisma.streak.findFirst({ where: { id: streakId } })
   expect(row.endedAt).toBeNull()
+})
+
+test('computeStreaks starts a FLAME streak for a user who paid a fee AND received a tip', async () => {
+  const [{ payInId }] = await prisma.$queryRaw`
+    INSERT INTO "PayIn" ("userId", "payInType", "payInState", "payInStateChangedAt", piconeros)
+    VALUES (${coinUserId}::int, 'ITEM_CREATE'::"PayInType", 'PAID'::"PayInState", now(), 0)
+    RETURNING id::int AS "payInId"`
+  await prisma.$executeRaw`
+    INSERT INTO "FeeObservation" ("txHash", "payInId", "feeType", "recipientMajor", "recipientMinor", "piconeros", "state", "detectedAt")
+    VALUES (
+      'test-flame-fee-' || gen_random_uuid()::text,
+      ${payInId},
+      'POSTING'::"FeeType",
+      1, 9000, 1000000000,
+      'CONFIRMED'::"ObservedState",
+      now())`
+  const [{ accountId }] = await prisma.$queryRaw`
+    INSERT INTO "MoneroAccount" ("ownerUserId", "address", "label", "network")
+    VALUES (${coinUserId}::int, 'test-flame-addr-' || gen_random_uuid()::text, 'author', 'STAGENET'::"Network")
+    RETURNING id::int AS "accountId"`
+  await prisma.$executeRaw`
+    INSERT INTO "ObservedTip" ("txHash", "postId", "tipperId", "recipientAccountId", "paymentId", "piconeros", "state", "detectedAt")
+    VALUES (
+      'test-flame-tip-' || gen_random_uuid()::text,
+      (SELECT id FROM "Item" LIMIT 1),
+      NULL,
+      ${accountId},
+      'test-flame-pid-' || gen_random_uuid()::text,
+      1000000000,
+      'DETECTED'::"ObservedState",
+      now())`
+
+  await computeStreaks({ models: prisma })
+
+  const row = await prisma.streak.findFirst({ where: { userId: coinUserId, type: 'FLAME' } })
+  expect(row).toBeTruthy()
+  expect(row.endedAt).toBeNull()
+  const user = await prisma.user.findUnique({ where: { id: coinUserId } })
+  expect(user.streak).toBe(1)
 })

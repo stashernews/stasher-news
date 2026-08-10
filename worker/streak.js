@@ -36,6 +36,8 @@ export async function computeStreaks ({ models }) {
       INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
       SELECT id, (now() AT TIME ZONE 'America/Chicago' - interval '1 day')::date, ${type}::"StreakType", now_utc(), now_utc()
       FROM new_streaks
+      ON CONFLICT ("startedAt", "userId", "type") DO UPDATE
+        SET "endedAt" = NULL, updated_at = now_utc()
     ), user_update_new_streaks AS (
       UPDATE users SET "streak" = 1 FROM new_streaks WHERE new_streaks.id = users.id
     ), user_update_end_streaks AS (
@@ -96,6 +98,8 @@ export async function checkStreak ({ data: { id, type = 'FLAME' }, models }) {
     INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
     SELECT id, (now() AT TIME ZONE 'America/Chicago')::date, ${type}::"StreakType", now_utc(), now_utc()
     FROM streak_started
+    ON CONFLICT ("startedAt", "userId", "type") DO UPDATE
+      SET "endedAt" = NULL, updated_at = now_utc()
     RETURNING "Streak".*`
 
   if (!streak) return
@@ -109,16 +113,30 @@ function getStreakQuery (type, userId) {
     ? Prisma.sql`(now() AT TIME ZONE 'America/Chicago')::date`
     : Prisma.sql`(now() AT TIME ZONE 'America/Chicago' - interval '1 day')::date`
 
+  // Paid actions: fee-pool payments carry their piconeros on FeeObservation
+  // (the PayIn rows are bookkeeping with piconeros=0 — see api/payIn), so the
+  // attribution unions PayIn and FeeObservation (via payInId -> the payer).
+  // TIP_UNWALLETED observations have payInId NULL and drop out here.
   return Prisma.sql`
       SELECT "userId" FROM (
-        SELECT "PayIn"."userId"
+        SELECT "PayIn"."userId", sum("PayIn"."piconeros") AS piconeros
           FROM "PayIn"
           WHERE "PayIn"."payInState" = 'PAID'
           AND ("PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
           ${userId ? Prisma.sql`AND "PayIn"."userId" = ${userId}` : Prisma.empty}
           GROUP BY "PayIn"."userId"
-          HAVING sum("PayIn"."piconeros") >= ${FLAME_STREAK_THRESHOLD_PICONEROS}
+        UNION ALL
+        SELECT p."userId", sum(f.piconeros) AS piconeros
+          FROM "FeeObservation" f
+          JOIN "PayIn" p ON p.id = f."payInId"
+          WHERE f."payInId" IS NOT NULL
+          AND f.state IN ('DETECTED', 'CONFIRMED')
+          AND (f."detectedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
+          ${userId ? Prisma.sql`AND p."userId" = ${userId}` : Prisma.empty}
+          GROUP BY p."userId"
       ) paid_actions
+      GROUP BY "userId"
+      HAVING sum(piconeros) >= ${FLAME_STREAK_THRESHOLD_PICONEROS}
       INTERSECT
       SELECT "userId" FROM (
         SELECT ma."ownerUserId" AS "userId"
