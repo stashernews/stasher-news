@@ -1542,6 +1542,9 @@ model PlatformFeeConfig {
   // wallet-less author tips (TIP_UNWALLETED): % of inflow allocated to the
   // curator rewards pool; the remainder is the ops share. Default 50.
   walletlessTipRewardsPct        Int    @default(50)
+  // boosts (BOOST fee observations): % of inflow allocated to the curator
+  // rewards pool; the remainder is the ops share. Default 50 (operator, 2026-08-10).
+  boostRewardsPct               Int    @default(50)
   // rewards distribution
   distributionTopN               Int    @default(100)
   distributionMinPayoutPiconeros BigInt @default(1000000000)
