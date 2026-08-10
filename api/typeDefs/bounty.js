@@ -29,10 +29,10 @@ export default gql`
     itemId: Int!
     winnerUserId: Int!
     piconeros: BigInt!
-    kind: BountyPayoutKind!
-    state: BountyPayoutState!
+    kind: BountyPayoutKind
+    state: BountyPayoutState
     txHash: String
-    createdAt: Date!
+    createdAt: Date
   }
 
   enum BountyPayoutKind {

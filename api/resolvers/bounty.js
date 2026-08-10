@@ -109,7 +109,7 @@ export default {
       const item = await assertBountyStatus(models, id, 'FUNDED', 'funded')
       if (item.userId !== me.id) throw new GqlInputError('only the bounty author can award it')
       const winner = await models.item.findUnique({ where: { id: Number(winnerCommentId) } })
-      if (!winner || winner.rootId !== item.rootId || winner.id === item.id) {
+      if (!winner || winner.id === item.id || winner.rootId !== (item.rootId ?? item.id)) {
         throw new GqlInputError('award target must be a comment on this bounty post')
       }
       const winnerAccount = await models.moneroAccount.findFirst({ where: { ownerUserId: winner.userId } })

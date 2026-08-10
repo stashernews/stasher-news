@@ -72,20 +72,14 @@ async function seedWallet (userId, address, label) {
   return acct
 }
 
-// A bounty thread: post P (rootId null) + the FUNDED bounty item and the winner
-// comment as its descendants (both rootId = P, satisfying the award guard
-// winner.rootId === item.rootId && winner.id !== item.id).
+// A bounty on a TOP-LEVEL post (rootId null, the primary use case) + the
+// winner comment as its descendant (rootId = the post id, satisfying the
+// award guard winner.rootId === (item.rootId ?? item.id) = the post id).
 async function seedThread (authorId, winnerId, { bountyStatus = 'FUNDED' } = {}) {
-  const post = await prisma.item.create({
-    data: { userId: authorId, title: 'test bounty thread', status: 'ACTIVE' }
-  })
-  created.items.push(post.id)
   const item = await prisma.item.create({
     data: {
       userId: authorId,
-      parentId: post.id,
-      rootId: post.id,
-      text: 'the bounty item',
+      title: 'test bounty thread',
       status: 'ACTIVE',
       bountyPiconeros: BOUNTY,
       bountyStatus,
@@ -94,10 +88,10 @@ async function seedThread (authorId, winnerId, { bountyStatus = 'FUNDED' } = {})
   })
   created.items.push(item.id)
   const winner = await prisma.item.create({
-    data: { userId: winnerId, parentId: post.id, rootId: post.id, text: 'the winning comment', status: 'ACTIVE' }
+    data: { userId: winnerId, parentId: item.id, rootId: item.id, text: 'the winning comment', status: 'ACTIVE' }
   })
   created.items.push(winner.id)
-  return { post, item, winner }
+  return { item, winner }
 }
 
 // Pin the fee config deterministically; restore the prior values afterwards.
