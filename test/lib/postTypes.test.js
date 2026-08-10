@@ -9,9 +9,8 @@
 // territory form's checkboxes AND lib/validate.js territorySchema — so every
 // entry must be a real enum value or the create path breaks.
 //
-// BOUNTY was the offender: it survived in POST_TYPES (and the territory form)
-// after the custodial strip dropped BOUNTY from the PostType enum (which only
-// supports LINK, DISCUSSION, JOB, POLL).
+// BOUNTY was restored as a first-class post type by A-13 (PostType.BOUNTY,
+// monero-funded bounties), so POST_TYPES must offer it again.
 
 import { POST_TYPES } from '@/lib/constants'
 import { PostType } from '@prisma/client'
@@ -25,7 +24,7 @@ describe('POST_TYPES', () => {
     }
   })
 
-  test('does not offer the defunct BOUNTY post type', () => {
-    expect(POST_TYPES).not.toContain('BOUNTY')
+  test('offers the BOUNTY post type (A-13 funded bounties)', () => {
+    expect(POST_TYPES).toContain('BOUNTY')
   })
 })
