@@ -26,7 +26,7 @@ On Stasher News, all payments are denominated and delivered peer-to-peer on the 
 
 ### What happens if I don't attach a wallet?
 
-You can still use Stasher News without a wallet: you can browse, post and comment. However, tips are paid peer-to-peer, so if another stasher tips your content and you don't have a wallet attached, the tip goes to the platform rewards pool instead of to you — you only receive tips once you [attach a wallet](#how-do-i-attach-a-wallet).
+You can still use Stasher News without a wallet: you can browse, post and comment. However, tips are paid peer-to-peer, so if another stasher tips your content and you don't have a wallet attached, the tip goes to the platform rewards wallet instead of to you — you only receive tips once you [attach a wallet](#how-do-i-attach-a-wallet).
 
 ### What are tips?
 
@@ -56,7 +56,7 @@ To earn XMR via [tips](#tips) from fellow stashers peer-to-peer, you need to [at
 
 **2. Weekly rewards**
 
-Stashers can also earn XMR via weekly rewards. Stasher News distributes the revenue it collects from downvotes, posting and comment fees, turf fees, boosts, donations and tips to wallet-less authors back to the stashers who curated the best content of the week — the tippers of the top-ranked posts and comments. Distribution happens every Monday at 00:00 UTC, and payouts are sent on-chain to your attached wallet. You can see the current pool and the next distribution time on the [rewards page](/rewards).
+Stashers can also earn XMR via weekly rewards. Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, boosts and tips to wallet-less authors — plus all downvotes and donations — back to the stashers who curated the best content of the week: the tippers of the top-ranked posts and comments. Distribution happens every Monday at 00:00 UTC, and payouts are sent on-chain to your attached wallet. You can see the current pool and the next distribution time on the [rewards page](/rewards).
 
 **3. Referrals**
 
@@ -130,7 +130,7 @@ If you switch from monthly to yearly billing, you pay the yearly fee at the swit
 
 ### Do I earn XMR from turfs?
 
-No. Turf founders earn no share of the fees generated in their turf. Posting, comment and turf fees go to the platform rewards pool, which is distributed weekly to the best curators.
+No. Turf founders earn no share of the fees generated in their turf. A share of posting, comment and turf fees goes to the platform rewards pool, which is distributed weekly to the best curators.
 
 ### Why do I sometimes see higher fees?
 
@@ -229,7 +229,7 @@ You can earn XMR from the weekly rewards pool by tipping content that ends up pe
 
 ### Can I donate XMR to Stasher News?
 
-Yes. Every week, Stasher News distributes the revenue it collects from downvotes, posting and comment fees, turf fees, boosts, donations and tips to wallet-less authors back to the stashers who made the best contributions.
+Yes. Every week, Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, boosts and tips to wallet-less authors — plus all downvotes and donations — back to the stashers who made the best contributions.
 
 To donate XMR directly to the Stasher News rewards pool, or to see the rewards that will be distributed to stashers on Monday, click [here](/rewards).
 
