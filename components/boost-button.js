@@ -1,7 +1,6 @@
 import { useShowModal } from './modal'
 import { useToast } from './toast'
-import ItemAct from './item-act'
-import AccordianItem from './accordian-item'
+import BoostModal from './boost-modal'
 import { useMemo } from 'react'
 import getColor from '@/lib/rainbow'
 import BoostIcon from '@/svgs/arrow-up-double-line.svg'
@@ -40,28 +39,15 @@ export default function Boost ({ item, className, ...props }) {
   )
 }
 
-export function BoostHelp () {
-  return (
-    <ol>
-      <li>Boost is <strong>exactly</strong> like a tip from other stashers: it ranks the item higher based on the amount</li>
-      <li>100% of boost goes to the turf founder and top stashers as rewards</li>
-      <li>Boosted items can be downvoted to reduce their rank</li>
-    </ol>
-  )
-}
-
 function Booster ({ item, As, children }) {
   const toaster = useToast()
   const showModal = useShowModal()
 
   return (
     <As
-      onClick={async () => {
+      onClick={() => {
         try {
-          showModal(onClose =>
-            <ItemAct onClose={onClose} item={item} act='BOOST' step={BOOST_MIN}>
-              <AccordianItem header='what is boost?' body={<BoostHelp />} />
-            </ItemAct>)
+          showModal(onClose => <BoostModal item={item} onClose={onClose} />)
         } catch (error) {
           toaster.danger('failed to boost item')
         }
