@@ -188,7 +188,7 @@ async function distribute (models) {
     const curatorTotal = payoutRows.reduce((acc, p) => acc + p.piconeros, 0n)
     let referralBudget = poolPiconeros - curatorTotal
 
-    const referralByReferrer = new Map() // referrerId -> { piconeros, referredCurators: Set }
+    const referralByReferrer = new Map() // referrerId -> { piconeros }
     for (const share of shares) {
       if (share.sharePiconeros <= 0n) continue
       const curator = await tx.user.findUnique({
@@ -203,16 +203,20 @@ async function distribute (models) {
       referralByReferrer.set(curator.referrerId, entry)
     }
 
+    // Referral payout rows are role-tagged here so the Earn loops below can tell
+    // them apart from curator payout rows. A referrer who is ALSO a paid curator
+    // contributes BOTH row kinds (same curatorId) — without the tag, the curator
+    // loop re-emits the referrer's TIP_* earns and the referral loop emits a
+    // FOREVER_REFERRAL row for the referrer's own curator share.
+    const referralPayoutRows = new Set()
     for (const [referrerId, entry] of referralByReferrer) {
       if (referralBudget <= 0n) break
       const referrerAccount = await tx.moneroAccount.findFirst({ where: { ownerUserId: referrerId } })
       if (!referrerAccount) continue
       const piconeros = entry.piconeros < referralBudget ? entry.piconeros : referralBudget
-      payoutRows.push({
-        curatorId: referrerId,
-        recipientAddress: referrerAccount.address,
-        piconeros
-      })
+      const row = { curatorId: referrerId, recipientAddress: referrerAccount.address, piconeros }
+      payoutRows.push(row)
+      referralPayoutRows.add(row)
       referralBudget -= piconeros
     }
 
@@ -250,9 +254,11 @@ async function distribute (models) {
       // over; notifying "you stashed" for unreceived funds would be a lie).
       const earnRows = []
       for (const p of payoutRows) {
+        // Referral rows emit only their FOREVER_REFERRAL Earn row below, never
+        // curator-type rows — even when the referrer is ALSO a paid curator
+        // (shares.find would otherwise succeed and re-emit the referrer's earns).
+        if (referralPayoutRows.has(p)) continue
         const share = shares.find(s => s.curatorId === p.curatorId)
-        // share may be undefined for REFERRER payout rows — those get their own
-        // FOREVER_REFERRAL Earn row below instead of curator type rows.
         for (const e of share?.earns ?? []) {
           earnRows.push({
             userId: p.curatorId,
@@ -265,11 +271,12 @@ async function distribute (models) {
           })
         }
       }
-      // FOREVER_REFERRAL Earn rows: one per referrer, rank/typeId null
-      // (upstream parity). These are what the ReferralReward notification and
-      // the /referrals page read.
+      // FOREVER_REFERRAL Earn rows: one per referrer (only actual referral
+      // payout rows — the role tag, not the curatorId, decides), rank/typeId
+      // null (upstream parity). These are what the ReferralReward notification
+      // and the /referrals page read.
       for (const p of payoutRows) {
-        if (!referralByReferrer.has(p.curatorId)) continue
+        if (!referralPayoutRows.has(p)) continue
         earnRows.push({
           userId: p.curatorId,
           piconeros: p.piconeros,

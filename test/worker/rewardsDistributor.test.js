@@ -713,3 +713,86 @@ test('referred curators produce a FOREVER_REFERRAL payout + Earn row for the ref
   expect(earn.rank).toBeNull()
   expect(earn.typeId).toBeNull()
 })
+
+test('a referrer who is ALSO a paid curator gets exactly one FOREVER_REFERRAL Earn (no double-write, no self-inflation)', async () => {
+  // The first dedicated referral test's distribution occupies this week's
+  // window, so runDistributionOnce's idempotency guard would return it verbatim.
+  // Clear it (Earn -> payout -> distribution, FK-safe) so this test's run writes
+  // a fresh distribution for the same week. afterAll's deleteMany on the
+  // already-cleared id is a harmless no-op.
+  const current = await prisma.rewardDistribution.findFirst({ where: { periodEnd: { gte: new Date(Date.now() - 7 * DAY) } } })
+  if (current) {
+    await prisma.earn.deleteMany({ where: { distributionId: current.id } })
+    await prisma.rewardPayout.deleteMany({ where: { distributionId: current.id } })
+    await prisma.rewardDistribution.deleteMany({ where: { id: current.id } })
+  }
+
+  const author = await createUser()
+  const referrer = await createUser() // BOTH a referrer AND a paid curator below
+  await createPayoutAccount(referrer)
+  const curator = await createUser()
+  await prisma.user.update({ where: { id: curator }, data: { referrerId: referrer } })
+  await createPayoutAccount(curator)
+  // Filler curator: NO payout account, tips the same post — their share rolls
+  // over and funds the referral budget (same pattern as the first dedicated
+  // referral test), keeping the 10% referral payout exact.
+  const filler = await createUser()
+
+  const recipientAccount = await createRecipientAccount()
+  // weightedVotes 2e6: strictly outranks the first dedicated referral test's
+  // post (1e6) and the beforeAll post, so the NTILE(100) cutoff can't split the
+  // two sibling test posts arbitrarily — this post is unambiguously the top
+  // post and the only one whose curators clear minPayout, and it dwarfs any dev
+  // post so competing curators roll over rather than eroding the budget.
+  const post = await createRootPost(author, 2_000_000, new Date(Date.now() - DAY))
+  // Equal tips from referrer + curator + filler, staggered confirmedAt. The
+  // referrer tipping makes them a PAID CURATOR too — that is the overlap under
+  // test (same userId owning both a curator payout row and a referral payout row).
+  await seedTip({ postId: post, tipperId: referrer, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 1000), recipientAccountId: recipientAccount.id })
+  await seedTip({ postId: post, tipperId: curator, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 61000), recipientAccountId: recipientAccount.id })
+  await seedTip({ postId: post, tipperId: filler, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 121000), recipientAccountId: recipientAccount.id })
+
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, sweepOpsEarmark: async () => ({ state: 'DISABLED' }) })
+  created.distributions.push(dist.id)
+
+  // --- Both payout-row kinds for the SAME user id: the overlap under test ---
+  const curatorPayout = dist.payouts.find(p => p.curatorId === curator)
+  expect(curatorPayout).toBeDefined()
+  const referrerRows = dist.payouts.filter(p => p.curatorId === referrer)
+  expect(referrerRows).toHaveLength(2) // curator share payout + referral payout
+  const referralPayout = referrerRows.find(p => p.piconeros === curatorPayout.piconeros / 10n)
+  expect(referralPayout).toBeDefined()
+  const referrerCuratorPayout = referrerRows.find(p => p.piconeros !== curatorPayout.piconeros / 10n)
+  expect(referrerCuratorPayout).toBeDefined()
+
+  // 1. Exactly ONE FOREVER_REFERRAL Earn row, worth the referral payout (10% of
+  //    the referred curator's share — NOT the referrer's own curator share).
+  const referralEarns = await prisma.earn.findMany({
+    where: { userId: referrer, type: 'FOREVER_REFERRAL', distributionId: dist.id }
+  })
+  expect(referralEarns).toHaveLength(1)
+  expect(referralEarns[0].piconeros).toBe(referralPayout.piconeros)
+  expect(referralEarns[0].piconeros).toBe(curatorPayout.piconeros / 10n)
+
+  // 2. The inflation case is gone: no FOREVER_REFERRAL Earn row carries the
+  //    referrer's own curator share (old Loop-2 emitted one at that piconeros).
+  const inflated = await prisma.earn.findMany({
+    where: { type: 'FOREVER_REFERRAL', distributionId: dist.id, piconeros: referrerCuratorPayout.piconeros }
+  })
+  expect(inflated).toHaveLength(0)
+
+  // 3. Curator Earn rows (TIP_POST) are written EXACTLY ONCE per paid curator —
+  //    the double-write (old Loop-1 re-matching the referral row via shares.find)
+  //    would bump the referrer's count to 2.
+  const referrerTipEarns = await prisma.earn.findMany({ where: { userId: referrer, type: 'TIP_POST', distributionId: dist.id } })
+  expect(referrerTipEarns).toHaveLength(1)
+  expect(referrerTipEarns[0].piconeros).toBe(referrerCuratorPayout.piconeros)
+  const curatorTipEarns = await prisma.earn.findMany({ where: { userId: curator, type: 'TIP_POST', distributionId: dist.id } })
+  expect(curatorTipEarns).toHaveLength(1)
+  expect(curatorTipEarns[0].piconeros).toBe(curatorPayout.piconeros)
+
+  // 4. The plan's invariant: sum(Earn) === distributedPiconeros.
+  const allEarns = await prisma.earn.findMany({ where: { distributionId: dist.id } })
+  const total = allEarns.reduce((acc, e) => acc + e.piconeros, 0n)
+  expect(total).toBe(dist.distributedPiconeros)
+})
