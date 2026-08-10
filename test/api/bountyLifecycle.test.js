@@ -210,6 +210,37 @@ test('payBounty rejects a winner outside the bounty thread', async () => {
     .rejects.toThrow('award target must be a comment on this bounty post')
 })
 
+test('payBounty rejects awarding the bounty author\'s own comment (no self-award)', async () => {
+  const authorId = await createUser()
+  await seedWallet(authorId, AUTHOR_ADDR, 'author')
+  const { item, winner } = await fundBountyItem(authorId, authorId)
+
+  await expect(payBounty(null, { id: item.id, winnerCommentId: winner.id }, { me: { id: authorId }, models: prisma }))
+    .rejects.toThrow('you cannot award your own comment')
+
+  const after = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(after.bountyStatus).toBe('FUNDED')
+  const count = await prisma.bountyPayment.count({ where: { itemId: item.id } })
+  expect(count).toBe(0)
+})
+
+test('payBounty rejects awarding a deleted comment', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  await seedWallet(authorId, AUTHOR_ADDR, 'author')
+  await seedWallet(winnerId, WINNER_ADDR, 'winner')
+  const { item, winner } = await fundBountyItem(authorId, winnerId)
+  await prisma.item.update({ where: { id: winner.id }, data: { deletedAt: new Date() } })
+
+  await expect(payBounty(null, { id: item.id, winnerCommentId: winner.id }, { me: { id: authorId }, models: prisma }))
+    .rejects.toThrow('award target comment was deleted')
+
+  const after = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(after.bountyStatus).toBe('FUNDED')
+  const count = await prisma.bountyPayment.count({ where: { itemId: item.id } })
+  expect(count).toBe(0)
+})
+
 test('reclaimBounty rejects a bounty that is not EXPIRED', async () => {
   const authorId = await createUser()
   const winnerId = await createUser()
