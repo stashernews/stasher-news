@@ -1,12 +1,19 @@
 import { useEffect, useRef } from 'react'
 import styles from '@/components/header.module.css'
 import { Container, Nav, Navbar } from 'react-bootstrap'
-import { NavPrice, SearchItem, Back, NavWalletSummary, Brand, SignUpButton, RightCorner } from './common'
+import { Back, NavPrice, NavWalletSummary, SignUpButton } from './common'
 import { useMe } from '@/components/me'
 import classNames from 'classnames'
 import { CommentsNavigator, useCommentsNavigatorContext } from '../use-comments-navigator'
+import MergedNavRow from './desktop/merged-nav-row'
 
-export default function StickyBar ({ prefix, sub, topNavKey, dropNavKey, hideMobileNav = false }) {
+// Scroll sticky bar. The desktop section renders the same MergedNavRow as the
+// merged top header (pixel-identical elements and layout, including the turf
+// selector, sorts, post button and the styled price pill). The mobile section
+// keeps its intentional upstream behavior: back button on the sticky bar when
+// scrolling down, even on custom domains where the top bar is hidden.
+export default function StickyBar (props) {
+  const { hideMobileNav = false } = props
   const ref = useRef()
   const { me } = useMe()
   const { navigator, commentCount } = useCommentsNavigatorContext()
@@ -29,19 +36,9 @@ export default function StickyBar ({ prefix, sub, topNavKey, dropNavKey, hideMob
 
   return (
     <div className={classNames(styles.hide, styles.sticky)} ref={ref}>
-      <Container className='px-0 d-none d-md-block'>
-        <Navbar className='py-0'>
-          <Nav
-            className={styles.navbarNav}
-            activeKey={topNavKey}
-          >
-            <Back />
-            <Brand className='me-1' />
-            <SearchItem className='me-0 ms-2' />
-            <NavPrice />
-            <CommentsNavigator navigator={navigator} commentCount={commentCount} className='d-flex' />
-            <RightCorner dropNavKey={dropNavKey} className='d-flex' />
-          </Nav>
+      <Container fluid className='d-none d-md-block px-3'>
+        <Navbar className='navMerged'>
+          <MergedNavRow {...props} />
         </Navbar>
       </Container>
       {!hideMobileNav && (
@@ -49,7 +46,7 @@ export default function StickyBar ({ prefix, sub, topNavKey, dropNavKey, hideMob
           <Navbar className='py-0'>
             <Nav
               className={classNames(styles.navbarNav)}
-              activeKey={topNavKey}
+              activeKey={props.topNavKey}
             >
               <Back />
               <NavPrice className='flex-shrink-1' />

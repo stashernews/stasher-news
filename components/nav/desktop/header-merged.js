@@ -1,46 +1,18 @@
-import { Container, Nav, Navbar } from 'react-bootstrap'
-import { Back, Brand, NavPrice, NavSelect, PostItem, RightCorner, SearchItem, Sorts, hasNavSelect } from '../common'
-import { CommentsNavigator, useCommentsNavigatorContext } from '@/components/use-comments-navigator'
-import { useBranding } from '../../territory-branding'
-import styles from '../../header.module.css'
+import { Container, Navbar } from 'react-bootstrap'
+import MergedNavRow from './merged-nav-row'
 
-// Rebrand single-row desktop header: collapses top-bar.js + second-bar.js into
-// one wrapping row. Every element of the two bars is present — back arrow,
-// brand, turf selector, lit/new/top sorts, search, price ticker (cycles fiat /
-// XMR-per-fiat / block height, styled as an orange pill), comment navigator,
-// post button, notifications / @user dropdown / wallet balance via RightCorner.
-// The second-bar elements keep their hasNavSelect/branding gating so non-turf
-// pages look exactly as before.
+// Rebrand single-row desktop header: renders the shared MergedNavRow (also
+// used by the scroll sticky bar) so the top header and the sticky bar are
+// pixel-identical. Every element of the original two bars is present — back
+// arrow, brand, turf selector, lit/new/top sorts, search, price ticker pill,
+// comment navigator, post button, notifications / @user dropdown / wallet
+// balance via RightCorner.
 export default function HeaderMerged (props) {
-  const { prefix, sub, topNavKey, dropNavKey } = props
-  const branding = useBranding()
-  const { navigator, commentCount } = useCommentsNavigatorContext()
-  const showSubNav = hasNavSelect(props)
-
   return (
     <div className='d-none d-md-block'>
       <Container fluid as='header' className='px-3'>
         <Navbar className='navMerged'>
-          <Nav
-            className={`${styles.navbarNav} navMergedRow`}
-            activeKey={topNavKey}
-          >
-            <Back />
-            <Brand className='me-1' />
-            {showSubNav && !branding && <NavSelect sub={sub} size='medium' className='me-1' />}
-            {showSubNav && (
-              <div className='d-flex'>
-                <Sorts {...props} className='ms-1' />
-              </div>
-            )}
-            <SearchItem prefix={prefix} className='me-0 ms-2 d-none d-md-flex' />
-            <div className='ms-auto d-flex align-items-center gap-2'>
-              <NavPrice className='navPricePill d-none d-md-flex' />
-              <CommentsNavigator navigator={navigator} commentCount={commentCount} />
-              {showSubNav && <PostItem className='d-none d-md-flex' prefix={prefix} />}
-              <RightCorner dropNavKey={dropNavKey} className='d-none d-md-flex' />
-            </div>
-          </Nav>
+          <MergedNavRow {...props} />
         </Navbar>
       </Container>
     </div>
