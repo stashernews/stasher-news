@@ -54,6 +54,8 @@ export const ITEM_FIELDS = gql`
     boost
     bounty
     bountyPaidTo
+    bountyStatus
+    bountyPiconeros
     noteId
     path
     upvotes
@@ -106,6 +108,8 @@ export const ITEM_FULL_FIELDS = gql`
       title
       bounty
       bountyPaidTo
+      bountyStatus
+      bountyPiconeros
       subNames
       mine
       ncomments
