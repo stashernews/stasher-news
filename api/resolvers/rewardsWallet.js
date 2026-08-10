@@ -29,13 +29,18 @@ import { GqlInputError } from '@/lib/error'
 // anonymous tips), DONATE, and BOOST have allocation pcts of their own — they
 // must NOT be lumped in with territory fees. DONATE and BOOST are aggregated
 // separately (A-14): DONATE goes 100% to the pool while BOOST goes
-// boostRewardsPct% (default 50).
+// boostRewardsPct% (default 50). The bounty sources (A-13) are bucketed
+// separately too: BOUNTY_ROLLOVER goes 100% to the pool (the escrow's bounty
+// portion physically arrives at this wallet) while BOUNTY_FEE counts to the
+// ledger/ops side only (booked 100% ops at funding confirmation).
 function splitFeeGroups (groups) {
   let postingFeePiconeros = 0n
   let territoryFeePiconeros = 0n
   let walletlessTipPiconeros = 0n
   let donatePiconeros = 0n
   let boostPiconeros = 0n
+  let bountyRolloverPiconeros = 0n
+  let bountyFeePiconeros = 0n
   const TERRITORY = new Set(['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE'])
   for (const g of groups ?? []) {
     const val = g?._sum?.piconeros ?? 0n
@@ -43,17 +48,20 @@ function splitFeeGroups (groups) {
     else if (g.feeType === 'TIP_UNWALLETED') walletlessTipPiconeros += val
     else if (g.feeType === 'DONATE') donatePiconeros += val
     else if (g.feeType === 'BOOST') boostPiconeros += val
+    else if (g.feeType === 'BOUNTY_ROLLOVER') bountyRolloverPiconeros += val
+    else if (g.feeType === 'BOUNTY_FEE') bountyFeePiconeros += val
     else if (TERRITORY.has(g.feeType)) territoryFeePiconeros += val
   }
-  return { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros }
+  return { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros, bountyRolloverPiconeros, bountyFeePiconeros }
 }
 
 // Proportional earmark against the LIVE consolidated balance. rewardsEarmark +
 // opsEarmark === balance holds by construction (opsEarmark = balance -
 // rewardsEarmark), independent of any floor in the inflow-side percentage split.
 function computeEarmarks (balance, sources, config) {
-  const { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros } = sources
-  const totalInflow = downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donatePiconeros + boostPiconeros
+  const { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros, bountyRolloverPiconeros, bountyFeePiconeros } = sources
+  const totalInflow =
+    downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donatePiconeros + boostPiconeros + bountyRolloverPiconeros + bountyFeePiconeros
 
   const rewardsNumerator =
     downvotePiconeros * BigInt(config.downvoteRewardsPct) +
@@ -61,7 +69,10 @@ function computeEarmarks (balance, sources, config) {
     territoryFeePiconeros * BigInt(config.territoryFeeRewardsPct) +
     walletlessTipPiconeros * BigInt(config.walletlessTipRewardsPct) +
     donatePiconeros * 100n +
-    boostPiconeros * BigInt(config.boostRewardsPct)
+    boostPiconeros * BigInt(config.boostRewardsPct) +
+    bountyRolloverPiconeros * 100n
+  // BOUNTY_FEE has no numerator term: it physically arrived at this wallet but
+  // was booked 100% ops at funding confirmation, so opsInflow absorbs it all.
   const rewardsInflow = rewardsNumerator / 100n
   const opsInflow = totalInflow - rewardsInflow
 
@@ -100,9 +111,9 @@ export default {
         _sum: { piconeros: true },
         where: { state: 'CONFIRMED' }
       })
-      const { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros } = splitFeeGroups(feeGroups)
+      const { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros, bountyRolloverPiconeros, bountyFeePiconeros } = splitFeeGroups(feeGroups)
       const totalReceived =
-        downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donatePiconeros + boostPiconeros
+        downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donatePiconeros + boostPiconeros + bountyRolloverPiconeros + bountyFeePiconeros
 
       // --- Ledger-derived sent: recorded payouts + ops sweeps. ---
       // The wallet's only outflows are curator payouts and ops sweeps, both
@@ -129,7 +140,7 @@ export default {
 
       const earmarks = computeEarmarks(
         balance,
-        { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros },
+        { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros, bountyRolloverPiconeros, bountyFeePiconeros },
         config)
 
       return {

@@ -189,6 +189,29 @@ describe('Query.rewardsWalletInfo', () => {
     expect(boostResult.opsEarmarkPiconeros).toBe(2_000_000_000n)
   })
 
+  test('BOUNTY_ROLLOVER flows 100% to rewards; BOUNTY_FEE flows 0% to rewards but counts to the ledger (A-13 final)', async () => {
+    // Rollover: the escrow's bounty portion physically arrives at the rewards
+    // wallet — 100% rewards, same treatment as DONATE. Bounty fee: booked at
+    // funding confirmation, rides the rollover tx into the wallet — it counts
+    // to totalReceived/totalInflow but 0% toward the rewards numerator (ops).
+    const feeGroups = [
+      { feeType: 'BOUNTY_ROLLOVER', _sum: { piconeros: 4_000_000_000n } },
+      { feeType: 'BOUNTY_FEE', _sum: { piconeros: 1_000_000_000n } }
+    ]
+    const models = makeModels({ downvotes: 0n, feeGroups })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    // Both physically arrived at the wallet, so both are ledger received.
+    expect(result.totalReceivedPiconeros).toBe(5_000_000_000n)
+    // Rollover earmarks 100% to rewards; the fee earmarks 0% (ops).
+    expect(result.inflowBreakdown.rewardsPiconeros).toBe(4_000_000_000n)
+    expect(result.inflowBreakdown.opsPiconeros).toBe(1_000_000_000n)
+    expect(result.inflowBreakdown.totalPiconeros).toBe(5_000_000_000n)
+    expect(result.rewardsEarmarkPiconeros).toBe(4_000_000_000n)
+    expect(result.opsEarmarkPiconeros).toBe(1_000_000_000n)
+  })
+
   test('zero confirmed inflow and zero sent puts the whole (zero) balance in ops earmark', async () => {
     const models = makeModels({ downvotes: 0n, feeGroups: [] })
 
