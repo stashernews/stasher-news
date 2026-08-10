@@ -19,6 +19,7 @@ import domain from './domain'
 import payIn from './payIn'
 import monero from './monero'
 import rewardsWallet from './rewardsWallet'
+import bounty from './bounty'
 
 const date = new GraphQLScalarType({
   name: 'Date',
@@ -100,4 +101,4 @@ const limit = createIntScalar({
 
 export default [user, item, message, notifications, invite, sub,
   upload, search, growth, rewards, referrals, price, admin, blockHeight,
-  domain, { JSONObject }, { Date: date }, { Limit: limit }, { BigInt: bigint }, payIn, monero, rewardsWallet]
+  domain, { JSONObject }, { Date: date }, { Limit: limit }, { BigInt: bigint }, payIn, monero, rewardsWallet, bounty]

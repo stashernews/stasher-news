@@ -43,3 +43,17 @@ export function generateDownvotePaymentId (postId, nonce) {
   hmac.update(`dv:${postId}:${nonce}`)
   return hmac.digest('hex').slice(0, 16)
 }
+
+// Deterministic payment-ID generator for bounty funding attribution (A-13).
+// Each funding gets a unique 8-byte (16 hex char) payment ID derived from
+// HMAC-SHA256(REWARDS_PID_KEY, "bn:<postId>:<nonce>"), truncated to 8 bytes.
+// The nonce is Date.now() stored on the BountyPidMap, so the ID is
+// deterministic for a given (postId, nonce) yet unique across fundings. The
+// "bn:" prefix keeps bounty IDs disjoint from tip ("tip:") and downvote
+// ("dv:") IDs so lws webhook callbacks are attributed to exactly one flow.
+export function generateBountyPaymentId (postId, nonce) {
+  const key = resolveRewardsPidKey()
+  const hmac = createHmac('sha256', key)
+  hmac.update(`bn:${postId}:${nonce}`)
+  return hmac.digest('hex').slice(0, 16)
+}

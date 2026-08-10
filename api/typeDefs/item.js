@@ -30,7 +30,7 @@ export default gql`
       id: ID, subNames: [String!], title: String!, text: String,
       hash: String, hmac: String, sendProtocolId: Int): PayIn!
     upsertBounty(
-      id: ID, subNames: [String!], title: String!, text: String, bounty: Int,
+      id: ID, subNames: [String!], title: String!, text: String, bountyPiconeros: BigInt,
       hash: String, hmac: String, sendProtocolId: Int): PayIn!
     upsertJob(
       id: ID, subNames: [String!], title: String!, company: String!, location: String, remote: Boolean,
