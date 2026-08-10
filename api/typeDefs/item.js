@@ -41,7 +41,6 @@ export default gql`
     updateNoteId(id: ID!, noteId: String!): Item!
     upsertComment(id: ID, text: String!, parentId: ID, hash: String, hmac: String, sendProtocolId: Int): PayIn!
     act(id: ID!, piconeros: BigInt, act: String): PayIn!
-    payBounty(id: ID!, sendProtocolId: Int): PayIn!
     pollVote(id: ID!, sendProtocolId: Int): PayIn!
     updateCommentsViewAt(id: ID!, meCommentsViewedAt: Date!): Date
   }

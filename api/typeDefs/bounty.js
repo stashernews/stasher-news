@@ -8,6 +8,9 @@ import { gql } from 'graphql-tag'
 export default gql`
   extend type Mutation {
     fundBounty(postId: ID!): BountyFunding!
+    payBounty(id: ID!, winnerCommentId: ID!): BountyPayment!
+    reclaimBounty(id: ID!): BountyPayment!
+    rolloverBounty(id: ID!): BountyPayment!
   }
 
   type BountyFunding {
@@ -20,6 +23,29 @@ export default gql`
   extend type Item {
     bountyStatus: BountyStatus!
     bountyPiconeros: BigInt!
+  }
+
+  extend type BountyPayment {
+    itemId: Int!
+    winnerUserId: Int!
+    piconeros: BigInt!
+    kind: BountyPayoutKind!
+    state: BountyPayoutState!
+    txHash: String
+    createdAt: Date!
+  }
+
+  enum BountyPayoutKind {
+    AWARD
+    RECLAIM
+    ROLLOVER
+  }
+
+  enum BountyPayoutState {
+    QUEUED
+    SENT
+    CONFIRMED
+    FAILED
   }
 
   enum BountyStatus {

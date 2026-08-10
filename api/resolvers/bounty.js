@@ -86,10 +86,114 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
   return { integratedAddress, paymentId, uri, feePiconeros }
 }
 
+async function assertBountyStatus (models, itemId, expected, label) {
+  const item = await models.item.findUnique({ where: { id: Number(itemId) } })
+  if (!item) throw new GqlInputError('item not found')
+  if (item.bountyStatus !== expected) {
+    throw new GqlInputError(`bounty must be ${label} (current: ${item.bountyStatus})`)
+  }
+  return item
+}
+
 export default {
   Mutation: {
     fundBounty: async (parent, { postId }, { me, models, monero }) => {
       return initiateBountyFundingCore({ postId, models, monero, me })
+    },
+
+    // Award the bounty to the author of a descendant comment. The winner MUST
+    // have a registered wallet (on-chain payout). Status flips to AWARDED at
+    // queue time so a concurrent second award can't double-queue.
+    payBounty: async (parent, { id, winnerCommentId }, { me, models }) => {
+      if (!me) throw new GqlAuthenticationError()
+      const item = await assertBountyStatus(models, id, 'FUNDED', 'funded')
+      if (item.userId !== me.id) throw new GqlInputError('only the bounty author can award it')
+      const winner = await models.item.findUnique({ where: { id: Number(winnerCommentId) } })
+      if (!winner || winner.rootId !== item.rootId || winner.id === item.id) {
+        throw new GqlInputError('award target must be a comment on this bounty post')
+      }
+      const winnerAccount = await models.moneroAccount.findFirst({ where: { ownerUserId: winner.userId } })
+      if (!winnerAccount) throw new GqlInputError('the winner must attach a wallet to receive the bounty')
+
+      const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+      const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
+
+      return await models.$transaction(async (tx) => {
+        const claimed = await tx.$queryRaw`
+          UPDATE "Item" SET "bountyStatus" = 'AWARDED'
+          WHERE id = ${item.id}::int AND "bountyStatus" = 'FUNDED'
+          RETURNING id::int AS id`
+        if (!claimed || claimed.length === 0) {
+          throw new GqlInputError('bounty is no longer available to award')
+        }
+        return tx.bountyPayment.create({
+          data: {
+            itemId: item.id,
+            winnerUserId: winner.userId,
+            piconeros: item.bountyPiconeros,
+            kind: 'AWARD',
+            state: 'QUEUED',
+            recipientAddress: winnerAccount.address,
+            feePiconeros
+          }
+        })
+      })
+    },
+
+    // Reclaim (expired only): escrow -> author.
+    reclaimBounty: async (parent, { id }, { me, models }) => {
+      if (!me) throw new GqlAuthenticationError()
+      const item = await assertBountyStatus(models, id, 'EXPIRED', 'expired')
+      if (item.userId !== me.id) throw new GqlInputError('only the bounty author can reclaim')
+      const authorAccount = await models.moneroAccount.findFirst({ where: { ownerUserId: me.id } })
+      if (!authorAccount) throw new GqlInputError('attach a wallet to reclaim the bounty')
+      const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+      const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
+      return await models.$transaction(async (tx) => {
+        const claimed = await tx.$queryRaw`
+          UPDATE "Item" SET "bountyStatus" = 'REFUNDED'
+          WHERE id = ${item.id}::int AND "bountyStatus" = 'EXPIRED'
+          RETURNING id::int AS id`
+        if (!claimed || claimed.length === 0) throw new GqlInputError('bounty is no longer reclaimable')
+        return tx.bountyPayment.create({
+          data: {
+            itemId: item.id,
+            winnerUserId: me.id,
+            piconeros: item.bountyPiconeros,
+            kind: 'RECLAIM',
+            state: 'QUEUED',
+            recipientAddress: authorAccount.address,
+            feePiconeros
+          }
+        })
+      })
+    },
+
+    // Rollover (expired only): full escrow balance -> rewards pool.
+    rolloverBounty: async (parent, { id }, { me, models }) => {
+      if (!me) throw new GqlAuthenticationError()
+      const item = await assertBountyStatus(models, id, 'EXPIRED', 'expired')
+      if (item.userId !== me.id) throw new GqlInputError('only the bounty author can roll over')
+      const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+      const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
+      return await models.$transaction(async (tx) => {
+        const claimed = await tx.$queryRaw`
+          UPDATE "Item" SET "bountyStatus" = 'ROLLED_OVER'
+          WHERE id = ${item.id}::int AND "bountyStatus" = 'EXPIRED'
+          RETURNING id::int AS id`
+        if (!claimed || claimed.length === 0) throw new GqlInputError('bounty is no longer available to roll over')
+        return tx.bountyPayment.create({
+          data: {
+            itemId: item.id,
+            winnerUserId: me.id,
+            piconeros: item.bountyPiconeros + feePiconeros,
+            kind: 'ROLLOVER',
+            state: 'QUEUED',
+            recipientAddress: process.env.PLATFORM_REWARDS_ADDRESS,
+            feePiconeros: 0n
+          }
+        })
+      })
     }
   }
 }
