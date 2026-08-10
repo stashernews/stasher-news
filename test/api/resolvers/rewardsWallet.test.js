@@ -34,7 +34,8 @@ const CONFIG = {
   downvoteRewardsPct: 100,
   postingFeeRewardsPct: 70,
   territoryFeeRewardsPct: 30,
-  walletlessTipRewardsPct: 50
+  walletlessTipRewardsPct: 50,
+  boostRewardsPct: 50
 }
 
 function makeModels ({ account = makeAccount(), downvotes = 0n, feeGroups = [], config = CONFIG, payoutsSent = 0n, opsSwept = 0n } = {}) {
@@ -157,6 +158,35 @@ describe('Query.rewardsWalletInfo', () => {
     // rewardsInflow = 4e9 * 50 / 100 = 2e9; opsInflow = 2e9
     expect(result.inflowBreakdown.rewardsPiconeros).toBe(2_000_000_000n)
     expect(result.inflowBreakdown.opsPiconeros).toBe(2_000_000_000n)
+  })
+
+  test('DONATE and BOOST are aggregated separately: DONATE 100% rewards, BOOST 50% rewards / 50% ops (A-14)', async () => {
+    // DONATE goes 100% to the pool: full inflow earmarked to rewards.
+    const donateModels = makeModels({
+      downvotes: 0n,
+      feeGroups: [{ feeType: 'DONATE', _sum: { piconeros: 4_000_000_000n } }]
+    })
+    const donateResult = await resolvers.Query.rewardsWalletInfo(null, null, { models: donateModels })
+
+    expect(donateResult.inflowBreakdown.totalPiconeros).toBe(4_000_000_000n)
+    expect(donateResult.inflowBreakdown.rewardsPiconeros).toBe(4_000_000_000n)
+    expect(donateResult.inflowBreakdown.opsPiconeros).toBe(0n)
+    expect(donateResult.rewardsEarmarkPiconeros).toBe(4_000_000_000n)
+    expect(donateResult.opsEarmarkPiconeros).toBe(0n)
+
+    // BOOST goes boostRewardsPct (50): half to rewards, half to ops — NOT 100%
+    // rewards like DONATE.
+    const boostModels = makeModels({
+      downvotes: 0n,
+      feeGroups: [{ feeType: 'BOOST', _sum: { piconeros: 4_000_000_000n } }]
+    })
+    const boostResult = await resolvers.Query.rewardsWalletInfo(null, null, { models: boostModels })
+
+    expect(boostResult.inflowBreakdown.totalPiconeros).toBe(4_000_000_000n)
+    expect(boostResult.inflowBreakdown.rewardsPiconeros).toBe(2_000_000_000n)
+    expect(boostResult.inflowBreakdown.opsPiconeros).toBe(2_000_000_000n)
+    expect(boostResult.rewardsEarmarkPiconeros).toBe(2_000_000_000n)
+    expect(boostResult.opsEarmarkPiconeros).toBe(2_000_000_000n)
   })
 
   test('zero confirmed inflow and zero sent puts the whole (zero) balance in ops earmark', async () => {
