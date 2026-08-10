@@ -298,11 +298,28 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
 // deferred (detect+alert only).
 const detectReorg = createReorgDetector()
 
-export async function rewardsWalletObserver ({ boss, models, detectReorg: detect = detectReorg }) {
-  const account = await models.moneroAccount.findFirst({
-    where: { label: 'platform_rewards', network: (process.env.MONERO_NETWORK || 'STAGENET').toUpperCase() },
+// Select the platform rewards account for polling. Deterministic AND
+// viewKey-gated: test suites (boost payIn, the observer suites themselves)
+// seed viewKey-less platform_rewards rows against the live DB; a bare
+// findFirst can pick one, viewKeyFor throws, and the job dies (failed,
+// retrylimit 0) with NO self-requeue — freezing ALL fee attribution until a
+// worker restart (observed live 2026-08-10: item 2755 stuck PENDING_FEE).
+// The viewKey filter excludes test rows outright; orderBy id asc matches the
+// repo's lookup convention (walletless plan Task 2).
+export async function findRewardsAccount (models) {
+  return models.moneroAccount.findFirst({
+    where: {
+      label: 'platform_rewards',
+      network: (process.env.MONERO_NETWORK || 'STAGENET').toUpperCase(),
+      viewKey: { isNot: null }
+    },
+    orderBy: { id: 'asc' },
     include: { viewKey: true }
   })
+}
+
+export async function rewardsWalletObserver ({ boss, models, detectReorg: detect = detectReorg }) {
+  const account = await findRewardsAccount(models)
   if (account) {
     const resp = await lwsClient.getAddressTxs(account, account.lastTxId, account.lastBlockHash)
     if (resp && typeof resp.blockchain_height === 'number') detect(resp.blockchain_height)
