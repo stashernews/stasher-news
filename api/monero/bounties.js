@@ -127,17 +127,29 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
       }
     }
 
-    // ROLLOVER: book the pool inflow (bounty portion; the fee was booked at
-    // funding confirmation — the fee piconeros physically ride along unbooked,
-    // an accepted bounded wallet-vs-ledger drift).
+    // ROLLOVER: book the BOUNTY PORTION to the pool (100% rewards via the
+    // BOUNTY_ROLLOVER ledger source). The fee was already booked at funding
+    // confirmation (BOUNTY_FEE, 100% ops) and physically rides along unbooked
+    // in this payout tx — so the pool ledger books exactly what the rewards
+    // wallet receives (bounty) and the ops ledger exactly what funding booked
+    // (fee): ledger-vs-wallet exact by construction.
     if (payout.kind === 'ROLLOVER') {
-      try {
-        await models.$queryRaw`
-          INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","height","state","detectedAt","confirmedAt")
-          VALUES (${txHash}, NULL, 'BOUNTY_ROLLOVER'::"FeeType", ${payout.itemId}, NULL, 0, 0, ${amount}, NULL, 'CONFIRMED'::"ObservedState", NOW(), NOW())
-          ON CONFLICT ("txHash","recipientMajor","recipientMinor") DO NOTHING`
-      } catch (err) {
-        logError({ payoutId: payout.id, txHash, err }, 'sendBountyPayments: CRITICAL — rollover relayed but pool booking failed; manual reconciliation required')
+      // The bounty portion = the item's booked bountyPiconeros, NOT the relayed
+      // amount (bounty + fee). Booking `amount` would double-count the fee
+      // against the pool ledger (BOUNTY_FEE is already booked 100% ops at
+      // funding confirmation).
+      const item = await models.item.findUnique({ where: { id: payout.itemId } })
+      if (!item) {
+        logError({ payoutId: payout.id, itemId: payout.itemId, txHash }, 'sendBountyPayments: CRITICAL — rollover relayed and the bounty portion physically arrived at the rewards wallet, but the bounty item was not found; pool booking skipped; manual reconciliation required')
+      } else {
+        try {
+          await models.$queryRaw`
+            INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","height","state","detectedAt","confirmedAt")
+            VALUES (${txHash}, NULL, 'BOUNTY_ROLLOVER'::"FeeType", ${payout.itemId}, NULL, 0, 0, ${item.bountyPiconeros}, NULL, 'CONFIRMED'::"ObservedState", NOW(), NOW())
+            ON CONFLICT ("txHash","recipientMajor","recipientMinor") DO NOTHING`
+        } catch (err) {
+          logError({ payoutId: payout.id, txHash, err }, 'sendBountyPayments: CRITICAL — rollover relayed but pool booking failed; manual reconciliation required')
+        }
       }
     }
 
