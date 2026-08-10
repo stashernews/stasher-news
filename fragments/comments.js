@@ -139,6 +139,8 @@ export const COMMENTS_ITEM_EXT_FIELDS = gql`
       bounty
       ncomments
       bountyPaidTo
+      bountyStatus
+      bountyPiconeros
       subNames
       subs {
         name

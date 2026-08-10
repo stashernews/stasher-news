@@ -19,6 +19,8 @@ import Toc from './table-of-contents'
 import { RootProvider } from './root'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseEmbedUrl } from '@/lib/url'
 import { piconerosToXmr } from '@/lib/format'
+import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
+import BountyActions from './bounty-actions'
 import { useQuoteReply } from './use-quote-reply'
 import { UNKNOWN_LINK_REL, DEFAULT_POSTS_PICONEROS_FILTER } from '@/lib/constants'
 import classNames from 'classnames'
@@ -113,7 +115,14 @@ function TopLevelItem ({ item, noReply, ...props }) {
                   {piconerosToXmr(BigInt(item.bounty) * 1000n)} bounty
                 </div>)}
           </div>}
+        {Number(item.bountyPiconeros) > 0 &&
+          <div className='fw-bold mt-2'>
+            <div className='px-3 py-1 d-inline-block bg-grey-darkmode rounded text-light'>
+              {piconerosToXmr(bountyPiconerosOf(item.bountyPiconeros))} bounty · {bountyStatusWord(item.bountyStatus)}
+            </div>
+          </div>}
       </article>
+      {item.mine && item.bountyStatus === 'EXPIRED' && <BountyActions item={item} />}
       {!noReply &&
         <>
           <Reply

@@ -293,11 +293,54 @@ export const UPSERT_POLL = gql`
 
 export const UPSERT_BOUNTY = gql`
   ${PAY_IN_FIELDS}
-  mutation upsertBounty($subNames: [String!]!, $id: ID, $title: String!, $bounty: Int!,
+  mutation upsertBounty($subNames: [String!]!, $id: ID, $title: String!, $bountyPiconeros: BigInt,
     $text: String, $sendProtocolId: Int) {
-    upsertBounty(subNames: $subNames, id: $id, title: $title, bounty: $bounty, text: $text,
+    upsertBounty(subNames: $subNames, id: $id, title: $title, bountyPiconeros: $bountyPiconeros, text: $text,
       sendProtocolId: $sendProtocolId) {
       ...PayInFields
+    }
+  }`
+
+// StasherNews bounty lifecycle (A-13). fundBounty mints the escrow integrated
+// address + monero: URI; payBounty (award), reclaimBounty and rolloverBounty
+// queue the escrow payouts the worker dispatches.
+export const FUND_BOUNTY_MUTATION = gql`
+  mutation fundBounty($postId: ID!) {
+    fundBounty(postId: $postId) {
+      uri
+      integratedAddress
+      paymentId
+      feePiconeros
+    }
+  }`
+
+export const AWARD_BOUNTY_MUTATION = gql`
+  mutation awardBounty($id: ID!, $winnerCommentId: ID!) {
+    payBounty(id: $id, winnerCommentId: $winnerCommentId) {
+      id
+      kind
+      state
+      piconeros
+    }
+  }`
+
+export const RECLAIM_BOUNTY_MUTATION = gql`
+  mutation reclaimBounty($id: ID!) {
+    reclaimBounty(id: $id) {
+      id
+      kind
+      state
+      piconeros
+    }
+  }`
+
+export const ROLLOVER_BOUNTY_MUTATION = gql`
+  mutation rolloverBounty($id: ID!) {
+    rolloverBounty(id: $id) {
+      id
+      kind
+      state
+      piconeros
     }
   }`
 

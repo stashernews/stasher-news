@@ -7,7 +7,10 @@ import Dropdown from 'react-bootstrap/Dropdown'
 import Countdown from './countdown'
 import { isPendingFeeItem, shouldShowItemPaidAt } from '@/lib/pay-in'
 import PostingFeeModal from './posting-fee-modal'
+import BountyFundingView from './bounty-funding-view'
+import { AwardBountyDropdownItem } from './bounty-actions'
 import { numWithUnits, piconerosToXmr } from '@/lib/format'
+import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
 import { timeSince } from '@/lib/time'
 import { DeleteDropdownItem } from './delete'
@@ -186,6 +189,10 @@ export default function ItemInfo ({
         <span>
           {' '}<Badge className={styles.newComment} bg={null}>pending payment</Badge>
         </span>}
+      {Number(item.bountyPiconeros) > 0 &&
+        <span>
+          {' '}<Badge className={styles.newComment} bg={null}>bounty {piconerosToXmr(bountyPiconerosOf(item.bountyPiconeros))} · {bountyStatusWord(item.bountyStatus)}</Badge>
+        </span>}
       {sub?.nsfw &&
         <Badge className={styles.newComment} bg={null}>nsfw</Badge>}
       {item.freebie && !item.position &&
@@ -206,6 +213,15 @@ export default function ItemInfo ({
             onClick={() => showModal((onClose) => <PostingFeeModal moneroUri={item.payIn.moneroUri} itemId={item.id} />)}
           >
             pay the posting fee
+          </Button>
+        </>}
+      {full && item.mine && Number(item.bountyPiconeros) > 0 && item.bountyStatus === 'UNFUNDED' &&
+        <>{' '}
+          <Button
+            size='sm' variant='outline-success'
+            onClick={() => showModal((onClose) => <BountyFundingView postId={item.id} amountPiconeros={bountyPiconerosOf(item.bountyPiconeros)} onClose={onClose} />)}
+          >
+            fund bounty
           </Button>
         </>}
       {
@@ -234,6 +250,8 @@ export default function ItemInfo ({
               )}
               {item && item.mine && !item.noteId && !item.isJob && !item.parentId &&
                 <CrosspostDropdownItem item={item} />}
+              {me && root?.bountyStatus === 'FUNDED' && Number(root.user?.id) === Number(me.id) && item.parentId &&
+                <AwardBountyDropdownItem item={item} root={root} />}
               {me && !item.mine && !item.deletedAt &&
             (item.meDontLikePiconeros > meSats
               ? <DropdownItemUpVote item={item} />

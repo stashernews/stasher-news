@@ -44,7 +44,7 @@ export default function PostEdit ({ ssrData }) {
   } else if (item.pollCost) {
     FormType = PollForm
     itemType = 'POLL'
-  } else if (item.bounty) {
+  } else if (Number(item.bountyPiconeros) > 0) {
     FormType = BountyForm
     itemType = 'BOUNTY'
   }

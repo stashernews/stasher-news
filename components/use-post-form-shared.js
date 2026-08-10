@@ -15,16 +15,18 @@ import { useRouter } from 'next/router'
  * @param {Function} options.schema - Schema function for validation
  * @param {string} options.prefix - Storage key prefix for drafts (e.g., 'bounty', 'discussion')
  * @param {Object} options.extra - Extra initial values specific to the form type
+ * @param {boolean} [options.navigateOnSubmit] - Forwarded to useItemSubmit (default true)
+ * @param {Function} [options.onSuccessfulSubmit] - Forwarded to useItemSubmit
  * @returns {Object} { initial, onSubmit, me, storageKeyPrefix }
  */
-export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyPrefix: prefix, extraInitialValues = {} }) {
+export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyPrefix: prefix, extraInitialValues = {}, navigateOnSubmit, onSuccessfulSubmit }) {
   const router = useRouter()
   // if Web Share Target API was used
   const shareTitle = router.query.title
   const shareText = router.query.text ? decodeURI(router.query.text) : undefined
   const { me } = useMe()
   const client = useApolloClient()
-  const onSubmit = useItemSubmit(mutation, { item })
+  const onSubmit = useItemSubmit(mutation, { item, navigateOnSubmit, onSuccessfulSubmit })
   const schema = schemaFn?.({ client, me })
   const storageKeyPrefix = item ? undefined : prefix
 
