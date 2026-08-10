@@ -80,6 +80,7 @@ const OVERLAY_CSS = `
   .glitch-band.chan-r .chan-off { transform: translate(-10px, 3px); }
   .glitch-band.chan-t .chan-off { transform: translate(10px, -3px); }
   .glitch-band.chan-r, .glitch-band.chan-t { opacity: 0; }
+  .glitch-band.chan-r, .glitch-band.chan-t { animation-play-state: running !important; }
   .glitch-band.run.s1 { animation: s1 .9s steps(1) both; }
   .glitch-band.run.s2 { animation: s2 .9s steps(1) both; }
   .glitch-band.run.s3 { animation: s3 .9s steps(1) both; }
