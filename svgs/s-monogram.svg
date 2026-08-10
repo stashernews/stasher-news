@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <rect width="256" height="256" rx="56" fill="#121214"/>
-  <text x="96" y="186" font-family="'Chakra Petch', sans-serif" font-size="150" font-weight="600" fill="#f0f0f0">s</text>
-  <circle cx="178" cy="170" r="20" fill="#FF6600"/>
+  <g transform="translate(149.5 150.5) scale(1.25) translate(-149.5 -150.5)">
+    <text x="96" y="186" font-family="'Chakra Petch', sans-serif" font-size="150" font-weight="600" fill="#f0f0f0">s</text>
+    <circle cx="178" cy="170" r="20" fill="#FF6600"/>
+  </g>
 </svg>
