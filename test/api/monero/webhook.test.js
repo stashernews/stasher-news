@@ -26,9 +26,11 @@ function mockModels (overrides = {}) {
       ...overrides.observedTip
     },
     // Bounty branch models (A-13): default to "no matching bounty payment id"
-    // so tip-only tests exercise the fall-through as a 200 no-op.
+    // so tip-only tests exercise the fall-through as a 200 no-op. The pid-map
+    // lookup is findFirst with the live-guard (consumedAt: null, expiresAt in
+    // the future) — stale/consumed pids are unconsumable.
     bountyPidMap: {
-      findUnique: jest.fn().mockResolvedValue(null),
+      findFirst: jest.fn().mockResolvedValue(null),
       ...overrides.bountyPidMap
     },
     observedBounty: {
@@ -312,7 +314,7 @@ test('bounty branch: claims a PENDING ObservedBounty via the conditional UPDATE 
   const execRaw = jest.fn().mockResolvedValue(1)
   const txPidMapUpdate = jest.fn().mockResolvedValue({})
   const models = mockModels({
-    bountyPidMap: { findUnique: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5, userId: 2 }) },
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5, userId: 2 }) },
     observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
     execRaw,
     txPidMapUpdate
@@ -341,7 +343,7 @@ test('bounty branch: a DETECTED bounty at REQUIRED_CONFIRMATIONS runs the fundin
   const txItemUpdate = jest.fn().mockResolvedValue({})
   const queryRaw = jest.fn().mockResolvedValue([])
   const models = mockModels({
-    bountyPidMap: { findUnique: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5 }) },
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5 }) },
     observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
     txBountyUpdate,
     txItemUpdate,
@@ -378,7 +380,7 @@ test('bounty branch: does NOT consume the BountyPidMap when the conditional clai
   const txPidMapUpdate = jest.fn().mockResolvedValue({})
   const txBountyUpdate = jest.fn().mockResolvedValue({})
   const models = mockModels({
-    bountyPidMap: { findUnique: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5 }) },
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5 }) },
     observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
     execRaw,
     txPidMapUpdate,
@@ -396,4 +398,30 @@ test('bounty branch: does NOT consume the BountyPidMap when the conditional clai
   // effects run (the row stays PENDING; the winner owns the transitions).
   expect(txPidMapUpdate).not.toHaveBeenCalled()
   expect(txBountyUpdate).not.toHaveBeenCalled()
+})
+
+test('bounty branch: an EXPIRED BountyPidMap is unconsumable — a late callback is a 200 no-op', async () => {
+  // A stale PENDING ObservedBounty still exists for this payment id (the
+  // author re-minted a fresh address after the 24h pid-map expiry), but the
+  // live-guarded pid-map lookup matches nothing, so the branch must bail
+  // before it can claim/consume anything.
+  const bounty = { id: 7, postId: 5, state: 'PENDING', paymentId: 'bn123', txHash: 'pending-bn123', webhookEventId: 'evt-b' }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const models = mockModels({
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue(null) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
+    execRaw
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bn123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 15000000000 } }
+  }, res, models)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // The lookup carried the live-guard (consumedAt null + expiresAt in future).
+  expect(models.bountyPidMap.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+    where: expect.objectContaining({ paymentId: 'bn123', consumedAt: null, expiresAt: expect.any(Object) })
+  }))
+  // No state change: no claim, no pid-map consumption, no transaction at all.
+  expect(execRaw).not.toHaveBeenCalled()
+  expect(models.$transaction).not.toHaveBeenCalled()
 })

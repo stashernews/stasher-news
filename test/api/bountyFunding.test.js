@@ -229,6 +229,74 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   expect(fee.confirmedAt).toBeInstanceOf(Date)
 })
 
+test('re-entry: PENDING_FUNDING returns the SAME payment id and integrated address without re-minting', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+  const monero = makeMockLws()
+
+  const first = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
+  expect(monero.addWebhook).toHaveBeenCalledTimes(1)
+
+  // The user closed the funding view; reopening it (fund-bounty button on the
+  // post page) calls fundBounty again while the item is still PENDING_FUNDING.
+  const second = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
+
+  expect(second.paymentId).toBe(first.paymentId)
+  expect(second.integratedAddress).toBe(first.integratedAddress)
+  expect(second.uri).toBe(first.uri)
+  expect(second.feePiconeros).toBe(first.feePiconeros)
+
+  // No second webhook registration, no second pid map or ObservedBounty row.
+  expect(monero.addWebhook).toHaveBeenCalledTimes(1)
+  const pidMaps = await prisma.bountyPidMap.findMany({ where: { postId: item.id } })
+  expect(pidMaps).toHaveLength(1)
+  const bounties = await prisma.observedBounty.findMany({ where: { postId: item.id } })
+  expect(bounties).toHaveLength(1)
+
+  const after = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(after.bountyStatus).toBe('PENDING_FUNDING')
+})
+
+test('stale pid map: PENDING_FUNDING with an EXPIRED BountyPidMap mints a FRESH funding', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+  const monero = makeMockLws()
+
+  const first = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
+  // Force the 24h pid-map expiry: the re-entry lookup (expiresAt > now) must
+  // no longer match, so the next call falls through to a fresh mint.
+  await prisma.bountyPidMap.update({
+    where: { paymentId: first.paymentId },
+    data: { expiresAt: new Date(Date.now() - 1000) }
+  })
+  // Distinct Date.now() nonce for the fresh mint (deterministic payment id).
+  await new Promise(resolve => setTimeout(resolve, 10))
+
+  const second = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
+
+  expect(second.paymentId).not.toBe(first.paymentId)
+  expect(second.integratedAddress).not.toBe(first.integratedAddress)
+  expect(second.feePiconeros).toBe(first.feePiconeros)
+  expect(monero.addWebhook).toHaveBeenCalledTimes(2)
+  expect(monero.addWebhook.mock.calls[1][0]).toMatchObject({ paymentId: second.paymentId })
+
+  // The stale map + row remain (payment ids are one-shot), and the fresh mint
+  // added exactly one more of each.
+  const pidMaps = await prisma.bountyPidMap.findMany({ where: { postId: item.id } })
+  expect(pidMaps).toHaveLength(2)
+  const bounties = await prisma.observedBounty.findMany({ where: { postId: item.id } })
+  expect(bounties).toHaveLength(2)
+
+  const after = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(after.bountyStatus).toBe('PENDING_FUNDING')
+})
+
 test('rejects a bounty below the BOUNTY_MIN_PICONEROS floor', async () => {
   await ensureFeeConfig()
   const userId = await createUser()

@@ -134,8 +134,14 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   // Bounty funding branch (A-13): no tip matched the payment id, so this may
   // be a funding into the bounty ESCROW wallet ("bn:" namespace, reverse
   // mapped through the BountyPidMap). Unknown ids (tip or bounty) are a 200
-  // no-op — lws retries would otherwise pile up for foreign payments.
-  const pidMap = await models.bountyPidMap.findUnique({ where: { paymentId } })
+  // no-op — lws retries would otherwise pile up for foreign payments. Only a
+  // LIVE pid map can fund a bounty: a consumed map (funding already detected)
+  // or an expired map (24h BountyPidMap expiry — the author may have re-minted
+  // a fresh address) is unconsumable, so a late callback is a 200 no-op even
+  // if a stale PENDING ObservedBounty row still exists for that payment id.
+  const pidMap = await models.bountyPidMap.findFirst({
+    where: { paymentId, consumedAt: null, expiresAt: { gt: new Date() } }
+  })
   if (!pidMap) return res.status(200).end()
 
   const bounty = await models.observedBounty.findFirst({ where: { paymentId } })

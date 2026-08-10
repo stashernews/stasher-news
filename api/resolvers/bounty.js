@@ -27,7 +27,9 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
   const id = Number(postId)
   const item = await models.item.findUnique({ where: { id } })
   if (!item) throw new GqlInputError('post not found')
-  if (item.bountyStatus !== 'UNFUNDED') throw new GqlInputError('bounty is already funded or being funded')
+  if (item.bountyStatus !== 'UNFUNDED' && item.bountyStatus !== 'PENDING_FUNDING') {
+    throw new GqlInputError('bounty is already funded or being funded')
+  }
   if (!me) throw new GqlAuthenticationError()
 
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
@@ -41,6 +43,29 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
 
   const payer = await models.moneroAccount.findFirst({ where: { ownerUserId: me.id } })
   if (!payer) throw new GqlInputError('you must attach a wallet to fund a bounty')
+
+  // Re-entry: the user closed the funding view before paying and is coming back
+  // via the post page. If a LIVE (unconsumed, unexpired) BountyPidMap for this
+  // post + payer still exists, hand back the SAME integrated address / payment
+  // id / URI instead of minting a second one (a fresh pid would strand the
+  // first webhook on a payment id nobody will ever fund). No new pid map,
+  // ObservedBounty, or webhook is created — the webhook registered at the
+  // first mint already watches this payment id. A stale/consumed pid map falls
+  // through to the fresh-initiation path below; the item stays PENDING_FUNDING.
+  if (item.bountyStatus === 'PENDING_FUNDING') {
+    const live = await models.bountyPidMap.findFirst({
+      where: { postId: id, userId: me.id, consumedAt: null, expiresAt: { gt: new Date() } }
+    })
+    if (live) {
+      const { integratedAddress } = makeIntegratedAddress(escrow.address, live.paymentId)
+      const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
+      const uri = buildMoneroUri(
+        [{ address: integratedAddress, amount: item.bountyPiconeros + feePiconeros }],
+        { description: `bounty on "${item.title ?? ''}" via StasherNews`, paymentId: live.paymentId }
+      )
+      return { integratedAddress, paymentId: live.paymentId, uri, feePiconeros }
+    }
+  }
 
   const nonce = Date.now()
   const paymentId = generateBountyPaymentId(id, nonce)
