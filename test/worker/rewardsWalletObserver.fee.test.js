@@ -181,3 +181,49 @@ test('rewardsWalletObserver ignores a fee subaddress with no pending PayIn (alre
   await expect(runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })).resolves.toBeUndefined()
   expect(await prisma.feeObservation.count()).toBe(before)
 })
+
+// Seed an Item + BOOST PayIn watching a rewards-wallet boost subaddress
+// (major 5, minor). Mirrors what boost.getInitial produces (including the
+// ItemPayIn link the indexer denormalizes onto the observation).
+async function seedBoostPayIn (minor) {
+  const userId = await createUser()
+  const payIn = await prisma.payIn.create({
+    data: {
+      userId,
+      payInType: 'BOOST',
+      payInState: 'PAID',
+      piconeros: 0n,
+      moneroSubaddressMajor: 5,
+      moneroSubaddressMinor: minor
+    }
+  })
+  created.payIns.push(payIn.id)
+  const item = await prisma.item.create({
+    data: { userId, title: 'boosted post', status: 'ACTIVE' }
+  })
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(item.id)}::ltree WHERE id = ${item.id}::int`
+  await prisma.itemPayIn.create({ data: { itemId: item.id, payInId: payIn.id } })
+  created.items.push(item.id)
+  return { payInId: payIn.id, postId: item.id, major: 5, minor }
+}
+
+test('a BOOST fee observation bumps Item.boost at DETECTION', async () => {
+  const { payInId, postId, major, minor } = await seedBoostPayIn(301)
+  const before = await prisma.item.findUnique({ where: { id: postId }, select: { boost: true } })
+
+  const tx = {
+    hash: 'boost-tx-' + Date.now(),
+    piconeros: 1_000_000_000n,
+    height: 100,
+    recipient: { maj_i: major, min_i: minor },
+    payment_id: null
+  }
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
+
+  const after = await prisma.item.findUnique({ where: { id: postId }, select: { boost: true } })
+  expect(Number(after.boost) - Number(before.boost)).toBe(1_000_000_000)
+
+  const fee = await prisma.feeObservation.findFirst({ where: { payInId } })
+  expect(fee.feeType).toBe('BOOST')
+  expect(fee.piconeros).toBe(1_000_000_000n)
+})

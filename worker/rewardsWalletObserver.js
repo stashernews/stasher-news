@@ -90,8 +90,43 @@ async function attributeFeeBySubaddress (models, tx) {
     RETURNING id`
   if (!rows || rows.length === 0) return null
 
+  if (feeType === 'BOOST') {
+    try {
+      await applyBoostDetected(models, payIn, tx.piconeros)
+    } catch (err) {
+      // Don't crash the indexer on a ranking-CTE failure; the FeeObservation row
+      // already records the boost. (Item columns can be repaired separately.)
+      console.error(`rewardsWalletObserver: boost bump failed for payIn ${payIn.id}:`, err?.message || err)
+    }
+  }
+
   await flipPendingToLive(models, payIn, tx.piconeros)
   return rows[0].id
+}
+
+// Apply the boost ranking bump (A-14): increment the item's persistent boost
+// weight 1:1 with the observed on-chain piconeros (the ranktop trigger weighs
+// boost at 1, matching tips). Comments also propagate commentBoost to
+// ancestors, mirroring the legacy boost onPaid SQL.
+async function applyBoostDetected (models, payIn, piconeros) {
+  const { itemId } = await models.itemPayIn.findUnique({ where: { payInId: payIn.id } })
+  if (!itemId) return
+  await models.$executeRaw`
+    WITH item_boosted AS (
+      UPDATE "Item"
+      SET boost = boost + ${piconeros}::INTEGER
+      WHERE id = ${itemId}::INTEGER
+      RETURNING *
+    )
+    UPDATE "Item"
+    SET "commentBoost" = "Item"."commentBoost" + ${piconeros}::INTEGER
+    FROM (
+      SELECT "Item".id
+      FROM "Item", item_boosted
+      WHERE "Item".path @> item_boosted.path AND "Item".id <> item_boosted.id
+      ORDER BY "Item".id
+    ) AS ancestors
+    WHERE "Item".id = ancestors.id`
 }
 
 // Attribute a primary-address output carrying a payment_id to a downvote. Looks

@@ -891,7 +891,10 @@ export default {
         return await pay('DOWNVOTE', { id: Number(id), piconeros }, { me })
       }
       if (act === 'BOOST') {
-        throw new GqlInputError('BOOST pays the rewards wallet — not implemented in Phase 3')
+        if (!me) {
+          throw new GqlAuthenticationError()
+        }
+        return await pay('BOOST', { id: Number(id), piconeros }, { me })
       }
       throw new GqlInputError(`unsupported act ${act}`)
     },
