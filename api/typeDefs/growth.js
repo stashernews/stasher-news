@@ -3,7 +3,7 @@ import { gql } from 'graphql-tag'
 export default gql`
   type NameValue {
     name: String!
-    value: Float!
+    value: BigInt!
   }
 
   extend type Query {

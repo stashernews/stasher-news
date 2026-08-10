@@ -196,7 +196,7 @@ export default gql`
 
   type NameValue {
     name: String!
-    value: Float!
+    value: BigInt!
   }
 
   type TimeData {

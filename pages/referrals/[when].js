@@ -51,11 +51,9 @@ export default function Referrals ({ ssrData }) {
   if (!data && !ssrData) return <PageLoading />
 
   const { referrals } = data || ssrData
-  const totalSats = referrals.reduce(
-    (total, a) => total + a.data?.filter(d => d.name.endsWith('sats')).reduce(
-      (acc, d) => acc + d.value,
-      0),
-    0)
+  const totalPiconeros = referrals.reduce(
+    (total, a) => total + BigInt(a.data?.find(d => d.name === 'referral piconeros')?.value ?? 0),
+    0n)
 
   const when = router.query.when
 
@@ -63,7 +61,7 @@ export default function Referrals ({ ssrData }) {
     <CenterLayout footerLinks>
       <div className='fw-bold text-muted text-center pt-5 pb-3 d-flex align-items-center justify-content-center flex-wrap'>
         <h4 className='fw-bold text-muted text-center d-flex align-items-center justify-content-center'>
-          {piconerosToXmr(BigInt(totalSats) * 1000n)} in the last
+          {piconerosToXmr(totalPiconeros)} in the last
           <Select
             groupClassName='mb-0 mx-2'
             className='w-auto'
@@ -94,8 +92,8 @@ export default function Referrals ({ ssrData }) {
       </div>
       <WhenComposedChart
         data={referrals}
-        areaNames={['referral sats', 'one day referral sats']}
-        barNames={['referrals', 'one day referrals']}
+        areaNames={['referral piconeros']}
+        barNames={['referrals']}
         barAxis='right'
         barStackId={1}
       />
@@ -114,7 +112,6 @@ export default function Referrals ({ ssrData }) {
       </div>
       <ul className='py-3 text-muted'>
         <li>earn 10% of a stasher's <Link href='/rewards'>rewards</Link> in perpetuity if they sign up from your referral links</li>
-        <li>in addition, earn 10% of a stasher's <Link href='/rewards'>rewards</Link> for the day if they follow your referral links the most that day</li>
         <li>nearly all sn links are referral links:
           <ul>
             <li>your profile link is an implicit referral link</li>
