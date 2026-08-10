@@ -14,13 +14,13 @@
 // migrated database, mirroring test/worker/confirmFinalizer.test.js.
 
 import { PrismaClient } from '@prisma/client'
-import { runRewardsWalletObserverOnce } from '@/worker/rewardsWalletObserver'
+import { runRewardsWalletObserverOnce, findRewardsAccount } from '@/worker/rewardsWalletObserver'
 
 const prisma = new PrismaClient()
 
 const REWARDS_ADDR = '5RpnlFeePool' + 'A'.repeat(86) // unique stagenet placeholder
 
-const created = { users: [], items: [], accounts: [], payIns: [], fees: [], subs: [] }
+const created = { users: [], items: [], accounts: [], viewKeys: [], payIns: [], fees: [], subs: [] }
 let rewardsWallet
 
 beforeAll(async () => {
@@ -44,6 +44,7 @@ afterAll(async () => {
     await prisma.item.deleteMany({ where: { id } })
   }
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } })
+  for (const id of created.viewKeys) await prisma.moneroViewKey.deleteMany({ where: { id } })
   for (const id of created.accounts) await prisma.moneroAccount.deleteMany({ where: { id } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
   await prisma.$disconnect()
@@ -252,4 +253,44 @@ test('a BOOST fee observation above Int4 max (1 XMR) bumps Item.boost at DETECTI
   const fee = await prisma.feeObservation.findFirst({ where: { payInId } })
   expect(fee.feeType).toBe('BOOST')
   expect(fee.piconeros).toBe(1_000_000_000_000n)
+})
+
+// A-13 regression guard (2026-08-10 live incident): the observer's pg-boss
+// handler selects the platform_rewards account with a bare findFirst. Test
+// suites (boost payIn, observer suites themselves) seed viewKey-less
+// platform_rewards rows against the live DB; with no orderBy/filter the
+// handler can pick one, viewKeyFor throws, the job dies (failed, retrylimit 0)
+// and ALL fee attribution stops until a worker restart (observed live: item
+// 2755 stuck PENDING_FEE). The handler must deterministically select a
+// viewKey'd account. This test pins the query contract via the exported
+// helper.
+test('findRewardsAccount selects a viewKey-bearing platform_rewards account deterministically', async () => {
+  // viewKey-less platform_rewards row (autoincrement id)
+  const bare = await prisma.moneroAccount.create({
+    data: { ownerUserId: null, address: '5Bare' + 'B'.repeat(91), label: 'platform_rewards', network: 'STAGENET', status: 'ACTIVE' }
+  })
+  created.accounts.push(bare.id)
+  // viewKey-bearing platform_rewards row
+  const keyed = await prisma.moneroAccount.create({
+    data: { ownerUserId: null, address: '5Keyd' + 'C'.repeat(91), label: 'platform_rewards', network: 'STAGENET', status: 'ACTIVE' }
+  })
+  created.accounts.push(keyed.id)
+  const vk = await prisma.moneroViewKey.create({
+    data: {
+      accountId: keyed.id,
+      ciphertext: Buffer.from('a'.repeat(32)),
+      iv: Buffer.from('a'.repeat(12)),
+      tag: Buffer.from('a'.repeat(16)),
+      wrappedDek: Buffer.from('a'.repeat(32)),
+      dekVersion: 1
+    }
+  })
+  created.viewKeys.push(vk.id)
+  created.accounts.push(keyed.id)
+
+  const account = await findRewardsAccount(prisma)
+
+  expect(account).not.toBeNull()
+  expect(account.address).not.toBe(bare.address)
+  expect(account.viewKey).not.toBeNull()
 })
