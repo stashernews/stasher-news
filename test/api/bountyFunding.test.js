@@ -17,8 +17,23 @@
 import { PrismaClient } from '@prisma/client'
 import { initiateBountyFundingCore } from '@/api/resolvers/bounty'
 import { driveBountyFunding } from '@/pages/api/monero/webhook'
+import { updateItem } from '@/api/resolvers/item'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { bountyFeePiconeros } from '@/api/monero/bounties'
+
+// item.js statically imports @/lib/lexical/server/mentions (ESM-only
+// mdast-util-from-markdown) via the payIn engine, and @/lib/lexical/server/html
+// (ESM-only github-slugger via the headless editor); updateItem exercises
+// neither, so stub both like test/engine/payInItemUpdate.test.js. jest.mock is
+// hoisted above the imports, so the stubs are in place when item.js loads.
+jest.mock('../../lib/lexical/server/mentions', () => ({
+  __esModule: true,
+  extractMentions: () => ({ userNames: [], itemIds: [] })
+}))
+jest.mock('../../lib/lexical/server/html', () => ({
+  __esModule: true,
+  lexicalHTMLGenerator: () => ({ html: '', text: '' })
+}))
 
 process.env.MONERO_NETWORK = 'stagenet'
 process.env.LWS_WEBHOOK_URL = 'http://app:3000/api/monero/webhook'
@@ -389,6 +404,29 @@ test('rejects when the caller is not logged in', async () => {
     .rejects.toThrow('you must be logged in')
 })
 
+test('rejects a funder who is not the bounty author (A-13 final: ownership check)', async () => {
+  await ensureFeeConfig()
+  const authorId = await createUser()
+  const strangerId = await createUser()
+  const item = await createPost(authorId)
+  await seedEscrow()
+  await seedPayer(strangerId)
+
+  // The stranger's payment would be unrecoverable: reclaim pays the AUTHOR,
+  // and a second funder's CONFIRMED would overwrite bountyPiconeros, orphaning
+  // the first payment in escrow — so only the author may fund.
+  await expect(initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: strangerId } }))
+    .rejects.toThrow('only the bounty author can fund it')
+
+  // No pid map, ObservedBounty, or webhook was created for the stranger's call.
+  const pidMaps = await prisma.bountyPidMap.findMany({ where: { postId: item.id } })
+  expect(pidMaps).toHaveLength(0)
+  const bounties = await prisma.observedBounty.findMany({ where: { postId: item.id } })
+  expect(bounties).toHaveLength(0)
+  const after = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(after.bountyStatus).toBe('UNFUNDED')
+})
+
 test('rejects when the payer has no registered wallet (needed for reclaim attribution)', async () => {
   await ensureFeeConfig()
   const userId = await createUser()
@@ -397,4 +435,16 @@ test('rejects when the payer has no registered wallet (needed for reclaim attrib
 
   await expect(initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } }))
     .rejects.toThrow('you must attach a wallet to fund a bounty')
+})
+
+test('rejects changing the bounty amount on a FUNDED bounty (A-13 final: escrow desync gate)', async () => {
+  const userId = await createUser()
+  const item = await createPost(userId, { bountyPiconeros: 5_000_000_000n, bountyStatus: 'FUNDED' })
+
+  await expect(updateItem(null, { id: item.id, bountyPiconeros: 6_000_000_000n }, { me: { id: userId }, models: prisma }))
+    .rejects.toThrow('the bounty amount cannot be changed once funding is in progress or complete')
+
+  const after = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(after.bountyPiconeros).toBe(5_000_000_000n)
+  expect(after.bountyStatus).toBe('FUNDED')
 })

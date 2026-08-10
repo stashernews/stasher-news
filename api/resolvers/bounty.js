@@ -27,6 +27,11 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
   const id = Number(postId)
   const item = await models.item.findUnique({ where: { id } })
   if (!item) throw new GqlInputError('post not found')
+  // Only the bounty author may fund it: the payment lands in escrow and every
+  // disposition pays the AUTHOR, so a stranger's funding could never be
+  // recovered — and a second funder's CONFIRMED would overwrite
+  // bountyPiconeros, orphaning the first payment in escrow.
+  if (me && item.userId !== me.id) throw new GqlInputError('only the bounty author can fund it')
   if (item.bountyStatus !== 'UNFUNDED' && item.bountyStatus !== 'PENDING_FUNDING') {
     throw new GqlInputError('bounty is already funded or being funded')
   }

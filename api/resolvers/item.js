@@ -1368,6 +1368,17 @@ export const updateItem = async (parent, { hash, hmac, sendProtocolId, ...item }
     throw new GqlInputError('item does not belong to you')
   }
 
+  // A bounty's amount is escrow-backed: once funding has been initiated
+  // (PENDING_FUNDING) or completed (FUNDED onward), changing bountyPiconeros
+  // desyncs the escrow — dispositions would exceed the held balance (the
+  // signer would skip forever) or edits downward would strand dust. Freeze the
+  // amount from the moment funding is in progress.
+  if (item.bountyPiconeros != null &&
+      old.bountyStatus !== 'UNFUNDED' && old.bountyStatus !== 'PENDING_FUNDING' &&
+      BigInt(item.bountyPiconeros) !== BigInt(old.bountyPiconeros)) {
+    throw new GqlInputError('the bounty amount cannot be changed once funding is in progress or complete')
+  }
+
   const user = await models.user.findUnique({ where: { id: meId } })
 
   // edits are only allowed for own items within 10 minutes
