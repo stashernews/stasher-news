@@ -26,37 +26,42 @@ import { GqlInputError } from '@/lib/error'
 // observation, every piconero out is a recorded payout or ops sweep.
 
 // Bucket FeeObservation groupBy rows by source. TIP_UNWALLETED (wallet-less
-// anonymous tips) and DONATE/BOOST have allocation pcts of their own — they
-// must NOT be lumped in with territory fees.
+// anonymous tips), DONATE, and BOOST have allocation pcts of their own — they
+// must NOT be lumped in with territory fees. DONATE and BOOST are aggregated
+// separately (A-14): DONATE goes 100% to the pool while BOOST goes
+// boostRewardsPct% (default 50).
 function splitFeeGroups (groups) {
   let postingFeePiconeros = 0n
   let territoryFeePiconeros = 0n
   let walletlessTipPiconeros = 0n
-  let donateBoostPiconeros = 0n
+  let donatePiconeros = 0n
+  let boostPiconeros = 0n
   const TERRITORY = new Set(['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE'])
   for (const g of groups ?? []) {
     const val = g?._sum?.piconeros ?? 0n
     if (g.feeType === 'POSTING') postingFeePiconeros += val
     else if (g.feeType === 'TIP_UNWALLETED') walletlessTipPiconeros += val
-    else if (g.feeType === 'DONATE' || g.feeType === 'BOOST') donateBoostPiconeros += val
+    else if (g.feeType === 'DONATE') donatePiconeros += val
+    else if (g.feeType === 'BOOST') boostPiconeros += val
     else if (TERRITORY.has(g.feeType)) territoryFeePiconeros += val
   }
-  return { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donateBoostPiconeros }
+  return { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros }
 }
 
 // Proportional earmark against the LIVE consolidated balance. rewardsEarmark +
 // opsEarmark === balance holds by construction (opsEarmark = balance -
 // rewardsEarmark), independent of any floor in the inflow-side percentage split.
 function computeEarmarks (balance, sources, config) {
-  const { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donateBoostPiconeros } = sources
-  const totalInflow = downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donateBoostPiconeros
+  const { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros } = sources
+  const totalInflow = downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donatePiconeros + boostPiconeros
 
   const rewardsNumerator =
     downvotePiconeros * BigInt(config.downvoteRewardsPct) +
     postingFeePiconeros * BigInt(config.postingFeeRewardsPct) +
     territoryFeePiconeros * BigInt(config.territoryFeeRewardsPct) +
     walletlessTipPiconeros * BigInt(config.walletlessTipRewardsPct) +
-    donateBoostPiconeros * 100n
+    donatePiconeros * 100n +
+    boostPiconeros * BigInt(config.boostRewardsPct)
   const rewardsInflow = rewardsNumerator / 100n
   const opsInflow = totalInflow - rewardsInflow
 
@@ -95,9 +100,9 @@ export default {
         _sum: { piconeros: true },
         where: { state: 'CONFIRMED' }
       })
-      const { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donateBoostPiconeros } = splitFeeGroups(feeGroups)
+      const { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros } = splitFeeGroups(feeGroups)
       const totalReceived =
-        downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donateBoostPiconeros
+        downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donatePiconeros + boostPiconeros
 
       // --- Ledger-derived sent: recorded payouts + ops sweeps. ---
       // The wallet's only outflows are curator payouts and ops sweeps, both
@@ -124,7 +129,7 @@ export default {
 
       const earmarks = computeEarmarks(
         balance,
-        { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donateBoostPiconeros },
+        { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, boostPiconeros },
         config)
 
       return {
