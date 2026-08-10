@@ -261,3 +261,38 @@ test('each share carries per-type earns that sum exactly to the share', async ()
     expect(earnedSum).toBe(BigInt(s.sharePiconeros))
   }
 })
+
+// HANDICAP_IDS restore (A-09 Task 1): staff users 616/4502 get a 0.5x curator
+// proportion. Two identical posts with identical tips; the handicapped one's
+// curator share must be exactly half the other's. User 616 is the real seed
+// account `untraceable` in the dev DB, so the insert tracks it for teardown
+// only if it truly creates the row — the pre-existing user is never deleted.
+const HANDICAP_USER_ID = 616
+
+test('staff curators (HANDICAP_IDS) get a 0.5x curator proportion', async () => {
+  const inserted = await prisma.$queryRaw`
+    INSERT INTO users (id) VALUES (${HANDICAP_USER_ID}) ON CONFLICT DO NOTHING RETURNING id::int AS id`
+  if (inserted.length > 0) {
+    // fresh insert (temporary fixture) — tracked so afterAll removes it
+    created.users.push(HANDICAP_USER_ID)
+  }
+
+  const normalUser = await createUser()
+  const recipientAccount = await seedAccount()
+  const normalPost = await createRootPost(normalUser, 'normal handicap control post', 10)
+  const staffPost = await createRootPost(HANDICAP_USER_ID, 'staff handicapped post', 10)
+  const confirmedAt = new Date(Date.now() + 60 * 1000) // inside the shared period window
+  await seedTip({ postId: normalPost, tipperId: normalUser, piconeros: 1_000_000_000n, confirmedAt, recipientAccountId: recipientAccount.id })
+  await seedTip({ postId: staffPost, tipperId: HANDICAP_USER_ID, piconeros: 1_000_000_000n, confirmedAt, recipientAccountId: recipientAccount.id })
+
+  const { shares } = await computeCuratorShares(
+    periodStart, periodEnd, 10_000_000_000_000n, {}, prisma)
+
+  const normalShare = shares.find(s => s.curatorId === normalUser)
+  const staffShare = shares.find(s => s.curatorId === HANDICAP_USER_ID)
+  expect(staffShare).toBeDefined()
+  expect(normalShare).toBeDefined()
+  // Both curators tipped identical amounts on identical posts; the staff
+  // handicap halves the proportion, so the staff share is exactly half.
+  expect(staffShare.sharePiconeros).toBe(normalShare.sharePiconeros / 2n)
+})
