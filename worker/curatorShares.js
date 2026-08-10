@@ -1,4 +1,5 @@
 import createPrisma from '@/lib/create-prisma'
+import { USER_ID } from '@/lib/constants'
 
 // computeCuratorShares — the share-computation core of StasherNews' weekly
 // rewardsDistributor (Phase 4 Task 7 / design spec §5). It ports Stacker.news'
@@ -9,16 +10,16 @@ import createPrisma from '@/lib/create-prisma'
 // What was dropped vs earn.js (per the design spec):
 //   - the ITEM_CREATE PayIn LATERAL join + America/Chicago day filter -> a direct
 //     Item.createdAt range filter [periodStart, periodEnd);
-//   - the HANDICAP_IDS / HANDICAP_ZAP_MULT (SN-specific user ids; every curator
-//     gets multiplier 1 here);
 //   - the EACH_ITEM_PORTION (item-author) UNION branch (SN sets it to 0 — dead
 //     code; StasherNews rewards curators only);
 //   - the entire referral machinery (OneDayReferral / foreverReferrerId).
 //
 // What was kept: NTILE(100) percentile cutoff, the "islands" contiguous-zap
 // dedupe, the power(sum, 0.25) quad-root diminishing returns, the
-// 1/LN(rank + e - 1) early-tipper boost, the per-partition (post vs comment)
-// normalization split by EACH_ZAP_PORTION, and the per-user total_proportion roll-up.
+// 1/LN(rank + e - 1) early-tipper boost, the HANDICAP_IDS / HANDICAP_ZAP_MULT
+// 0.5x curator multiplier (staff users weigh half; restored per A-09), the
+// per-partition (post vs comment) normalization split by EACH_ZAP_PORTION, and
+// the per-user total_proportion roll-up.
 //
 // This module is PURE: it computes shares and returns them. It touches no wallet,
 // creates no rows, and wires no job (Task 8's rewardsDistributor calls this and
@@ -44,6 +45,13 @@ const EACH_ZAP_PORTION = 2.0
 // (proportion / sum(proportion)), any constant divisor on the amount would
 // cancel — so only this HAVING dust filter is unit-sensitive.
 const ZAP_THRESHOLD_PICONEROS = 100_000_000n
+
+// SN-parity HANDICAP_IDS (restored per A-09): staff accounts get a 0.5x curator
+// multiplier (their curation still counts, but at half weight). The fork keeps
+// the upstream ids — untraceable (616) and sn (4502) — and deliberately does
+// NOT handicap anon (never reaches curator attribution anyway).
+const HANDICAP_IDS = [USER_ID.untraceable, USER_ID.sn]
+const HANDICAP_ZAP_MULT = 0.5
 
 // Apportion a curator's share across their earn types by typeProportion
 // (mirrors the upstream SN per-type apportionment: normalize per curator, floor
@@ -161,7 +169,8 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
       --   item component   = the item's share of the period's vote weight
       item_zapper_ratios AS (
         SELECT "userId",
-          sum((2 * early_multiplier + 1) * zapped_proportion * proportion) AS item_zapper_proportion,
+          sum((2 * early_multiplier + 1) * zapped_proportion * proportion)
+            * CASE WHEN "userId" = ANY(${HANDICAP_IDS}) THEN ${HANDICAP_ZAP_MULT} ELSE 1 END AS item_zapper_proportion,
           "parentId" IS NULL AS "isPost"
         FROM (
           SELECT *,
