@@ -59,9 +59,13 @@
     margin-bottom: 10px;
   }
 
+  // bold post titles inside the card feed (Chakra Petch 600 is preloaded)
+  .item-card .title {
+    font-weight: 600;
+  }
+
   .item-excerpt {
-    grid-column: 1 / -1;
-    margin: 6px 0 0;
+    margin: 2px 0 4px;
     color: var(--stealth-muted);
     font-size: 0.8rem;
     line-height: 1.5;

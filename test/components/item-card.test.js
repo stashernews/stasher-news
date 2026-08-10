@@ -23,6 +23,7 @@ jest.mock(`${process.cwd()}/components/item`, () => {
   const ItemMock = jest.fn((props) => (
     <div className='item-mock' data-rank={props.rank} data-item={props.item?.id}>
       {props.item?.title}
+      {props.excerpt && <p className='item-excerpt'>{props.excerpt}</p>}
     </div>
   ))
   return { __esModule: true, default: ItemMock, ItemSkeleton: () => null }
@@ -83,6 +84,7 @@ describe('ItemCard', () => {
     expect(excerpt).toBeTruthy()
     expect(excerpt.tagName).toBe('P')
     expect(excerpt.textContent).toBe('a long body of post content')
+    expect(Item.mock.calls[0][0].excerpt).toBe('a long body of post content')
 
     await act(async () => { root.unmount() })
   })

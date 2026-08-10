@@ -86,7 +86,7 @@ function ItemLink ({ url, rel }) {
 
 export default function Item ({
   item, rank, belowTitle, right, full, children, itemClassName,
-  onQuoteReply, pinnable, ...props
+  onQuoteReply, pinnable, excerpt, ...props
 }) {
   const titleRef = useRef()
   const router = useRouter()
@@ -130,6 +130,7 @@ export default function Item ({
             </Link>
             {item.url && !media && <ItemLink url={item.url} rel={item.rel} />}
           </div>
+          {excerpt && <p className='item-excerpt'>{excerpt}</p>}
           <ItemInfo
             full={full} item={item}
             onQuoteReply={onQuoteReply}
