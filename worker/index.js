@@ -29,6 +29,7 @@ import {
 } from './domainVerification.js'
 import { untrackOldItems } from './untrackOldItems'
 import { confirmFinalizer } from './confirmFinalizer'
+import { bounties } from './bounties'
 import { rewardsWalletObserver } from './rewardsWalletObserver'
 import { rewardsDistributor } from './rewardsDistributor'
 import { rotateViewKeys } from './rotateViewKeys'
@@ -148,6 +149,14 @@ async function work () {
   // only). Confirmation is low-frequency (CONFIRM_POLL_INTERVAL_MS, default 60s).
   if (await boss.getQueueSize('confirmFinalizer') === 0) {
     await boss.send('confirmFinalizer', {})
+  }
+
+  // bounties: bounty lifecycle scans (expiry, payout dispatch, maturity).
+  // Self-requeues every 60s — same singleton-guarded seed pattern as
+  // confirmFinalizer.
+  await boss.work('bounties', jobWrapper(bounties))
+  if (await boss.getQueueSize('bounties') === 0) {
+    await boss.send('bounties', {})
   }
 
   // healthProbe: probes lws + monerod reachability + chain-height advancement
