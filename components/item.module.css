@@ -132,6 +132,10 @@ a.link:visited {
     padding-bottom: 0.5rem;
 }
 
+:global(.item-card) .title {
+    font-weight: 600;
+}
+
 .item {
     display: flex;
     justify-content: flex-start;

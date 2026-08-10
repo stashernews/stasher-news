@@ -33,7 +33,10 @@ export class GlitchProvider extends React.Component {
   start = () => {
     const domNodeCount = document.querySelectorAll('*').length
     const reducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (!shouldPlayGlitch({ domNodeCount, reducedMotion, visibilityState: document.visibilityState })) return
+    if (!shouldPlayGlitch({ domNodeCount, reducedMotion, visibilityState: document.visibilityState })) {
+      this.pending = false
+      return
+    }
 
     const overlay = buildGlitchOverlay({
       root: document.getElementById('__next'),
@@ -123,7 +126,7 @@ function buildGlitchOverlay ({ root, ghostCount = 2, onDone }) {
   if (!root) return null
 
   const overlay = document.createElement('div')
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:100;pointer-events:none;overflow:hidden;'
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100;pointer-events:none;overflow:hidden;will-change:transform;contain:layout;'
 
   const style = document.createElement('style')
   style.textContent = OVERLAY_CSS
