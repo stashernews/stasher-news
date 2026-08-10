@@ -4,16 +4,12 @@
 // and the other pages routed through topSubs (/top/territories/*, the subscribed
 // territories settings page).
 //
-// topSubs (api/resolvers/sub.js) filters AggPayIn rows with
-//   payInType <> 'DEFUNCT_TERRITORY_DAILY_PAYOUT'
-// but that value was dropped from the PayInType enum when the fork rebranded to
-// Monero (baseline migration 20260727054513_stealth_baseline). Postgres rejects
-// the unknown enum literal with 22P02, the GraphQL query errors, and
-// getGetServerSideProps (api/ssrApollo.js) turns that into a 302 to /404.
-//
-// This test seeds a user and a territory, runs the real userSubs resolver (which
-// routes through topSubs), and asserts it neither throws nor drops the territory.
-// Run via:
+// topSubs (api/resolvers/sub.js) aggregates LIVE confirmed observations
+// (ObservedTip / ObservedDownvote / FeeObservation / fee-gated PayIn rows) —
+// the legacy AggPayIn tables that caused the original 404 were dropped (A-12).
+// This test seeds a user and a territory, runs the real userSubs resolver
+// (which routes through topSubs), and asserts it neither throws nor drops the
+// territory. Run via:
 //   docker exec -u apprunner app npx jest test/engine/userSubs.test.js
 
 import { PrismaClient } from '@prisma/client'

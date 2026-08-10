@@ -1,9 +1,10 @@
 /* eslint-env jest */
 
 // Integration tests for the leaderboard surface (topUsers + UserOptional
-// stacked/spent + userSuggestions) — the last reader of the dead AggPayIn /
-// AggPayOut aggregate tables. Real DB, fixtures tracked + removed (mirrors
-// test/api/resolvers/statistics.test.js).
+// stacked/spent + userSuggestions). All stats come from LIVE aggregation over
+// confirmed observations (ObservedTip / ObservedDownvote / FeeObservation);
+// the legacy AggPayIn/AggPayOut aggregate tables were dropped (A-12). Real DB,
+// fixtures tracked + removed (mirrors test/api/resolvers/statistics.test.js).
 
 import { PrismaClient } from '@prisma/client'
 import userResolvers, { topUsers } from '@/api/resolvers/user'
