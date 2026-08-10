@@ -312,7 +312,7 @@ test('re-entry after DETECTED (pid map consumed, payment in flight) returns the 
   expect(after.bountyStatus).toBe('PENDING_FUNDING')
 })
 
-test('stale pid map: PENDING_FUNDING with an EXPIRED BountyPidMap mints a FRESH funding', async () => {
+test('stale pid map: PENDING_FUNDING with an EXPIRED BountyPidMap mints a FRESH funding even while the PENDING ObservedBounty lingers', async () => {
   await ensureFeeConfig()
   const userId = await createUser()
   const item = await createPost(userId)
@@ -327,16 +327,12 @@ test('stale pid map: PENDING_FUNDING with an EXPIRED BountyPidMap mints a FRESH 
     where: { paymentId: first.paymentId },
     data: { expiresAt: new Date(Date.now() - 1000) }
   })
-  // End the old attempt's lifecycle: a PENDING/DETECTED ObservedBounty is
-  // "in-flight" for re-entry purposes (resumed, never re-minted), so the
-  // expired-payment-id attempt must leave that window for this case to be
-  // truly stale — only then does neither a live pid map NOR an in-flight
-  // observation exist and the fresh mint fires.
-  const oldBounty = await prisma.observedBounty.findFirst({ where: { paymentId: first.paymentId } })
-  await prisma.observedBounty.update({
-    where: { id: oldBounty.id },
-    data: { state: 'CONFIRMED', confirmedAt: new Date() }
-  })
+  // The ObservedBounty stays PENDING — the payment never arrived, and the
+  // webhook's expiresAt guard rejects late arrivals, so the pid it carries is
+  // stale/unconsumed. In-flight protection is DETECTED-only: a PENDING row can
+  // only coexist with a stale pid (a live pid would be caught above), so
+  // returning its dead address here would strand this re-entry for good — the
+  // fresh mint must fire instead.
   // Distinct Date.now() nonce for the fresh mint (deterministic payment id).
   await new Promise(resolve => setTimeout(resolve, 10))
 
@@ -348,12 +344,14 @@ test('stale pid map: PENDING_FUNDING with an EXPIRED BountyPidMap mints a FRESH 
   expect(monero.addWebhook).toHaveBeenCalledTimes(2)
   expect(monero.addWebhook.mock.calls[1][0]).toMatchObject({ paymentId: second.paymentId })
 
-  // The stale map + row remain (payment ids are one-shot), and the fresh mint
-  // added exactly one more of each.
+  // The stale map + PENDING row remain (payment ids are one-shot), and the
+  // fresh mint added exactly one more of each.
   const pidMaps = await prisma.bountyPidMap.findMany({ where: { postId: item.id } })
   expect(pidMaps).toHaveLength(2)
   const bounties = await prisma.observedBounty.findMany({ where: { postId: item.id } })
   expect(bounties).toHaveLength(2)
+  expect(bounties.find(b => b.paymentId === first.paymentId).state).toBe('PENDING')
+  expect(bounties.find(b => b.paymentId === second.paymentId).state).toBe('PENDING')
 
   const after = await prisma.item.findUnique({ where: { id: item.id } })
   expect(after.bountyStatus).toBe('PENDING_FUNDING')
