@@ -14,6 +14,7 @@ import { Badge } from 'react-bootstrap'
 import SubPopover from './sub-popover'
 import { piconerosToXmr } from '@/lib/format'
 import { PayInInfo, InfoDropdownItem } from './item-info'
+import Boost from './boost-button'
 import ActionDropdown from './action-dropdown'
 import DontLikeThisDropdownItem from './dont-link-this'
 import BookmarkDropdownItem from './bookmark'
@@ -44,7 +45,13 @@ export default function ItemJob ({ item, toc, rank, children, ...props }) {
           </div>)
         : <div />}
       <div className={styles.item}>
-        <CompanyImage item={item} />
+        {item.mine
+          ? (
+            <div className={styles.jobBoostGroup}>
+              <Boost item={item} />
+              <CompanyImage item={item} />
+            </div>)
+          : <CompanyImage item={item} />}
         <div className={`${styles.hunk} align-self-center mb-0`}>
           <div className={`${styles.main} flex-wrap d-inline`}>
             <Link href={`/items/${item.id}`} className={`${styles.title} text-reset me-2`}>
