@@ -28,7 +28,10 @@ const EXPECTED_MODELS = [
   'RewardDistribution',
   'RewardPayout',
   'DownvotePidMap',
-  'PlatformFeeConfig'
+  'PlatformFeeConfig',
+  'ObservedBounty',
+  'BountyPidMap',
+  'BountyPayment'
 ]
 
 const REMOVED_MODELS = [
@@ -186,4 +189,41 @@ test('User badge settings use the re-themed names (hideBadges/noteBadges)', () =
   for (const c of ['hideCowboyHat', 'noteCowboyHat']) {
     expect(fields).not.toContain(c)
   }
+})
+
+test('Item has the A-13 bounty lifecycle columns and relations', () => {
+  const fields = fieldsOf('Item')
+  for (const c of ['bountyPiconeros', 'bountyStatus', 'bountyConfirmedAt', 'bountyPayments', 'observedBounties']) {
+    expect(fields).toContain(c)
+  }
+  const piconeros = allModels.find(m => m.name === 'Item').fields.find(f => f.name === 'bountyPiconeros')
+  expect(piconeros.type).toBe('BigInt')
+  expect(piconeros.default).toBe('0')
+  const status = allModels.find(m => m.name === 'Item').fields.find(f => f.name === 'bountyStatus')
+  expect(status.type).toBe('BountyStatus')
+  expect(status.default).toBe('UNFUNDED')
+})
+
+test('A-13 bounty enums and PostType.BOUNTY are in the DMMF', () => {
+  expect(valuesOf('PostType')).toContain('BOUNTY')
+  expect(valuesOf('BountyStatus').sort()).toEqual([
+    'AWARDED', 'DETECTED', 'EXPIRED', 'FUNDED', 'PENDING_FUNDING',
+    'REFUNDED', 'ROLLED_OVER', 'UNFUNDED'
+  ])
+  expect(valuesOf('BountyPayoutState').sort()).toEqual(['CONFIRMED', 'FAILED', 'QUEUED', 'SENT'])
+  expect(valuesOf('BountyPayoutKind').sort()).toEqual(['AWARD', 'RECLAIM', 'ROLLOVER'])
+  for (const v of ['BOUNTY_FEE', 'BOUNTY_ROLLOVER']) {
+    expect(valuesOf('FeeType')).toContain(v)
+  }
+})
+
+test('PlatformFeeConfig has the A-13 bounty fee fields', () => {
+  const fields = allModels.find(m => m.name === 'PlatformFeeConfig').fields
+  const byName = Object.fromEntries(fields.map(f => [f.name, f]))
+  expect(byName.bountyFeeMinPiconeros.type).toBe('BigInt')
+  expect(byName.bountyFeeMinPiconeros.default).toBe('10000000000')
+  expect(byName.bountyFeePct.type).toBe('Int')
+  expect(byName.bountyFeePct.default).toBe(1)
+  expect(byName.bountyExpiryDays.type).toBe('Int')
+  expect(byName.bountyExpiryDays.default).toBe(30)
 })

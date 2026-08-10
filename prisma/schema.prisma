@@ -120,6 +120,7 @@ model User {
   // back-relations for the Monero observation models
   moneroAccounts MoneroAccount[]
   rewardPayouts  RewardPayout[]
+  bountyPayments BountyPayment[]
 
   @@index([photoId])
   @@index([createdAt], map: "users.created_at_index")
@@ -408,9 +409,17 @@ model Item {
   feePayInId  Int?           @unique
   feePayIn    PayIn?         @relation("ItemFeePayIn", fields: [feePayInId], references: [id])
 
+  // Bounties (A-13): the funded bounty amount + status lifecycle. UNFUNDED posts
+  // are invisible until the funding payment confirms (mirrors the feeStatus gate).
+  bountyPiconeros    BigInt        @default(0)
+  bountyStatus       BountyStatus  @default(UNFUNDED)
+  bountyConfirmedAt  DateTime?
+  bountyPayments     BountyPayment[]
+
   // back-relations for observed Monero tips/downvotes (ObservedTip/ObservedDownvote)
   observedTips      ObservedTip[]
   observedDownvotes ObservedDownvote[]
+  observedBounties  ObservedBounty[]
 
   @@index([uploadId])
   @@index([lastTipAt])
@@ -1014,6 +1023,7 @@ enum PostType {
   DISCUSSION
   JOB
   POLL
+  BOUNTY
 }
 
 enum LogLevel {
@@ -1324,6 +1334,8 @@ enum FeeType {
   DONATE
   TIP_UNWALLETED
   BOOST
+  BOUNTY_FEE
+  BOUNTY_ROLLOVER
 }
 
 enum ItemFeeStatus {
@@ -1357,6 +1369,7 @@ model MoneroAccount {
   viewKey      MoneroViewKey?
   subaddresses SubaddressIndex[]
   observedTips ObservedTip[]
+  observedBounties ObservedBounty[]
 
   @@unique([address, network])
   @@index([ownerUserId])
@@ -1441,6 +1454,95 @@ model ObservedDownvote {
   @@unique([txHash, paymentId])
   @@index([postId])
   @@index([state, confirmedAt])
+}
+
+// An observed bounty funding payment (arrives on the bounty ESCROW wallet's
+// integrated address carrying a "bn:"-namespace payment_id). The webhook
+// receiver (pages/api/monero/webhook.js) drives PENDING -> DETECTED -> CONFIRMED,
+// mirroring ObservedTip.
+model ObservedBounty {
+  id                 BigInt        @id @default(autoincrement())
+  txHash             String
+  postId             Int
+  payerId            Int?
+  recipientAccountId Int
+  paymentId          String
+  piconeros          BigInt
+  height             Int?
+  confirmations      Int           @default(0)
+  state              ObservedState @default(DETECTED)
+  webhookEventId     String?
+  detectedAt         DateTime      @default(now())
+  confirmedAt        DateTime?
+
+  post             Item          @relation(fields: [postId], references: [id])
+  recipientAccount MoneroAccount @relation(fields: [recipientAccountId], references: [id])
+
+  @@unique([txHash, paymentId])
+  @@index([postId])
+  @@index([state, confirmedAt])
+}
+
+// Bounty funding payment_id reverse map (created at URI-generation time).
+model BountyPidMap {
+  paymentId  String    @id
+  postId     Int
+  nonce      BigInt
+  userId     Int
+  expiresAt  DateTime
+  consumedAt DateTime?
+}
+
+// A bounty payout from the escrow wallet: award (winner), reclaim (author, after
+// expiry), or rollover (full escrow balance -> rewards wallet, after expiry).
+// recipientAddress is the signer's target (winner's / author's / rewards wallet);
+// feePiconeros is the platform fee moved escrow -> rewards wallet on AWARD/RECLAIM.
+model BountyPayment {
+  id            Int                @id @default(autoincrement())
+  itemId        Int
+  winnerUserId  Int
+  piconeros     BigInt
+  feePiconeros  BigInt             @default(0)
+  recipientAddress String
+  kind          BountyPayoutKind   @default(AWARD)
+  txHash        String?
+  feeTxHash     String?
+  height        Int?
+  confirmations Int                @default(0)
+  state         BountyPayoutState  @default(QUEUED)
+  createdAt     DateTime           @default(now())
+  sentAt        DateTime?
+  confirmedAt   DateTime?
+
+  item   Item @relation(fields: [itemId], references: [id])
+  winner User @relation(fields: [winnerUserId], references: [id])
+
+  @@index([itemId])
+  @@index([state])
+}
+
+enum BountyStatus {
+  UNFUNDED
+  PENDING_FUNDING
+  DETECTED
+  FUNDED
+  EXPIRED
+  AWARDED
+  REFUNDED
+  ROLLED_OVER
+}
+
+enum BountyPayoutState {
+  QUEUED
+  SENT
+  CONFIRMED
+  FAILED
+}
+
+enum BountyPayoutKind {
+  AWARD
+  RECLAIM
+  ROLLOVER
 }
 
 // An observed posting/territory fee payment (arrives on the platform rewards
@@ -1545,6 +1647,11 @@ model PlatformFeeConfig {
   // boosts (BOOST fee observations): % of inflow allocated to the curator
   // rewards pool; the remainder is the ops share. Default 50 (operator, 2026-08-10).
   boostRewardsPct               Int    @default(50)
+  // bounties (A-13): fee = max(bountyFeeMinPiconeros, bountyFeePct% of the
+  // bounty) -> 100% ops; expiry window in days from funding confirmation.
+  bountyFeeMinPiconeros BigInt @default(10000000000)
+  bountyFeePct          Int    @default(1)
+  bountyExpiryDays      Int    @default(30)
   // rewards distribution
   distributionTopN               Int    @default(100)
   distributionMinPayoutPiconeros BigInt @default(1000000000)
