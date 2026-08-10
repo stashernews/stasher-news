@@ -663,3 +663,53 @@ test('a second run within the same week is idempotent (returns the existing dist
   const after = await prisma.rewardPayout.count({ where: { distributionId: result.id } })
   expect(after).toBe(before)
 })
+
+test('referred curators produce a FOREVER_REFERRAL payout + Earn row for the referrer', async () => {
+  // The beforeAll distribution occupies this week's window, so
+  // runDistributionOnce's idempotency guard would return it verbatim. Clear it
+  // (Earn -> payout -> distribution, FK-safe) so this test's run writes a fresh
+  // distribution for the same week. afterAll's deleteMany on the already-cleared
+  // result.id is a harmless no-op.
+  await prisma.earn.deleteMany({ where: { distributionId: result.id } })
+  await prisma.rewardPayout.deleteMany({ where: { distributionId: result.id } })
+  await prisma.rewardDistribution.deleteMany({ where: { id: result.id } })
+
+  const referrer = await createUser()
+  await createPayoutAccount(referrer) // referrer must be able to RECEIVE
+  const curator = await createUser()
+  await prisma.user.update({ where: { id: curator }, data: { referrerId: referrer } })
+  await createPayoutAccount(curator)
+
+  // Filler curator: NO payout account, tips the same post — their share rolls
+  // over and funds the referral budget, making the 10% referral payout exact.
+  const filler = await createUser()
+
+  const recipientAccount = await createRecipientAccount()
+  // weightedVotes 1e6 >> the beforeAll post (~20.7 from applyTipDetected) and
+  // any dev posts, so competing curators land sub-minPayout shares and don't
+  // erode the pool/referral budget.
+  const post = await createRootPost(curator, 1_000_000, new Date(Date.now() - DAY))
+  await seedTip({ postId: post, tipperId: curator, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 1000), recipientAccountId: recipientAccount.id })
+  await seedTip({ postId: post, tipperId: filler, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 61000), recipientAccountId: recipientAccount.id })
+
+  // stub signer: marks QUEUED -> SENT; the real ops sweep is never invoked
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, sweepOpsEarmark: async () => ({ state: 'DISABLED' }) })
+  created.distributions.push(dist.id)
+
+  const curatorPayout = dist.payouts.find(p => p.curatorId === curator)
+  expect(curatorPayout).toBeDefined()
+  expect(curatorPayout.state).toBe('SENT')
+
+  const referralPayout = dist.payouts.find(p => p.curatorId === referrer)
+  expect(referralPayout).toBeDefined()
+  // 10% of the curator's share
+  expect(referralPayout.piconeros).toBe(curatorPayout.piconeros / 10n)
+
+  const earn = await prisma.earn.findFirst({
+    where: { userId: referrer, type: 'FOREVER_REFERRAL', distributionId: dist.id }
+  })
+  expect(earn).not.toBeNull()
+  expect(earn.piconeros).toBe(referralPayout.piconeros)
+  expect(earn.rank).toBeNull()
+  expect(earn.typeId).toBeNull()
+})

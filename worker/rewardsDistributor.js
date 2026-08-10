@@ -178,6 +178,44 @@ async function distribute (models) {
       })
     }
 
+    // --- Referral shares (A-09, forever-only) ---
+    // For every paid curator with a referrer, the referrer earns 10% of that
+    // curator's share IN ADDITION (paid from the pool, upstream FOREVER_REFERRAL
+    // semantics). Referral payouts are aggregated per referrer. A referrer without
+    // a MoneroAccount is skipped (their cut rolls over — mirroring address-less
+    // curators). The total of curator + referral payouts is capped at the pool so
+    // rolledOverPiconeros never goes negative.
+    const curatorTotal = payoutRows.reduce((acc, p) => acc + p.piconeros, 0n)
+    let referralBudget = poolPiconeros - curatorTotal
+
+    const referralByReferrer = new Map() // referrerId -> { piconeros, referredCurators: Set }
+    for (const share of shares) {
+      if (share.sharePiconeros <= 0n) continue
+      const curator = await tx.user.findUnique({
+        where: { id: share.curatorId },
+        select: { referrerId: true }
+      })
+      if (!curator?.referrerId) continue
+      const referralPiconeros = share.sharePiconeros / 10n
+      if (referralPiconeros <= 0n) continue
+      const entry = referralByReferrer.get(curator.referrerId) || { piconeros: 0n }
+      entry.piconeros += referralPiconeros
+      referralByReferrer.set(curator.referrerId, entry)
+    }
+
+    for (const [referrerId, entry] of referralByReferrer) {
+      if (referralBudget <= 0n) break
+      const referrerAccount = await tx.moneroAccount.findFirst({ where: { ownerUserId: referrerId } })
+      if (!referrerAccount) continue
+      const piconeros = entry.piconeros < referralBudget ? entry.piconeros : referralBudget
+      payoutRows.push({
+        curatorId: referrerId,
+        recipientAddress: referrerAccount.address,
+        piconeros
+      })
+      referralBudget -= piconeros
+    }
+
     // --- Final ledger (atomic with the payout createMany below) ---
     // distributedPiconeros is the sum of the CREATED payouts (after address
     // filtering). rolledOverPiconeros is whatever is left — this captures BOTH
@@ -213,7 +251,9 @@ async function distribute (models) {
       const earnRows = []
       for (const p of payoutRows) {
         const share = shares.find(s => s.curatorId === p.curatorId)
-        for (const e of share.earns) {
+        // share may be undefined for REFERRER payout rows — those get their own
+        // FOREVER_REFERRAL Earn row below instead of curator type rows.
+        for (const e of share?.earns ?? []) {
           earnRows.push({
             userId: p.curatorId,
             piconeros: e.piconeros,
@@ -224,6 +264,21 @@ async function distribute (models) {
             createdAt: periodEnd
           })
         }
+      }
+      // FOREVER_REFERRAL Earn rows: one per referrer, rank/typeId null
+      // (upstream parity). These are what the ReferralReward notification and
+      // the /referrals page read.
+      for (const p of payoutRows) {
+        if (!referralByReferrer.has(p.curatorId)) continue
+        earnRows.push({
+          userId: p.curatorId,
+          piconeros: p.piconeros,
+          type: 'FOREVER_REFERRAL',
+          rank: null,
+          typeId: null,
+          distributionId: distribution.id,
+          createdAt: periodEnd
+        })
       }
       await tx.earn.createMany({ data: earnRows })
     }
