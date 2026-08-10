@@ -21,6 +21,7 @@ import classNames from 'classnames'
 import removeMd from 'remove-markdown'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseInternalLinks } from '@/lib/url'
 import ItemPopover from './item-popover'
+import Boost from './boost-button'
 import { useMe } from './me'
 import { SearchText } from './text'
 
@@ -105,7 +106,7 @@ export default function Item ({
         {item.position && (pinnable || !item.subNames)
           ? <Pin width={24} height={24} className={styles.pin} />
           : item.mine
-            ? null
+            ? <Boost item={item} className={classNames(styles.upvote, item.bio && 'invisible')} />
             : item.meDontLikePiconeros > item.mePiconeros
               ? <DownZap width={24} height={24} className={styles.dontLike} item={item} />
               : <VoteColumn item={item} className={styles.upvote} />}
