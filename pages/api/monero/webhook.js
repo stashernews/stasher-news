@@ -192,8 +192,10 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
 // Bounty funding CONFIRMED path (A-13). Runs inside the caller's Serializable
 // transaction so the three writes commit together:
 //   1. ObservedBounty -> CONFIRMED (confirmedAt, height, confirmations)
-//   2. Item -> FUNDED with the ACTUAL on-chain piconeros (bountyPiconeros +
-//      bountyConfirmedAt) — the payer may have sent more or less than expected
+//   2. Item -> FUNDED with bountyPiconeros = observed − fee (the payer may have
+//      sent more or less than expected; the fee piconeros stay in escrow until
+//      disposition, so the signer can always zero the escrow exactly) +
+//      bountyConfirmedAt
 //   3. FeeObservation('BOUNTY_FEE') born CONFIRMED at the funding height,
 //      computed via bountyFeePiconeros from the observed amount — the fee is
 //      100% ops and books into the rewards pool ledger at funding time.
@@ -212,7 +214,7 @@ export async function driveBountyFunding (tx, bounty, { txHash, height, confirma
   const feePiconeros = bountyFeePiconeros(piconeros, config)
   await tx.item.update({
     where: { id: bounty.postId },
-    data: { bountyStatus: 'FUNDED', bountyPiconeros: piconeros, bountyConfirmedAt: new Date() }
+    data: { bountyStatus: 'FUNDED', bountyPiconeros: piconeros - feePiconeros, bountyConfirmedAt: new Date() }
   })
   await tx.$queryRaw`
     INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","height","state","detectedAt","confirmedAt")

@@ -6,8 +6,9 @@
 // BountyPidMap + a PENDING ObservedBounty, and returns the monero: URI
 // (bounty + fee in one payment). driveBountyFunding is the webhook's CONFIRMED
 // branch: it flips the ObservedBounty to CONFIRMED, flips the Item to FUNDED
-// with the ACTUAL on-chain piconeros, and books the BOUNTY_FEE ledger row
-// born CONFIRMED at the funding height.
+// with bountyPiconeros = observed − fee (net of the platform fee, so
+// dispositions can zero the escrow exactly), and books the BOUNTY_FEE ledger
+// row born CONFIRMED at the funding height.
 //
 // The lwsClient is stubbed (DI seam on the Apollo `monero` context); everything
 // else is real DB behaviour against a live, migrated database — mirroring
@@ -29,8 +30,9 @@ const prisma = new PrismaClient()
 const ESCROW_ADDR = '5' + '1'.repeat(94)
 const PAYER_ADDR = '5' + '2'.repeat(94)
 
-// Deterministic fee config: min 0.01 XMR / 1% — a 2 XMR funding pays 0.02 XMR,
-// well above the min, so the pct branch of bountyFeePiconeros is exercised.
+// Deterministic fee config: min 0.01 XMR / 1%. The CONFIRMED-branch test funds
+// 0.011 XMR, where the min fee (0.01 XMR) dominates — the floor regime gives
+// exact, readable math (observed 11e9 → fee 1e10 → bounty 1e9).
 const FEE_CONFIG = { bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }
 
 const created = { users: [], items: [], accounts: [], pids: [], bounties: [] }
@@ -185,8 +187,11 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
   created.bounties.push(bounty.id)
 
-  // The payer actually sent a different amount than the expected bounty.
-  const observed = 2_000_000_000_000n
+  // The payer actually sent a different amount than the expected bounty:
+  // 0.011 XMR total, of which the fee (floor = 0.01 XMR) dominates.
+  const observed = 11_000_000_000n
+  const feePiconeros = bountyFeePiconeros(observed, FEE_CONFIG)
+  expect(feePiconeros).toBe(10_000_000_000n)
   const txHash = 'ab'.repeat(32)
   await prisma.$transaction(async (tx) => {
     await driveBountyFunding(tx, bounty, { txHash, height: 123456, confirmations: 10, piconeros: observed })
@@ -199,26 +204,28 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   expect(afterBounty.confirmations).toBe(10)
   expect(afterBounty.confirmedAt).toBeInstanceOf(Date)
 
-  // The item flips to FUNDED with the OBSERVED amount (not the expected 5e9).
+  // The item flips to FUNDED with the observed amount NET of the platform fee
+  // (bountyPiconeros = observed − fee = 1e9, not the raw 11e9) so the signer
+  // can zero the escrow exactly at disposition.
   const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
   expect(afterItem.bountyStatus).toBe('FUNDED')
-  expect(afterItem.bountyPiconeros).toBe(observed)
+  expect(afterItem.bountyPiconeros).toBe(observed - feePiconeros)
   expect(afterItem.bountyConfirmedAt).toBeInstanceOf(Date)
 
   // BOUNTY_FEE booked born-CONFIRMED at the funding height, computed from the
-  // observed amount: max(2e12 / 100, 1e10) = 2e10 (NOT the 1e10 min the
-  // expected 5e9 would have produced).
+  // observed amount: max(11e9 / 100, 1e10) = 1e10 — the min-fee floor dominates
+  // (1% of 11e9 is only 1.1e8).
   const fee = await prisma.feeObservation.findFirst({ where: { txHash, feeType: 'BOUNTY_FEE' } })
   expect(fee).toMatchObject({
     payInId: null,
     postId: item.id,
     recipientMajor: 0,
     recipientMinor: 0,
-    piconeros: bountyFeePiconeros(observed, FEE_CONFIG),
+    piconeros: feePiconeros,
     height: 123456,
     state: 'CONFIRMED'
   })
-  expect(fee.piconeros).toBe(20_000_000_000n)
+  expect(fee.piconeros).toBe(10_000_000_000n)
   expect(fee.confirmedAt).toBeInstanceOf(Date)
 })
 
