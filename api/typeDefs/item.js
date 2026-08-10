@@ -112,7 +112,7 @@ export default gql`
     userId: Int!
     depth: Int
     mine: Boolean!
-    boost: Int!
+    boost: BigInt!
     bounty: Int
     bountyPaidTo: [Int]
     noteId: String
@@ -122,7 +122,7 @@ export default gql`
     commentPiconeros: BigInt!
     commentCredits: Int!
     commentCost: Int!
-    commentBoost: Int!
+    commentBoost: BigInt!
     commentDownPiconeros: BigInt!
     lastCommentAt: Date
     upvotes: Int!

@@ -227,3 +227,29 @@ test('a BOOST fee observation bumps Item.boost at DETECTION', async () => {
   expect(fee.feeType).toBe('BOOST')
   expect(fee.piconeros).toBe(1_000_000_000n)
 })
+
+// A-14 follow-up (Task 6): boosts above Int4 max (2,147,483,647 piconeros ~
+// 0.0021 XMR) must not silently fail. The old `boost + ${piconeros}::INTEGER`
+// cast threw "integer out of range" (caught by the try/catch), so the payment
+// succeeded but the ranking bump never happened. With the columns now BigInt
+// and the casts ::BIGINT, 1 XMR = 1e12 piconeros bumps boost 1:1.
+test('a BOOST fee observation above Int4 max (1 XMR) bumps Item.boost at DETECTION', async () => {
+  const { payInId, postId, major, minor } = await seedBoostPayIn(302)
+  const before = await prisma.item.findUnique({ where: { id: postId }, select: { boost: true } })
+
+  const tx = {
+    hash: 'boost-bigint-tx-' + Date.now(),
+    piconeros: 1_000_000_000_000n,
+    height: 100,
+    recipient: { maj_i: major, min_i: minor },
+    payment_id: null
+  }
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
+
+  const after = await prisma.item.findUnique({ where: { id: postId }, select: { boost: true } })
+  expect(Number(after.boost) - Number(before.boost)).toBe(1_000_000_000_000)
+
+  const fee = await prisma.feeObservation.findFirst({ where: { payInId } })
+  expect(fee.feeType).toBe('BOOST')
+  expect(fee.piconeros).toBe(1_000_000_000_000n)
+})

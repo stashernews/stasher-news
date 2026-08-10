@@ -337,13 +337,13 @@ model Item {
   company              String?
   weightedVotes        Float                 @default(0)
   subWeightedVotes     Float                 @default(0)
-  boost                Int                   @default(0)
+  boost                BigInt                @default(0)
   pollCost             Int?
   commentPiconeros     BigInt                @default(0)
   commentDownPiconeros BigInt                @default(0)
   commentCredits       BigInt                @default(0)
   commentCost          Int                   @default(0)
-  commentBoost         Int                   @default(0)
+  commentBoost         BigInt                @default(0)
   weightedComments     Float                 @default(0)
   lastCommentAt        DateTime?
   lastTipAt            DateTime?

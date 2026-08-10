@@ -963,7 +963,7 @@ export default {
       if (me?.id !== item.userId) {
         return item.boost
       }
-      return item.boost + Number(item.mePendingBoostMsats || 0)
+      return BigInt(item.boost) + BigInt(item.mePendingBoostMsats || 0)
     },
     credits: async (item, args, { models, me }) => {
       if (me?.id === item.userId) {
