@@ -221,12 +221,12 @@ Have a great weekend!
 ##### Top Posts
 ${top.data.items.items.map((item, i) =>
   `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
-    - ${piconerosToXmr(BigInt(item.piconeros) + BigInt(item.boost) * 1000n + BigInt(item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
+    - ${piconerosToXmr(BigInt(item.piconeros) + BigInt(item.boost) + BigInt(item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
 ##### Top AMAs
 ${ama.data.items.items.slice(0, 10).map((item, i) =>
   `${i + 1}. [${item.title}](https://stasher.news/items/${item.id})
-    - ${piconerosToXmr(BigInt(item.piconeros) + BigInt(item.boost) * 1000n + BigInt(item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
+    - ${piconerosToXmr(BigInt(item.piconeros) + BigInt(item.boost) + BigInt(item.cost) * 1000n)} \\ ${item.ncomments} comments \\ [@${item.user.name}](https://stasher.news/${item.user.name})\n`).join('')}
 
 [**all of this week's AMAs**](https://stasher.news/~ama/top/posts/week)
 

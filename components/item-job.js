@@ -63,7 +63,7 @@ export default function ItemJob ({ item, toc, rank, children, ...props }) {
           </div>
           <div className={styles.other}>
             <span>
-              {piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) * 1000 + Number(item.cost) * 1000))}
+              {piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost) * 1000))}
             </span>
             <span> \ </span>
             {item.company &&

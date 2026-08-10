@@ -122,7 +122,7 @@ export default function ItemInfo ({
       {!isPinnedPost && !(isPinnedSubReply && !full) &&
         <>
           <span title={itemTitle(item)}>
-            {piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) * 1000 + Number(item.cost) * 1000))}
+            {piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost) * 1000))}
           </span>
           {Number(item.downPiconeros) > 0 &&
             <span className='text-danger'> -{piconerosToXmr(BigInt(item.downPiconeros))}</span>}
@@ -137,7 +137,7 @@ export default function ItemInfo ({
               `/items/${item.id}?commentsViewedAt=${viewedAt}`,
               `/items/${item.id}`)
           }
-        }} title={`${piconerosToXmr(BigInt(Number(item.commentPiconeros) + Number(item.commentCost) * 1000 + Number(item.commentBoost) * 1000))} (${item.commentPiconeros} stashed \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
+        }} title={`${piconerosToXmr(BigInt(Number(item.commentPiconeros) + Number(item.commentCost) * 1000 + Number(item.commentBoost)))} (${item.commentPiconeros} stashed \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
       >
         {numWithUnits(item.ncomments, {
           abbreviate: false,
@@ -292,7 +292,7 @@ function ItemDetails ({ item, me }) {
       <div className={styles.detailsLabel}>cost</div>
       <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.cost) * 1000n)}</div>
       <div className={styles.detailsLabel}>boost</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.boost) * 1000n)}</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.boost))}</div>
       <div className={styles.detailsLabel}>stashed</div>
       <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.piconeros) - Number(item.credits)))} / {item.credits} credits</div>
       <div className={styles.detailsLabel}>downvotes</div>
@@ -303,7 +303,7 @@ function ItemDetails ({ item, me }) {
       <div className={styles.detailsLabel}>cost</div>
       <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentCost) * 1000n)}</div>
       <div className={styles.detailsLabel}>boost</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentBoost) * 1000n)}</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentBoost))}</div>
       <div className={styles.detailsLabel}>stashed</div>
       <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.commentPiconeros) - Number(item.commentCredits)))} / {item.commentCredits} credits</div>
       <div className={styles.detailsLabel}>downvotes</div>
