@@ -29,6 +29,7 @@ import BountyIcon from '@/svgs/bounty-bag.svg'
 import { LongCountdown } from './countdown'
 import { nextBillingWithGrace } from '@/lib/territory'
 import { commentSubTreeRootId } from '@/lib/item'
+import { COPY } from '@/lib/rebrand-copy'
 import LinkToContext from './link-to-context'
 import { Badge, Button } from 'react-bootstrap'
 import { useToast } from './toast'
@@ -238,7 +239,7 @@ function Verified ({ n }) {
     <div className='d-flex'>
       <div style={{ fontSize: '2rem', alignSelf: 'center' }}><VerifiedIcon className='fill-grey' height={40} width={40} /></div>
       <div className='ms-1 p-1'>
-        <span className='fw-bold'>your account is verified</span>
+        <span className='fw-bold'>{COPY.verifiedTitle}</span>
         <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{blurb(n)}</small></div>
       </div>
     </div>

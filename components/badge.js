@@ -49,7 +49,7 @@ export function buildBadges (user, { bot = false } = {}) {
   if (Number(user.id) === USER_ID.anon) return null
   const badges = []
   if (user.optional?.hasWallet) {
-    badges.push({ icon: VerifiedIcon, overlayText: 'verified wallet', style: { color: 'var(--theme-grey)' } })
+    badges.push({ icon: VerifiedIcon, overlayText: 'verified (wallet + reputation)', style: { color: 'var(--theme-grey)' } })
   }
   if (user.optional?.tippedRecently) {
     badges.push({ icon: CoinIcon, overlayText: 'tipped in the last 24 hours' })
