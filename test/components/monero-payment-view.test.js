@@ -37,6 +37,10 @@ beforeAll(() => {
   global.IS_REACT_ACT_ENVIRONMENT = true
   container = parsed.document.createElement('div')
   parsed.document.body.appendChild(container)
+  // root is created exactly once and reused (sticky-bar.test.js pattern):
+  // re-creating it per render makes React log redundant createRoot()
+  // console.error warnings, which the review gate treats as test-output noise.
+  root = createRoot(container)
 })
 
 afterAll(() => {
@@ -49,12 +53,12 @@ afterAll(() => {
 })
 
 afterEach(async () => {
-  await act(async () => { root && root.render(null) })
-  container.innerHTML = ''
+  // render(null) unmounts the tree and empties the container; clearing
+  // innerHTML first would orphan React's tracked nodes (sticky-bar.test.js:142-145)
+  await act(async () => { root.render(null) })
 })
 
 async function renderView (props) {
-  root = createRoot(container)
   await act(async () => {
     root.render(<MoneroPaymentView {...props} />)
   })
