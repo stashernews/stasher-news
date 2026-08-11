@@ -528,3 +528,85 @@ describe('getInitial — turf-owner fee waiver', () => {
     expect(result).not.toHaveProperty('moneroUri')
   })
 })
+
+// --- turf-owner free posting: owner-free items do not consume the freebie quota ---
+describe('onPaid — turf-owner quota skip', () => {
+  test('an owner-free comment does not increment freeCommentCount', async () => {
+    const userId = await createUser()
+    await ensureFeeConfig()
+    // give the owner a turf and a root post in it
+    const turfName = `quota-comment-${userId}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+    const rootRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", title, "created_at")
+      VALUES (${userId}::int, ${'quota root'}, now())
+      RETURNING id::int AS id`
+    const rootId = rootRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId)}::ltree WHERE id = ${rootId}::int`
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: turfName } })
+    created.items.push(rootId)
+
+    // build the comment item directly (freebie, in the owned turf), a PAID PayIn,
+    // and the ItemPayIn link — then drive onPaid.
+    const commentRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", "parentId", "rootId", text, freebie, "feeStatus", "created_at")
+      VALUES (${userId}::int, ${rootId}::int, ${rootId}::int, ${'owner comment'}, true, 'FEE_NOT_REQUIRED', now())
+      RETURNING id::int AS id`
+    const commentId = commentRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId) + '.' + String(commentId)}::ltree WHERE id = ${commentId}::int`
+    created.items.push(commentId)
+
+    const payIn = await prisma.payIn.create({
+      data: { userId, payInType: 'ITEM_CREATE', payInState: 'PAID', piconeros: 0n }
+    })
+    created.payIns.push(payIn.id)
+    await prisma.itemPayIn.create({ data: { itemId: commentId, payInId: payIn.id } })
+
+    await prisma.$transaction(async tx => {
+      await onPaid(tx, payIn.id)
+    })
+
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    expect(user.freeCommentCount ?? 0).toBe(0)
+  })
+
+  test('an owner-free post does not increment freePostCount', async () => {
+    const userId = await createUser()
+    await ensureFeeConfig()
+    // established user so the free-post counter would otherwise increment
+    await prisma.$executeRaw`
+      UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days'
+      WHERE id = ${userId}::int`
+    const turfName = `quota-post-${userId}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+
+    // free top-level post in the owned turf (feeStatus FEE_NOT_REQUIRED, not freebie)
+    const postRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", title, freebie, "feeStatus", "created_at")
+      VALUES (${userId}::int, ${'owner post'}, false, 'FEE_NOT_REQUIRED', now())
+      RETURNING id::int AS id`
+    const postId = postRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree WHERE id = ${postId}::int`
+    await prisma.itemSub.create({ data: { itemId: postId, subName: turfName } })
+    created.items.push(postId)
+
+    const payIn = await prisma.payIn.create({
+      data: { userId, payInType: 'ITEM_CREATE', payInState: 'PAID', piconeros: 0n }
+    })
+    created.payIns.push(payIn.id)
+    await prisma.itemPayIn.create({ data: { itemId: postId, payInId: payIn.id } })
+
+    await prisma.$transaction(async tx => {
+      await onPaid(tx, payIn.id)
+    })
+
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    expect(user.freePostCount ?? 0).toBe(0)
+  })
+})

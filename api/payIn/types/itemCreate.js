@@ -356,11 +356,23 @@ export async function onPaid (tx, payInId) {
     throw new Error('Item not found')
   }
 
-  // If this is a freebie comment, increment the free comment counter.
-  await incrementFreeCommentCount(tx, { item, userId: payIn.userId })
-  // If this is a free top-level post within the monthly quota, increment the
-  // free post counter. Self-guarding (no-op for comments, bios, paid posts).
-  await incrementFreePostCount(tx, { item, userId: payIn.userId })
+  // StasherNews turf-owner perk: owner-free items must not consume the monthly
+  // freebie quota — the owner's posting/commenting in their own turf is always
+  // free, independent of the 15-comment / 5-post counters. Re-derive ownership
+  // here (item.subNames for posts; the parent thread for comments) since the
+  // prospect carries no owner marker.
+  const ownerFree = await ownsAnySub(tx, {
+    subNames: item.subNames,
+    parentId: item.parentId,
+    userId: payIn.userId
+  })
+  if (!ownerFree) {
+    // If this is a freebie comment, increment the free comment counter.
+    await incrementFreeCommentCount(tx, { item, userId: payIn.userId })
+    // If this is a free top-level post within the monthly quota, increment the
+    // free post counter. Self-guarding (no-op for comments, bios, paid posts).
+    await incrementFreePostCount(tx, { item, userId: payIn.userId })
+  }
 
   // retry OpenTimestamps stamp up to 12x with 10 minutes spacing
   //
