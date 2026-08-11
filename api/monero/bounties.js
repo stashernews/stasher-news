@@ -56,11 +56,14 @@ async function openBountyEscrowWallet () {
   return wallet
 }
 
-// Pure helper: platform bounty fee = max(min, pct% of bounty). Exported for
-// tests + reuse by the funding flow and the signer's fee settlement.
+// Pure helper: platform bounty fee = max(min, pct% of bounty), capped at 20%
+// of the bounty so tiny bounties never pay more than a fifth of their value.
+// Exported for tests + reuse by the funding flow and the signer's fee settlement.
 export function bountyFeePiconeros (bountyPiconeros, { bountyFeeMinPiconeros, bountyFeePct }) {
   const pct = BigInt(bountyPiconeros) * BigInt(bountyFeePct) / 100n
-  return pct > BigInt(bountyFeeMinPiconeros) ? pct : BigInt(bountyFeeMinPiconeros)
+  const flat = pct > BigInt(bountyFeeMinPiconeros) ? pct : BigInt(bountyFeeMinPiconeros)
+  const cap = BigInt(bountyPiconeros) * 20n / 100n
+  return flat > cap ? cap : flat
 }
 
 // Send QUEUED BountyPayments. `wallet` is injectable for tests. For each:

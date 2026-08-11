@@ -46,8 +46,8 @@ const ESCROW_ADDR = '5' + '1'.repeat(94)
 const PAYER_ADDR = '5' + '2'.repeat(94)
 
 // Deterministic fee config: min 0.01 XMR / 1%. The CONFIRMED-branch test funds
-// 0.011 XMR, where the min fee (0.01 XMR) dominates — the floor regime gives
-// exact, readable math (observed 11e9 → fee 1e10 → bounty 1e9).
+// 0.11 XMR, where the min fee (0.01 XMR) dominates — the floor regime gives
+// exact, readable math (observed 1.1e11 → fee 1e10 → bounty 1e11).
 const FEE_CONFIG = { bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }
 
 const created = { users: [], items: [], accounts: [], pids: [], bounties: [] }
@@ -84,7 +84,7 @@ async function createUser () {
   return id
 }
 
-async function createPost (userId, { bountyPiconeros = 5_000_000_000n, bountyStatus = 'UNFUNDED' } = {}) {
+async function createPost (userId, { bountyPiconeros = 1_000_000_000_000n, bountyStatus = 'UNFUNDED' } = {}) {
   const item = await prisma.item.create({
     data: { userId, title: 'test bounty post', status: 'ACTIVE', bountyPiconeros, bountyStatus }
   })
@@ -153,9 +153,9 @@ test('initiateBountyFundingCore mints the integrated address, registers the webh
   const out = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
 
   // URI carries the escrow-derived integrated address + the bounty+fee amount
-  // (tx_amount is decimal XMR: (5e9 bounty + 1e10 fee) piconeros = 0.015 XMR).
+  // (tx_amount is decimal XMR: (1e12 bounty + 1e10 fee) piconeros = 1.01 XMR).
   expect(out.uri).toContain(`monero:${out.integratedAddress}?`)
-  expect(out.uri).toContain('tx_amount=0.015')
+  expect(out.uri).toContain('tx_amount=1.01')
   expect(out.uri).toContain(`tx_payment_id=${out.paymentId}`)
   expect(out.paymentId).toMatch(/^[0-9a-f]{16}$/)
   expect(out.feePiconeros).toBe(bountyFeePiconeros(item.bountyPiconeros, FEE_CONFIG))
@@ -181,7 +181,7 @@ test('initiateBountyFundingCore mints the integrated address, registers the webh
     payerId: userId,
     recipientAccountId: escrow.id,
     paymentId: out.paymentId,
-    piconeros: 5_000_000_000n,
+    piconeros: 1_000_000_000_000n,
     height: null,
     state: 'PENDING',
     webhookEventId: 'e1'
@@ -203,8 +203,8 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   created.bounties.push(bounty.id)
 
   // The payer actually sent a different amount than the expected bounty:
-  // 0.011 XMR total, of which the fee (floor = 0.01 XMR) dominates.
-  const observed = 11_000_000_000n
+  // 0.11 XMR total, of which the fee (floor = 0.01 XMR) dominates.
+  const observed = 110_000_000_000n
   const feePiconeros = bountyFeePiconeros(observed, FEE_CONFIG)
   expect(feePiconeros).toBe(10_000_000_000n)
   const txHash = 'ab'.repeat(32)
@@ -220,7 +220,7 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   expect(afterBounty.confirmedAt).toBeInstanceOf(Date)
 
   // The item flips to FUNDED with the observed amount NET of the platform fee
-  // (bountyPiconeros = observed − fee = 1e9, not the raw 11e9) so the signer
+  // (bountyPiconeros = observed − fee = 1e11, not the raw 1.1e11) so the signer
   // can zero the escrow exactly at disposition.
   const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
   expect(afterItem.bountyStatus).toBe('FUNDED')
@@ -228,8 +228,8 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   expect(afterItem.bountyConfirmedAt).toBeInstanceOf(Date)
 
   // BOUNTY_FEE booked born-CONFIRMED at the funding height, computed from the
-  // observed amount: max(11e9 / 100, 1e10) = 1e10 — the min-fee floor dominates
-  // (1% of 11e9 is only 1.1e8).
+  // observed amount: max(1.1e11 / 100, 1e10) = 1e10 — the min-fee floor dominates
+  // (1% of 1.1e11 is only 1.1e9).
   const fee = await prisma.feeObservation.findFirst({ where: { txHash, feeType: 'BOUNTY_FEE' } })
   expect(fee).toMatchObject({
     payInId: null,
@@ -380,7 +380,7 @@ test('rejects a bounty below the BOUNTY_MIN_PICONEROS floor', async () => {
   await seedPayer(userId)
 
   await expect(initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } }))
-    .rejects.toThrow('bounty below minimum (1000000000 piconeros)')
+    .rejects.toThrow('bounty below minimum (10000000000 piconeros)')
 })
 
 test('rejects funding a bounty that is not UNFUNDED', async () => {
