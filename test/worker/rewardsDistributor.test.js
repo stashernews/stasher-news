@@ -55,6 +55,7 @@ const created = {
 let result // the distribution returned by runDistributionOnce (beforeAll)
 let seededCurators // { c1, c2, c3 } — c3 has NO registered payout address
 let genuineRewardsShare // rewards share of genuine (non-fixture) inflow in the period (beforeAll)
+let genuineOpsShare // ops share of genuine (non-fixture) inflow in the period (beforeAll)
 
 // Task 9 stub signer: records that it was invoked and marks each QUEUED payout
 // SENT with a stable fake tx hash. Injected into runDistributionOnce so the
@@ -71,28 +72,31 @@ const fakeSigner = async (payouts, { models } = {}) => {
 }
 
 // Seed amounts (piconeros). Picked so the allocation math is exact:
-//   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100 + 3e12 (DONATE @100%)
+//   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100
+//                 + 3e12 (DONATE @100%) + 1e12*50/100 (DONATE @50%)
 //                 + 1e12*30/100 (BOOST @30%) + 2e12*70/100 (TIP_UNWALLETED @70%)
 //                 + 2.5e12 (BOUNTY_ROLLOVER @100%)
-//                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 + 0.3e12 + 1.4e12 + 2.5e12 = 15.6e12
-//   pool          = 15.6e12 + 1e12 (prior rollover) = 16.6e12
+//                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 + 0.5e12 + 0.3e12 + 1.4e12 + 2.5e12 = 16.1e12
+//   pool          = 16.1e12 + 1e12 (prior rollover) = 17.1e12
 //   totalInflow   = rewardsInflow + 0.5e12 (BOUNTY_FEE @0% rewards, 100% ops)
-//                 = 20e12
+//                 = 21e12
 //   opsInflow     = totalInflow - rewardsInflow = 0.5e12 (BOUNTY_FEE) + 1.2e12 (posting)
-//                   + 1.4e12 (territory) + 0.7e12 (BOOST) + 0.6e12 (TIP_UNWALLETED) = 4.4e12
+//                   + 1.4e12 (territory) + 0.5e12 (half DONATE) + 0.7e12 (BOOST)
+//                   + 0.6e12 (TIP_UNWALLETED) = 4.9e12
 const DOWNVOTE_PICONEROS = 5_000_000_000_000n
 const POSTING_FEE_PICONEROS = 4_000_000_000_000n
 const TERRITORY_FEE_PICONEROS = 2_000_000_000_000n
 const EXTRA_DONATE_PICONEROS = 3_000_000_000_000n
+const HALF_DONATE_PICONEROS = 1_000_000_000_000n // 1e12, donationRewardsPct=50 -> 0.5e12 pool / 0.5e12 ops
 const BOOST_FEE_PICONEROS = 1_000_000_000_000n
 const PRIOR_ROLLOVER_PICONEROS = 1_000_000_000_000n
 const WALLETLESS_TIP_PICONEROS = 2_000_000_000_000n
 const BOUNTY_ROLLOVER_PICONEROS = 2_500_000_000_000n
 const BOUNTY_FEE_PICONEROS = 500_000_000_000n
-const EXPECTED_POOL_PICONEROS = 16_600_000_000_000n
+const EXPECTED_POOL_PICONEROS = 17_100_000_000_000n
 // Ops earmark = totalInflow - rewardsInflow.
-//   downvote (100% rewards -> 0 ops) + posting 4e12*30% + territory 2e12*70% + donate (0 ops) + boost 1e12*70% + walletless 2e12*30% + bounty rollover (100% rewards -> 0 ops) + bounty fee (100% ops) = 1.2e12 + 1.4e12 + 0.7e12 + 0.6e12 + 0.5e12 = 4.4e12
-const EXPECTED_OPS_INFLOW_PICONEROS = 4_400_000_000_000n
+//   downvote (100% rewards -> 0 ops) + posting 4e12*30% + territory 2e12*70% + donate 1e12*50% (half) + boost 1e12*70% + walletless 2e12*30% + bounty rollover (100% rewards -> 0 ops) + bounty fee (100% ops) = 1.2e12 + 1.4e12 + 0.5e12 + 0.7e12 + 0.6e12 + 0.5e12 = 4.9e12
+const EXPECTED_OPS_INFLOW_PICONEROS = 4_900_000_000_000n
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -163,7 +167,7 @@ async function seedPayIn (userId, payInType, major, minor) {
 }
 
 let feeSeq = 0
-async function seedFee (payInId, feeType, major, piconeros, confirmedAt) {
+async function seedFee (payInId, feeType, major, piconeros, confirmedAt, donationRewardsPct = undefined) {
   feeSeq += 1
   const fee = await prisma.feeObservation.create({
     data: {
@@ -173,6 +177,7 @@ async function seedFee (payInId, feeType, major, piconeros, confirmedAt) {
       recipientMajor: major,
       recipientMinor: feeSeq,
       piconeros,
+      donationRewardsPct,
       height: 3000,
       confirmations: 10,
       state: 'CONFIRMED',
@@ -338,6 +343,10 @@ beforeAll(async () => {
   const donatePayIn = await seedPayIn(authorId, 'DONATE', 3, 1)
   await seedFee(donatePayIn.id, 'DONATE', 3, EXTRA_DONATE_PICONEROS, inPeriod)
 
+  // A second donation with a payer-chosen 50% rewards split (fee-allocation v2).
+  const halfDonatePayIn = await seedPayIn(authorId, 'DONATE', 3, 2)
+  await seedFee(halfDonatePayIn.id, 'DONATE', 3, HALF_DONATE_PICONEROS, inPeriod, 50)
+
   // Boost (boostRewardsPct, default 30): funds the pool at 30%, the other 70%
   // is ops. Lands on the BOOST fee subaddress major (5) per the fee-subaddress
   // convention.
@@ -412,16 +421,32 @@ beforeAll(async () => {
       txHash: { not: { startsWith: 'rddv' } }
     }
   }))._sum.piconeros ?? 0n
+  // Genuine donations may carry their own per-donation pct (not the rdfee
+  // prefix), so weight them like the distributor does.
+  const genuineDonateRewards = (await prisma.$queryRaw`
+    SELECT COALESCE(sum("piconeros" * COALESCE("donationRewardsPct", 100) / 100), 0)::bigint AS s
+    FROM "FeeObservation"
+    WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED'
+      AND "confirmedAt" >= ${result.periodStart} AND "confirmedAt" < ${result.periodEnd}
+      AND "txHash" NOT LIKE 'rdfee%'`)[0].s ?? 0n
   const split = (feeType, pct) => (genuineFees[feeType] ?? 0n) * BigInt(pct) / 100n
   const territorySum = (genuineFees.TERRITORY_CREATE ?? 0n) + (genuineFees.TERRITORY_BILLING ?? 0n) + (genuineFees.TERRITORY_UNARCHIVE ?? 0n) + (genuineFees.TERRITORY_UPDATE ?? 0n)
   genuineRewardsShare =
     genuineDownvotes +
     split('POSTING', configRow.postingFeeRewardsPct) +
     territorySum * BigInt(configRow.territoryFeeRewardsPct) / 100n +
-    (genuineFees.DONATE ?? 0n) +
+    genuineDonateRewards +
     split('BOOST', configRow.boostRewardsPct) +
     split('TIP_UNWALLETED', configRow.walletlessTipRewardsPct) +
     (genuineFees.BOUNTY_ROLLOVER ?? 0n)
+
+  // Genuine ops share: totalInflow − rewardsInflow mirrors the distributor's
+  // opsInflow = totalInflow − rewardsInflow definition, so genuine stagenet
+  // activity on the dev DB (e.g. a real posting fee) doesn't break the
+  // 50/50-split ops assertion (AGENTS.md drift-robust pattern).
+  const genuineFeesTotal = genuineFeeGroups.reduce((acc, g) => acc + (g._sum.piconeros ?? 0n), 0n)
+  const genuineTotalInflow = genuineDownvotes + genuineFeesTotal
+  genuineOpsShare = genuineTotalInflow - genuineRewardsShare
 })
 
 afterAll(async () => {
@@ -448,10 +473,17 @@ test('the rewards pool equals the exact allocation earmark + extra sources + pri
   expect(result.poolPiconeros.toString()).toBe((EXPECTED_POOL_PICONEROS + genuineRewardsShare).toString())
 })
 
-test('the DONATE extra source funds the pool 1:1 (no allocation %)', async () => {
-  // Without DONATE + BOOST + TIP_UNWALLETED + BOUNTY_ROLLOVER, pool would be
-  // 9.4e12; DONATE adds its full amount at 100% (no allocation % split).
-  expect(result.poolPiconeros).toBe(9_400_000_000_000n + EXTRA_DONATE_PICONEROS + BOOST_FEE_PICONEROS * 30n / 100n + WALLETLESS_TIP_PICONEROS * 70n / 100n + BOUNTY_ROLLOVER_PICONEROS + genuineRewardsShare)
+test('DONATE sources fund the pool at their per-donation rewards pct', async () => {
+  // The 3e12 fixture donation (no pct -> 100% pool) plus the 1e12 fixture
+  // donation at 50% (0.5e12 pool), on top of the 9.4e12 base pool.
+  expect(result.poolPiconeros).toBe(9_400_000_000_000n + EXTRA_DONATE_PICONEROS + HALF_DONATE_PICONEROS * 50n / 100n + BOOST_FEE_PICONEROS * 30n / 100n + WALLETLESS_TIP_PICONEROS * 70n / 100n + BOUNTY_ROLLOVER_PICONEROS + genuineRewardsShare)
+})
+
+test('a donation with donationRewardsPct=50 splits 50/50 into pool and ops', async () => {
+  const poolWithoutHalf = EXPECTED_POOL_PICONEROS + genuineRewardsShare - HALF_DONATE_PICONEROS * 50n / 100n
+  expect(result.poolPiconeros - poolWithoutHalf).toBe(HALF_DONATE_PICONEROS * 50n / 100n)
+  const opsWithoutHalf = EXPECTED_OPS_INFLOW_PICONEROS + genuineOpsShare - HALF_DONATE_PICONEROS * 50n / 100n
+  expect(result.opsInflowPiconeros - opsWithoutHalf).toBe(HALF_DONATE_PICONEROS * 50n / 100n)
 })
 
 test('the BOUNTY_ROLLOVER source funds the pool 100% and BOUNTY_FEE funds it 0% (ops-only)', async () => {

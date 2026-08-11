@@ -189,6 +189,20 @@ describe('Query.rewardsWalletInfo', () => {
     expect(boostResult.opsEarmarkPiconeros).toBe(2_800_000_000n)
   })
 
+  test('a donation with donationRewardsPct=50 splits 50/50 into rewards and ops', async () => {
+    const models = makeModels({
+      downvotes: 0n,
+      feeGroups: [{ feeType: 'DONATE', donationRewardsPct: 50, _sum: { piconeros: 4_000_000_000n } }]
+    })
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(result.inflowBreakdown.totalPiconeros).toBe(4_000_000_000n)
+    expect(result.inflowBreakdown.rewardsPiconeros).toBe(2_000_000_000n)
+    expect(result.inflowBreakdown.opsPiconeros).toBe(2_000_000_000n)
+    expect(result.rewardsEarmarkPiconeros).toBe(2_000_000_000n)
+    expect(result.opsEarmarkPiconeros).toBe(2_000_000_000n)
+  })
+
   test('BOUNTY_ROLLOVER flows 100% to rewards; BOUNTY_FEE flows 0% to rewards but counts to the ledger (A-13 final)', async () => {
     // Rollover: the escrow's bounty portion physically arrives at the rewards
     // wallet — 100% rewards, same treatment as DONATE. Bounty fee: booked at
