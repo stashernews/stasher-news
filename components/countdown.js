@@ -1,4 +1,5 @@
 import Countdown from 'react-countdown'
+import { formatDaysHours } from '@/lib/format'
 
 export default function SimpleCountdown (props) {
   return (
@@ -46,6 +47,20 @@ export function CompactLongCountdown (props) {
                   : Number(props.formatted.seconds) >= 0
                     ? ` ${props.formatted.seconds}s`
                     : ' '}
+          </>
+        )
+      }}
+    />
+  )
+}
+
+export function DaysHoursCountdown (props) {
+  return (
+    <CountdownShared
+      {...props} formatter={props => {
+        return (
+          <>
+            {formatDaysHours(props.total)}
           </>
         )
       }}
