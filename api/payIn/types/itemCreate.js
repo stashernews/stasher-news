@@ -5,8 +5,8 @@ import { extractMentions } from '@/lib/lexical/server/mentions'
 import { GqlInputError } from '@/lib/error'
 import { getItem } from '@/api/resolvers/item'
 import { getTempImgproxyUrls } from '../lib/upload'
-import { incrementFreeCommentCount, commentsFreeLeft } from '../lib/freebie'
-import { canPostFree, postingFeePiconeros } from '@/api/monero/postingFee'
+import { incrementFreeCommentCount, incrementFreePostCount } from '../lib/freebie'
+import { canPostFree, postingFeePiconeros, commentsFreeLeft, postsFreeLeft } from '@/api/monero/postingFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { uploadFees } from '@/api/resolvers/upload'
@@ -81,8 +81,10 @@ export async function getInitial (models, args, { me }) {
         beneficiaries
       }
     }
+    const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+    if (!config) throw new GqlInputError('fee config not initialized')
     const commenter = await models.user.findUnique({ where: { id: me.id } })
-    if (commentsFreeLeft(commenter) > 0) {
+    if (commentsFreeLeft(commenter, config) > 0) {
       if (uploadFeesPiconeros > 0n) {
         const sub = await reserveFeeSubaddress(models, 'POSTING')
         const moneroUri = buildMoneroUri(
@@ -101,8 +103,6 @@ export async function getInitial (models, args, { me }) {
       }
       return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
     }
-    const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
-    if (!config) throw new GqlInputError('fee config not initialized')
     const fee = await escalatedFeePiconeros(models, {
       parentId: args.parentId,
       userId: me.id,
@@ -128,7 +128,10 @@ export async function getInitial (models, args, { me }) {
   const user = await models.user.findUnique({ where: { id: me.id } })
   if (!user) throw new GqlInputError('user not found')
 
-  if (canPostFree(user, config)) {
+  const established = canPostFree(user, config)
+  const postsLeft = postsFreeLeft(user, config)
+
+  if (established && postsLeft > 0) {
     if (uploadFeesPiconeros > 0n) {
       const sub = await reserveFeeSubaddress(models, 'POSTING')
       const moneroUri = buildMoneroUri(
@@ -152,9 +155,12 @@ export async function getInitial (models, args, { me }) {
     }
   }
 
-  // low-rep user: reserve a rewards-wallet posting-fee subaddress and build the URI.
-  // Anon posts pay the flat fee x ANON_POST_FEE_MULTIPLIER (no spam escalation:
-  // ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0).
+  // Low-rep user OR established user who has exhausted the free-post quota:
+  // reserve a rewards-wallet posting-fee subaddress and build the URI. The post
+  // is created PENDING_FEE (invisible) until rewardsWalletObserver observes the
+  // fee and flips it to FEE_PAID. Anon posts pay the flat fee x
+  // ANON_POST_FEE_MULTIPLIER (no spam escalation: ANON_ITEM_SPAM_INTERVAL '0'
+  // -> item_spam returns 0).
   const fee = me.id === USER_ID.anon
     ? postingFeePiconeros(config) * BigInt(ANON_POST_FEE_MULTIPLIER)
     : await escalatedFeePiconeros(models, {
@@ -320,8 +326,11 @@ export async function onPaid (tx, payInId) {
     throw new Error('Item not found')
   }
 
-  // If this is a freebie comment, increment the free comment counter
+  // If this is a freebie comment, increment the free comment counter.
   await incrementFreeCommentCount(tx, { item, userId: payIn.userId })
+  // If this is a free top-level post within the monthly quota, increment the
+  // free post counter. Self-guarding (no-op for comments, bios, paid posts).
+  await incrementFreePostCount(tx, { item, userId: payIn.userId })
 
   // retry OpenTimestamps stamp up to 12x with 10 minutes spacing
   //
