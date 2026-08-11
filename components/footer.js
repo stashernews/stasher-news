@@ -50,8 +50,7 @@ const SocialsPopover = (
   <Popover>
     <Popover.Body style={{ fontWeight: 500, fontSize: '.9rem' }}>
       <div className='d-flex justify-content-center'>
-        {/* TODO: replace href with the real X/Twitter URL once the account exists */}
-        <a href='https://x.com/' className='nav-link p-0 d-inline-flex' target='_blank' rel='noreferrer'>
+        <a href='https://x.com/stashernews' className='nav-link p-0 d-inline-flex' target='_blank' rel='noreferrer'>
           x
         </a>
       </div>
