@@ -343,7 +343,10 @@ test('bounty branch: a DETECTED bounty at REQUIRED_CONFIRMATIONS runs the fundin
   const txItemUpdate = jest.fn().mockResolvedValue({})
   const queryRaw = jest.fn().mockResolvedValue([])
   const models = mockModels({
-    bountyPidMap: { findFirst: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5 }) },
+    // A DETECTED bounty's pid map is already consumed (consumedAt set at
+    // DETECTED), so the live-guarded lookup returns null. The pid map is NOT
+    // consulted for DETECTED callbacks — driveBountyFunding must run regardless.
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue(null) },
     observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
     txBountyUpdate,
     txItemUpdate,
@@ -372,6 +375,67 @@ test('bounty branch: a DETECTED bounty at REQUIRED_CONFIRMATIONS runs the fundin
   expect(sqls.some(sql => sql.includes('BOUNTY_FEE') && sql.includes('CONFIRMED'))).toBe(true)
   // The lws webhook is torn down after the transaction commits.
   expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-b')
+})
+
+test('bounty branch: the N-conf CONFIRMED callback still funds when the BountyPidMap is ALREADY CONSUMED (regression: pid-map gate must not block the DETECTED->CONFIRMED callback)', async () => {
+  // Realistic post-0-conf state: the 0-conf callback already claimed PENDING
+  // -> DETECTED and consumed the pid map (consumedAt set). Every later callback
+  // (1-conf .. N-conf) finds a CONSUMED map, so the live-guarded findFirst
+  // (consumedAt: null) returns null. The N-conf callback is the ONLY path that
+  // runs driveBountyFunding, so it MUST still reach it — idempotency is handled
+  // by the CONFIRMED state guard + ON CONFLICT, NOT by the pid-map gate.
+  const bounty = { id: 9, postId: 6, state: 'DETECTED', paymentId: 'bn456', txHash: 'cafef00d', webhookEventId: 'evt-c' }
+  const txBountyUpdate = jest.fn().mockResolvedValue({})
+  const txItemUpdate = jest.fn().mockResolvedValue({})
+  const queryRaw = jest.fn().mockResolvedValue([])
+  const models = mockModels({
+    // Consumed map -> the live-guarded lookup matches nothing.
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue(null) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
+    txBountyUpdate,
+    txItemUpdate,
+    queryRaw
+  })
+  const monero = mockMonero()
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bn456', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'cafef00d', block: 2172700, amount: 11000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // driveBountyFunding ran: ObservedBounty -> CONFIRMED.
+  expect(txBountyUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    where: { id: 9 },
+    data: expect.objectContaining({ state: 'CONFIRMED', confirmations: 10, height: 2172700 })
+  }))
+  // Item -> FUNDED net of fee.
+  expect(txItemUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    where: { id: 6 },
+    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 1000000000n })
+  }))
+  // Webhook torn down.
+  expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-c')
+})
+
+test('bounty branch: a DETECTED sub-conf callback (pid map consumed) still records height/confirmations (height backfill reachable)', async () => {
+  // The intermediate 1-conf .. (N-1)-conf callbacks must also reach the DETECTED
+  // branch to backfill height (NULL at 0-conf) and confirmations — otherwise the
+  // finalizer's height-not-null filter can never pick up a missed N-conf callback.
+  const bounty = { id: 11, postId: 8, state: 'DETECTED', paymentId: 'bn789', txHash: 'f00d1234', webhookEventId: 'evt-d' }
+  const bountyUpdate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue(null) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty), update: bountyUpdate }
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bn789', event: 'tx-confirmation', confirmations: 3, tx_info: { tx_hash: 'f00d1234', block: 2172800, amount: 11000000000 } }
+  }, res, models)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // The height/confirmations backfill ran on the DETECTED row.
+  expect(bountyUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    where: { id: 11 },
+    data: expect.objectContaining({ confirmations: 3, height: 2172800, txHash: 'f00d1234' })
+  }))
 })
 
 test('bounty branch: does NOT consume the BountyPidMap when the conditional claim loses (race with another claimer)', async () => {
