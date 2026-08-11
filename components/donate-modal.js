@@ -2,6 +2,7 @@ import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
 import { useEffect, useRef, useState } from 'react'
 import InputGroup from 'react-bootstrap/InputGroup'
+import BootstrapForm from 'react-bootstrap/Form'
 import { Form, Input, SubmitButton } from './form'
 import { useAnimation } from './animation'
 import { useToast } from './toast'
@@ -33,6 +34,7 @@ export default function DonateModal ({ onClose }) {
   const toaster = useToast()
   const [donateToRewards] = usePayInMutation(DONATE)
   const [payIn, setPayIn] = useState(null)
+  const [rewardsPct, setRewardsPct] = useState(100)
 
   const amountPiconeros = payIn
     ? (moneroUriAmountPiconeros(payIn.moneroUri) ?? 0n)
@@ -60,11 +62,11 @@ export default function DonateModal ({ onClose }) {
         moneroUri={payIn.moneroUri}
         amountPiconeros={amountPiconeros}
         heading='Donate to the rewards pool'
-        description={`Scan to send ${piconerosToXmr(amountPiconeros)} to the rewards wallet. Curators earn it back.`}
+        description={`Scan to send ${piconerosToXmr(amountPiconeros)} to the rewards wallet. ${rewardsPct}% funds curator rewards, ${100 - rewardsPct}% supports the platform.`}
       >
         <p className='text-muted text-center mt-3'>
           <small>
-            Your donation funds curator rewards. Detection takes about one block; final confirmation takes about {REQUIRED_CONFIRMATIONS} blocks.
+            Your donation is split {rewardsPct}% / {100 - rewardsPct}% (rewards / platform). Detection takes about one block; final confirmation takes about {REQUIRED_CONFIRMATIONS} blocks.
           </small>
         </p>
       </MoneroPaymentView>
@@ -80,7 +82,8 @@ export default function DonateModal ({ onClose }) {
       onSubmit={async ({ amount }) => {
         const { data, error, payError } = await donateToRewards({
           variables: {
-            piconeros: Number(xmrToPiconeros(String(amount)))
+            piconeros: Number(xmrToPiconeros(String(amount))),
+            rewardsPct
           }
         })
         if (error) throw error
@@ -98,6 +101,26 @@ export default function DonateModal ({ onClose }) {
         autoFocus
         append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
       />
+      <BootstrapForm.Group className='my-2'>
+        <div className='d-flex justify-content-between align-items-baseline'>
+          <BootstrapForm.Label className='mb-0'>rewards pool split</BootstrapForm.Label>
+          <span className='text-monospace'>{rewardsPct}% rewards / {100 - rewardsPct}% platform</span>
+        </div>
+        <BootstrapForm.Range
+          min={0}
+          max={100}
+          step={5}
+          value={rewardsPct}
+          onChange={e => setRewardsPct(Number(e.target.value))}
+        />
+        <small className='text-muted'>
+          {rewardsPct === 100
+            ? '100% of your donation funds curator rewards.'
+            : rewardsPct === 0
+              ? 'Your donation goes entirely to platform operations.'
+              : 'Your donation is split between curator rewards and platform operations.'}
+        </small>
+      </BootstrapForm.Group>
       <div className='d-flex'>
         <SubmitButton variant='success' className='ms-auto mt-1 px-4' value='TIP'>donate</SubmitButton>
       </div>

@@ -217,8 +217,8 @@ export const FAILED_PAY_INS = gql`
 
 export const DONATE = gql`
   ${PAY_IN_FIELDS}
-  mutation donateToRewards($piconeros: BigInt!, $sendProtocolId: Int) {
-    donateToRewards(piconeros: $piconeros, sendProtocolId: $sendProtocolId) {
+  mutation donateToRewards($piconeros: BigInt!, $rewardsPct: Int, $sendProtocolId: Int) {
+    donateToRewards(piconeros: $piconeros, rewardsPct: $rewardsPct, sendProtocolId: $sendProtocolId) {
       ...PayInFields
     }
   }`
