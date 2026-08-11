@@ -147,10 +147,15 @@ export function PostForm ({ type, subs, children }) {
     FormType = BountyForm
   }
 
+  // Turf-owner perk: free posting in a turf the author owns (any of the selected
+  // turfs). subs carries Sub.userId (SUB_FIELDS), so ownership is a client-side
+  // check; the server re-checks authoritatively in ITEM_CREATE getInitial.
+  const ownsSub = !!me && subs.some(s => Number(s.userId) === Number(me.id))
+
   return (
     <FeeButtonProvider
-      baseLineItems={postCommentBaseLineItems({ me })}
-      useRemoteLineItems={postCommentUseRemoteLineItems()}
+      baseLineItems={postCommentBaseLineItems({ me, ownsSub })}
+      useRemoteLineItems={postCommentUseRemoteLineItems({ ownsSub })}
     >
       <FormType subs={subs}>{children}</FormType>
     </FeeButtonProvider>
