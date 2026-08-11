@@ -355,7 +355,7 @@ test('bounty branch: a DETECTED bounty at REQUIRED_CONFIRMATIONS runs the fundin
   const monero = mockMonero()
   const res = mockRes()
   await handleWebhook({
-    body: { payment_id: 'bn123', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'beefbeef', block: 2172610, amount: 11000000000 } }
+    body: { payment_id: 'bn123', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'beefbeef', block: 2172610, amount: 110000000000 } }
   }, res, models, monero)
   expect(res.status).toHaveBeenCalledWith(200)
   // ObservedBounty -> CONFIRMED with the callback's height/confirmations.
@@ -363,11 +363,11 @@ test('bounty branch: a DETECTED bounty at REQUIRED_CONFIRMATIONS runs the fundin
     where: { id: 7 },
     data: expect.objectContaining({ state: 'CONFIRMED', confirmations: 10, height: 2172610 })
   }))
-  // Item -> FUNDED with the observed amount NET of the platform fee (11e9
-  // observed − 10e9 floor fee = 1e9), so dispositions can zero the escrow.
+  // Item -> FUNDED with the observed amount NET of the platform fee (1.1e11
+  // observed − 1e10 floor fee = 1e11), so dispositions can zero the escrow.
   expect(txItemUpdate).toHaveBeenCalledWith(expect.objectContaining({
     where: { id: 5 },
-    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 1000000000n, bountyConfirmedAt: expect.any(Date) })
+    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 100000000000n, bountyConfirmedAt: expect.any(Date) })
   }))
   // BOUNTY_FEE ledger row booked born-CONFIRMED inside the same transaction.
   const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
@@ -399,7 +399,7 @@ test('bounty branch: the N-conf CONFIRMED callback still funds when the BountyPi
   const monero = mockMonero()
   const res = mockRes()
   await handleWebhook({
-    body: { payment_id: 'bn456', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'cafef00d', block: 2172700, amount: 11000000000 } }
+    body: { payment_id: 'bn456', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'cafef00d', block: 2172700, amount: 110000000000 } }
   }, res, models, monero)
   expect(res.status).toHaveBeenCalledWith(200)
   // driveBountyFunding ran: ObservedBounty -> CONFIRMED.
@@ -410,7 +410,7 @@ test('bounty branch: the N-conf CONFIRMED callback still funds when the BountyPi
   // Item -> FUNDED net of fee.
   expect(txItemUpdate).toHaveBeenCalledWith(expect.objectContaining({
     where: { id: 6 },
-    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 1000000000n })
+    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 100000000000n })
   }))
   // Webhook torn down.
   expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-c')

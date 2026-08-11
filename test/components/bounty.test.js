@@ -14,8 +14,8 @@ import { BOUNTY_MIN_PICONEROS } from '@/lib/constants'
 // enforce — rather than forcing a snapshot harness.
 
 describe('bounty min amount (derived from BOUNTY_MIN_PICONEROS)', () => {
-  test('the UI floor is 0.001 XMR', () => {
-    expect(BOUNTY_MIN_XMR).toBe(0.001)
+  test('the UI floor is 0.01 XMR', () => {
+    expect(BOUNTY_MIN_XMR).toBe(0.01)
   })
 
   test('the UI floor tracks the server constant', () => {
@@ -24,14 +24,14 @@ describe('bounty min amount (derived from BOUNTY_MIN_PICONEROS)', () => {
 })
 
 describe('bountyAmountError floor enforcement', () => {
-  test('rejects amounts below the 0.001 XMR floor', () => {
-    expect(bountyAmountError(0.0009)).toMatch(/at least/)
+  test('rejects amounts below the 0.01 XMR floor', () => {
+    expect(bountyAmountError(0.009)).toMatch(/at least/)
     expect(bountyAmountError(0)).toMatch(/positive/)
     expect(bountyAmountError(-1)).toMatch(/positive/)
   })
 
   test('accepts the floor exactly and typical amounts', () => {
-    expect(bountyAmountError(0.001)).toBeNull()
+    expect(bountyAmountError(0.01)).toBeNull()
     expect(bountyAmountError(0.5)).toBeNull()
     expect(bountyAmountError('1')).toBeNull()
   })

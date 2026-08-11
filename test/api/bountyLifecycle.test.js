@@ -27,10 +27,10 @@ const prisma = new PrismaClient()
 const WINNER_ADDR = '5' + '2'.repeat(94)
 const AUTHOR_ADDR = '5' + '4'.repeat(94)
 
-// Deterministic fee config: min 0.01 XMR / 1%. With a 5e9 piconeros bounty the
-// floor dominates (max(5e7, 1e10) = 1e10), giving exact, readable math.
+// Deterministic fee config: min 0.01 XMR / 1%. With a 1e11 piconeros bounty the
+// floor dominates (max(1e9, 1e10) = 1e10), giving exact, readable math.
 const FEE_CONFIG = { bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }
-const BOUNTY = 5_000_000_000n
+const BOUNTY = 100_000_000_000n
 const FEE = 10_000_000_000n
 
 const created = { users: [], items: [], accounts: [], payments: [] }
