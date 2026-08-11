@@ -8,6 +8,8 @@ import { ItemButtonBar } from './post'
 import { useShowModal } from './modal'
 import { Button } from 'react-bootstrap'
 import { useRoot } from './root'
+import { useQuery } from '@apollo/client/react'
+import { SUBS } from '@/fragments/subs'
 import { CREATE_COMMENT } from '@/fragments/payIn'
 import { injectComment } from '@/lib/comments'
 import useItemSubmit from './use-item-submit'
@@ -32,6 +34,11 @@ export default forwardRef(function Reply ({
   const showModal = useShowModal()
   const root = useRoot()
   const { markCommentViewedAt } = useCommentsView(root?.id)
+  const { data: subsData } = useQuery(SUBS, {
+    variables: { subNames: root?.subNames || [] },
+    skip: !root?.subNames?.length
+  })
+  const ownsSub = !!me && (subsData?.subs?.some(s => Number(s.userId) === Number(me.id)) ?? false)
 
   useEffect(() => {
     if (replyOpen || quote || !!window.localStorage.getItem('reply-' + parentId + '-' + 'text')) {
@@ -145,8 +152,8 @@ export default forwardRef(function Reply ({
       {reply &&
         <div className={styles.reply}>
           <FeeButtonProvider
-            baseLineItems={postCommentBaseLineItems({ comment: true, me })}
-            useRemoteLineItems={postCommentUseRemoteLineItems({ parentId: item.id, me: !!me })}
+            baseLineItems={postCommentBaseLineItems({ comment: true, me, ownsSub })}
+            useRemoteLineItems={postCommentUseRemoteLineItems({ parentId: item.id, ownsSub })}
           >
             <Form
               initial={{
