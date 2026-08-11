@@ -62,13 +62,13 @@ describe('downvote amount shape validation', () => {
 })
 
 describe('isLargeDownvote', () => {
-  test('false at/below the threshold', () => {
+  test('false below the threshold', () => {
     expect(isLargeDownvote(DOWNVOTE_DEFAULT_PICONEROS)).toBe(false)
-    expect(isLargeDownvote(DOWNVOTE_LARGE_PICONEROS)).toBe(false)
+    expect(isLargeDownvote(DOWNVOTE_LARGE_PICONEROS - 1)).toBe(false)
   })
 
-  test('true above the threshold', () => {
-    expect(isLargeDownvote(DOWNVOTE_LARGE_PICONEROS + 1)).toBe(true)
+  test('true at/above the threshold', () => {
+    expect(isLargeDownvote(DOWNVOTE_LARGE_PICONEROS)).toBe(true)
     expect(isLargeDownvote(DOWNVOTE_MAX_PICONEROS)).toBe(true)
   })
 })
