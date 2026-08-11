@@ -11,6 +11,7 @@ import Info from '@/components/info'
 import Link from 'next/link'
 import { bech32 } from 'bech32'
 import { NOSTR_MAX_RELAY_NUM, NOSTR_PUBKEY_BECH32, DEFAULT_CROSSPOSTING_RELAYS } from '@/lib/nostr'
+import { isNostrEnabled } from '@/lib/nostrFeatures'
 import { settingsSchema, filterXmrValidator } from '@/lib/validate'
 import { SUPPORTED_CURRENCIES } from '@/lib/currency'
 import PageLoading from '@/components/page-loading'
@@ -417,41 +418,44 @@ export default function Settings ({ ssrData }) {
             }
             name='nsfwMode'
           />
-          <h4 className='mt-5'>nostr</h4>
-          <Checkbox
-            label={
-              <div className='d-flex align-items-center'>crosspost to nostr
-                <Info>
-                  <ul>
-                    <li>crosspost your items to nostr</li>
-                    <li>requires NIP-07 extension for signing</li>
-                    <li>we use your NIP-05 relays if set</li>
-                    <li>we use these relays by default:</li>
-                    <ul>
-                      {DEFAULT_CROSSPOSTING_RELAYS.map((relay, i) => (
-                        <li key={i}>{relay}</li>
-                      ))}
-                    </ul>
-                  </ul>
-                </Info>
-              </div>
-            }
-            name='nostrCrossposting'
-          />
-          <Input
-            label={<>pubkey <small className='text-muted ms-2'>optional</small></>}
-            name='nostrPubkey'
-            clear
-            hint={<small className='text-muted'>used for NIP-05</small>}
-          />
-          <VariableInput
-            label={<>relays <small className='text-muted ms-2'>optional</small></>}
-            name='nostrRelays'
-            clear
-            min={0}
-            max={NOSTR_MAX_RELAY_NUM}
-            hint={<small className='text-muted'>used for NIP-05 and crossposting</small>}
-          />
+          {isNostrEnabled(settings?.authMethods) &&
+            <>
+              <h4 className='mt-5'>nostr</h4>
+              <Checkbox
+                label={
+                  <div className='d-flex align-items-center'>crosspost to nostr
+                    <Info>
+                      <ul>
+                        <li>crosspost your items to nostr</li>
+                        <li>requires NIP-07 extension for signing</li>
+                        <li>we use your NIP-05 relays if set</li>
+                        <li>we use these relays by default:</li>
+                        <ul>
+                          {DEFAULT_CROSSPOSTING_RELAYS.map((relay, i) => (
+                            <li key={i}>{relay}</li>
+                          ))}
+                        </ul>
+                      </ul>
+                    </Info>
+                  </div>
+                }
+                name='nostrCrossposting'
+              />
+              <Input
+                label={<>pubkey <small className='text-muted ms-2'>optional</small></>}
+                name='nostrPubkey'
+                clear
+                hint={<small className='text-muted'>used for NIP-05</small>}
+              />
+              <VariableInput
+                label={<>relays <small className='text-muted ms-2'>optional</small></>}
+                name='nostrRelays'
+                clear
+                min={0}
+                max={NOSTR_MAX_RELAY_NUM}
+                hint={<small className='text-muted'>used for NIP-05 and crossposting</small>}
+              />
+            </>}
           <div className='d-flex'>
             <SubmitButton variant='info' className='ms-auto mt-1 px-4'>save</SubmitButton>
           </div>
