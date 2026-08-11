@@ -18,7 +18,7 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-export async function getInitial (models, { piconeros }, { me }) {
+export async function getInitial (models, { piconeros, rewardsPct }, { me }) {
   const sub = await reserveFeeSubaddress(models, 'DONATE')
   const moneroUri = buildMoneroUri(
     [{ address: sub.address, amount: piconeros }],
@@ -30,7 +30,8 @@ export async function getInitial (models, { piconeros }, { me }) {
     piconeros: 0n,
     moneroUri,
     moneroSubaddressMajor: sub.major,
-    moneroSubaddressMinor: sub.minor
+    moneroSubaddressMinor: sub.minor,
+    donationRewardsPct: rewardsPct ?? null
   }
 }
 

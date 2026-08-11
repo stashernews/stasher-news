@@ -84,8 +84,8 @@ async function attributeFeeBySubaddress (models, tx) {
   // exactly once. postId/subName are denormalized from the PayIn's ItemPayIn /
   // SubPayIn links for the rewards ledger and the statistics/analytics reads.
   const rows = await models.$queryRaw`
-    INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","height","state","detectedAt")
-    VALUES (${tx.hash}, ${payIn.id}, ${feeType}::"FeeType", ${payIn.itemPayIn?.itemId ?? null}, ${payIn.subPayIn?.subName ?? null}, ${major}, ${minor}, ${tx.piconeros}, ${tx.height ?? null}, 'DETECTED'::"ObservedState", NOW())
+    INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","donationRewardsPct","height","state","detectedAt")
+    VALUES (${tx.hash}, ${payIn.id}, ${feeType}::"FeeType", ${payIn.itemPayIn?.itemId ?? null}, ${payIn.subPayIn?.subName ?? null}, ${major}, ${minor}, ${tx.piconeros}, ${payIn.donationRewardsPct ?? null}, ${tx.height ?? null}, 'DETECTED'::"ObservedState", NOW())
     ON CONFLICT ("txHash","recipientMajor","recipientMinor") DO NOTHING
     RETURNING id`
   if (!rows || rows.length === 0) return null
