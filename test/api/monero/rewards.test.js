@@ -60,8 +60,8 @@ function makeFakeModels (rows) {
 
 // Fake wallet. createTx records each request and returns a stub tx whose
 // getHash() yields a stable 64-hex-char string (the real monero-ts wallet
-// returns a hex string too). throwsOn maps `${address}:${amount}` -> Error to
-// simulate per-payout failures.
+// returns a hex string too). throwsOn maps a destination address -> Error to
+// simulate hard failures.
 function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, throwsOn = {} } = {}) {
   const calls = []
   let n = 0
@@ -70,8 +70,7 @@ function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, throwsOn = {} } = 
     async getUnlockedBalance () { return unlocked },
     async createTx (req) {
       calls.push(req)
-      const key = `${req.address}:${req.amount.toString()}`
-      if (throwsOn[key]) throw throwsOn[key]
+      if (throwsOn[req.destinations?.[0]?.address]) throw throwsOn[req.destinations[0].address]
       n += 1
       const hash = 'ab' + String(n).padStart(6, '0') + 'cd'.repeat(28) // 2+6+56 = 64 hex chars
       return { getHash: () => hash, getFee: async () => 50_000_000n }
@@ -79,73 +78,68 @@ function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, throwsOn = {} } = 
   }
 }
 
-test('marks a payout SENT with the tx hash when createTx succeeds', async () => {
-  const p = makePayout()
-  const models = makeFakeModels([p])
+test('sends all QUEUED payouts in a single createTx with destinations', async () => {
+  const p1 = makePayout({ id: 1, recipientAddress: '5AAA' })
+  const p2 = makePayout({ id: 2, recipientAddress: '5BBB' })
+  const p3 = makePayout({ id: 3, recipientAddress: '5CCC' })
+  const models = makeFakeModels([p1, p2, p3])
   const wallet = makeFakeWallet()
-  const summary = await sendPayouts([p], { models, wallet })
-  expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0 })
-  const row = models.store.get(p.id)
-  expect(row.state).toBe('SENT')
-  expect(row.txHash).toMatch(/^[0-9a-f]{64}$/)
-})
-
-test('passes accountIndex 0, the payout address/amount, and relay:true to createTx', async () => {
-  const p = makePayout({ recipientAddress: '5DESTADDR', piconeros: 2_500_000_000n })
-  const models = makeFakeModels([p])
-  const wallet = makeFakeWallet()
-  await sendPayouts([p], { models, wallet })
+  const summary = await sendPayouts([p1, p2, p3], { models, wallet })
+  expect(summary).toEqual({ sent: 3, failed: 0, skipped: 0 })
   expect(wallet.calls).toHaveLength(1)
   expect(wallet.calls[0]).toEqual({
     accountIndex: 0,
-    address: '5DESTADDR',
-    amount: 2_500_000_000n,
+    destinations: [
+      { address: '5AAA', amount: 1_000_000_000n },
+      { address: '5BBB', amount: 1_000_000_000n },
+      { address: '5CCC', amount: 1_000_000_000n }
+    ],
     relay: true
   })
+  for (const p of [p1, p2, p3]) {
+    const row = models.store.get(p.id)
+    expect(row.state).toBe('SENT')
+    expect(row.txHash).toMatch(/^[0-9a-f]{64}$/)
+  }
+  const hashes = new Set([p1, p2, p3].map(p => models.store.get(p.id).txHash))
+  expect(hashes.size).toBe(1) // one tx, one shared hash
 })
 
-test('marks a payout FAILED when createTx throws a hard error, but still sends the others', async () => {
-  const ok = makePayout({ recipientAddress: '5GOOD' })
-  const bad = makePayout({ recipientAddress: '5BADADDR', piconeros: 1_000_000_000n })
-  const models = makeFakeModels([ok, bad])
-  const wallet = makeFakeWallet({
-    throwsOn: { '5BADADDR:1000000000': new Error('invalid recipient address') }
-  })
-  const summary = await sendPayouts([ok, bad], { models, wallet })
-  expect(summary).toEqual({ sent: 1, failed: 1, skipped: 0 })
-  expect(models.store.get(ok.id).state).toBe('SENT')
-  const failed = models.store.get(bad.id)
-  expect(failed.state).toBe('FAILED')
-  // funds are not lost: a FAILED payout keeps no tx hash (the share rolls over)
-  expect(failed.txHash).toBeNull()
+test('skips the whole batch when unlocked balance cannot cover the sum', async () => {
+  const p1 = makePayout({ id: 1, piconeros: 3_000_000_000n })
+  const p2 = makePayout({ id: 2, piconeros: 3_000_000_000n })
+  const models = makeFakeModels([p1, p2])
+  const wallet = makeFakeWallet({ unlocked: 5_000_000_000n })
+  const summary = await sendPayouts([p1, p2], { models, wallet })
+  expect(summary).toEqual({ sent: 0, failed: 0, skipped: 2 })
+  expect(models.store.get(p1.id).state).toBe('QUEUED')
+  expect(models.store.get(p2.id).state).toBe('QUEUED')
+  expect(wallet.calls).toHaveLength(0)
 })
 
-test('leaves a payout QUEUED (skipped, not FAILED) when unlocked balance is insufficient', async () => {
-  const p = makePayout({ piconeros: 5_000_000_000n })
+test('marks every payout FAILED when createTx throws a hard error', async () => {
+  const p1 = makePayout({ id: 1, recipientAddress: '5BADADDR' })
+  const p2 = makePayout({ id: 2, recipientAddress: '5GOOD' })
+  const models = makeFakeModels([p1, p2])
+  const wallet = makeFakeWallet({ throwsOn: { '5BADADDR': new Error('invalid recipient address') } })
+  const summary = await sendPayouts([p1, p2], { models, wallet })
+  expect(summary).toEqual({ sent: 0, failed: 2, skipped: 0 })
+  expect(models.store.get(p1.id).state).toBe('FAILED')
+  expect(models.store.get(p2.id).state).toBe('FAILED')
+  expect(models.store.get(p1.id).txHash).toBeNull() // funds stayed in the wallet
+})
+
+test('treats a not-enough-money createTx error as a SKIP for the whole batch', async () => {
+  const p = makePayout({ id: 1, recipientAddress: '5LOCKED' })
   const models = makeFakeModels([p])
-  // wallet reports far less unlocked than the payout needs
-  const wallet = makeFakeWallet({ unlocked: 1_000_000_000n })
-  const summary = await sendPayouts([p], { models, wallet })
-  expect(summary).toEqual({ sent: 0, failed: 0, skipped: 1 })
-  const row = models.store.get(p.id)
-  expect(row.state).toBe('QUEUED') // retryable next run; not abandoned as FAILED
-  expect(row.txHash).toBeNull()
-  expect(wallet.calls).toHaveLength(0) // never even attempted createTx
-})
-
-test('treats a not-enough-money createTx error as a SKIP (funds may be locked), not a hard FAILED', async () => {
-  const p = makePayout({ recipientAddress: '5LOCKED' })
-  const models = makeFakeModels([p])
-  const wallet = makeFakeWallet({
-    throwsOn: { '5LOCKED:1000000000': new Error('not enough unlocked money') }
-  })
+  const wallet = makeFakeWallet({ throwsOn: { '5LOCKED': new Error('not enough unlocked money') } })
   const summary = await sendPayouts([p], { models, wallet })
   expect(summary).toEqual({ sent: 0, failed: 0, skipped: 1 })
   expect(models.store.get(p.id).state).toBe('QUEUED')
 })
 
-test('is a no-op (no createTx calls) when there are no QUEUED payouts', async () => {
-  const alreadySent = makePayout({ state: 'SENT', txHash: 'ab'.repeat(32) })
+test('is a no-op when there are no QUEUED payouts', async () => {
+  const alreadySent = makePayout({ id: 1, state: 'SENT', txHash: 'ab'.repeat(32) })
   const models = makeFakeModels([alreadySent])
   const wallet = makeFakeWallet()
   const summary = await sendPayouts([alreadySent], { models, wallet })
@@ -161,32 +155,26 @@ test('handles an empty payout list', async () => {
   expect(wallet.calls).toHaveLength(0)
 })
 
-test('persists the tx hash (SENT, not FAILED) when the first DB update throws but retry succeeds', async () => {
-  const p = makePayout()
-  // createTx succeeds (tx broadcast, funds left) but the first DB update throws,
-  // then the retry succeeds — simulating a transient blip AFTER relay.
+test('persists the shared tx hash (SENT) when a DB update throws then retry succeeds', async () => {
+  const p1 = makePayout({ id: 1 })
+  const p2 = makePayout({ id: 2 })
   const update = jest.fn()
-    .mockRejectedValueOnce(new Error('transient db connection blip'))
-    .mockResolvedValue({ id: p.id, state: 'SENT' })
+    .mockRejectedValueOnce(new Error('transient db connection blip')) // first p1 persist blips
+    .mockResolvedValue({ id: p1.id, state: 'SENT' })
+    .mockResolvedValue({ id: p2.id, state: 'SENT' })
   const models = { rewardPayout: { update } }
   const wallet = makeFakeWallet()
   logInfo.mockClear()
   logError.mockClear()
-  const summary = await sendPayouts([p], { models, wallet })
-  expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0 })
-  // the retrying update call wrote SENT with the relayed tx hash (never FAILED)
-  expect(update).toHaveBeenCalledTimes(2)
+  const summary = await sendPayouts([p1, p2], { models, wallet })
+  expect(summary).toEqual({ sent: 2, failed: 0, skipped: 0 })
+  expect(update).toHaveBeenCalledTimes(3) // p1: fail + retry, p2: once
   const persisted = update.mock.calls[1][0].data
   expect(persisted.state).toBe('SENT')
   expect(persisted.txHash).toMatch(/^[0-9a-f]{64}$/)
-  // the relayed tx hash was logged the instant relay succeeded (never lost)
-  expect(logInfo).toHaveBeenCalledWith(
-    expect.objectContaining({ payoutId: p.id, txHash: persisted.txHash }),
-    expect.stringContaining('relayed')
-  )
-  // a CRITICAL warning was emitted for the first (failed) persist attempt
+  expect(update.mock.calls[2][0].data.txHash).toBe(persisted.txHash) // same batch hash
   expect(logError).toHaveBeenCalledWith(
-    expect.objectContaining({ payoutId: p.id, txHash: persisted.txHash }),
+    expect.objectContaining({ payoutId: p1.id, txHash: persisted.txHash }),
     expect.stringContaining('CRITICAL')
   )
 })
