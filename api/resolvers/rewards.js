@@ -30,16 +30,17 @@ function toBigInt (v) {
 
 // Rewards earmark per the PlatformFeeConfig allocation split (spec §6.4):
 // downvote 100% / posting 70% / turf 30% / boosts 50% / wallet-less tips 50%.
-// Donations go 100% to the pool; bounty rollovers (BOUNTY_ROLLOVER) go 100%
-// to the pool; BOUNTY_FEE is 100% ops (booked at funding, physically arrives
-// with the rollover) so its pool share is 0. BigInt division floors each
-// source independently, matching worker/rewardsDistributor.js.
+// Donations go the payer-chosen % to the pool (default 100); bounty rollovers
+// (BOUNTY_ROLLOVER) go 100% to the pool; BOUNTY_FEE is 100% ops (booked at
+// funding, physically arrives with the rollover) so its pool share is 0.
+// BigInt division floors each source independently, matching
+// worker/rewardsDistributor.js.
 function rewardsFromInflow (inflow, time, config) {
   const sourceShares = [
     { name: 'downvote', piconeros: toBigInt(inflow.downvote) * BigInt(config.downvoteRewardsPct) / 100n },
     { name: 'posting fee', piconeros: toBigInt(inflow.posting) * BigInt(config.postingFeeRewardsPct) / 100n },
     { name: 'turf fee', piconeros: toBigInt(inflow.territory) * BigInt(config.territoryFeeRewardsPct) / 100n },
-    // donations go 100% to the pool; boosts go boostRewardsPct% (default 50)
+    // donations go the payer-chosen % to the pool (default 100); boosts go boostRewardsPct% (default 30)
     { name: 'donations', piconeros: toBigInt(inflow.donate) },
     { name: 'boosts', piconeros: toBigInt(inflow.boost) * BigInt(config.boostRewardsPct) / 100n },
     // wallet-less-author tips (TIP_UNWALLETED) go walletlessTipRewardsPct% to the pool
@@ -64,7 +65,7 @@ async function inflowByPeriod (periodStart, periodEnd, models) {
       COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS donate,
+      COALESCE((SELECT sum("piconeros" * COALESCE("donationRewardsPct", 100) / 100) FROM "FeeObservation" WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS donate,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOOST' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS boost,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS walletlesstip,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOUNTY_ROLLOVER' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS bountyrollover,
@@ -81,7 +82,7 @@ async function getActiveRewards (models) {
       COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS donate,
+      COALESCE((SELECT sum("piconeros" * COALESCE("donationRewardsPct", 100) / 100) FROM "FeeObservation" WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS donate,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOOST' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS boost,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS walletlesstip,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOUNTY_ROLLOVER' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS bountyrollover,
@@ -142,7 +143,7 @@ async function getRewards (when, models) {
       COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS downvote,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS posting,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS donate,
+      COALESCE((SELECT sum("piconeros" * COALESCE("donationRewardsPct", 100) / 100) FROM "FeeObservation" WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS donate,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOOST' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS boost,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS walletlesstip,
       COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOUNTY_ROLLOVER' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS bountyrollover,

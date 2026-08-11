@@ -113,11 +113,11 @@ describe('Query.rewards', () => {
     // in SQL so polling never sees a moving target.
     expect(sql.join('?')).toContain("date_trunc('week'")
     expect(sql.join('?')).toContain("interval '1 week'")
-    // the query binds only the inflow window start (periodStart, 6×: downvote,
-    // posting, territory, donate, boost, walletlesstip) — no JS-computed time
-    // value. 1 strings array + 6 values = 7 args (regression guard against
-    // re-introducing a bound now+7d time).
-    expect(models.$queryRaw.mock.calls[0].length).toBe(7)
+    // the query binds only the inflow window start (periodStart, 8×: downvote,
+    // posting, territory, donate, boost, walletlesstip, bountyrollover, bountyfee)
+    // — no JS-computed time value. 1 strings array + 8 values = 9 args
+    // (regression guard against re-introducing a bound now+7d time).
+    expect(models.$queryRaw.mock.calls[0].length).toBe(9)
   })
 
   test('drops zero-earmark sources', async () => {
@@ -138,6 +138,14 @@ describe('Query.rewards', () => {
 
     expect(reward.sources).toEqual([{ name: 'donations', value: '3000000000' }])
     expect(reward.total).toBe(3_000_000_000n)
+  })
+
+  test('a donation with donationRewardsPct=50 funds the pool at 50%', async () => {
+    const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, donate: 1_500_000_000n, boost: 0n, walletlesstip: 0n } })
+    const [reward] = await resolvers.Query.rewards(null, {}, { models })
+
+    expect(reward.sources).toEqual([{ name: 'donations', value: '1500000000' }])
+    expect(reward.total).toBe(1_500_000_000n)
   })
 
   test('the boosts source (BOOST) funds the pool at boostRewardsPct (30%), not 100%', async () => {
