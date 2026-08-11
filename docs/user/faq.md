@@ -198,7 +198,7 @@ Instead of tipping the same default amount each time, the 'random tips' [setting
 
 ### What are boosts?
 
-A boost is exactly like a tip for ranking purposes: you pay XMR to permanently raise an item's rank by the amount of your boost, 1:1 with tips. Unlike tips, boosts are paid to the platform: 50% of every boost funds the weekly curator rewards pool and 50% supports the platform.
+A boost is exactly like a tip for ranking purposes: you pay XMR to permanently raise an item's rank by the amount of your boost, 1:1 with tips. Unlike tips, boosts are paid to the platform: 30% of every boost funds the weekly curator rewards pool and 70% supports the platform.
 
 ### Do tips help content rank higher?
 
@@ -231,7 +231,7 @@ You can earn XMR from the weekly rewards pool by tipping content that ends up pe
 
 Yes. Every week, Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, boosts and tips to wallet-less authors — plus all downvotes and donations — back to the stashers who made the best contributions.
 
-To donate XMR directly to the Stasher News rewards pool, or to see the rewards that will be distributed to stashers on Monday, click [here](/rewards).
+To donate XMR directly to the Stasher News rewards pool, or to see the rewards that will be distributed to stashers on Monday, click [here](/rewards). When you donate, you choose the split: 100% to the curator rewards pool, 100% to platform operations, or anywhere between (default 100% rewards).
 
 ### Someone tipped me 100 XMR but I only received 70 XMR. Why?
 
@@ -255,7 +255,7 @@ A bounty is a post that puts a reward of XMR on solving a problem or completing 
 
 ### How do I fund a bounty?
 
-When you create a bounty, you set an amount of at least 0.001 XMR. To fund it, you pay the monero: URI shown after posting — an integrated address on the platform's dedicated bounty escrow wallet — including the platform fee (the greater of 0.01 XMR or 1% of the bounty) in the same payment. The bounty is only visible to you until the funding payment confirms on-chain.
+When you create a bounty, you set an amount of at least 0.01 XMR. To fund it, you pay the monero: URI shown after posting — an integrated address on the platform's dedicated bounty escrow wallet — including the platform fee (the greater of 0.01 XMR or 1% of the bounty, capped at 20% of the bounty) in the same payment. The bounty is only visible to you until the funding payment confirms on-chain.
 
 ### How is a bounty awarded?
 

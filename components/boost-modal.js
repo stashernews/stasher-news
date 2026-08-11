@@ -122,7 +122,7 @@ export default function BoostModal ({ item, onClose }) {
             moneroUri={moneroUri}
             amountPiconeros={BigInt(piconeros)}
             heading='Pay this boost'
-            description={`Scan to send ${piconerosToXmr(BigInt(piconeros))} to the platform wallet. 50% funds the weekly curator rewards.`}
+            description={`Scan to send ${piconerosToXmr(BigInt(piconeros))} to the platform wallet. 30% funds the weekly curator rewards.`}
           >
             <p className='text-muted text-center mt-3'>
               <small>
@@ -140,7 +140,7 @@ export function BoostHelp () {
   return (
     <ol>
       <li>Boost is <strong>exactly</strong> like a tip from other stashers: it ranks the item higher based on the amount</li>
-      <li>50% of boost funds the weekly curator rewards, 50% supports the platform</li>
+      <li>30% of boost funds the weekly curator rewards, 70% supports the platform</li>
       <li>Boosted items can be downvoted to reduce their rank</li>
     </ol>
   )
