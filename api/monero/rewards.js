@@ -91,11 +91,19 @@ function resolveNetworkType (api, env) {
   return api.MoneroNetworkType.STAGENET
 }
 
-// Send a batch of RewardPayout rows. For each QUEUED payout: check unlocked
-// balance, createTx({ relay: true }), record the hash + flip SENT; on a hard
-// error flip FAILED (funds stay in-wallet). `wallet` is injectable so the logic
-// is unit-testable without the real keys/wallet; production leaves it unset and
-// uses the getRewardsWallet() singleton.
+// Send a batch of RewardPayout rows as ONE multi-output on-chain tx (fee-allocation
+// v2: batched payouts cut per-tx fee overhead ~10x at top-N curator counts). For
+// the batch of QUEUED rows: check the wallet's unlocked balance, createTx with a
+// destinations array ({ relay: true }), record the SAME tx hash on every row, and
+// flip them all to SENT. `wallet` is injectable so the logic is unit-testable
+// without the real keys/wallet; production leaves it unset and uses the
+// getRewardsWallet() singleton.
+//
+// Fund-safety (unchanged from the per-payout design): a hard createTx error
+// marks every QUEUED payout FAILED, but the funds stay in the wallet — a
+// FAILED batch's shares roll into next week's pool (no loss). Insufficient
+// unlocked balance (likely locked ~10-block outputs) is a SKIP for the whole
+// batch: rows stay QUEUED and are retried next run.
 //
 // Returns { sent, failed, skipped }.
 export async function sendPayouts (payouts, { models, wallet } = {}) {
@@ -103,62 +111,53 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
   if (queued.length === 0) return { sent: 0, failed: 0, skipped: 0 }
 
   const w = wallet || await getRewardsWallet()
-  // Coarse pre-filter: if the whole wallet's unlocked balance can't cover this
-  // payout, skip it (likely locked funds). The running balance is decremented
-  // after each relayed tx so it stays accurate mid-batch; any residual
-  // exhaustion (fees, races) still surfaces as a balance error from createTx
-  // and is treated as a skip (see below).
-  let unlocked = BigInt(await w.getUnlockedBalance(0))
+  // Coarse pre-filter: if the whole wallet's unlocked balance can't cover the
+  // batch sum, skip it (likely locked funds). Residual exhaustion still
+  // surfaces as a balance error from createTx and is treated as a skip.
+  const unlocked = BigInt(await w.getUnlockedBalance(0))
+  const total = queued.reduce((acc, p) => acc + p.piconeros, 0n)
+  if (unlocked < total) {
+    return { sent: 0, failed: 0, skipped: queued.length }
+  }
 
-  let sent = 0
-  let failed = 0
-  let skipped = 0
-
-  for (const payout of queued) {
-    if (unlocked < payout.piconeros) {
-      skipped += 1
-      continue
+  // Relay (broadcast) is split from persist so a relayed tx hash is NEVER lost.
+  // createTx({ relay: true }) moves funds on-chain; if a DB write then throws,
+  // the catch below still has the hash (logged the instant relay succeeded) and
+  // never marks the payout FAILED — FAILED implies funds stayed in the wallet.
+  let tx
+  try {
+    tx = await w.createTx({
+      accountIndex: 0,
+      destinations: queued.map(p => ({ address: p.recipientAddress, amount: p.piconeros })),
+      relay: true
+    })
+  } catch (err) {
+    // PRE-relay failure: funds never left the wallet.
+    if (isBalanceError(err)) {
+      // not enough unlocked money -> retryable, do not abandon as FAILED
+      return { sent: 0, failed: 0, skipped: queued.length }
     }
-    // Relay (broadcast) is split from persist so a relayed tx hash is NEVER lost.
-    // createTx({ relay: true }) moves funds on-chain; if the DB write then throws,
-    // the catch below still has the hash (logged the instant relay succeeded) and
-    // never marks the payout FAILED — FAILED implies funds stayed in the wallet.
-    let tx
-    try {
-      tx = await w.createTx({
-        accountIndex: 0,
-        address: payout.recipientAddress,
-        amount: payout.piconeros,
-        relay: true
-      })
-    } catch (err) {
-      // PRE-relay failure: funds never left the wallet.
-      if (isBalanceError(err)) {
-        // not enough unlocked money -> retryable, do not abandon as FAILED
-        skipped += 1
-        continue
-      }
-      logError({ payoutId: payout.id, recipient: payout.recipientAddress.slice(0, 12), err }, 'sendPayouts: payout FAILED (funds stayed in wallet)')
+    logError({ payoutCount: queued.length, err }, 'sendPayouts: batch FAILED (funds stayed in wallet)')
+    for (const payout of queued) {
       await models.rewardPayout.update({
         where: { id: payout.id },
         data: { state: 'FAILED' }
       })
-      failed += 1
-      continue
     }
-    // Relay succeeded — funds are on-chain. Deduct from the running pre-filter
-    // so the next iteration sees the reduced unlocked balance, then persist the
-    // hash BEFORE anything else and log it the instant relay succeeds so it is
-    // never silently lost.
-    unlocked -= payout.piconeros
-    const txHash = toTxHash(tx.getHash())
-    logInfo({ payoutId: payout.id, txHash }, 'sendPayouts: payout relayed')
+    return { sent: 0, failed: queued.length, skipped: 0 }
+  }
+
+  // Relay succeeded — funds are on-chain. Persist the shared hash on every row
+  // BEFORE anything else and log it the instant relay succeeds so it is never
+  // silently lost.
+  const txHash = toTxHash(tx.getHash())
+  logInfo({ payoutCount: queued.length, txHash }, 'sendPayouts: batch relayed')
+  for (const payout of queued) {
     try {
       await models.rewardPayout.update({
         where: { id: payout.id },
         data: { state: 'SENT', txHash }
       })
-      sent += 1
     } catch (err) {
       // The tx IS sent (funds left). Retry once; on failure do NOT mark FAILED —
       // a CRITICAL log is the reconciliation signal for a manual fix.
@@ -168,7 +167,6 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
           where: { id: payout.id },
           data: { state: 'SENT', txHash }
         })
-        sent += 1
       } catch (err2) {
         logError({ payoutId: payout.id, txHash, err: err2 }, 'sendPayouts: CRITICAL — DB-update retry also failed')
         alert('critical', 'relayed-but-unpersisted payout',
@@ -178,8 +176,8 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
     }
   }
 
-  setBalanceGauge(unlocked)
-  return { sent, failed, skipped }
+  setBalanceGauge(unlocked - total)
+  return { sent: queued.length, failed: 0, skipped: 0 }
 }
 
 function setBalanceGauge (unlocked) {
