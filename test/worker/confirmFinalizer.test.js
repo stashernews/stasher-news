@@ -20,7 +20,8 @@
 //   docker exec sn-prisma npx jest test/worker/confirmFinalizer.test.js
 
 import { PrismaClient } from '@prisma/client'
-import { runConfirmFinalizerOnce } from '@/worker/confirmFinalizer'
+import { runConfirmFinalizerOnce, backfillNullBountyHeights } from '@/worker/confirmFinalizer'
+import { bountyFeePiconeros } from '@/api/monero/bounties'
 
 const prisma = new PrismaClient()
 
@@ -39,6 +40,8 @@ afterAll(async () => {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
     await prisma.item.deleteMany({ where: { id } })
   }
+  // MoneroViewKey must go before MoneroAccount (FK: accountId -> account.id).
+  await prisma.moneroViewKey.deleteMany({ where: { accountId: { in: created.accounts } } })
   // ObservedTip must go before MoneroAccount (FK: recipientAccountId -> account.id, RESTRICT)
   for (const id of created.accounts) await prisma.moneroAccount.deleteMany({ where: { id } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
@@ -76,6 +79,43 @@ async function seedAccount () {
   })
   created.accounts.push(account.id)
   return account
+}
+
+// An account carrying a (dummy) view key, so the finalizer's lws backfill path
+// treats it as scannable. The lwsClient is mocked in those tests, so the dummy
+// envelope is never actually decrypted — it just needs to be truthy.
+let viewAccountSeq = 1000
+async function seedAccountWithViewKey () {
+  viewAccountSeq += 1
+  const account = await prisma.moneroAccount.create({
+    data: {
+      ownerUserId: null,
+      address: ADDR + 'vk' + String(viewAccountSeq),
+      label: 'test',
+      network: 'STAGENET',
+      status: 'ACTIVE'
+    }
+  })
+  created.accounts.push(account.id)
+  await prisma.moneroViewKey.create({
+    data: {
+      accountId: account.id,
+      ciphertext: Buffer.alloc(1),
+      iv: Buffer.alloc(12),
+      tag: Buffer.alloc(16),
+      wrappedDek: Buffer.alloc(1),
+      dekVersion: 0
+    }
+  })
+  return account
+}
+
+// A mock lwsClient whose getAddressTxs reports no txs — keeps the live-DB runs
+// hermetic (no real lws call, no accidental funding of unrelated dev-DB bounties
+// such as the stuck item 2808, whose NULL-height row would otherwise be picked
+// up by the backfill scan).
+function emptyLws () {
+  return { getAddressTxs: jest.fn().mockResolvedValue({ transactions: [], blockchain_height: 0 }) }
 }
 
 // Seed a DETECTED ObservedTip directly (bypassing the indexer) so the test
@@ -145,7 +185,7 @@ test('a DETECTED tip at height 200 becomes CONFIRMED at chain height 209 (10 con
 
   expect((await readUser(authorId)).stackedPiconeros).toBe(0n)
 
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(209) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(209), lwsClient: emptyLws() })
 
   const after = await readTip(tip.id)
   expect(after.state).toBe('CONFIRMED')
@@ -160,7 +200,7 @@ test('a DETECTED tip stays DETECTED at 9 confirmations (chain 208) and does not 
   const account = await seedAccount()
   const tip = await seedTip({ postId, piconeros: 5_000_000n, height: 200, recipientAccountId: account.id })
 
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(208) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(208), lwsClient: emptyLws() })
 
   const after = await readTip(tip.id)
   expect(after.state).toBe('DETECTED')
@@ -174,7 +214,7 @@ test('a mempool tip (height null) is skipped even at high chain height', async (
   const account = await seedAccount()
   const tip = await seedTip({ postId, piconeros: 5_000_000n, height: null, recipientAccountId: account.id })
 
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(9999) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(9999), lwsClient: emptyLws() })
 
   const after = await readTip(tip.id)
   expect(after.state).toBe('DETECTED')
@@ -188,8 +228,8 @@ test('idempotent: running twice does not double-bump the author denorm', async (
   const tip = await seedTip({ postId, piconeros: 7_000_000n, height: 200, recipientAccountId: account.id })
 
   const client = mockClient(209)
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: client })
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: client })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: client, lwsClient: emptyLws() })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: client, lwsClient: emptyLws() })
 
   const after = await readTip(tip.id)
   expect(after.state).toBe('CONFIRMED')
@@ -201,7 +241,7 @@ test('a DETECTED ObservedDownvote becomes CONFIRMED at 10 confirmations', async 
   const postId = await createRoot(authorId, 'downvote-confirm-target'); created.items.push(postId)
   const downvote = await seedDownvote({ postId, piconeros: 1_000_000_000n, height: 500 })
 
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(509) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(509), lwsClient: emptyLws() })
 
   const after = await prisma.observedDownvote.findUnique({ where: { id: downvote.id } })
   expect(after.state).toBe('CONFIRMED')
@@ -214,7 +254,7 @@ test('a DETECTED ObservedDownvote stays DETECTED below 10 confirmations', async 
   const postId = await createRoot(authorId, 'downvote-not-yet'); created.items.push(postId)
   const downvote = await seedDownvote({ postId, piconeros: 1_000_000_000n, height: 500 })
 
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(508) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(508), lwsClient: emptyLws() })
 
   const after = await prisma.observedDownvote.findUnique({ where: { id: downvote.id } })
   expect(after.state).toBe('DETECTED')
@@ -243,25 +283,30 @@ async function seedBounty ({ postId, piconeros, height, recipientAccountId }) {
   return bounty
 }
 
-test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations — ledger only, no Item flip, no fee booking', async () => {
+test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs driveBountyFunding (Item FUNDED + BOUNTY_FEE booked) — true backstop for a missed webhook CONFIRMED callback', async () => {
   const authorId = await createUser(); created.users.push(authorId)
   const postId = await createRoot(authorId, 'bounty-confirm-target'); created.items.push(postId)
   const account = await seedAccount()
   const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: 700, recipientAccountId: account.id })
 
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(709) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(709), lwsClient: emptyLws() })
 
   const after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
   expect(after.state).toBe('CONFIRMED')
   expect(after.confirmations).toBe(10)
   expect(after.confirmedAt).toBeInstanceOf(Date)
 
-  // The funding side effects (Item flip, BOUNTY_FEE row) belong to the webhook
-  // CONFIRMED path (driveBountyFunding) — the finalizer must NOT repeat them.
+  // The finalizer is the BACKSTOP for a missed webhook CONFIRMED callback, so it
+  // must run the same ledger effects as driveBountyFunding — not just flip the
+  // row. Item -> FUNDED with bountyPiconeros = observed − fee.
+  const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const feePiconeros = bountyFeePiconeros(5_000_000_000n, config)
   const item = await prisma.item.findUnique({ where: { id: postId } })
-  expect(item.bountyStatus).toBe('UNFUNDED')
+  expect(item.bountyStatus).toBe('FUNDED')
+  expect(item.bountyPiconeros).toBe(5_000_000_000n - feePiconeros)
+  expect(item.bountyConfirmedAt).toBeInstanceOf(Date)
   const fee = await prisma.feeObservation.findFirst({ where: { postId, feeType: 'BOUNTY_FEE' } })
-  expect(fee).toBeNull()
+  expect(fee).toMatchObject({ piconeros: feePiconeros, state: 'CONFIRMED', height: 700 })
 })
 
 test('a DETECTED ObservedBounty stays DETECTED below 10 confirmations', async () => {
@@ -270,15 +315,126 @@ test('a DETECTED ObservedBounty stays DETECTED below 10 confirmations', async ()
   const account = await seedAccount()
   const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: 700, recipientAccountId: account.id })
 
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(708) })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(708), lwsClient: emptyLws() })
 
   const after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
   expect(after.state).toBe('DETECTED')
   expect(after.confirmedAt).toBeNull()
+  // No funding side effects below the threshold.
+  const item = await prisma.item.findUnique({ where: { id: postId } })
+  expect(item.bountyStatus).toBe('UNFUNDED')
+  const fee = await prisma.feeObservation.findFirst({ where: { postId, feeType: 'BOUNTY_FEE' } })
+  expect(fee).toBeNull()
+})
+
+test('a NULL-height DETECTED bounty (webhook CONFIRMED callback missed at 0-conf) is resolved via lws and funded at N confirmations — item 2808 scenario', async () => {
+  // The 0-conf webhook consumed the pid map and set height = NULL (mempool tx).
+  // After the gate bug, every later callback was a 200 no-op, so no callback ever
+  // backfilled height. The finalizer must resolve the tx height from lws (which
+  // watches the escrow account), backfill the row, then fund it.
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'bounty-null-height'); created.items.push(postId)
+  const account = await seedAccountWithViewKey()
+  const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: null, recipientAccountId: account.id })
+
+  // Mock lws reports the funding tx (matched by payment_id) now at height 700.
+  const lws = {
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ payment_id: bounty.paymentId, height: 700, piconeros: 5_000_000_000n }],
+      blockchain_height: 709
+    })
+  }
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(709), lwsClient: lws })
+  // lws was scanned for the test bounty's escrow account. (It is also scanned
+  // for any other NULL-height bounty in the live dev DB — e.g. the real item
+  // 2808, which this same code path self-heals in production.)
+  const scannedIds = lws.getAddressTxs.mock.calls.map(c => c[0].id)
+  expect(scannedIds).toContain(account.id)
+
+  // Height backfilled, then funded through the normal path.
+  const after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(after.state).toBe('CONFIRMED')
+  expect(after.height).toBe(700)
+  expect(after.confirmations).toBe(10)
+  const item = await prisma.item.findUnique({ where: { id: postId } })
+  expect(item.bountyStatus).toBe('FUNDED')
+  const fee = await prisma.feeObservation.findFirst({ where: { postId, feeType: 'BOUNTY_FEE' } })
+  expect(fee).not.toBeNull()
+  expect(fee.state).toBe('CONFIRMED')
+})
+
+test('a NULL-height DETECTED bounty whose tx is still in mempool (lws reports height null) is left DETECTED, not funded', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'bounty-mempool-null'); created.items.push(postId)
+  const account = await seedAccountWithViewKey()
+  const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: null, recipientAccountId: account.id })
+
+  // lws still sees the tx in the mempool (height null) — nothing to backfill.
+  const lws = {
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ payment_id: bounty.paymentId, height: null, piconeros: 5_000_000_000n }],
+      blockchain_height: 9999
+    })
+  }
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(9999), lwsClient: lws })
+
+  const after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(after.state).toBe('DETECTED')
+  expect(after.height).toBeNull()
+  const item = await prisma.item.findUnique({ where: { id: postId } })
+  expect(item.bountyStatus).toBe('UNFUNDED')
 })
 
 test('invokes the reorg detector with the current chain height (Task D5 wiring)', async () => {
   const detectReorg = jest.fn()
-  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(210), detectReorg })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(210), detectReorg, lwsClient: emptyLws() })
   expect(detectReorg).toHaveBeenCalledWith(210)
+})
+
+// backfillNullBountyHeights: mocked-models unit tests for the lws height
+// resolution (the path that unsticks a NULL-height bounty whose N-conf webhook
+// callback was missed). Mirrors the reconcilePendingTips test style.
+describe('backfillNullBountyHeights', () => {
+  test('resolves a NULL-height bounty tx via lws (matched by payment_id) and backfills the row height', async () => {
+    const bounty = { id: 1n, paymentId: 'bnabc', recipientAccountId: 7, height: null }
+    const account = { id: 7, address: 'ESCROW', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) } }
+    const models = {
+      moneroAccount: { findMany: async () => [account] },
+      observedBounty: { update: jest.fn() }
+    }
+    const lws = { getAddressTxs: async () => ({ transactions: [{ payment_id: 'BNABC', height: 12345 }], blockchain_height: 9999 }) }
+    await backfillNullBountyHeights({ models, lws, bounties: [bounty] })
+    expect(models.observedBounty.update).toHaveBeenCalledWith({
+      where: { id: 1n },
+      data: expect.objectContaining({ height: 12345 })
+    })
+  })
+
+  test('skips an account with no view key (unscannable) and never calls lws', async () => {
+    const bounty = { id: 2n, paymentId: 'bndef', recipientAccountId: 8, height: null }
+    const account = { id: 8, address: 'ESCROW', status: 'ACTIVE', viewKey: null }
+    const models = { moneroAccount: { findMany: async () => [account] }, observedBounty: { update: jest.fn() } }
+    const lws = { getAddressTxs: jest.fn() }
+    await backfillNullBountyHeights({ models, lws, bounties: [bounty] })
+    expect(lws.getAddressTxs).not.toHaveBeenCalled()
+    expect(models.observedBounty.update).not.toHaveBeenCalled()
+  })
+
+  test('is robust to an lws error (skips that account, does not throw, retries next run)', async () => {
+    const bounty = { id: 3n, paymentId: 'bnerr', recipientAccountId: 9, height: null }
+    const account = { id: 9, address: 'ESCROW', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) } }
+    const models = { moneroAccount: { findMany: async () => [account] }, observedBounty: { update: jest.fn() } }
+    const lws = { getAddressTxs: jest.fn().mockRejectedValue(new Error('lws down')) }
+    await expect(backfillNullBountyHeights({ models, lws, bounties: [bounty] })).resolves.toBeUndefined()
+    expect(models.observedBounty.update).not.toHaveBeenCalled()
+  })
+
+  test('does not backfill when lws has no matching payment_id (foreign/unknown tx)', async () => {
+    const bounty = { id: 4n, paymentId: 'bnnope', recipientAccountId: 10, height: null }
+    const account = { id: 10, address: 'ESCROW', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) } }
+    const models = { moneroAccount: { findMany: async () => [account] }, observedBounty: { update: jest.fn() } }
+    const lws = { getAddressTxs: async () => ({ transactions: [{ payment_id: 'other', height: 999 }], blockchain_height: 9999 }) }
+    await backfillNullBountyHeights({ models, lws, bounties: [bounty] })
+    expect(models.observedBounty.update).not.toHaveBeenCalled()
+  })
 })
