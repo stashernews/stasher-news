@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid } from '@/lib/format'
+import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid, formatDaysHours } from '@/lib/format'
 
 describe('piconerosToXmrDecimal re-export', () => {
   it('is re-exported from lib/format (settings + tip modal import it from here)', () => {
@@ -119,5 +119,30 @@ describe('moneroUriAddress', () => {
   it('returns the address for a 106-char integrated address', () => {
     const integrated = ADDR + 'JnUv6d9e2Af'
     expect(moneroUriAddress(`monero:${integrated}?tx_amount=0.001`)).toBe(integrated)
+  })
+})
+
+describe('formatDaysHours', () => {
+  const H = 60 * 60 * 1000
+  const D = 24 * H
+
+  it('formats a week-plus as days + hours', () => {
+    expect(formatDaysHours(6 * D + 21 * H)).toBe('6d 21h')
+    expect(formatDaysHours(D + 14 * H + 30 * 60 * 1000)).toBe('1d 14h')
+    expect(formatDaysHours(7 * D)).toBe('7d 0h')
+  })
+
+  it('formats a day or less as hours only', () => {
+    expect(formatDaysHours(D)).toBe('1d 0h')
+    expect(formatDaysHours(4 * H + 59 * 60 * 1000)).toBe('4hr')
+    expect(formatDaysHours(H)).toBe('1hr')
+    expect(formatDaysHours(23 * H)).toBe('23hr')
+  })
+
+  it('shows <1h under an hour, zero, negative or garbage', () => {
+    expect(formatDaysHours(59 * 60 * 1000)).toBe('<1h')
+    expect(formatDaysHours(0)).toBe('<1h')
+    expect(formatDaysHours(-5)).toBe('<1h')
+    expect(formatDaysHours(NaN)).toBe('<1h')
   })
 })
