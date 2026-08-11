@@ -22,6 +22,7 @@ import CodeIcon from '@/svgs/terminal-box-fill.svg'
 import MuteDropdownItem from './mute'
 import { hexToBech32 } from '@/lib/nostr'
 import NostrIcon from '@/svgs/nostr.svg'
+import { isNostrEnabled } from '@/lib/nostrFeatures'
 import GithubIcon from '@/svgs/github-fill.svg'
 import TwitterIcon from '@/svgs/twitter-fill.svg'
 import { UNKNOWN_LINK_REL } from '@/lib/constants'
@@ -274,7 +275,7 @@ function HeaderHeader ({ user }) {
             <small className='text-muted d-flex align-items-center'>
               <CodeIcon className='me-1' height={16} width={16} /> verified stasher.news contributor
             </small>}
-          {user.optional.nostrAuthPubkey &&
+          {isNostrEnabled(me?.privates?.authMethods) && user.optional.nostrAuthPubkey &&
             <small className='text-muted d-flex-inline'>
               <SocialLink name='Nostr' id={user.optional.nostrAuthPubkey} />
             </small>}
