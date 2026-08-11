@@ -17,7 +17,7 @@ jest.mock('../../../components/editor', () => ({
 
 jest.mock('../../../api/payIn', () => ({
   __esModule: true,
-  default: {}
+  default: jest.fn()
 }))
 
 jest.mock('../../../lib/lexical/server/html', () => ({
@@ -187,6 +187,24 @@ describe('Query.rewards', () => {
       .rejects.toThrow(/too many dates/i)
     await expect(resolvers.Query.rewards(null, { when: ['garbage'] }, { models }))
       .rejects.toThrow(/invalid date/i)
+  })
+
+  test('donateToRewards passes rewardsPct through to the pay engine', async () => {
+    const pay = require('../../../api/payIn').default
+    pay.mockClear()
+    pay.mockResolvedValue({ id: 42 })
+    const resolvers = require('../../../api/resolvers/rewards').default
+    const result = await resolvers.Mutation.donateToRewards(null, { piconeros: 3_000_000_000n, rewardsPct: 50 }, { me: { id: 1 }, models: {} })
+    expect(result).toEqual({ id: 42 })
+    expect(pay).toHaveBeenCalledWith('DONATE', { piconeros: 3_000_000_000n, rewardsPct: 50 }, expect.anything())
+  })
+
+  test('donateToRewards rejects rewardsPct outside 0-100', async () => {
+    const resolvers = require('../../../api/resolvers/rewards').default
+    await expect(resolvers.Mutation.donateToRewards(null, { piconeros: 3_000_000_000n, rewardsPct: 101 }, { me: { id: 1 }, models: {} }))
+      .rejects.toThrow(/rewardsPct/)
+    await expect(resolvers.Mutation.donateToRewards(null, { piconeros: 3_000_000_000n, rewardsPct: -1 }, { me: { id: 1 }, models: {} }))
+      .rejects.toThrow(/rewardsPct/)
   })
 })
 

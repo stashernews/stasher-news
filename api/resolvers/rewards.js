@@ -195,10 +195,13 @@ export default {
     sources: (parent) => parent.sources ?? []
   },
   Mutation: {
-    donateToRewards: async (parent, { piconeros, sendProtocolId }, { me, models }) => {
+    donateToRewards: async (parent, { piconeros, rewardsPct, sendProtocolId }, { me, models }) => {
       await validateSchema(amountSchema, { amount: piconeros })
+      if (rewardsPct != null && (!Number.isInteger(rewardsPct) || rewardsPct < 0 || rewardsPct > 100)) {
+        throw new GqlInputError('rewardsPct must be an integer between 0 and 100')
+      }
 
-      return await pay('DONATE', { piconeros }, { me, models, sendProtocolId })
+      return await pay('DONATE', { piconeros, rewardsPct }, { me, models, sendProtocolId })
     }
   },
   Reward: {

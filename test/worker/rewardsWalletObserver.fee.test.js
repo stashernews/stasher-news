@@ -294,3 +294,28 @@ test('findRewardsAccount selects a viewKey-bearing platform_rewards account dete
   expect(account.address).not.toBe(bare.address)
   expect(account.viewKey).not.toBeNull()
 })
+
+test('a DONATE payIn with donationRewardsPct copies the split onto the FeeObservation', async () => {
+  const userId = await createUser()
+  const payIn = await prisma.payIn.create({
+    data: {
+      userId,
+      payInType: 'DONATE',
+      payInState: 'PAID',
+      piconeros: 0n,
+      moneroSubaddressMajor: 3,
+      moneroSubaddressMinor: 99,
+      donationRewardsPct: 40
+    }
+  })
+  created.payIns.push(payIn.id)
+  await runRewardsWalletObserverOnce({
+    models: prisma,
+    account: rewardsWallet,
+    txs: [lwsFeeTx('donate-split-tx-' + Date.now(), '2000000000', 3, 99)]
+  })
+  const obs = await prisma.feeObservation.findFirst({ where: { payInId: payIn.id } })
+  expect(obs.feeType).toBe('DONATE')
+  expect(obs.donationRewardsPct).toBe(40)
+  expect(obs.piconeros).toBe(2_000_000_000n)
+})
