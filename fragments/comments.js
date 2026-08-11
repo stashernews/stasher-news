@@ -22,6 +22,7 @@ export const COMMENT_FIELDS = gql`
     text
     lexicalState
     html
+    bountyAwardedAt
     user {
       id
       name
