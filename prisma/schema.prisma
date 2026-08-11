@@ -371,6 +371,7 @@ model Item {
   pin                  Pin?                  @relation(fields: [pinId], references: [id])
   root                 Item?                 @relation("RootDescendant", fields: [rootId], references: [id])
   descendants          Item[]                @relation("RootDescendant")
+  bountyAwardWinnerFor Item[] @relation("BountyAwardWinner")
   user                 User                  @relation("UserItems", fields: [userId], references: [id], onDelete: Cascade)
   mentions             Mention[]
   itemReferrers        ItemMention[]         @relation("referrer")
@@ -414,6 +415,12 @@ model Item {
   bountyPiconeros    BigInt        @default(0)
   bountyStatus       BountyStatus  @default(UNFUNDED)
   bountyConfirmedAt  DateTime?
+  // A-13 award indication: the winning comment (bountyAwardedAt) and the link
+  // from the bounty post to it (bountyWinnerCommentId) — set atomically in
+  // the payBounty claim transaction. BountyPayment stays the historical record.
+  bountyAwardedAt       DateTime?
+  bountyWinnerCommentId Int?
+  bountyWinnerComment   Item?     @relation("BountyAwardWinner", fields: [bountyWinnerCommentId], references: [id])
   bountyPayments     BountyPayment[]
 
   // back-relations for observed Monero tips/downvotes (ObservedTip/ObservedDownvote)
