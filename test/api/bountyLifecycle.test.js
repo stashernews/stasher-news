@@ -324,3 +324,46 @@ test('reclaim/rollover reject after the bounty left EXPIRED (double-claim race g
   const count = await prisma.bountyPayment.count({ where: { itemId: item.id } })
   expect(count).toBe(1)
 })
+
+// Regression (2026-08-11 live bug): the fork's item_path trigger restores
+// path but NOT rootId (upstream's update_item_path sets both), so every
+// app-created comment has rootId NULL and the award guard
+// winner.rootId !== (item.rootId ?? item.id) rejects ALL real comments
+// ('award target must be a comment on this bounty post' — observed live on
+// bounty post 2808 / comment 2884). Production comments are created with
+// parentId only; rootId is the trigger's job. This test seeds exactly that
+// shape and asserts the award succeeds — RED until the trigger maintains
+// rootId.
+test('payBounty accepts a comment whose rootId is populated by the item_path trigger (no explicit rootId)', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  await seedWallet(authorId, AUTHOR_ADDR, 'author')
+  await seedWallet(winnerId, WINNER_ADDR, 'winner')
+  const item = await prisma.item.create({
+    data: {
+      userId: authorId,
+      title: 'test bounty thread (trigger rootId)',
+      status: 'ACTIVE',
+      bountyPiconeros: BOUNTY,
+      bountyStatus: 'FUNDED',
+      bountyConfirmedAt: new Date()
+    }
+  })
+  created.items.push(item.id)
+  const winner = await prisma.item.create({
+    // NO rootId here — mirrors production item creation; the item_path
+    // trigger must derive it from the parent's path.
+    data: { userId: winnerId, parentId: item.id, text: 'the winning comment (no explicit rootId)', status: 'ACTIVE' }
+  })
+  created.items.push(winner.id)
+
+  const payment = await payBounty(null, { id: item.id, winnerCommentId: winner.id }, { me: { id: authorId }, models: prisma })
+  created.payments.push(payment.id)
+
+  expect(payment).toMatchObject({
+    itemId: item.id,
+    winnerUserId: winnerId,
+    kind: 'AWARD',
+    state: 'QUEUED'
+  })
+})
