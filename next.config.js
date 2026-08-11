@@ -185,10 +185,6 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
       },
 
       {
-        source: '/.well-known/nostr.json',
-        destination: '/api/nostr/nip05'
-      },
-      {
         source: '/.well-known/web-app-origin-association',
         destination: '/api/web-app-origin-association'
       },
