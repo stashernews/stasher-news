@@ -76,6 +76,20 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
   const feePiconeros = me
     ? (me.privates?.postingFeeRequired ? BigInt(me.privates.postingFeePiconeros || 0) : 0n)
     : DEFAULT_POSTING_FEE_PICONEROS
+  const freePostsLeft = me?.privates?.freePostsLeft ?? 0
+  if (me && !me.privates?.postingFeeRequired && freePostsLeft > 0) {
+    return {
+      baseCost: {
+        term: 1,
+        label: 'post',
+        op: '_',
+        modifier: (cost) => cost + 1,
+        allowFreebies: true,
+        isComment: false
+      },
+      ...anonCharge
+    }
+  }
   if (feePiconeros <= 0n) return {}
 
   return {
@@ -198,6 +212,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
     // is irrelevant because the platform is non-custodial with no credits,
     // so there is no "can't afford" gate.
     const freeCommentsLeft = me?.privates?.freeCommentsLeft ?? 0
+    const freePostsLeft = me?.privates?.freePostsLeft ?? 0
     const isComment = baseCostLine?.isComment
     const free = me &&
       total === baseCostLine?.modifier(0) &&
@@ -211,9 +226,10 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
       disabledReasons,
       setDisabled,
       free,
-      freeCommentsLeft: isComment ? freeCommentsLeft : null
+      freeCommentsLeft: isComment ? freeCommentsLeft : null,
+      freePostsLeft: isComment === false ? freePostsLeft : null
     }
-  }, [me, me?.privates?.freeCommentsLeft, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
+  }, [me, me?.privates?.freeCommentsLeft, me?.privates?.freePostsLeft, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
 
   return (
     <FeeButtonContext.Provider value={value}>
@@ -227,7 +243,7 @@ export function useFeeButton () {
   return context
 }
 
-function FreebieDialog ({ freeCommentsLeft }) {
+function FreebieDialog ({ freeCommentsLeft, freePostsLeft }) {
   return (
     <>
       <div className='fw-bold'>this one is on us</div>
@@ -235,6 +251,9 @@ function FreebieDialog ({ freeCommentsLeft }) {
         <li>Free items have limited visibility and can only earn credits.</li>
         {freeCommentsLeft !== null && (
           <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left this month.</li>
+        )}
+        {freePostsLeft !== null && (
+          <li>You have {freePostsLeft} free post{freePostsLeft !== 1 ? 's' : ''} left this month.</li>
         )}
         <li>To get fully visible right away, fund your account with a little XMR.</li>
       </ul>
@@ -244,7 +263,7 @@ function FreebieDialog ({ freeCommentsLeft }) {
 
 export default function FeeButton ({ ChildButton = SubmitButton, variant, text, disabled }) {
   const { me } = useMe()
-  const { lines, total, disabled: ctxDisabled, free, freeCommentsLeft } = useFeeButton()
+  const { lines, total, disabled: ctxDisabled, free, freeCommentsLeft, freePostsLeft } = useFeeButton()
   const feeText = free
     ? 'free'
     : total > 1
@@ -263,7 +282,7 @@ export default function FeeButton ({ ChildButton = SubmitButton, variant, text, 
         </ChildButton>
       </ActionTooltip>
       {!me && <AnonInfo />}
-      {(free && <Info><FreebieDialog freeCommentsLeft={freeCommentsLeft} /></Info>) ||
+      {(free && <Info><FreebieDialog freeCommentsLeft={freeCommentsLeft} freePostsLeft={freePostsLeft} /></Info>) ||
        (total > 1 && <Info><Receipt lines={lines} total={total} /></Info>)}
     </div>
   )

@@ -30,6 +30,18 @@ describe('postCommentBaseLineItems — posts', () => {
     expect(lines).toEqual({})
   })
 
+  test('established authors with free posts left see a free post freebie line', () => {
+    const lines = postCommentBaseLineItems({
+      me: { privates: { postingFeeRequired: false, postingFeePiconeros: 0, freePostsLeft: 5 } }
+    })
+    expect(lines.baseCost.term).toBe(1)
+    expect(lines.baseCost.label).toBe('post')
+    expect(lines.baseCost.op).toBe('_')
+    expect(lines.baseCost.allowFreebies).toBe(true)
+    expect(lines.baseCost.isComment).toBe(false)
+    expect(lines).not.toHaveProperty('postingFee')
+  })
+
   test('a zero posting fee yields no fee lines', () => {
     const lines = postCommentBaseLineItems({
       me: { privates: { postingFeeRequired: true, postingFeePiconeros: 0 } }
