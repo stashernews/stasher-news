@@ -6,7 +6,7 @@ import BackArrow from '../../svgs/arrow-left-line.svg'
 import { useCallback, useEffect, useState } from 'react'
 import Price from '../price'
 import SubSelect from '../sub-select'
-import { PUBLIC_MEDIA_URL } from '../../lib/constants'
+import { LONG_POLL_INTERVAL_MS, PUBLIC_MEDIA_URL, SSR } from '../../lib/constants'
 import NoteIcon from '../../svgs/notification-4-fill.svg'
 import { useMe } from '../me'
 import { abbrNum } from '../../lib/format'
@@ -25,6 +25,9 @@ import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
 import { piconerosToXmr } from '@/lib/format'
 import { useBranding } from '@/components/territory-branding'
+import { gql } from '@apollo/client'
+import { useQuery } from '@apollo/client/react'
+import { DaysHoursCountdown } from '@/components/countdown'
 
 export function Brand ({ className, compact }) {
   const branding = useBranding()
@@ -101,6 +104,31 @@ export function NavPrice ({ className }) {
   return (
     <Nav.Item className={classNames(styles.price, className)}>
       <Price className='nav-link text-monospace' />
+    </Nav.Item>
+  )
+}
+
+const REWARDS = gql`
+{
+  rewards {
+    total
+    time
+  }
+}`
+
+export function NavRewards () {
+  const { data } = useQuery(REWARDS,
+    SSR ? { ssr: false } : { pollInterval: LONG_POLL_INTERVAL_MS, nextFetchPolicy: 'cache-and-network' })
+  const total = data?.rewards?.[0]?.total
+  const time = data?.rewards?.[0]?.time
+  if (!total) return null
+  return (
+    <Nav.Item className='navRewards d-none d-md-flex align-items-center gap-2'>
+      <Link href='/rewards' className='nav-link p-0 navRewardsAmount'>
+        {piconerosToXmr(BigInt(total))} in rewards
+      </Link>
+      {time &&
+        <DaysHoursCountdown className='navRewardsTimer' date={time} />}
     </Nav.Item>
   )
 }
@@ -187,7 +215,7 @@ export function MeDropdown ({ me, dropNavKey }) {
       <Dropdown className={styles.dropdown} align='end'>
         <Dropdown.Toggle className='nav-link nav-item fw-normal' id='profile' variant='custom'>
           <div className='d-flex align-items-center'>
-            <Nav.Link eventKey={me.name} as='span' className='p-0'>
+            <Nav.Link eventKey={me.name} as='span' className='p-0 navNym'>
               <Indicator show={indicator} top='2px' right='-5px'>@{me.name}</Indicator>
             </Nav.Link>
             <Badges user={me} className='ms-1' height={16} width={14} />
