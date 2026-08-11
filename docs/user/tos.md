@@ -6,13 +6,13 @@ sub: meta
 
 # Stasher News Terms of Service
 
-This document is a work in progress. Please check back for updates, and if you have any concerns or feedback, share them in the comments below or email [contact email].
+This document is a work in progress. Please check back for updates, and if you have any concerns or feedback, share them in the comments below or email hello@stasher.news.
 
-##### Last Updated: August 5, 2026
+##### Last Updated: August 11, 2026
 
 ##### Acceptance of the Terms of Service
 
-These terms of use are entered into by and between you and [operator name] ("we", "us", or "our"). The following terms and conditions, together with the [Privacy Policy](/privacy) and any other documents expressly incorporated by reference (collectively, the "Terms of Service"), govern your access to and use of Stasher News (stasher.news) and any content, functionality, and services offered on or through it (the "Website"), whether as a guest or a registered user.
+These terms of use are entered into by and between you and Stasher News ("we", "us", or "our"). The following terms and conditions, together with the [Privacy Policy](/privacy) and any other documents expressly incorporated by reference (collectively, the "Terms of Service"), govern your access to and use of Stasher News (stasher.news) and any content, functionality, and services offered on or through it (the "Website"), whether as a guest or a registered user.
 
 Please read the Terms of Service carefully before you start to use the Website.
 
@@ -41,7 +41,17 @@ You agree to notify us immediately of any unauthorized access to or use of your 
 
 ##### Rewards
 
-Stasher News distributes the revenue it collects from posting, comment, boost, tip, downvote, and turf fees, as well as donations, back to stashers who contribute to the site. Rewards are denominated in Monero (XMR) or site credits and are subject to the rules described on the [rewards page](/rewards) and in the [FAQ](/faq). We may change reward parameters, minimum payout thresholds, or reward mechanics at any time.
+Stasher News distributes the revenue it collects from posting, comment, boost, tip, downvote, and turf fees, as well as donations, back to stashers who contribute to the site. Rewards are denominated in Monero (XMR) and are subject to the rules described on the [rewards page](/rewards) and in the [FAQ](/faq). We may change reward parameters, minimum payout thresholds, or reward mechanics at any time.
+
+##### Monero Payments and Non-Custodial Nature
+
+Payments on the Website — tips, posting and comment fees, turf fees, boosts, downvotes, and donations — are made in Monero (XMR) directly between user wallets. Tips are paid peer-to-peer from the tipper's wallet to the recipient's wallet; the platform never takes custody of tips. Fees, boosts, and downvotes are paid to the platform's rewards wallet and redistributed to stashers as weekly curator rewards.
+
+Monero payments are final and irreversible. Once a transaction is confirmed on the Monero blockchain, it cannot be reversed, refunded, or cancelled by us or by the sender. Always verify the amount and address shown before confirming any payment; mistakes cannot be undone.
+
+You are responsible for securing your account credentials and your wallet. We store only the view keys required to observe payments, encrypted at rest; we never hold spend keys and cannot spend or recover your funds on your behalf. If you lose access to your account or your wallet, the funds associated with them may be permanently lost.
+
+Rewards and tips received through the Website may have tax implications in your jurisdiction. You are solely responsible for determining and satisfying any tax obligations arising from your use of the Website.
 
 ##### Trademarks
 
@@ -53,7 +63,7 @@ You may use the Website only for lawful purposes and in accordance with these Te
 
 - In any way that violates any applicable federal, state, local, or international law or regulation.
 - To transmit, or procure the sending of, any advertising or promotional material, including any "junk mail", "chain letter", "spam", or any other similar solicitation.
-- To impersonate or attempt to impersonate [operator name], a stasher, or any other person or entity.
+- To impersonate or attempt to impersonate Stasher News, a stasher, or any other person or entity.
 - To engage in any other conduct that restricts or inhibits anyone's use or enjoyment of the Website, or which, as determined by us, may harm the Website or users of the Website, or expose them to liability.
 
 Additionally, you agree not to:
@@ -83,7 +93,7 @@ We have the right to:
 
 - Remove or refuse to post any User Contributions for any or no reason in our sole discretion.
 - Take any action with respect to any User Contribution that we deem necessary or appropriate in our sole discretion, including if we believe that such User Contribution violates the Terms of Service, including the Content Standards, infringes any intellectual property right, or threatens the personal safety of users of the Website or the public.
-- Disclose your identity or other information about you to any third party who claims that material posted by you violates their rights, including their intellectual property rights or their right to privacy.
+- Share information about you with third parties only to the extent required by law. The Website does not collect identity documents or other personally identifying information beyond what is minimally necessary to operate the site, and we do not voluntarily disclose user information to anyone.
 - Take appropriate legal action, including without limitation, referral to law enforcement, for any illegal or unauthorized use of the Website.
 - Terminate or suspend your access to all or part of the Website for any or no reason, including without limitation, any violation of these Terms of Service.
 
@@ -123,7 +133,7 @@ If the Website contains links to other sites and resources provided by third par
 
 ##### Geographic Restrictions
 
-The owner of the Website is based in [governing law / jurisdiction]. We make no claims that the Website or any of its content is accessible or appropriate outside of that jurisdiction. Access to the Website may not be legal by certain persons or in certain countries. If you access the Website from outside that jurisdiction, you do so on your own initiative and are responsible for compliance with local laws.
+We make no claims that the Website or any of its content is accessible or appropriate in all jurisdictions. Access to the Website may not be legal by certain persons or in certain countries. If you access the Website, you do so on your own initiative and are responsible for compliance with local laws.
 
 ##### Disclaimer of Warranties
 
@@ -131,32 +141,20 @@ You understand that we cannot and do not guarantee or warrant that files availab
 
 TO THE FULLEST EXTENT PROVIDED BY LAW, WE WILL NOT BE LIABLE FOR ANY LOSS OR DAMAGE CAUSED BY A DISTRIBUTED DENIAL-OF-SERVICE ATTACK, VIRUSES, OR OTHER TECHNOLOGICALLY HARMFUL MATERIAL THAT MAY INFECT YOUR COMPUTER EQUIPMENT, COMPUTER PROGRAMS, DATA, OR OTHER PROPRIETARY MATERIAL DUE TO YOUR USE OF THE WEBSITE OR ANY SERVICES OR ITEMS OBTAINED THROUGH THE WEBSITE OR TO YOUR DOWNLOADING OF ANY MATERIAL POSTED ON IT, OR ON ANY WEBSITE LINKED TO IT.
 
-YOUR USE OF THE WEBSITE, ITS CONTENT, AND ANY SERVICES OR ITEMS OBTAINED THROUGH THE WEBSITE IS AT YOUR OWN RISK. THE WEBSITE, ITS CONTENT, AND ANY SERVICES OR ITEMS OBTAINED THROUGH THE WEBSITE ARE PROVIDED ON AN "AS IS" AND "AS AVAILABLE" BASIS, WITHOUT ANY WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. NEITHER [operator name] NOR ANY PERSON ASSOCIATED WITH [operator name] MAKES ANY WARRANTY OR REPRESENTATION WITH RESPECT TO THE COMPLETENESS, SECURITY, RELIABILITY, QUALITY, ACCURACY, OR AVAILABILITY OF THE WEBSITE.
+YOUR USE OF THE WEBSITE, ITS CONTENT, AND ANY SERVICES OR ITEMS OBTAINED THROUGH THE WEBSITE IS AT YOUR OWN RISK. THE WEBSITE, ITS CONTENT, AND ANY SERVICES OR ITEMS OBTAINED THROUGH THE WEBSITE ARE PROVIDED ON AN "AS IS" AND "AS AVAILABLE" BASIS, WITHOUT ANY WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. NEITHER STASHER NEWS NOR ANY PERSON ASSOCIATED WITH STASHER NEWS MAKES ANY WARRANTY OR REPRESENTATION WITH RESPECT TO THE COMPLETENESS, SECURITY, RELIABILITY, QUALITY, ACCURACY, OR AVAILABILITY OF THE WEBSITE.
 
 ##### Limitation on Liability
 
-TO THE FULLEST EXTENT PROVIDED BY LAW, IN NO EVENT WILL [operator name], ITS AFFILIATES, OR THEIR LICENSORS, SERVICE PROVIDERS, EMPLOYEES, AGENTS, OFFICERS, OR DIRECTORS BE LIABLE FOR DAMAGES OF ANY KIND, UNDER ANY LEGAL THEORY, ARISING OUT OF OR IN CONNECTION WITH YOUR USE, OR INABILITY TO USE, THE WEBSITE, ANY WEBSITES LINKED TO IT, ANY CONTENT ON THE WEBSITE, OR ANY SERVICES OR ITEMS OBTAINED THROUGH THE WEBSITE, INCLUDING ANY DIRECT, INDIRECT, SPECIAL, INCIDENTAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO, PERSONAL INJURY, PAIN AND SUFFERING, EMOTIONAL DISTRESS, LOSS OF REVENUE, LOSS OF PROFITS, LOSS OF BUSINESS OR ANTICIPATED SAVINGS, LOSS OF USE, LOSS OF GOODWILL, LOSS OF DATA, AND WHETHER CAUSED BY TORT (INCLUDING NEGLIGENCE), BREACH OF CONTRACT, OR OTHERWISE, EVEN IF FORESEEABLE.
+TO THE FULLEST EXTENT PROVIDED BY LAW, IN NO EVENT WILL STASHER NEWS, ITS AFFILIATES, OR THEIR LICENSORS, SERVICE PROVIDERS, EMPLOYEES, AGENTS, OFFICERS, OR DIRECTORS BE LIABLE FOR DAMAGES OF ANY KIND, UNDER ANY LEGAL THEORY, ARISING OUT OF OR IN CONNECTION WITH YOUR USE, OR INABILITY TO USE, THE WEBSITE, ANY WEBSITES LINKED TO IT, ANY CONTENT ON THE WEBSITE, OR ANY SERVICES OR ITEMS OBTAINED THROUGH THE WEBSITE, INCLUDING ANY DIRECT, INDIRECT, SPECIAL, INCIDENTAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO, PERSONAL INJURY, PAIN AND SUFFERING, EMOTIONAL DISTRESS, LOSS OF REVENUE, LOSS OF PROFITS, LOSS OF BUSINESS OR ANTICIPATED SAVINGS, LOSS OF USE, LOSS OF GOODWILL, LOSS OF DATA, AND WHETHER CAUSED BY TORT (INCLUDING NEGLIGENCE), BREACH OF CONTRACT, OR OTHERWISE, EVEN IF FORESEEABLE.
 
 ##### Indemnification
 
-You agree to defend, indemnify, and hold harmless [operator name], its affiliates, licensors, and service providers, and its and their respective officers, directors, employees, contractors, agents, licensors, suppliers, successors, and assigns from and against any claims, liabilities, damages, judgments, awards, losses, costs, expenses, or fees (including reasonable attorneys' fees) arising out of or relating to your violation of these Terms of Service or your use of the Website.
-
-##### Governing Law and Jurisdiction
-
-All matters relating to the Website and these Terms of Service, and any dispute or claim arising therefrom or related thereto, shall be governed by the laws of [governing law / jurisdiction], without giving effect to any choice or conflict of law provision or rule.
-
-##### Arbitration
-
-Any dispute or claim arising out of or relating to these Terms of Service or the Website shall be settled by binding arbitration in accordance with the rules then in effect, and judgment on the award rendered by the arbitrator may be entered in any court having jurisdiction thereof. You agree to resolve any such dispute or claim solely through such arbitration, and not in any court.
-
-##### Limitation on Time to File Claims
-
-Any cause of action or claim you may have arising out of or relating to these Terms of Service or the Website must be commenced within one year after the cause of action accrues; otherwise, such cause of action or claim is permanently barred.
+You agree to defend, indemnify, and hold harmless Stasher News, its affiliates, licensors, and service providers, and its and their respective officers, directors, employees, contractors, agents, licensors, suppliers, successors, and assigns from and against any claims, liabilities, damages, judgments, awards, losses, costs, expenses, or fees (including reasonable attorneys' fees) arising out of or relating to your violation of these Terms of Service or your use of the Website.
 
 ##### Entire Agreement
 
-These Terms of Service and our [Privacy Policy](/privacy) constitute the sole and entire agreement between you and [operator name] regarding the Website and supersede all prior and contemporaneous understandings, agreements, representations, and warranties, both written and oral, regarding the Website.
+These Terms of Service and our [Privacy Policy](/privacy) constitute the sole and entire agreement between you and Stasher News regarding the Website and supersede all prior and contemporaneous understandings, agreements, representations, and warranties, both written and oral, regarding the Website.
 
 ##### Your Comments and Concerns
 
-All feedback, comments, requests for technical support, and other communications relating to the Website should be directed to [contact email].
+All feedback, comments, requests for technical support, and other communications relating to the Website should be directed to hello@stasher.news.

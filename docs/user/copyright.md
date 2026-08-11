@@ -6,49 +6,24 @@ sub: meta
 
 # Stasher News Copyright Policy
 
-This document is a work in progress. Please check back for updates, and if you have any concerns or feedback, share them in the comments below or email [contact email].
+This document is a work in progress. Please check back for updates, and if you have any concerns or feedback, share them in the comments below or email hello@stasher.news.
 
-##### Last Updated: August 5, 2026
+##### Last Updated: August 11, 2026
 
-##### Reporting Claims of Copyright Infringement
+##### Reporting Copyright Infringement
 
-We take claims of copyright infringement seriously. We will respond to notices of alleged copyright infringement that comply with applicable law. If you believe any materials accessible on or from this site (the "Website") infringe your copyright, you may request removal of those materials (or access to them) from the Website by submitting written notification to our copyright agent designated below. In accordance with the Online Copyright Infringement Liability Limitation Act of the Digital Millennium Copyright Act (17 U.S.C. § 512) ("DMCA"), the written notice (the "DMCA Notice") must include substantially the following:
+We take claims of copyright infringement seriously. If you believe that material posted on the Website infringes your copyright, please send us a notice at hello@stasher.news that includes:
 
-- Your physical or electronic signature.
-- Identification of the copyrighted work you believe to have been infringed or, if the claim involves multiple works on the Website, a representative list of such works.
-- Identification of the material you believe to be infringing in a sufficiently precise manner to allow us to locate that material.
-- Adequate information by which we can contact you (including your name, postal address, telephone number, and, if available, email address).
-- A statement that you have a good faith belief that use of the copyrighted material is not authorized by the copyright owner, its agent, or the law.
-- A statement that the information in the written notice is accurate.
-- A statement, under penalty of perjury, that you are authorized to act on behalf of the copyright owner.
+- Identification of the copyrighted work you believe has been infringed.
+- Identification of the material you believe is infringing, with enough detail for us to locate it.
+- Your contact information, so we can reach you.
 
-If you fail to comply with all of the requirements of Section 512(c)(3) of the DMCA, your DMCA Notice may not be effective.
+We will review your notice and remove or disable access to material we determine, in our discretion, to be infringing.
 
-Please be aware that if you knowingly materially misrepresent that material or activity on the Website is infringing your copyright, you may be held liable for damages (including costs and attorneys' fees) under Section 512(f) of the DMCA.
+##### Counter Notices
 
-##### Counter Notification Procedures
-
-If you believe that material you posted on the Website was removed or access to it was disabled by mistake or misidentification, you may file a counter notification with us (a "Counter Notice") by submitting written notification to our copyright agent. Pursuant to the DMCA, the Counter Notice must include substantially the following:
-
-- Your physical or electronic signature.
-- An identification of the material that has been removed or to which access has been disabled and the location at which the material appeared before it was removed or access disabled.
-- Adequate information by which we can contact you (including your name, postal address, telephone number, and, if available, email address).
-- A statement under penalty of perjury by you that you have a good faith belief that the material identified above was removed or disabled as a result of a mistake or misidentification of the material to be removed or disabled.
-- A statement that you will consent to the jurisdiction of the Federal District Court for the judicial district in which your address is located (or if you reside outside the United States for any judicial district in which the Website may be found) and that you will accept service from the person (or an agent of that person) who provided the Website with the complaint at issue.
-
-The DMCA allows us to restore the removed content if the party filing the original DMCA Notice does not file a court action against you within ten business days of receiving the copy of your Counter Notice.
-
-Please be aware that if you knowingly materially misrepresent that material or activity on the Website was removed or disabled by mistake or misidentification, you may be held liable for damages (including costs and attorneys' fees) under Section 512(f) of the DMCA.
+If you believe material you posted was removed by mistake or misidentification, you may email us at hello@stasher.news. We will review your request and, where appropriate, restore the material.
 
 ##### Repeat Infringers
 
-It is our policy in appropriate circumstances to disable and/or terminate the accounts of users who are repeat infringers.
-
-##### Contact
-
-Please send copyright notices to:
-
-[operator name]
-[mailing address]
-
-Or send an email to [contact email].
+It is our policy, in appropriate circumstances, to disable or terminate the accounts of users who repeatedly infringe the copyright of others.
