@@ -265,7 +265,7 @@ test('each share carries per-type earns that sum exactly to the share', async ()
 // HANDICAP_IDS restore (A-09 Task 1): staff users 616/4502 get a 0.5x curator
 // proportion. Two identical posts with identical tips; the handicapped one's
 // curator share must be exactly half the other's. User 616 is the real seed
-// account `untraceable` in the dev DB, so the insert tracks it for teardown
+// account `stasher` in the dev DB, so the insert tracks it for teardown
 // only if it truly creates the row — the pre-existing user is never deleted.
 const HANDICAP_USER_ID = 616
 

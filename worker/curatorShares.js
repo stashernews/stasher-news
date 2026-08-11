@@ -48,7 +48,7 @@ const ZAP_THRESHOLD_PICONEROS = 100_000_000n
 
 // SN-parity HANDICAP_IDS (restored per A-09): staff accounts get a 0.5x curator
 // multiplier (their curation still counts, but at half weight). The fork keeps
-// the upstream ids — untraceable (616) and sn (4502) — and deliberately does
+// the upstream ids — stasher (616) and sn (4502) — and deliberately does
 // NOT handicap anon (never reaches curator attribution anyway).
 const HANDICAP_IDS = [USER_ID.untraceable, USER_ID.sn]
 const HANDICAP_ZAP_MULT = 0.5

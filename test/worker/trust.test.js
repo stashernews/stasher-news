@@ -25,7 +25,7 @@ import { USER_ID } from '@/lib/constants'
 
 const prisma = new PrismaClient()
 
-// The global trust seed is the untraceable user (USER_ID.untraceable). For GLOBAL
+// The global trust seed is the stasher user (USER_ID.untraceable = 616). For GLOBAL
 // trust (zapPostTrust) to reach a curator, the seed must itself tip — the random
 // walk restarts at the seed each iteration, so only nodes the seed "follows" accrue
 // trust. This is exactly what the brief's RED note describes: before the rewire the
@@ -107,7 +107,7 @@ async function seedCrissCross ({ curatorId, curatorAmount, firstMinor, recipient
 beforeAll(async () => {
   // Territory founder is a per-territory trust seed for the SUB walks
   // (seeds = GLOBAL_SEEDS ∪ {founderId}); it does not need to tip for the global
-  // zapPostTrust assertion, which is driven by SEED_USER (untraceable) tipping.
+  // zapPostTrust assertion, which is driven by SEED_USER (stasher) tipping.
   founderId = await createUser()
   authorId = await createUser()
   aId = await createUser()
@@ -159,7 +159,7 @@ afterAll(async () => {
 })
 
 test('records seed trust for the territory (unconditional random-walk seed injection)', async () => {
-  // The global seed (untraceable) is injected into the graph unconditionally via
+  // The global seed (stasher) is injected into the graph unconditionally via
   // unnest(seeds), so it gets a UserSubTrust row from the random walk. Because the
   // graph is non-empty here (results.length > 0), the initialTrust fallback at
   // worker/trust.js:62-64 is NOT the source of this row — it comes from the walk.
