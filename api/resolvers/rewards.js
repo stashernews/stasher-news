@@ -29,7 +29,7 @@ function toBigInt (v) {
 }
 
 // Rewards earmark per the PlatformFeeConfig allocation split (spec §6.4):
-// downvote 100% / posting 70% / turf 30% / boosts 50% / wallet-less tips 50%.
+// downvote 100% / posting 70% / turf 30% / boosts 30% / wallet-less tips 70%.
 // Donations go the payer-chosen % to the pool (default 100); bounty rollovers
 // (BOUNTY_ROLLOVER) go 100% to the pool; BOUNTY_FEE is 100% ops (booked at
 // funding, physically arrives with the rollover) so its pool share is 0.

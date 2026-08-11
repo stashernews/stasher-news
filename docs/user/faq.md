@@ -239,7 +239,7 @@ This no longer happens. Tips are delivered peer-to-peer: 100% of a tip goes to i
 
 ### Is there an equivalent to downvotes?
 
-Yes. If you see content that you think should not be on Stasher News, you can click the `...` next to the post or comment and select 'downvote', or use the downvote arrow next to the tip button. A modal lets you choose a downvote amount between 0.0001 and 0.002 XMR.
+Yes. If you see content that you think should not be on Stasher News, you can click the `...` next to the post or comment and select 'downvote', or use the downvote arrow next to the tip button. A modal lets you choose a downvote amount between 0.0001 and 0.025 XMR.
 
 Downvoting content is a form of negative feedback that reduces the visibility of the specific item. Downvote payments fund the weekly curator rewards pool.
 
