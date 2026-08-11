@@ -1,27 +1,42 @@
 import Qr from './qr'
+import InputGroup from 'react-bootstrap/InputGroup'
 import { CopyButton } from './form'
-import { moneroUriAddress, piconerosToXmr } from '@/lib/format'
+import { moneroUriAddress, moneroUriAmountPiconeros, piconerosToXmr, piconerosToXmrDecimal } from '@/lib/format'
 
 export default function MoneroPaymentView ({ moneroUri, amountPiconeros, heading, description, children }) {
   const address = moneroUriAddress(moneroUri)
+  const amount = amountPiconeros ?? moneroUriAmountPiconeros(moneroUri)
+  const amountDecimal = amount && amount > 0n ? piconerosToXmrDecimal(amount) : null
   return (
     <div className='d-flex flex-column align-items-center'>
       {heading && <h6>{heading}</h6>}
       <p className='text-muted text-center'>
-        {description ?? `Scan to send ${piconerosToXmr(amountPiconeros)}.`}
+        {description ?? (amount ? `Scan to send ${piconerosToXmr(amount)}.` : 'Scan to send Monero.')}
       </p>
       <Qr value={moneroUri} />
-      {address &&
+      {(amountDecimal || address) &&
         <div className='mt-2 w-100' style={{ maxWidth: '320px' }}>
-          <div className='input-group'>
-            <input
-              type='text' readOnly value={address}
-              className='form-control text-break text-monospace small'
-              style={{ fontSize: '0.75rem' }}
-              onFocus={(e) => e.target.select()}
-            />
-            <CopyButton value={address} icon />
-          </div>
+          {amountDecimal &&
+            <div className='input-group mb-2'>
+              <input
+                type='text' readOnly value={amountDecimal}
+                className='form-control text-monospace small'
+                style={{ fontSize: '0.75rem' }}
+                onFocus={(e) => e.target.select()} aria-label='Amount due (XMR)'
+              />
+              <InputGroup.Text className='text-monospace small' style={{ fontSize: '0.75rem' }}>XMR</InputGroup.Text>
+              <CopyButton value={amountDecimal} icon />
+            </div>}
+          {address &&
+            <div className='input-group'>
+              <input
+                type='text' readOnly value={address}
+                className='form-control text-break text-monospace small'
+                style={{ fontSize: '0.75rem' }}
+                onFocus={(e) => e.target.select()}
+              />
+              <CopyButton value={address} icon />
+            </div>}
         </div>}
       <div className='mt-2'>
         <a href={moneroUri} className='fw-bold text-decoration-underline'>Open in Desktop Monero Wallet</a>
