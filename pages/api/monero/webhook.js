@@ -5,6 +5,7 @@ import { notifyNewStreak } from '@/lib/webPush'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { moneroWebhooksReceivedTotal } from '@/lib/metrics'
 import { driveBountyFunding } from '@/api/monero/bountyFunding'
+import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 
 // lws tx-confirmation webhook receiver (spec §4.4).
 //
@@ -108,6 +109,15 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
           })
         }
       })
+      // Verified-badge graduation check: a tip that crosses the reputation
+      // threshold may newly qualify the author. No-op unless all conditions met.
+      if (tip.recipientAccount?.label !== 'platform_rewards') {
+        try {
+          await maybeGrantVerifiedBadge(models, tip.post.userId)
+        } catch (err) {
+          console.error('verified badge check failed (webhook):', err)
+        }
+      }
       if (tip.webhookEventId) {
         try {
           await monero.deleteWebhook(tip.webhookEventId)
