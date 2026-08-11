@@ -2,6 +2,7 @@
 import {
   BOUNTY_MIN_XMR,
   bountyAmountError,
+  bountyFundingDescription,
   bountyPiconerosOf,
   bountyStatusWord
 } from '@/lib/bounty'
@@ -71,5 +72,24 @@ describe('bountyStatusWord', () => {
   test('falls back to a lowercased un-underscored status', () => {
     expect(bountyStatusWord('SOME_FUTURE_STATE')).toBe('some future state')
     expect(bountyStatusWord(undefined)).toBe('')
+  })
+})
+
+describe('bountyFundingDescription', () => {
+  test('states the total with the breakdown in parentheses', () => {
+    expect(bountyFundingDescription(10_000_000_000n, 10_000_000_000n))
+      .toBe('Scan to send 0.02 XMR (0.01 XMR bounty + 0.01 XMR escrow fee) to the bounty escrow.')
+  })
+
+  test('handles amounts without a fee floor rounding', () => {
+    expect(bountyFundingDescription(5_000_000_000n, 10_000_000_000n))
+      .toBe('Scan to send 0.015 XMR (0.005 XMR bounty + 0.01 XMR escrow fee) to the bounty escrow.')
+  })
+
+  test('accepts string and number inputs like the GraphQL scalars deliver', () => {
+    expect(bountyFundingDescription('10000000000', '10000000000'))
+      .toBe('Scan to send 0.02 XMR (0.01 XMR bounty + 0.01 XMR escrow fee) to the bounty escrow.')
+    expect(bountyFundingDescription(10000000000, 10000000000))
+      .toBe('Scan to send 0.02 XMR (0.01 XMR bounty + 0.01 XMR escrow fee) to the bounty escrow.')
   })
 })
