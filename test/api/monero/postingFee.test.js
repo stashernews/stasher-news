@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { canPostFree, postingFeePiconeros, postingFeePrivatesFor } from '@/api/monero/postingFee'
+import { canPostFree, postingFeePiconeros, postingFeePrivatesFor, freeCommentsQuota, freePostsQuota, commentsFreeLeft, postsFreeLeft } from '@/api/monero/postingFee'
 
 const DAY = 86_400_000
 const CONFIG = { freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7, postingFeeFloorPiconeros: 1_000_000_000n }
@@ -80,5 +80,46 @@ describe('postingFeePrivatesFor', () => {
       7
     )
     expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0 })
+  })
+})
+
+describe('tiered freebie quotas', () => {
+  const DAY2 = 86_400_000
+  const CFG = { freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 }
+  const established = { stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * DAY2) }
+  const lowRep = { stackedPiconeros: 0n, createdAt: new Date() }
+
+  test('freeCommentsQuota is 15 established, 5 low-rep', () => {
+    expect(freeCommentsQuota(established, CFG)).toBe(15)
+    expect(freeCommentsQuota(lowRep, CFG)).toBe(5)
+  })
+
+  test('freePostsQuota is 5 established, 0 low-rep', () => {
+    expect(freePostsQuota(established, CFG)).toBe(5)
+    expect(freePostsQuota(lowRep, CFG)).toBe(0)
+  })
+
+  test('commentsFreeLeft counts down within the tier and floors at zero', () => {
+    expect(commentsFreeLeft({ ...established, freeCommentCount: 12, freeCommentResetAt: null }, CFG)).toBe(3)
+    expect(commentsFreeLeft({ ...lowRep, freeCommentCount: 3, freeCommentResetAt: null }, CFG)).toBe(2)
+    expect(commentsFreeLeft({ ...lowRep, freeCommentCount: 20, freeCommentResetAt: null }, CFG)).toBe(0)
+  })
+
+  test('commentsFreeLeft resets after the reset date to the tier quota', () => {
+    const e = { ...established, freeCommentCount: 15, freeCommentResetAt: new Date(Date.now() - 1000) }
+    expect(commentsFreeLeft(e, CFG)).toBe(15)
+    const l = { ...lowRep, freeCommentCount: 5, freeCommentResetAt: new Date(Date.now() - 1000) }
+    expect(commentsFreeLeft(l, CFG)).toBe(5)
+  })
+
+  test('commentsFreeLeft returns 0 for missing users', () => {
+    expect(commentsFreeLeft(null, CFG)).toBe(0)
+  })
+
+  test('postsFreeLeft is quota minus used for established, 0 for low-rep, resets after reset date', () => {
+    expect(postsFreeLeft({ ...established, freePostCount: 2, freePostResetAt: null }, CFG)).toBe(3)
+    expect(postsFreeLeft({ ...lowRep, freePostCount: 0, freePostResetAt: null }, CFG)).toBe(0)
+    const reset = { ...established, freePostCount: 5, freePostResetAt: new Date(Date.now() - 1000) }
+    expect(postsFreeLeft(reset, CFG)).toBe(5)
   })
 })
