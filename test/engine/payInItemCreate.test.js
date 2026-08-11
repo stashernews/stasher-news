@@ -216,6 +216,20 @@ test('getInitial returns a free prospect for established users', async () => {
   expect(result).not.toHaveProperty('moneroUri')
 })
 
+// --- Task 4: established users past the 5/month free-post quota pay a posting fee ---
+test('getInitial returns a posting-fee URI for established authors who exhausted their free-post quota', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  await prisma.$executeRaw`
+    UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days', "freePostCount" = 5
+    WHERE id = ${userId}::int`
+  const result = await getInitial(prisma, {}, { me: { id: userId } })
+  expect(result.piconeros).toBe(0n)
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroUri).toContain('tx_amount=0.001')
+  expect(result.moneroSubaddressMajor).toBe(1)
+})
+
 // --- Fix 4: comments beyond the 15/month freebie quota pay a flat comment fee ---
 test('getInitial returns a comment-fee URI for authors past the freebie quota', async () => {
   const userId = await createUser()
