@@ -60,6 +60,29 @@ export function postsFreeLeft (user, config) {
   return Math.max(0, freePostsQuota(user, config) - (user.freePostCount || 0))
 }
 
+// In-process cache for the PlatformFeeConfig singleton. It changes almost never
+// (operator-tunable thresholds/floor), so a 60s TTL is safe and avoids an N+1 on
+// hot resolvers (hasWallet renders per user in feeds). After a migration that
+// changes it, the cache self-heals within the TTL, and operators restart
+// containers anyway.
+const FEE_CONFIG_TTL_MS = 60_000
+let cachedFeeConfig = null
+let cachedFeeConfigAt = 0
+
+export async function getCachedPlatformFeeConfig (models) {
+  const now = Date.now()
+  if (cachedFeeConfig && now - cachedFeeConfigAt < FEE_CONFIG_TTL_MS) return cachedFeeConfig
+  cachedFeeConfig = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  cachedFeeConfigAt = now
+  return cachedFeeConfig
+}
+
+// Test-only: clears the cache so unit tests with different model mocks don't leak.
+export function __resetFeeConfigCacheForTests () {
+  cachedFeeConfig = null
+  cachedFeeConfigAt = 0
+}
+
 // Resolver-facing bundle for UserPrivates.postingFeeRequired /
 // postingFeePiconeros / freePostThresholdPiconeros / freePostMinAgeDays.
 // Self-view only: other viewers and logged-out requests see no-fee values and
@@ -68,21 +91,38 @@ export const POSTING_FEE_NO_FEE = {
   postingFeeRequired: false,
   postingFeePiconeros: 0n,
   freePostThresholdPiconeros: 0n,
-  freePostMinAgeDays: 0
+  freePostMinAgeDays: 0,
+  freePostsLeft: 0,
+  freePostCount: 0,
+  freePostsQuota: 0,
+  freeCommentsQuota: 0
 }
 
 export async function postingFeePrivatesFor (models, user, viewerId) {
   if (!viewerId || viewerId !== user.id) {
     return { ...POSTING_FEE_NO_FEE }
   }
-  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const config = await getCachedPlatformFeeConfig(models)
   if (!config) return { ...POSTING_FEE_NO_FEE }
+  const established = canPostFree(user, config)
+  const postsLeft = postsFreeLeft(user, config)
   const frontend = {
     freePostThresholdPiconeros: config.freePostThresholdPiconeros,
-    freePostMinAgeDays: config.freePostMinAgeDays
+    freePostMinAgeDays: config.freePostMinAgeDays,
+    freePostsLeft: postsLeft,
+    freePostCount: user.freePostCount || 0,
+    freePostsQuota: freePostsQuota(user, config),
+    freeCommentsQuota: freeCommentsQuota(user, config)
   }
-  if (canPostFree(user, config)) {
+  // A post requires a fee when the user is low-rep OR has exhausted the free quota.
+  const postingFeeRequired = !established || postsLeft <= 0
+  if (!postingFeeRequired) {
     return { ...POSTING_FEE_NO_FEE, ...frontend }
   }
-  return { ...POSTING_FEE_NO_FEE, postingFeeRequired: true, postingFeePiconeros: postingFeePiconeros(config), ...frontend }
+  return {
+    ...POSTING_FEE_NO_FEE,
+    ...frontend,
+    postingFeeRequired: true,
+    postingFeePiconeros: postingFeePiconeros(config)
+  }
 }

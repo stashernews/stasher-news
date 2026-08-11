@@ -124,6 +124,10 @@ export default gql`
     authMethods: AuthMethods!
     freeCommentCount: Int!
     freeCommentsLeft: Int!
+    freeCommentsQuota: Int!
+    freePostCount: Int!
+    freePostsLeft: Int!
+    freePostsQuota: Int!
     postingFeeRequired: Boolean!
     postingFeePiconeros: BigInt!
     freePostThresholdPiconeros: BigInt!
