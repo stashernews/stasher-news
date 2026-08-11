@@ -20,7 +20,7 @@
 import { PrismaClient } from '@prisma/client'
 import pay from '@/api/payIn/index'
 import { onPaid, getInitial } from '@/api/payIn/types/itemCreate'
-import { performBotBehavior } from '@/api/payIn/lib/item'
+import { performBotBehavior, ownsAnySub } from '@/api/payIn/lib/item'
 import { flipPendingToLive } from '@/worker/rewardsWalletObserver'
 import { USER_ID } from '@/lib/constants'
 
@@ -72,7 +72,7 @@ const prisma = new PrismaClient()
 // FK-safe teardown tracking. Item and PayIn cascade their ItemPayIn / Reminder
 // children, so only the parents (items, payIns, users) plus the pgboss jobs we
 // created need explicit cleanup.
-const created = { users: [], items: [], payIns: [], reminderIds: [], uploads: [] }
+const created = { users: [], items: [], payIns: [], reminderIds: [], uploads: [], subs: [] }
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -131,6 +131,12 @@ afterAll(async () => {
     await prisma.item.deleteMany({ where: { id } }).catch(() => {})
   }
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } }).catch(() => {})
+  for (const name of created.subs) {
+    // clean FK dependents first
+    await prisma.userSubTrust.deleteMany({ where: { subName: name } }).catch(() => {})
+    await prisma.subSubscription.deleteMany({ where: { subName: name } }).catch(() => {})
+    await prisma.sub.deleteMany({ where: { name } }).catch(() => {})
+  }
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } }).catch(() => {})
   if (feeConfigCreated) {
     await prisma.platformFeeConfig.delete({ where: { id: 1 } }).catch(() => {})
@@ -393,4 +399,62 @@ test('pay("ITEM_CREATE", { uploadIds }) completes without flipping the upload; t
   // the onPaid streak job references the test user (deleted in afterAll); drop
   // it here so the worker never executes it against a deleted row
   await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
+})
+
+// --- turf-owner free posting: ownsAnySub resolves post and comment turfs ---
+describe('ownsAnySub', () => {
+  test('true when the user owns one of the post turfs', async () => {
+    const userId = await createUser()
+    // create a turf owned by this user
+    const turfName = `ownsub-post-${userId}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+    const result = await ownsAnySub(prisma, { subNames: [turfName], parentId: undefined, userId })
+    expect(result).toBe(true)
+  })
+
+  test('false for a turf the user does not own', async () => {
+    const owner = await createUser()
+    const other = await createUser()
+    const turfName = `ownsub-other-${other}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId: owner, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+    const result = await ownsAnySub(prisma, { subNames: [turfName], parentId: undefined, userId: other })
+    expect(result).toBe(false)
+  })
+
+  test('true for a comment whose parent thread turf the user owns', async () => {
+    const owner = await createUser()
+    const turfName = `ownsub-comment-${owner}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId: owner, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+    // root post in the owned turf
+    const rootRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", title, "created_at")
+      VALUES (${owner}::int, ${'owner root'}, now())
+      RETURNING id::int AS id`
+    const rootId = rootRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId)}::ltree WHERE id = ${rootId}::int`
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: turfName } }) // triggers item_subnames -> root.subNames
+    created.items.push(rootId)
+    const result = await ownsAnySub(prisma, { subNames: undefined, parentId: String(rootId), userId: owner })
+    expect(result).toBe(true)
+  })
+
+  test('false for anon (anon can never own a turf)', async () => {
+    const result = await ownsAnySub(prisma, { subNames: ['bitcoin'], parentId: undefined, userId: USER_ID.anon })
+    expect(result).toBe(false)
+  })
+
+  test('false when neither subNames nor parentId is set (bios)', async () => {
+    const userId = await createUser()
+    const result = await ownsAnySub(prisma, { subNames: undefined, parentId: undefined, userId })
+    expect(result).toBe(false)
+  })
 })

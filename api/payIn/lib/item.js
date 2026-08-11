@@ -20,6 +20,18 @@ export async function getSubs (models, { subNames, parentId }) {
   return await models.sub.findMany({ where: { name: { in: subNames } } })
 }
 
+/**
+ * True iff `userId` owns at least one of the turfs this item targets — a post's
+ * own `subNames`, or (for comments) the parent thread's turfs resolved by
+ * `getSubs`. Anon never owns (territories require auth to create). Used by the
+ * ITEM_CREATE fee gate to waive posting/comment fees for turf owners.
+ */
+export async function ownsAnySub (models, { subNames, parentId, userId }) {
+  if (userId === USER_ID.anon) return false
+  const subs = await getSubs(models, { subNames, parentId })
+  return subs.some(s => Number(s.userId) === Number(userId))
+}
+
 // ltree is unsupported in Prisma, so we have to query it manually (FUCK!)
 export async function getItemResult (tx, { id }) {
   return (await tx.$queryRaw`
