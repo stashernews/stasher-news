@@ -44,6 +44,8 @@ model User {
   commentsPiconerosFilter BigInt?              @default(-2000000000)
   freeCommentCount    Int                  @default(0)
   freeCommentResetAt  DateTime?
+  freePostCount       Int                  @default(0)
+  freePostResetAt     DateTime?
   nsfwMode            Boolean              @default(false)
   fiatCurrency        String               @default("USD")
   hideFromTopUsers    Boolean              @default(false)
