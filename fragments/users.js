@@ -34,6 +34,10 @@ ${STREAK_FIELDS}
       piconeros
       credits
       freeCommentsLeft
+      freeCommentsQuota
+      freePostCount
+      freePostsLeft
+      freePostsQuota
       postingFeeRequired
       postingFeePiconeros
       freePostThresholdPiconeros

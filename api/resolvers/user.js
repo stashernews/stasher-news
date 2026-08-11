@@ -1,12 +1,11 @@
 import { readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
-import { postingFeePrivatesFor } from '@/api/monero/postingFee'
+import { postingFeePrivatesFor, getCachedPlatformFeeConfig, commentsFreeLeft, freeCommentsQuota, postsFreeLeft, freePostsQuota } from '@/api/monero/postingFee'
 import { territoryFeePrivatesFor } from '@/api/monero/territoryFee'
 import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/validate'
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
 import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES, SN_SYSTEM_ONLY_IDS } from '@/lib/constants'
-import { commentsFreeLeft } from '@/api/payIn/lib/freebie'
 import { whenRange } from '@/lib/time'
 import assertApiKeyNotPermitted from './apiKey'
 import { isMuted } from '@/lib/user'
@@ -923,7 +922,20 @@ export default {
       }
       return user.freeCommentCount || 0
     },
-    freeCommentsLeft: (user) => commentsFreeLeft(user),
+    freeCommentsLeft: async (user, args, { models }) =>
+      commentsFreeLeft(user, await getCachedPlatformFeeConfig(models)),
+    freeCommentsQuota: async (user, args, { models }) =>
+      freeCommentsQuota(user, await getCachedPlatformFeeConfig(models)),
+    freePostCount: (user) => {
+      if (user.freePostResetAt && new Date() >= new Date(user.freePostResetAt)) {
+        return 0
+      }
+      return user.freePostCount || 0
+    },
+    freePostsLeft: async (user, args, { models }) =>
+      postsFreeLeft(user, await getCachedPlatformFeeConfig(models)),
+    freePostsQuota: async (user, args, { models }) =>
+      freePostsQuota(user, await getCachedPlatformFeeConfig(models)),
     postingFeeRequired: async (user, args, { models, me }) =>
       (await postingFeePrivatesFor(models, user, me?.id)).postingFeeRequired,
     postingFeePiconeros: async (user, args, { models, me }) =>

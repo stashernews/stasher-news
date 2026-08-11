@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { canPostFree, postingFeePiconeros, postingFeePrivatesFor, freeCommentsQuota, freePostsQuota, commentsFreeLeft, postsFreeLeft } from '@/api/monero/postingFee'
+import { canPostFree, postingFeePiconeros, postingFeePrivatesFor, freeCommentsQuota, freePostsQuota, commentsFreeLeft, postsFreeLeft, __resetFeeConfigCacheForTests } from '@/api/monero/postingFee'
 
 const DAY = 86_400_000
 const CONFIG = { freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7, postingFeeFloorPiconeros: 1_000_000_000n }
@@ -33,6 +33,8 @@ test('postingFeePiconeros returns the platform floor (1e9 piconeros = 0.001 XMR)
 // short-circuiting on the id mismatch. Low-rep = id 7 viewer 7.
 const MODELS = { platformFeeConfig: { findUnique: async () => CONFIG } }
 
+beforeEach(() => __resetFeeConfigCacheForTests())
+
 describe('postingFeePrivatesFor', () => {
   test('low-rep self-view reports the floor fee', async () => {
     const result = await postingFeePrivatesFor(
@@ -40,17 +42,47 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       7
     )
-    expect(result).toEqual({ postingFeeRequired: true, postingFeePiconeros: 1_000_000_000n, freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 })
+    expect(result).toEqual({
+      postingFeeRequired: true,
+      postingFeePiconeros: 1_000_000_000n,
+      freePostThresholdPiconeros: 10_000_000_000n,
+      freePostMinAgeDays: 7,
+      freePostsLeft: 0,
+      freePostCount: 0,
+      freePostsQuota: 0,
+      freeCommentsQuota: 5
+    })
   })
 
-  test('established self-view reports no fee', async () => {
+  test('established self-view reports no fee (free posts available)', async () => {
     const now = Date.now()
     const result = await postingFeePrivatesFor(
       MODELS,
-      { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY) },
+      { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY), freePostCount: 0, freePostResetAt: null },
       7
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 })
+    expect(result).toEqual({
+      postingFeeRequired: false,
+      postingFeePiconeros: 0n,
+      freePostThresholdPiconeros: 10_000_000_000n,
+      freePostMinAgeDays: 7,
+      freePostsLeft: 5,
+      freePostCount: 0,
+      freePostsQuota: 5,
+      freeCommentsQuota: 15
+    })
+  })
+
+  test('established self-view with exhausted post quota reports the floor fee', async () => {
+    const now = Date.now()
+    const result = await postingFeePrivatesFor(
+      MODELS,
+      { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY), freePostCount: 5, freePostResetAt: null },
+      7
+    )
+    expect(result.postingFeeRequired).toBe(true)
+    expect(result.postingFeePiconeros).toBe(1_000_000_000n)
+    expect(result.freePostsLeft).toBe(0)
   })
 
   test('other viewers never see fee info', async () => {
@@ -60,7 +92,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       8
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0 })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0 })
   })
 
   test('a logged-out viewer never sees fee info', async () => {
@@ -69,7 +101,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       null
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0 })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0 })
   })
 
   test('missing config reports no fee', async () => {
@@ -79,7 +111,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       7
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0 })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0 })
   })
 })
 
