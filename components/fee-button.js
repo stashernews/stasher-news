@@ -15,7 +15,7 @@ import { SubmitButton } from './form'
 
 const FeeButtonContext = createContext()
 
-export function postCommentBaseLineItems ({ comment = false, bio = false, me }) {
+export function postCommentBaseLineItems ({ comment = false, bio = false, me, ownsSub = false }) {
   // anon multiplier is context-dependent: comments x ANON_COMMENT_FEE_MULTIPLIER (3),
   // posts/bios x ANON_POST_FEE_MULTIPLIER (10).
   const anonMultiplier = comment ? ANON_COMMENT_FEE_MULTIPLIER : ANON_POST_FEE_MULTIPLIER
@@ -35,7 +35,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
   // (commentFeePiconeros — the postingFeeFloorPiconeros default) to the
   // platform rewards wallet.
   if (comment || bio) {
-    const freebie = !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
+    const freebie = ownsSub || !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
     const commentFee = me?.privates?.commentFeePiconeros
       ? BigInt(me.privates.commentFeePiconeros)
       : (me ? 0n : DEFAULT_POSTING_FEE_PICONEROS)
@@ -47,7 +47,8 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
           op: '_',
           modifier: (cost) => cost + 1,
           allowFreebies: true,
-          isComment: comment
+          isComment: comment,
+          ownerFree: ownsSub
         },
         ...anonCharge
       }
@@ -73,6 +74,21 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
   // nothing for established ones. Legacy per-turf baseCost lines are denominated
   // in sats and would misquote the fee, so posts render a single postingFee line
   // (or no lines at all when the author posts free).
+  // Turf owners post free in their own turf regardless of reputation/quota.
+  if (ownsSub) {
+    return {
+      baseCost: {
+        term: 1,
+        label: 'post',
+        op: '_',
+        modifier: (cost) => cost + 1,
+        allowFreebies: true,
+        isComment: false,
+        ownerFree: true
+      }
+    }
+  }
+
   const feePiconeros = me
     ? (me.privates?.postingFeeRequired ? BigInt(me.privates.postingFeePiconeros || 0) : 0n)
     : DEFAULT_POSTING_FEE_PICONEROS
@@ -106,7 +122,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me }) 
   }
 }
 
-export function postCommentUseRemoteLineItems ({ parentId } = {}) {
+export function postCommentUseRemoteLineItems ({ parentId, ownsSub = false } = {}) {
   const query = parentId
     ? gql`{ itemRepetition(parentId: "${parentId}") }`
     : gql`{ itemRepetition }`
@@ -122,9 +138,9 @@ export function postCommentUseRemoteLineItems ({ parentId } = {}) {
       // only show the x10^n line when a fee actually applies: a comment past the
       // freebie quota, or a low-rep post. Freebie comments (base 1) and free posts
       // must never be multiplied.
-      const feeApplies = parentId
+      const feeApplies = !ownsSub && (parentId
         ? (me?.privates?.freeCommentsLeft ?? 0) <= 0
-        : !!me?.privates?.postingFeeRequired
+        : !!me?.privates?.postingFeeRequired)
       if (!repetition || !feeApplies) return setLine({})
       setLine({
         itemRepetition: {
@@ -134,7 +150,7 @@ export function postCommentUseRemoteLineItems ({ parentId } = {}) {
           modifier: (cost) => cost * Math.pow(10, repetition)
         }
       })
-    }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.postingFeeRequired])
+    }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.postingFeeRequired, ownsSub])
 
     return line
   }
@@ -217,7 +233,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
     const free = me &&
       total === baseCostLine?.modifier(0) &&
       baseCostLine?.allowFreebies &&
-      (!isComment || freeCommentsLeft > 0)
+      (baseCostLine?.ownerFree || !isComment || freeCommentsLeft > 0)
     return {
       lines,
       merge: mergeLineItems,
