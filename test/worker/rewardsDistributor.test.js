@@ -72,15 +72,14 @@ const fakeSigner = async (payouts, { models } = {}) => {
 
 // Seed amounts (piconeros). Picked so the allocation math is exact:
 //   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100 + 3e12 (DONATE @100%)
-//                 + 1e12*50/100 (BOOST @50%) + 2e12*50/100 (TIP_UNWALLETED @50%)
+//                 + 1e12*30/100 (BOOST @30%) + 2e12*70/100 (TIP_UNWALLETED @70%)
 //                 + 2.5e12 (BOUNTY_ROLLOVER @100%)
-//                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 + 0.5e12 + 1e12 + 2.5e12 = 15.4e12
-//   pool          = 15.4e12 + 1e12 (prior rollover) = 16.4e12
+//                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 + 0.3e12 + 1.4e12 + 2.5e12 = 15.6e12
+//   pool          = 15.6e12 + 1e12 (prior rollover) = 16.6e12
 //   totalInflow   = rewardsInflow + 0.5e12 (BOUNTY_FEE @0% rewards, 100% ops)
-//                 = 15.9e12
-//   opsInflow     = totalInflow - rewardsInflow = 0.5e12 + the fee-ops shares
-//                 = 0.5e12 (BOUNTY_FEE) + 1.2e12 (posting) + 1.4e12 (territory)
-//                   + 0.5e12 (BOOST) + 1e12 (TIP_UNWALLETED) = 4.6e12
+//                 = 20e12
+//   opsInflow     = totalInflow - rewardsInflow = 0.5e12 (BOUNTY_FEE) + 1.2e12 (posting)
+//                   + 1.4e12 (territory) + 0.7e12 (BOOST) + 0.6e12 (TIP_UNWALLETED) = 4.4e12
 const DOWNVOTE_PICONEROS = 5_000_000_000_000n
 const POSTING_FEE_PICONEROS = 4_000_000_000_000n
 const TERRITORY_FEE_PICONEROS = 2_000_000_000_000n
@@ -90,13 +89,10 @@ const PRIOR_ROLLOVER_PICONEROS = 1_000_000_000_000n
 const WALLETLESS_TIP_PICONEROS = 2_000_000_000_000n
 const BOUNTY_ROLLOVER_PICONEROS = 2_500_000_000_000n
 const BOUNTY_FEE_PICONEROS = 500_000_000_000n
-const EXPECTED_POOL_PICONEROS = 16_400_000_000_000n
+const EXPECTED_POOL_PICONEROS = 16_600_000_000_000n
 // Ops earmark = totalInflow - rewardsInflow.
-//   downvote (100% rewards -> 0 ops) + posting 4e12*30% + territory 2e12*70%
-//   + donate (0 ops) + boost 1e12*50% + walletless 2e12*50%
-//   + bounty rollover (100% rewards -> 0 ops) + bounty fee (100% ops)
-//   = 1.2e12 + 1.4e12 + 0.5e12 + 1e12 + 0.5e12 = 4.6e12
-const EXPECTED_OPS_INFLOW_PICONEROS = 4_600_000_000_000n
+//   downvote (100% rewards -> 0 ops) + posting 4e12*30% + territory 2e12*70% + donate (0 ops) + boost 1e12*70% + walletless 2e12*30% + bounty rollover (100% rewards -> 0 ops) + bounty fee (100% ops) = 1.2e12 + 1.4e12 + 0.7e12 + 0.6e12 + 0.5e12 = 4.4e12
+const EXPECTED_OPS_INFLOW_PICONEROS = 4_400_000_000_000n
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -287,7 +283,7 @@ beforeAll(async () => {
 
   // Ensure the PlatformFeeConfig singleton exists with schema defaults
   // (downvoteRewardsPct=100, postingFeeRewardsPct=70, territoryFeeRewardsPct=30,
-  //  distributionMinPayoutPiconeros=1e9, distributionTopN=100).
+  //  distributionMinPayoutPiconeros=1e9, distributionTopN=25).
   await prisma.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
 
   // Clear any RESULT distribution left over from a prior run whose periodEnd
@@ -342,14 +338,14 @@ beforeAll(async () => {
   const donatePayIn = await seedPayIn(authorId, 'DONATE', 3, 1)
   await seedFee(donatePayIn.id, 'DONATE', 3, EXTRA_DONATE_PICONEROS, inPeriod)
 
-  // Boost (boostRewardsPct, default 50): funds the pool at 50%, the other 50%
+  // Boost (boostRewardsPct, default 30): funds the pool at 30%, the other 70%
   // is ops. Lands on the BOOST fee subaddress major (5) per the fee-subaddress
   // convention.
   const boostPayIn = await seedPayIn(authorId, 'BOOST', 5, 1)
   await seedFee(boostPayIn.id, 'BOOST', 5, BOOST_FEE_PICONEROS, inPeriod)
 
   // Wallet-less-author tip (TIP_UNWALLETED): funds the pool at
-  // walletlessTipRewardsPct (default 50). Lands on its dedicated major-4
+  // walletlessTipRewardsPct (default 70). Lands on its dedicated major-4
   // subaddress; payInId is null because a wallet-less tip creates no PayIn.
   await seedFee(null, 'TIP_UNWALLETED', 4, WALLETLESS_TIP_PICONEROS, inPeriod)
 
@@ -455,7 +451,7 @@ test('the rewards pool equals the exact allocation earmark + extra sources + pri
 test('the DONATE extra source funds the pool 1:1 (no allocation %)', async () => {
   // Without DONATE + BOOST + TIP_UNWALLETED + BOUNTY_ROLLOVER, pool would be
   // 9.4e12; DONATE adds its full amount at 100% (no allocation % split).
-  expect(result.poolPiconeros).toBe(9_400_000_000_000n + EXTRA_DONATE_PICONEROS + BOOST_FEE_PICONEROS * 50n / 100n + WALLETLESS_TIP_PICONEROS * 50n / 100n + BOUNTY_ROLLOVER_PICONEROS + genuineRewardsShare)
+  expect(result.poolPiconeros).toBe(9_400_000_000_000n + EXTRA_DONATE_PICONEROS + BOOST_FEE_PICONEROS * 30n / 100n + WALLETLESS_TIP_PICONEROS * 70n / 100n + BOUNTY_ROLLOVER_PICONEROS + genuineRewardsShare)
 })
 
 test('the BOUNTY_ROLLOVER source funds the pool 100% and BOUNTY_FEE funds it 0% (ops-only)', async () => {
@@ -469,22 +465,22 @@ test('the BOUNTY_ROLLOVER source funds the pool 100% and BOUNTY_FEE funds it 0% 
   expect(result.poolPiconeros).toBe(EXPECTED_POOL_PICONEROS + genuineRewardsShare)
 })
 
-test('the BOOST source funds the pool at boostRewardsPct (50%), not 100%', async () => {
+test('the BOOST source funds the pool at boostRewardsPct (30%), not 100%', async () => {
   // If BOOST were lumped into the 100% extra bucket (the old behavior), the
-  // pool would be EXPECTED_POOL_PICONEROS + BOOST_FEE_PICONEROS * 50n / 100n
-  // higher than it should be. Pin the exact 50% contribution.
-  const poolWithoutBoost = EXPECTED_POOL_PICONEROS + genuineRewardsShare - BOOST_FEE_PICONEROS * 50n / 100n
-  expect(result.poolPiconeros - poolWithoutBoost).toBe(BOOST_FEE_PICONEROS * 50n / 100n)
-  expect(BOOST_FEE_PICONEROS * 50n / 100n).toBe(500_000_000_000n)
+  // pool would be EXPECTED_POOL_PICONEROS + BOOST_FEE_PICONEROS * 30n / 100n
+  // higher than it should be. Pin the exact 30% contribution.
+  const poolWithoutBoost = EXPECTED_POOL_PICONEROS + genuineRewardsShare - BOOST_FEE_PICONEROS * 30n / 100n
+  expect(result.poolPiconeros - poolWithoutBoost).toBe(BOOST_FEE_PICONEROS * 30n / 100n)
+  expect(BOOST_FEE_PICONEROS * 30n / 100n).toBe(300_000_000_000n)
 })
 
-test('the TIP_UNWALLETED source funds the pool at walletlessTipRewardsPct (50%), not 100%', async () => {
+test('the TIP_UNWALLETED source funds the pool at walletlessTipRewardsPct (70%), not 100%', async () => {
   // If TIP_UNWALLETED were lumped into the 100% extra bucket (the old behavior),
-  // the pool would be EXPECTED_POOL_PICONEROS + WALLETLESS_TIP_PICONEROS * 50n / 100n
-  // higher than it should be. Pin the exact 50% contribution.
-  const poolWithoutWalletless = EXPECTED_POOL_PICONEROS + genuineRewardsShare - WALLETLESS_TIP_PICONEROS * 50n / 100n
-  expect(result.poolPiconeros - poolWithoutWalletless).toBe(WALLETLESS_TIP_PICONEROS * 50n / 100n)
-  expect(WALLETLESS_TIP_PICONEROS * 50n / 100n).toBe(1_000_000_000_000n)
+  // the pool would be EXPECTED_POOL_PICONEROS + WALLETLESS_TIP_PICONEROS * 70n / 100n
+  // higher than it should be. Pin the exact 70% contribution.
+  const poolWithoutWalletless = EXPECTED_POOL_PICONEROS + genuineRewardsShare - WALLETLESS_TIP_PICONEROS * 70n / 100n
+  expect(result.poolPiconeros - poolWithoutWalletless).toBe(WALLETLESS_TIP_PICONEROS * 70n / 100n)
+  expect(WALLETLESS_TIP_PICONEROS * 70n / 100n).toBe(1_400_000_000_000n)
 })
 
 test('distributedPiconeros + rolledOverPiconeros reconciles to the pool exactly', async () => {
@@ -500,7 +496,7 @@ test('opsInflowPiconeros is the exact complement of the rewards earmark (totalIn
   // rewardsInflow is definitional: pool = rewardsInflow + priorRolledOver.
   const rewardsInflow = result.poolPiconeros - PRIOR_ROLLOVER_PICONEROS
   expect(result.opsInflowPiconeros).toBe(totalInflow - rewardsInflow)
-  // Sanity: the walletless-tip ops share (50% of 2e12 = 1e12) is included.
+  // Sanity: the walletless-tip ops share (30% of 2e12 = 0.6e12) is included.
   expect(result.opsInflowPiconeros).toBeGreaterThanOrEqual(EXPECTED_OPS_INFLOW_PICONEROS)
 })
 

@@ -41,8 +41,8 @@ const CONFIG = {
   downvoteRewardsPct: 100,
   postingFeeRewardsPct: 70,
   territoryFeeRewardsPct: 30,
-  boostRewardsPct: 50,
-  walletlessTipRewardsPct: 50
+  boostRewardsPct: 30,
+  walletlessTipRewardsPct: 70
 }
 
 function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null } = {}) {
@@ -140,22 +140,22 @@ describe('Query.rewards', () => {
     expect(reward.total).toBe(3_000_000_000n)
   })
 
-  test('the boosts source (BOOST) funds the pool at boostRewardsPct (50%), not 100%', async () => {
+  test('the boosts source (BOOST) funds the pool at boostRewardsPct (30%), not 100%', async () => {
     // A seeded BOOST observation flows in as the "boosts" inflow term, added at
-    // boostRewardsPct (50); the other 50% is the ops share.
+    // boostRewardsPct (30); the other 70% is the ops share.
     const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, donate: 0n, boost: 4_000_000_000n, walletlesstip: 0n } })
     const [reward] = await resolvers.Query.rewards(null, {}, { models })
 
-    expect(reward.sources).toEqual([{ name: 'boosts', value: '2000000000' }])
-    expect(reward.total).toBe(2_000_000_000n) // 50% of 4e9
+    expect(reward.sources).toEqual([{ name: 'boosts', value: '1200000000' }])
+    expect(reward.total).toBe(1_200_000_000n) // 30% of 4e9
   })
 
   test('wallet-less tips (TIP_UNWALLETED) fund the pool at walletlessTipRewardsPct%', async () => {
     const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, donate: 0n, boost: 0n, walletlesstip: 2_000_000_000n } })
     const [reward] = await resolvers.Query.rewards(null, {}, { models })
 
-    expect(reward.sources).toEqual([{ name: 'wallet-less tips', value: '1000000000' }])
-    expect(reward.total).toBe(1_000_000_000n) // 50% of 2e9
+    expect(reward.sources).toEqual([{ name: 'wallet-less tips', value: '1400000000' }])
+    expect(reward.total).toBe(1_400_000_000n) // 70% of 2e9
   })
 
   test('historical rewards resolve to the covering weekly distribution', async () => {
