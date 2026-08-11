@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
-import { postingFeePrivatesFor, getCachedPlatformFeeConfig, commentsFreeLeft, freeCommentsQuota, postsFreeLeft, freePostsQuota } from '@/api/monero/postingFee'
+import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentsFreeLeft, freeCommentsQuota, postsFreeLeft, freePostsQuota } from '@/api/monero/postingFee'
 import { territoryFeePrivatesFor } from '@/api/monero/territoryFee'
 import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/validate'
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
@@ -968,7 +968,17 @@ export default {
       }
 
       const account = await models.moneroAccount.findFirst({ where: { ownerUserId: user.id } })
-      return !!account
+      if (!account) return false
+      const config = await getCachedPlatformFeeConfig(models)
+      if (!config) return false
+      // Feed/comment user objects often omit createdAt/stackedPiconeros; fetch
+      // them so canPostFree can compute. (hasWallet already does a per-user
+      // moneroAccount query, so this adds at most one lightweight lookup.)
+      const u = (user.createdAt != null && user.stackedPiconeros != null)
+        ? user
+        : await models.user.findUnique({ where: { id: user.id }, select: { stackedPiconeros: true, createdAt: true } })
+      if (!u) return false
+      return canPostFree(u, config)
     },
     tippedRecently: async (user, args, { models, me }) => {
       if (user.hideBadges && (!me || me.id !== user.id)) {

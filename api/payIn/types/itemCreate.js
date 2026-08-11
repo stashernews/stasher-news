@@ -10,6 +10,7 @@ import { canPostFree, postingFeePiconeros, commentsFreeLeft, postsFreeLeft } fro
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { uploadFees } from '@/api/resolvers/upload'
+import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import * as MEDIA_UPLOAD from './mediaUpload'
 
 export const anonable = true
@@ -397,6 +398,14 @@ export async function onPaidSideEffects (models, payInId) {
   // suppress all creation notifications here. They will fire once the post goes live.
   if (item.feeStatus === 'PENDING_FEE') {
     return
+  }
+
+  // Verified-badge graduation check (age-crossing path): an active user posting
+  // or commenting past day 7 may have crossed the gate since their last tip.
+  try {
+    await maybeGrantVerifiedBadge(models, item.userId)
+  } catch (err) {
+    console.error('verified badge check failed (itemCreate):', err)
   }
 
   if (item.parentId) {

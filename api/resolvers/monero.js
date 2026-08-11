@@ -4,7 +4,7 @@ import { makeIntegratedAddress } from '../monero/integratedAddress'
 import { generateTipPaymentId } from '../monero/paymentId'
 import { buildMoneroUri } from '../monero/uri'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
-import { notifyNewStreak } from '@/lib/webPush'
+import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 
 // StasherNews Monero wallet-setup + tip-initiation resolvers (spec §4.5, §7.3).
@@ -224,23 +224,13 @@ export default {
         return account
       })
 
-      // 4. Verified badge notification: grant the VERIFIED streak row once
-      //    (the badge itself is dynamic — hasWallet — so removal needs no
-      //    cleanup; the row only drives the one-time "found" notification).
-      const [verified] = await models.$queryRaw`
-        INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
-        SELECT ${me.id}::int, NOW(), 'VERIFIED'::"StreakType", now_utc(), now_utc()
-        WHERE NOT EXISTS (
-          SELECT 1 FROM "Streak" WHERE "userId" = ${me.id}::int AND type = 'VERIFIED'
-        )
-        RETURNING "Streak".*`
-      if (verified) {
-        try {
-          await notifyNewStreak(me.id, verified)
-        } catch (err) {
-          // best-effort notification; registration already succeeded
-          console.error('error sending verified badge notification:', err)
-        }
+      // 4. Verified badge graduation: gated on wallet (just registered) AND the
+      //    age+reputation gate. The badge itself is dynamic (hasWallet), so this
+      //    only drives the one-time notification. Idempotent.
+      try {
+        await maybeGrantVerifiedBadge(models, me.id)
+      } catch (err) {
+        console.error('verified badge check failed:', err)
       }
 
       // 5. Return with the owner User eager-loaded so the privacyMode field

@@ -4,6 +4,7 @@ import { lwsClient } from '@/api/monero/lwsClient'
 import { driveBountyFunding } from '@/api/monero/bountyFunding'
 import { CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { createReorgDetector } from '@/lib/reorgDetector'
+import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 
 // confirmFinalizer — matures provisional tips (Task 7 / spec §5.5, Q5).
 //
@@ -102,6 +103,13 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
         })
       }
     })
+    if (authorId != null && tip.recipientAccount?.label !== 'platform_rewards') {
+      try {
+        await maybeGrantVerifiedBadge(models, authorId)
+      } catch (err) {
+        console.error('verified badge check failed (confirmFinalizer):', err)
+      }
+    }
     if (authorId == null) {
       console.warn(`confirmFinalizer: tip ${tip.id} flipped to CONFIRMED but author could not be resolved (post ${tip.postId}); stackedPiconeros NOT bumped`)
     }
