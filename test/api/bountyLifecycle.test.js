@@ -367,3 +367,29 @@ test('payBounty accepts a comment whose rootId is populated by the item_path tri
     state: 'QUEUED'
   })
 })
+
+// A-13 award indication: the claim transaction must mark the winning comment
+// (bountyAwardedAt) and link the bounty post to it (bountyWinnerCommentId),
+// and the bountyWinnerName resolver must resolve the winner's user name.
+test('payBounty records the winning comment (bountyAwardedAt + bountyWinnerCommentId) and resolves its author name', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  await prisma.user.update({ where: { id: winnerId }, data: { name: 'awardwinner' } })
+  await seedWallet(authorId, AUTHOR_ADDR, 'author')
+  await seedWallet(winnerId, WINNER_ADDR, 'winner')
+  const { item, winner } = await fundBountyItem(authorId, winnerId)
+
+  const payment = await payBounty(null, { id: item.id, winnerCommentId: winner.id }, { me: { id: authorId }, models: prisma })
+  created.payments.push(payment.id)
+
+  const post = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(post.bountyWinnerCommentId).toBe(winner.id)
+  const won = await prisma.item.findUnique({ where: { id: winner.id } })
+  expect(won.bountyAwardedAt).not.toBeNull()
+
+  // Resolver: bountyWinnerName joins the winner comment's author.
+  const name = await bountyResolver.Item.bountyWinnerName(
+    { bountyWinnerCommentId: winner.id }, {}, { models: prisma })
+  expect(name).toBe('awardwinner')
+  expect(await bountyResolver.Item.bountyWinnerName({}, {}, { models: prisma })).toBeNull()
+})

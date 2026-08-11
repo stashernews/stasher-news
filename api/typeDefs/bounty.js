@@ -23,6 +23,9 @@ export default gql`
   extend type Item {
     bountyStatus: BountyStatus!
     bountyPiconeros: BigInt!
+    bountyAwardedAt: Date
+    bountyWinnerCommentId: Int
+    bountyWinnerName: String
   }
 
   extend type BountyPayment {

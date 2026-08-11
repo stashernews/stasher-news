@@ -167,12 +167,16 @@ export default {
 
       return await models.$transaction(async (tx) => {
         const claimed = await tx.$queryRaw`
-          UPDATE "Item" SET "bountyStatus" = 'AWARDED'
+          UPDATE "Item" SET "bountyStatus" = 'AWARDED', "bountyWinnerCommentId" = ${winner.id}::int
           WHERE id = ${item.id}::int AND "bountyStatus" = 'FUNDED'
           RETURNING id::int AS id`
         if (!claimed || claimed.length === 0) {
           throw new GqlInputError('bounty is no longer available to award')
         }
+        await tx.item.update({
+          where: { id: winner.id },
+          data: { bountyAwardedAt: new Date() }
+        })
         return tx.bountyPayment.create({
           data: {
             itemId: item.id,
@@ -241,6 +245,18 @@ export default {
           }
         })
       })
+    }
+  },
+  Item: {
+    // A-13 award indication: one join per bounty post (post pages only —
+    // the fragment places this field on the post, never on feed items).
+    bountyWinnerName: async (item, args, { models }) => {
+      if (!item.bountyWinnerCommentId) return null
+      const winner = await models.item.findUnique({
+        where: { id: item.bountyWinnerCommentId },
+        include: { user: { select: { name: true } } }
+      })
+      return winner?.user?.name ?? null
     }
   }
 }
