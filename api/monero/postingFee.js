@@ -8,6 +8,8 @@
 // Pure (no Prisma, no lexical) so it is unit-testable in isolation. The payIn
 // ITEM_CREATE flow consumes these helpers and wires the fee subaddress/URI.
 
+import { FREE_COMMENTS_LOW_REP, FREE_COMMENTS_PER_MONTH, FREE_POSTS_PER_MONTH } from '@/lib/constants'
+
 const DAY_MS = 86_400_000
 
 /** True iff the user meets BOTH the stacked-Piconeros and age-day thresholds. */
@@ -20,6 +22,42 @@ export function canPostFree (user, config) {
 /** The posting fee for a low-rep user, in piconeros (the platform-wide floor). */
 export function postingFeePiconeros (config) {
   return config.postingFeeFloorPiconeros
+}
+
+/** Monthly free-comment quota for the user's current tier (5 low-rep, 15 established). */
+export function freeCommentsQuota (user, config) {
+  if (!user) return 0
+  return canPostFree(user, config) ? FREE_COMMENTS_PER_MONTH : FREE_COMMENTS_LOW_REP
+}
+
+/** Monthly free-post quota (5 established, 0 low-rep — low-rep users pay per post). */
+export function freePostsQuota (user, config) {
+  if (!user) return 0
+  return canPostFree(user, config) ? FREE_POSTS_PER_MONTH : 0
+}
+
+/**
+ * How many free comments the user has left this month (resets monthly).
+ * `config` selects the tier via `canPostFree`; until all callers pass it
+ * (Tasks 3/4 update itemCreate + the user resolver), the no-config call
+ * preserves the pre-tier 15-flat behavior as a behavioral bridge.
+ */
+export function commentsFreeLeft (user, config) {
+  if (!user) return 0
+  const quota = config ? freeCommentsQuota(user, config) : FREE_COMMENTS_PER_MONTH
+  if (user.freeCommentResetAt && new Date() >= new Date(user.freeCommentResetAt)) {
+    return quota
+  }
+  return Math.max(0, quota - (user.freeCommentCount || 0))
+}
+
+/** How many free posts the user has left this month (0 for low-rep). */
+export function postsFreeLeft (user, config) {
+  if (!user) return 0
+  if (user.freePostResetAt && new Date() >= new Date(user.freePostResetAt)) {
+    return freePostsQuota(user, config)
+  }
+  return Math.max(0, freePostsQuota(user, config) - (user.freePostCount || 0))
 }
 
 // Resolver-facing bundle for UserPrivates.postingFeeRequired /
