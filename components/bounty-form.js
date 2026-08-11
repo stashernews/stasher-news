@@ -11,7 +11,7 @@ import { useShowModal } from './modal'
 import { useToast } from './toast'
 import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
 import { piconerosToXmrDecimal, xmrToPiconeros } from '@/lib/format'
-import { BOUNTY_MIN_XMR, bountyPiconerosOf } from '@/lib/bounty'
+import { BOUNTY_DEFAULT_XMR, BOUNTY_MIN_XMR, bountyPiconerosOf } from '@/lib/bounty'
 import { useRef } from 'react'
 
 // Decimal XMR entry (mirrors the tip modal's amount field + xmrAmountSchema);
@@ -50,7 +50,7 @@ export function BountyForm ({
       // author edits it)
       amount: item?.bountyPiconeros != null
         ? piconerosToXmrDecimal(bountyPiconerosOf(item.bountyPiconeros))
-        : '0.001'
+        : BOUNTY_DEFAULT_XMR
     },
     // on create, route to the funding view instead of the feed redirect; on
     // edit, keep the normal redirect back to the item
