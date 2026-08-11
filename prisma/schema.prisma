@@ -1142,6 +1142,10 @@ model PayIn {
   // back-relation (1:1, FK on FeeObservation.payInId) rather than a redundant scalar.
   moneroSubaddressMajor Int?
   moneroSubaddressMinor Int?
+  // StasherNews donation split (fee-allocation v2): the payer's chosen rewards
+  // share (0-100) for a DONATE payIn. The rewardsWalletObserver copies it onto
+  // the FeeObservation at attribution. null = legacy default (100% to the pool).
+  donationRewardsPct Int?
 
   genesis       PayIn?        @relation("PayInGenesis", fields: [genesisId], references: [id], onDelete: Cascade)
   successor     PayIn?        @relation("PayInSuccessor", fields: [successorId], references: [id], onDelete: Cascade)
@@ -1494,6 +1498,9 @@ model FeeObservation {
   state          ObservedState @default(DETECTED)
   detectedAt     DateTime      @default(now())
   confirmedAt    DateTime?
+  // StasherNews donation split (fee-allocation v2): the payer's chosen rewards
+  // share copied from the PayIn at attribution; null = 100% to the pool.
+  donationRewardsPct Int?
 
   payIn PayIn? @relation(fields: [payInId], references: [id])
 
@@ -1571,17 +1578,19 @@ model PlatformFeeConfig {
   postingFeeRewardsPct           Int    @default(70)
   territoryFeeRewardsPct         Int    @default(30)
   // wallet-less author tips (TIP_UNWALLETED): % of inflow allocated to the
-  // curator rewards pool; the remainder is the ops share. Default 50.
-  walletlessTipRewardsPct        Int    @default(50)
+  // curator rewards pool; the remainder is the ops share. Default 70
+  // (operator, 2026-08-11).
+  walletlessTipRewardsPct        Int    @default(70)
   // boosts (BOOST fee observations): % of inflow allocated to the curator
-  // rewards pool; the remainder is the ops share. Default 50 (operator, 2026-08-10).
-  boostRewardsPct               Int    @default(50)
+  // rewards pool; the remainder is the ops share. Default 30 (operator, 2026-08-11).
+  boostRewardsPct               Int    @default(30)
   // bounties (A-13): fee = max(bountyFeeMinPiconeros, bountyFeePct% of the
-  // bounty) -> 100% ops; expiry window in days from funding confirmation.
+  // bounty), capped at 20% of the bounty -> 100% ops; expiry window in days
+  // from funding confirmation.
   bountyFeeMinPiconeros BigInt @default(10000000000)
   bountyFeePct          Int    @default(1)
   bountyExpiryDays      Int    @default(30)
   // rewards distribution
-  distributionTopN               Int    @default(100)
+  distributionTopN               Int    @default(25)
   distributionMinPayoutPiconeros BigInt @default(1000000000)
 }

@@ -34,8 +34,8 @@ const CONFIG = {
   downvoteRewardsPct: 100,
   postingFeeRewardsPct: 70,
   territoryFeeRewardsPct: 30,
-  walletlessTipRewardsPct: 50,
-  boostRewardsPct: 50
+  walletlessTipRewardsPct: 70,
+  boostRewardsPct: 30
 }
 
 function makeModels ({ account = makeAccount(), downvotes = 0n, feeGroups = [], config = CONFIG, payoutsSent = 0n, opsSwept = 0n } = {}) {
@@ -154,13 +154,13 @@ describe('Query.rewardsWalletInfo', () => {
 
     expect(result.inflowBreakdown.walletlessTipPiconeros).toBe(4_000_000_000n)
     expect(result.inflowBreakdown.territoryFeePiconeros).toBe(0n) // NOT mislabeled as turf
-    expect(result.inflowBreakdown.walletlessTipRewardsPct).toBe(50)
-    // rewardsInflow = 4e9 * 50 / 100 = 2e9; opsInflow = 2e9
-    expect(result.inflowBreakdown.rewardsPiconeros).toBe(2_000_000_000n)
-    expect(result.inflowBreakdown.opsPiconeros).toBe(2_000_000_000n)
+    expect(result.inflowBreakdown.walletlessTipRewardsPct).toBe(70)
+    // rewardsInflow = 4e9 * 70 / 100 = 2.8e9; opsInflow = 1.2e9
+    expect(result.inflowBreakdown.rewardsPiconeros).toBe(2_800_000_000n)
+    expect(result.inflowBreakdown.opsPiconeros).toBe(1_200_000_000n)
   })
 
-  test('DONATE and BOOST are aggregated separately: DONATE 100% rewards, BOOST 50% rewards / 50% ops (A-14)', async () => {
+  test('DONATE and BOOST are aggregated separately: DONATE 100% rewards, BOOST 30% rewards / 70% ops (A-14)', async () => {
     // DONATE goes 100% to the pool: full inflow earmarked to rewards.
     const donateModels = makeModels({
       downvotes: 0n,
@@ -174,7 +174,7 @@ describe('Query.rewardsWalletInfo', () => {
     expect(donateResult.rewardsEarmarkPiconeros).toBe(4_000_000_000n)
     expect(donateResult.opsEarmarkPiconeros).toBe(0n)
 
-    // BOOST goes boostRewardsPct (50): half to rewards, half to ops — NOT 100%
+    // BOOST goes boostRewardsPct (30): 30% to rewards, 70% to ops — NOT 100%
     // rewards like DONATE.
     const boostModels = makeModels({
       downvotes: 0n,
@@ -183,10 +183,10 @@ describe('Query.rewardsWalletInfo', () => {
     const boostResult = await resolvers.Query.rewardsWalletInfo(null, null, { models: boostModels })
 
     expect(boostResult.inflowBreakdown.totalPiconeros).toBe(4_000_000_000n)
-    expect(boostResult.inflowBreakdown.rewardsPiconeros).toBe(2_000_000_000n)
-    expect(boostResult.inflowBreakdown.opsPiconeros).toBe(2_000_000_000n)
-    expect(boostResult.rewardsEarmarkPiconeros).toBe(2_000_000_000n)
-    expect(boostResult.opsEarmarkPiconeros).toBe(2_000_000_000n)
+    expect(boostResult.inflowBreakdown.rewardsPiconeros).toBe(1_200_000_000n)
+    expect(boostResult.inflowBreakdown.opsPiconeros).toBe(2_800_000_000n)
+    expect(boostResult.rewardsEarmarkPiconeros).toBe(1_200_000_000n)
+    expect(boostResult.opsEarmarkPiconeros).toBe(2_800_000_000n)
   })
 
   test('BOUNTY_ROLLOVER flows 100% to rewards; BOUNTY_FEE flows 0% to rewards but counts to the ledger (A-13 final)', async () => {
