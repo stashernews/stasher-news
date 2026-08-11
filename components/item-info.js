@@ -22,6 +22,7 @@ import SubscribeDropdownItem from './subscribe'
 import { CopyLinkDropdownItem, CrosspostDropdownItem } from './share'
 import Badges from './badge'
 import { DEFAULT_POSTS_PICONEROS_FILTER, DEFAULT_COMMENTS_PICONEROS_FILTER } from '@/lib/constants'
+import { isNostrEnabled } from '@/lib/nostrFeatures'
 import ActionDropdown from './action-dropdown'
 import MuteDropdownItem from './mute'
 import { DropdownItemUpVote } from './upvote'
@@ -251,12 +252,12 @@ export default function ItemInfo ({
                 <Link href={`/items/${item.id}/ots`} className='text-reset dropdown-item'>
                   opentimestamp
                 </Link>}
-              {item?.noteId && (
+              {isNostrEnabled(me?.privates?.authMethods) && item?.noteId && (
                 <Dropdown.Item onClick={() => window.open(`https://njump.me/${item.noteId}`, '_blank', 'noopener,noreferrer,nofollow')}>
                   nostr note
                 </Dropdown.Item>
               )}
-              {item && item.mine && !item.noteId && !item.isJob && !item.parentId &&
+              {isNostrEnabled(me?.privates?.authMethods) && item && item.mine && !item.noteId && !item.isJob && !item.parentId &&
                 <CrosspostDropdownItem item={item} />}
               {me && root?.bountyStatus === 'FUNDED' && Number(root.user?.id) === Number(me.id) && item.parentId && !item.mine && !item.deletedAt &&
                 <AwardBountyDropdownItem item={item} root={root} />}
