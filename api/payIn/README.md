@@ -141,6 +141,32 @@ stateDiagram-v2
 ```
 </details>
 
+## ITEM_CREATE posting-fee outcomes (StasherNews)
+
+ITEM_CREATE has three post outcomes, selected in `getInitial` by the reputation gate
+(`canPostFree` = stacked ≥ `freePostThresholdPiconeros` AND age ≥ `freePostMinAgeDays`) and
+the user's monthly free-post quota (`freePostCount` / `freePostResetAt`):
+
+1. **Established + quota remaining → free.** `piconeros = 0n`, no fee subaddress reserved.
+   The `Item` is created `FEE_NOT_REQUIRED` (live immediately).
+2. **Low-rep user → `PENDING_FEE`.** A rewards-wallet posting-fee subaddress is reserved
+   and a `monero:` URI is built for the floor fee. The `Item` is created `PENDING_FEE`
+   (invisible) until `rewardsWalletObserver` observes the fee and flips it to `FEE_PAID`.
+3. **Established + quota exhausted → `PENDING_FEE`.** Same as low-rep: the 6th+ post in the
+   month reserves a fee subaddress and goes `PENDING_FEE`. (Previously established users
+   could post for free with no monthly cap.)
+
+Comment outcomes are unchanged in structure: free while the tiered freebie quota remains
+(5/month low-rep, 15/month established), then the flat comment fee applies (also
+`PENDING_FEE` via a rewards-wallet subaddress).
+
+**Counters:** `User.freePostCount` / `freePostResetAt` track the monthly post quota. The
+`incrementFreePostCount` hook (in `api/payIn/lib/freebie.js`) runs in ITEM_CREATE `onPaid`
+and bumps the counter atomically (optimistic-concurrency guarded: no-op for comments, bios,
+paid posts, anon, and low-rep users whose quota is 0). It self-resets at month-boundary via
+`freePostResetAt`. The sibling `incrementFreeCommentCount` does the same for the freebie
+comment quota.
+
 ## Pay In Payment Flows
 
 Pay In payments are either custodial, via fee credits and/or reward sats, and/or non-custodial, either via optimistic invoices or pessimistic hold invoices. With the introduction of Pay Ins, fee credits, reward sats, and non-custodial payments can all be used to pay, fractionally, for the same action.
