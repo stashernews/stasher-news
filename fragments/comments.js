@@ -133,6 +133,7 @@ export const COMMENTS_ITEM_EXT_FIELDS = gql`
     text
     lexicalState
     html
+    bountyAwardedAt
     root {
       id
       title

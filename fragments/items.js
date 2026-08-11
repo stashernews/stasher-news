@@ -56,6 +56,7 @@ export const ITEM_FIELDS = gql`
     bountyPaidTo
     bountyStatus
     bountyPiconeros
+    bountyAwardedAt
     noteId
     path
     upvotes
@@ -99,6 +100,9 @@ export const ITEM_FULL_FIELDS = gql`
   ${STREAK_FIELDS}
   fragment ItemFullFields on Item {
     ...ItemFields
+    bountyAwardedAt
+    bountyWinnerCommentId
+    bountyWinnerName
     text
     lexicalState
     html

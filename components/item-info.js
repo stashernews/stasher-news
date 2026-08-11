@@ -120,6 +120,10 @@ export default function ItemInfo ({
   const isDesperado = !item.mine && item.downPiconeros > 0 &&
     satsFilter != null && (item.netInvestment ?? 0) < satsFilter
 
+  const bountyStatusText = item.bountyStatus === 'AWARDED' && item.bountyWinnerCommentId
+    ? <Link href={`/items/${item.bountyWinnerCommentId}`}>awarded to {item.bountyWinnerName || 'a comment'}</Link>
+    : bountyStatusWord(item.bountyStatus)
+
   return (
     <div className={className || `${styles.other}`}>
       {!isPinnedPost && !(isPinnedSubReply && !full) &&
@@ -191,7 +195,11 @@ export default function ItemInfo ({
         </span>}
       {Number(item.bountyPiconeros) > 0 &&
         <span>
-          {' '}<Badge className={styles.newComment} bg={null}>bounty {piconerosToXmr(bountyPiconerosOf(item.bountyPiconeros))} · {bountyStatusWord(item.bountyStatus)}</Badge>
+          {' '}<Badge className={styles.newComment} bg={null}>bounty {piconerosToXmr(bountyPiconerosOf(item.bountyPiconeros))} · {bountyStatusText}</Badge>
+        </span>}
+      {item.bountyAwardedAt &&
+        <span>
+          {' '}<Badge className={styles.newComment} bg={null}>bounty winner{root?.bountyPiconeros ? ` · ${piconerosToXmr(bountyPiconerosOf(root.bountyPiconeros))}` : ''}</Badge>
         </span>}
       {sub?.nsfw &&
         <Badge className={styles.newComment} bg={null}>nsfw</Badge>}
