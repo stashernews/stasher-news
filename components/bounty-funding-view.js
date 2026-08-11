@@ -6,6 +6,7 @@ import MoneroPaymentView from './monero-payment-view'
 import PaymentSuccessView from './payment-success-view'
 import { useRouter } from 'next/router'
 import { piconerosToXmr } from '@/lib/format'
+import { bountyFundingDescription } from '@/lib/bounty'
 import { FUND_BOUNTY_MUTATION } from '@/fragments/payIn'
 
 // Poll the item's bountyStatus while the funding view is open. Apollo's own
@@ -127,7 +128,7 @@ export default function BountyFundingView ({ postId, amountPiconeros, onClose })
         moneroUri={uri}
         amountPiconeros={amount}
         heading='Fund this bounty'
-        description={`Scan to send ${piconerosToXmr(amount)} + ${piconerosToXmr(BigInt(feePiconeros))} fee to the bounty escrow.`}
+        description={bountyFundingDescription(amountPiconeros, feePiconeros)}
       >
         <p className='text-muted text-center mt-3'>
           <small>

@@ -1,6 +1,7 @@
 import Layout from '@/components/layout'
 import { ITEM_FULL } from '@/fragments/items'
 import ItemFull from '@/components/item-full'
+import BountyFundingNotice from '@/components/bounty-funding-notice'
 import { getGetServerSideProps } from '@/api/ssrApollo'
 import { useQuery } from '@apollo/client/react'
 import { useRouter } from 'next/router'
@@ -28,6 +29,7 @@ export default function Item ({ ssrData }) {
   return (
     <CommentsNavigatorProvider key={item.id}>
       <Layout sub={sub} item={item}>
+        <BountyFundingNotice item={item} />
         <ItemFull item={item} fetchMoreComments={fetchMoreComments} />
       </Layout>
     </CommentsNavigatorProvider>
