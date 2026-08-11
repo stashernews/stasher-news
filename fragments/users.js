@@ -48,6 +48,9 @@ ${STREAK_FIELDS}
       tipRandomMax
       tipPopover
       upvotePopover
+      authMethods {
+        enabled
+      }
     }
     optional {
       isContributor
