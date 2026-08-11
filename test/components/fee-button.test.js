@@ -98,3 +98,46 @@ describe('postCommentBaseLineItems — comments and bios', () => {
     expect(lines.baseCost.allowFreebies).toBe(true)
   })
 })
+
+describe('postCommentBaseLineItems — turf owners (ownsSub)', () => {
+  test('a low-rep owner sees the free post line in their turf, not the posting fee', () => {
+    const lines = postCommentBaseLineItems({
+      me: { privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } },
+      ownsSub: true
+    })
+    expect(lines.baseCost).toBeTruthy()
+    expect(lines.baseCost.label).toBe('post')
+    expect(lines.baseCost.allowFreebies).toBe(true)
+    expect(lines.baseCost.ownerFree).toBe(true)
+    expect(lines.baseCost.isComment).toBe(false)
+    expect(lines).not.toHaveProperty('postingFee')
+  })
+
+  test('an owner past the comment quota sees the free comment line in their turf', () => {
+    const lines = postCommentBaseLineItems({
+      comment: true,
+      me: { privates: { freeCommentsLeft: 0, commentFeePiconeros: 1000000000 } },
+      ownsSub: true
+    })
+    expect(lines.baseCost).toBeTruthy()
+    expect(lines.baseCost.label).toBe('comment')
+    expect(lines.baseCost.allowFreebies).toBe(true)
+    expect(lines.baseCost.ownerFree).toBe(true)
+    expect(lines.baseCost.isComment).toBe(true)
+    expect(lines).not.toHaveProperty('commentFee')
+  })
+
+  test('ownsSub does not change bio behavior (bios are always free)', () => {
+    const lines = postCommentBaseLineItems({ bio: true, me: { privates: { freeCommentsLeft: 0 } }, ownsSub: true })
+    expect(lines.baseCost).toBeTruthy()
+    expect(lines.baseCost.allowFreebies).toBe(true)
+  })
+
+  test('ownsSub false preserves the existing low-rep posting fee', () => {
+    const lines = postCommentBaseLineItems({
+      me: { privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000 } },
+      ownsSub: false
+    })
+    expect(Object.keys(lines)).toEqual(['postingFee'])
+  })
+})
