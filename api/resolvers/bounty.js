@@ -17,7 +17,7 @@ import { REQUIRED_CONFIRMATIONS, BOUNTY_MIN_PICONEROS } from '@/lib/constants'
 // Resolve the bounty escrow MoneroAccount (label 'bounty_escrow').
 async function getBountyEscrowAccount (models) {
   const net = (process.env.MONERO_NETWORK || 'stagenet').toUpperCase()
-  return models.moneroAccount.findFirst({ where: { label: 'bounty_escrow', network: net } })
+  return models.moneroAccount.findFirst({ where: { label: 'bounty_escrow', network: net }, orderBy: { id: 'asc' } })
 }
 
 // Core funding logic (testable without GraphQL context). The payer MUST have a
