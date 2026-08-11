@@ -17,8 +17,10 @@ import { moneroRewardsWalletBalancePiconeros } from '@/lib/metrics'
 //   - sending requires UNLOCKED funds — recently-received outputs are locked
 //     ~10 blocks, so an insufficient unlocked balance is a SKIP (payout stays
 //     QUEUED, retried next run), NOT a FAILED (FAILED is for hard errors only);
-//   - a hard createTx error marks the payout FAILED, but the funds stay in the
-//     wallet — a FAILED payout's share rolls into next week's pool (no loss).
+//   - a hard createTx error marks the batch FAILED, but the funds stay in the
+//     wallet (no loss of principal); a CRITICAL alert + manual reconciliation
+//     re-enters them into a future pool (FAILED payouts are counted in
+//     distributedPiconeros, so they do not auto-roll into next week's pool).
 //
 // Daemon = monerod (MONEROD_URL), NOT lws: signing needs real ringCT decoys
 // which the light wallet scanner cannot serve.
