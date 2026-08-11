@@ -1,5 +1,6 @@
 /* eslint-env jest */
 import {
+  BOUNTY_DEFAULT_XMR,
   BOUNTY_MIN_XMR,
   bountyAmountError,
   bountyFundingDescription,
@@ -7,6 +8,7 @@ import {
   bountyStatusWord
 } from '@/lib/bounty'
 import { BOUNTY_MIN_PICONEROS } from '@/lib/constants'
+import { xmrToPiconeros } from '@/lib/format'
 
 // There is no React component test harness in this repo (no @testing-library
 // setup), so per the repo convention (see downvote-modal.test.js) we test the
@@ -20,6 +22,16 @@ describe('bounty min amount (derived from BOUNTY_MIN_PICONEROS)', () => {
 
   test('the UI floor tracks the server constant', () => {
     expect(BigInt(Math.round(BOUNTY_MIN_XMR * 1e12))).toBe(BOUNTY_MIN_PICONEROS)
+  })
+})
+
+describe('bounty default amount', () => {
+  test('defaults to the floor (0.01 XMR) so the initial value passes validation', () => {
+    expect(BOUNTY_DEFAULT_XMR).toBe('0.01')
+  })
+
+  test('the default tracks the server constant', () => {
+    expect(xmrToPiconeros(BOUNTY_DEFAULT_XMR)).toBe(BOUNTY_MIN_PICONEROS)
   })
 })
 
