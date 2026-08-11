@@ -177,4 +177,5 @@ test('persists the shared tx hash (SENT) when a DB update throws then retry succ
     expect.objectContaining({ payoutId: p1.id, txHash: persisted.txHash }),
     expect.stringContaining('CRITICAL')
   )
+  expect(logInfo).toHaveBeenCalledWith(expect.objectContaining({ payoutCount: 2, txHash: persisted.txHash }), expect.stringContaining('relayed'))
 })

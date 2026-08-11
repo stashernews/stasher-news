@@ -100,8 +100,9 @@ function resolveNetworkType (api, env) {
 // getRewardsWallet() singleton.
 //
 // Fund-safety (unchanged from the per-payout design): a hard createTx error
-// marks every QUEUED payout FAILED, but the funds stay in the wallet — a
-// FAILED batch's shares roll into next week's pool (no loss). Insufficient
+// marks every QUEUED payout FAILED, but the funds stay in the wallet (no loss
+// of principal); a CRITICAL alert + manual reconciliation re-enters them into
+// a future pool. Insufficient
 // unlocked balance (likely locked ~10-block outputs) is a SKIP for the whole
 // batch: rows stay QUEUED and are retried next run.
 //
