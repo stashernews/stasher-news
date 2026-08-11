@@ -98,7 +98,7 @@
   }
 
   .navMergedRow .navPricePill button {
-    font-family: var(--bs-font-monospace);
+    font-family: 'Chakra Petch', sans-serif;
     font-size: 0.75rem;
     color: var(--bs-primary);
     border: 1px solid rgba(255, 102, 0, 0.35);
@@ -112,6 +112,33 @@
 
   .navMergedRow .navPricePill button:hover {
     background: rgba(255, 102, 0, 0.16);
+  }
+
+  // rewards pool amount + payout countdown: plain grey Chakra Petch text,
+  // between the search icon and the price pill, matching the mockup
+  .navMergedRow .navRewards {
+    font-family: 'Chakra Petch', sans-serif;
+    font-weight: 500;
+    font-size: 0.8rem;
+    color: var(--stealth-muted);
+    white-space: nowrap;
+  }
+
+  .navMergedRow .navRewards a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .navMergedRow .navRewards a:hover {
+    color: var(--bs-body-color);
+    text-decoration: underline;
+  }
+
+  // header nym in the display font (approved: Chakra Petch in the top bar)
+  .navMergedRow .navNym {
+    font-family: 'Chakra Petch', sans-serif;
+    font-weight: 500;
+    font-size: 0.8rem;
   }
 
   .navMergedRow .navPricePill button::before {
