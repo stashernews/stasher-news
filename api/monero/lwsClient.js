@@ -210,7 +210,7 @@ function parseAddressTxs (raw) {
  * @param {number} [options.maxRetries]  MONERO_LWS_MAX_RETRIES (transient retries; default 3).
  * @param {number} [options.backoffBaseMs] Base for exponential backoff (default 500).
  * @param {function} [options.transport] Injected transport (DI for tests).
- * @returns {object} `{ getAddressTxs, getAddressInfo, upsertSubaddrs, addAccount, modifyAccountStatus, getDaemonStatus, getBlockchainHeight }`
+ * @returns {object} `{ getAddressTxs, getAddressInfo, upsertSubaddrs, addAccount, modifyAccountStatus, addWebhook, deleteWebhook, deleteAddressWebhooks, listWebhooks, listAccounts }`
  */
 export function createLwsClient (options = {}) {
   const walletUrl = (options.walletUrl ?? readEnv('MONERO_LWS_URL', DEFAULT_WALLET_URL)).replace(/\/$/, '')
@@ -223,9 +223,9 @@ export function createLwsClient (options = {}) {
   const transport = options.transport ?? makeTransport({ insecureTls })
 
   // One request with timeout + backoff. Wallet bodies are the login/params
-  // object directly; admin bodies are wrapped {auth, params}. GET endpoints
-  // (e.g. /daemon_status) pass bodyObj = null and method = 'GET' — no body is
-  // serialized and the transport does not write one.
+  // object directly; admin bodies are wrapped {auth, params}. Endpoints without
+  // a body pass bodyObj = null and method = 'GET' — no body is serialized and
+  // the transport does not write one.
   async function request (url, bodyObj, { admin = false, method = 'POST' } = {}) {
     const hasBody = bodyObj != null
     const wrapped = admin ? { ...(adminAuth ? { auth: adminAuth } : {}), params: bodyObj } : bodyObj
@@ -334,24 +334,6 @@ export function createLwsClient (options = {}) {
     return request(`${adminUrl}/modify_account_status`, { status, addresses }, { admin: true })
   }
 
-  // GET /daemon_status — monerod health proxied by lws (research §3.3). No
-  // auth, no body. Returns { height, target_height, state, network,
-  // incoming_connections_count, outgoing_connections_count }. Cached 5s by
-  // lws. NOTE the height field is `height` here (NOT `blockchain_height` as
-  // on /get_address_txs and /get_address_info). confirmFinalizer reads this
-  // once per run to maturity-check DETECTED tips — one call regardless of how
-  // many tips are scanned.
-  async function getDaemonStatus () {
-    return request(`${walletUrl}/daemon_status`, null, { method: 'GET' })
-  }
-
-  /** Convenience: current chain tip height via /daemon_status. */
-  async function getBlockchainHeight () {
-    const status = await getDaemonStatus()
-    const h = status?.height
-    return typeof h === 'number' ? h : 0
-  }
-
   // ---- webhook management (spec §4.3) --------------------------------------
   // lws pushes tx-confirmation callbacks at 0-conf (detection) and at each
   // confirmation up to the requested ceiling. Registration + cleanup are admin
@@ -392,9 +374,7 @@ export function createLwsClient (options = {}) {
     addWebhook,
     deleteWebhook,
     deleteAddressWebhooks,
-    listWebhooks,
-    getDaemonStatus,
-    getBlockchainHeight
+    listWebhooks
   }
 }
 

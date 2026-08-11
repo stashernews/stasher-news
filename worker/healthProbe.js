@@ -1,4 +1,5 @@
 import { lwsClient } from '@/api/monero/lwsClient'
+import { daemonClient } from '@/api/monero/daemonClient'
 import { alert } from '@/lib/alert'
 import { setHealthStatus } from '@/lib/healthStatus'
 import { logWarn } from '@/lib/logger'
@@ -7,19 +8,18 @@ import { moneroLwsUp, moneroMonerodUp, moneroMonerodHeight } from '@/lib/metrics
 // healthProbe (Task D4) — periodic lws + monerod health probe.
 //
 // A self-requeuing pg-boss job (every HEALTH_PROBE_INTERVAL_SECONDS, default 60s)
-// that calls lws getDaemonStatus (the wallet endpoint that proxies monerod),
-// classifies the result into lws-reachable / monerod-reachable, publishes the
-// snapshot to lib/healthStatus (consumed by /api/health and D7 gauges), and
+// that probes the two services INDEPENDENTLY — lws via the admin /list_accounts
+// endpoint and monerod directly via JSON-RPC get_info (api/monero/daemonClient,
+// the same proven path confirmFinalizer and bounties use) — publishes the
+// snapshot to lib/healthStatus (consumed by /api/health and the D7 gauges), and
 // fires a debounced critical alert when either service is down or the chain
 // height stops advancing.
 //
-// lws-down vs monerod-down disambiguation: getDaemonStatus traverses lws to
-// monerod. A LwsNetworkError/LwsTimeoutError means lws itself is unreachable
-// (monerod unknowable); a LwsHttpError means lws responded, so lws is up and the
-// daemon it proxies is the failure. These error classes are not exported by
-// lwsClient, so they are matched by their stable `.name` (set in lwsClient.js).
-// When lws is down we do NOT also alert monerod-down: the daemon's state is
-// unknowable through a dead lws, and double-alerting is noise.
+// The probes are independent because lws does NOT proxy monerod state in the
+// deployed build: GET /daemon_status returns 404 (see
+// docs/ops/healthprobe-lws-404-finding.md). Each service's reachability is
+// therefore observed directly, and each failure alerts independently — no
+// "monerod unknowable through a dead lws" suppression is needed.
 //
 // Stall detection: a node can report a healthy height while silently frozen
 // (e.g. a stuck peer set). We track the last seen height and the first instant
@@ -40,6 +40,7 @@ export function __resetStallState () {
 
 export async function runHealthProbeOnce ({
   lwsClient: client = lwsClient,
+  daemonClient: monerod = daemonClient,
   alert: doAlert = alert,
   setStatus = setHealthStatus,
   now = Date.now,
@@ -51,16 +52,17 @@ export async function runHealthProbeOnce ({
   let height = 0
 
   try {
-    const daemon = await client.getDaemonStatus()
+    await client.listAccounts()
     lwsOk = true
-    height = daemon && typeof daemon.height === 'number' ? daemon.height : 0
+  } catch (err) {
+    logWarn('healthProbe: lws probe failed', err)
+  }
+
+  try {
+    height = await monerod.getHeight()
     monerodOk = height > 0
   } catch (err) {
-    if (err && err.name === 'LwsHttpError') {
-      lwsOk = true
-    }
-    monerodOk = false
-    logWarn('healthProbe: daemon_status probe failed', err)
+    logWarn('healthProbe: monerod probe failed', err)
   }
 
   let stalled = false
@@ -93,8 +95,8 @@ export async function runHealthProbeOnce ({
   if (!lwsOk) {
     doAlert('critical', 'lws down', 'monero-lws wallet endpoint unreachable', { dedupeKey: 'lws-down' })
   }
-  if (lwsOk && !monerodOk) {
-    doAlert('critical', 'monerod down', 'monerod daemon unreachable via lws daemon_status', { dedupeKey: 'monerod-down' })
+  if (!monerodOk) {
+    doAlert('critical', 'monerod down', 'monerod daemon unreachable (get_info probe failed)', { dedupeKey: 'monerod-down' })
   }
   if (stalled) {
     doAlert('critical', 'monerod stalled', `chain height unchanged at ${height} for >= ${Math.round(stallThresholdMs / 1000)}s`, { dedupeKey: 'monerod-stall' })
