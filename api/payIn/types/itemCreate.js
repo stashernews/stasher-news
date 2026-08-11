@@ -1,6 +1,6 @@
 import { ANON_COMMENT_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ANON_POST_FEE_MULTIPLIER, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { notifyItemMention, notifyItemParents, notifyMention, notifyTerritorySubscribers, notifyUserSubscribers, notifyThreadSubscribers } from '@/lib/webPush'
-import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
+import { getItemMentions, getMentions, performBotBehavior, ownsAnySub } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
 import { GqlInputError } from '@/lib/error'
 import { getItem } from '@/api/resolvers/item'
@@ -53,6 +53,35 @@ export async function getInitial (models, args, { me }) {
     const fees = await uploadFees(args.uploadIds, { models, me })
     uploadFeesPiconeros = fees.totalFeesPiconeros
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds: args.uploadIds }, { me }))
+  }
+
+  // StasherNews turf-owner perk: the owner of a turf always posts and comments
+  // free in it — no posting/comment fee, regardless of reputation, freebie
+  // quota, or spam escalation. Upload fees (>10MB) still apply (image-hosting
+  // cost, not a posting/comment fee).
+  const ownerFree = await ownsAnySub(models, {
+    subNames: args.subNames,
+    parentId: args.parentId,
+    userId: me.id
+  })
+  if (ownerFree) {
+    if (uploadFeesPiconeros > 0n) {
+      const sub = await reserveFeeSubaddress(models, 'POSTING')
+      const moneroUri = buildMoneroUri(
+        [{ address: sub.address, amount: uploadFeesPiconeros }],
+        { description: 'StasherNews upload fee' }
+      )
+      return {
+        payInType: 'ITEM_CREATE',
+        userId: me.id,
+        piconeros: 0n,
+        moneroUri,
+        moneroSubaddressMajor: sub.major,
+        moneroSubaddressMinor: sub.minor,
+        beneficiaries
+      }
+    }
+    return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
   }
 
   if (args.parentId) {

@@ -458,3 +458,73 @@ describe('ownsAnySub', () => {
     expect(result).toBe(false)
   })
 })
+
+// --- turf-owner free posting: getInitial waives posting and comment fees ---
+describe('getInitial — turf-owner fee waiver', () => {
+  test('a low-rep owner posts free in their own turf (no fee URI)', async () => {
+    const userId = await createUser()
+    await ensureFeeConfig()
+    const turfName = `ownerpost-${userId}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+    // user is fresh/low-rep: normally getInitial returns a posting-fee URI
+    const result = await getInitial(prisma, { subNames: [turfName] }, { me: { id: userId } })
+    expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
+    expect(result).not.toHaveProperty('moneroUri')
+  })
+
+  test('a low-rep owner comments free in their own turf even past the freebie quota', async () => {
+    const userId = await createUser()
+    await ensureFeeConfig()
+    await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 15 WHERE id = ${userId}::int` // quota exhausted
+    const turfName = `ownercomment-${userId}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+    // root post in the owned turf — the THREAD turf is what matters
+    const rootRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", title, "created_at")
+      VALUES (${userId}::int, ${'owner root for comment'}, now())
+      RETURNING id::int AS id`
+    const rootId = rootRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId)}::ltree WHERE id = ${rootId}::int`
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: turfName } })
+    created.items.push(rootId)
+
+    const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: userId } })
+    expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
+    expect(result).not.toHaveProperty('moneroUri')
+  })
+
+  test('a non-owner low-rep user still pays the posting fee in a turf they do not own', async () => {
+    const ownerId = await createUser()
+    const otherId = await createUser()
+    await ensureFeeConfig()
+    const turfName = `notowner-${otherId}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId: ownerId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+    const result = await getInitial(prisma, { subNames: [turfName] }, { me: { id: otherId } })
+    expect(result.piconeros).toBe(0n)
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(result.moneroUri).toContain('tx_amount=0.001')
+  })
+
+  test('a multi-turf post is free if the author owns ANY of the turfs', async () => {
+    const ownerId = await createUser()
+    await ensureFeeConfig()
+    const owned = `multi-owned-${ownerId}-${Date.now()}`
+    const notOwned = `multi-other-${ownerId}-${Date.now()}`
+    const otherId = await createUser()
+    await prisma.sub.create({ data: { name: owned, userId: ownerId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    await prisma.sub.create({ data: { name: notOwned, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    created.subs.push(owned, notOwned)
+    const result = await getInitial(prisma, { subNames: [owned, notOwned] }, { me: { id: ownerId } })
+    expect(result).toEqual({ payInType: 'ITEM_CREATE', userId: ownerId, piconeros: 0n })
+    expect(result).not.toHaveProperty('moneroUri')
+  })
+})
