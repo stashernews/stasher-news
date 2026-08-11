@@ -75,12 +75,29 @@ jest.mock(`${process.cwd()}/lib/auth`, () => ({
 jest.mock(`${process.cwd()}/svgs/arrow-left-line.svg`, () => ({ className, width }) => <svg className={className} width={width} />)
 jest.mock(`${process.cwd()}/svgs/search-line.svg`, () => ({ className, width }) => <svg className={className} width={width} />)
 jest.mock(`${process.cwd()}/svgs/notification-4-fill.svg`, () => ({ width }) => <svg width={width} />)
+jest.mock('@apollo/client', () => {
+  // fragments like ./payIn run the real graphql-tag parser at module load and
+  // interpolate fragments built by this gql, so it must return real
+  // DocumentNodes (graphql-tag is CJS; only @apollo/client itself is ESM-only)
+  const { gql } = require('graphql-tag')
+  return { __esModule: true, gql }
+})
+// NavRewards polls the public rewards pool via useQuery; nothing else in the
+// header graph calls useQuery (HasNewNotesProvider is not rendered here), so
+// the mock returns a stubbed result for the whole file.
+jest.mock('@apollo/client/react', () => ({
+  useQuery: () => ({
+    data: { rewards: [{ total: mockRewardsTotal, time: mockRewardsTime }] }
+  })
+}))
 
 // var, not let/const: jest.mock factories may only reference out-of-scope
 // names prefixed with "mock", and const/let here would be in TDZ when the
 // hoisted jest.mock call runs.
 var mockRouter = { asPath: '/~bitcoin' }
 var mockMe = null
+var mockRewardsTotal = '1200000000000'
+var mockRewardsTime = null
 
 // props shape mirrors what components/nav/index.js builds for DesktopHeader
 const TURF_PROPS = {
@@ -134,6 +151,8 @@ afterAll(() => {
 beforeEach(() => {
   mockRouter = { asPath: '/~bitcoin' }
   mockMe = null
+  mockRewardsTotal = '1200000000000'
+  mockRewardsTime = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString()
 })
 
 afterEach(async () => {
@@ -197,5 +216,32 @@ describe('HeaderMerged zero-removal', () => {
     expect(linkTexts).not.toEqual(expect.arrayContaining(['post']))
     // top-bar elements still present (brand wordmark)
     expect(container.querySelector('a[href="/"] .brandWordmark')).toBeTruthy()
+  })
+})
+
+describe('NavRewards', () => {
+  it('renders the rewards amount link and a days/hours countdown before the price pill', async () => {
+    await renderHeader(TURF_PROPS)
+
+    const amount = container.querySelector('a[href="/rewards"]')
+    expect(amount).toBeTruthy()
+    expect(amount.textContent).toBe('1.2 XMR in rewards')
+
+    const timer = container.querySelector('.navRewards .navRewardsTimer')
+    expect(timer).toBeTruthy()
+    expect(timer.textContent).toMatch(/^\d+d \d{1,2}h$/)
+
+    const cluster = container.querySelector('.navMerged .ms-auto')
+    const firstLink = cluster.querySelector('a')
+    expect(firstLink.getAttribute('href')).toBe('/rewards')
+  })
+
+  it('renders nothing when the rewards pool is not available', async () => {
+    mockRewardsTotal = ''
+    mockRewardsTime = null
+    await renderHeader(TURF_PROPS)
+
+    expect(container.querySelector('a[href="/rewards"]')).toBeNull()
+    expect(container.querySelector('.navRewards')).toBeNull()
   })
 })
