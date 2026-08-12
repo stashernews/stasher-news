@@ -112,6 +112,14 @@ WHERE address ~ 'A{90}$'
    OR "ownerUserId" IN (SELECT id FROM _tu);
 
 -- Test users (their Items cascade; PayIns/Earn/payouts already removed).
+-- Reply rows authored by / notifying test users (left behind by payIn-engine
+-- comment fixtures) block the user delete below on the Reply_userId_fkey /
+-- Reply_ancestorUserId_fkey constraints, so clear them first. Real Reply rows
+-- always reference named users and are never matched here.
+DELETE FROM "Reply"
+WHERE "userId" IN (SELECT id FROM _tu)
+   OR "ancestorUserId" IN (SELECT id FROM _tu);
+
 DELETE FROM users WHERE id IN (SELECT id FROM _tu);
 
 DROP TABLE _tu;
