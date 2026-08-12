@@ -48,6 +48,7 @@ export async function bounties ({ boss, models }) {
     await runBountiesOnce({ models })
   } catch (err) {
     logError({ err }, 'bounties: run failed')
+  } finally {
+    await boss.send('bounties', {}, { startAfter: 60 })
   }
-  await boss.send('bounties', {}, { startAfter: 60 })
 }

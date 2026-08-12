@@ -109,9 +109,12 @@ export async function runReconcilePendingTipsOnce ({
 }
 
 export async function reconcilePendingTips ({ boss, models }) {
-  const out = await runReconcilePendingTipsOnce({ models })
-  if (out.recovered || out.expired) {
-    console.log(`reconcilePendingTips: recovered ${out.recovered}, expired ${out.expired}`)
+  try {
+    const out = await runReconcilePendingTipsOnce({ models })
+    if (out.recovered || out.expired) {
+      console.log(`reconcilePendingTips: recovered ${out.recovered}, expired ${out.expired}`)
+    }
+  } finally {
+    await boss.send('reconcilePendingTips', {}, { startAfter: RECONCILE_INTERVAL_SECONDS })
   }
-  await boss.send('reconcilePendingTips', {}, { startAfter: RECONCILE_INTERVAL_SECONDS })
 }

@@ -41,7 +41,10 @@ export async function runRotateViewKeysOnce ({ models }) {
 }
 
 export async function rotateViewKeys ({ boss, models }) {
-  const out = await runRotateViewKeysOnce({ models })
-  console.log(`rotateViewKeys: re-wrapped ${out.rotated} view-key row(s)`)
-  await boss.send('rotateViewKeys', {}, { startAfter: ROTATE_INTERVAL_SECONDS })
+  try {
+    const out = await runRotateViewKeysOnce({ models })
+    console.log(`rotateViewKeys: re-wrapped ${out.rotated} view-key row(s)`)
+  } finally {
+    await boss.send('rotateViewKeys', {}, { startAfter: ROTATE_INTERVAL_SECONDS })
+  }
 }
