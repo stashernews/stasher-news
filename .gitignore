@@ -103,3 +103,10 @@ ADMIN-GUIDE.md
 
 # SOPS-encrypted runtime secrets (live at /etc/stashernews/secrets.env on the VPS)
 /secrets.env
+
+# dev docs (kept locally in ~/Stasher-local/ops-docs)
+docs/plans/
+docs/specs/
+docs/future/
+docs/runbooks/
+docs/monero-lws-research.md
