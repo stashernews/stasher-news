@@ -21,15 +21,14 @@ export async function getSubs (models, { subNames, parentId }) {
 }
 
 /**
- * True iff `userId` owns at least one of the turfs this item targets — a post's
- * own `subNames`, or (for comments) the parent thread's turfs resolved by
- * `getSubs`. Anon never owns (territories require auth to create). Used by the
- * ITEM_CREATE fee gate to waive posting/comment fees for turf owners.
+ * Count how many of `subs` are NOT owned by `userId`. Used by the ITEM_CREATE
+ * fee gate to scale the posting/comment fee by the number of non-owned turfs
+ * (owned turfs are free). Anon owns nothing, so all subs count. Pure: callers
+ * resolve subs via getSubs, then pass the array here.
  */
-export async function ownsAnySub (models, { subNames, parentId, userId }) {
-  if (userId === USER_ID.anon) return false
-  const subs = await getSubs(models, { subNames, parentId })
-  return subs.some(s => Number(s.userId) === Number(userId))
+export function countNonOwnedSubs (subs, userId) {
+  if (userId === USER_ID.anon) return subs.length
+  return subs.filter(s => Number(s.userId) !== Number(userId)).length
 }
 
 // ltree is unsupported in Prisma, so we have to query it manually (FUCK!)
