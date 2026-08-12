@@ -124,7 +124,7 @@ export function PostForm ({ type, subs, children }) {
               <div className='align-items-center'>
                 {morePostButtons}
                 <div className='mt-3 d-flex justify-content-center'>
-                  <Link href='/~jobs/post'>
+                  <Link href='/~jobs/post?type=job'>
                     <Button onClick={checkSession} variant='info'>job</Button>
                   </Link>
                 </div>

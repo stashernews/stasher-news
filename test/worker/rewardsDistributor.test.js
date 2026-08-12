@@ -288,7 +288,7 @@ beforeAll(async () => {
 
   // Ensure the PlatformFeeConfig singleton exists with schema defaults
   // (downvoteRewardsPct=100, postingFeeRewardsPct=70, territoryFeeRewardsPct=30,
-  //  distributionMinPayoutPiconeros=1e9, distributionTopN=25).
+  //  distributionMinPayoutPiconeros=1e9, distributionTopN=10).
   await prisma.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
 
   // Clear any RESULT distribution left over from a prior run whose periodEnd
