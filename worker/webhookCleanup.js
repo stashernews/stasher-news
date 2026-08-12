@@ -42,7 +42,10 @@ export async function runWebhookCleanupOnce ({ models, monero = lwsClient }) {
 }
 
 export async function webhookCleanup ({ boss, models }) {
-  const out = await runWebhookCleanupOnce({ models })
-  if (out.cleaned) console.log(`webhookCleanup: removed ${out.cleaned} stale webhook(s)`)
-  await boss.send('webhookCleanup', {}, { startAfter: CLEANUP_INTERVAL_SECONDS })
+  try {
+    const out = await runWebhookCleanupOnce({ models })
+    if (out.cleaned) console.log(`webhookCleanup: removed ${out.cleaned} stale webhook(s)`)
+  } finally {
+    await boss.send('webhookCleanup', {}, { startAfter: CLEANUP_INTERVAL_SECONDS })
+  }
 }

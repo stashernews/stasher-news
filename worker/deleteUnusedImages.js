@@ -2,8 +2,9 @@ import { deleteObjects } from '@/api/s3'
 import { USER_ID } from '@/lib/constants'
 
 export async function deleteUnusedImages ({ models, boss }) {
-  // delete unused images in database and S3 after 7 days for stackers or 24 hours for anons
-  const unpaidImages = await models.$queryRaw`
+  try {
+    // delete unused images in database and S3 after 7 days for stackers or 24 hours for anons
+    const unpaidImages = await models.$queryRaw`
     SELECT id
     FROM "Upload"
     WHERE NOT EXISTS (SELECT * FROM users WHERE "photoId" = "Upload".id)
@@ -13,15 +14,17 @@ export async function deleteUnusedImages ({ models, boss }) {
       AND NOT EXISTS (SELECT * FROM "SubBranding" WHERE "faviconId" = "Upload".id)
       AND created_at < date_trunc('hour', now() - CASE WHEN "userId" = ${USER_ID.anon} THEN interval '24 hours' ELSE interval '7 days' END)`
 
-  const s3Keys = unpaidImages.map(({ id }) => id)
-  if (s3Keys.length === 0) {
-    console.log('no images to delete.')
-  } else {
-    console.log('deleting images:', s3Keys)
-    const deleted = await deleteObjects(s3Keys)
-    console.log('deleted images:', deleted)
-    await models.upload.deleteMany({ where: { id: { in: deleted } } })
+    const s3Keys = unpaidImages.map(({ id }) => id)
+    if (s3Keys.length === 0) {
+      console.log('no images to delete.')
+    } else {
+      console.log('deleting images:', s3Keys)
+      const deleted = await deleteObjects(s3Keys)
+      console.log('deleted images:', deleted)
+      await models.upload.deleteMany({ where: { id: { in: deleted } } })
+    }
+  } finally {
+    // self-requeue on a 24h startAfter so the sweep runs daily
+    await boss.send('deleteUnusedImages', {}, { startAfter: 24 * 60 * 60 })
   }
-  // self-requeue on a 24h startAfter so the sweep runs daily
-  await boss.send('deleteUnusedImages', {}, { startAfter: 24 * 60 * 60 })
 }

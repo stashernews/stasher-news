@@ -319,32 +319,35 @@ export async function findRewardsAccount (models) {
 }
 
 export async function rewardsWalletObserver ({ boss, models, detectReorg: detect = detectReorg }) {
-  const account = await findRewardsAccount(models)
-  if (account) {
-    const resp = await lwsClient.getAddressTxs(account, account.lastTxId, account.lastBlockHash)
-    if (resp && typeof resp.blockchain_height === 'number') detect(resp.blockchain_height)
-    const txs = (resp && resp.transactions) || []
-    // bootstrapping filter: skip confirmed txs already behind the cursor. null
-    // lastTxId = nothing seen yet, so process the whole returned history (this
-    // is what lets a brand-new account's FIRST lws tx, which has id 0, through).
-    const fresh = txs.filter(t => t.height == null || typeof t.id !== 'number' || account.lastTxId == null || BigInt(t.id) > account.lastTxId)
-    await runRewardsWalletObserverOnce({ models, account, txs: fresh })
-
-    let maxId = 0
-    for (const t of txs) {
-      if (typeof t.id === 'number' && t.id > maxId) maxId = t.id
-    }
-    if (txs.length > 0) {
-      await models.moneroAccount.update({ where: { id: account.id }, data: { lastTxId: BigInt(maxId) } })
-    }
-  }
-  // Auto top-up: extend the fee subaddress pool when AVAILABLE dips below the
-  // threshold (default 100). Runs on every poll; the check is a cheap count and
-  // derivation only fires when a major is low. Errors are logged, never fatal.
   try {
-    await topUpFeePoolIfLow(models, { account })
-  } catch (err) {
-    console.error('fee-pool auto top-up failed:', err?.message || err)
+    const account = await findRewardsAccount(models)
+    if (account) {
+      const resp = await lwsClient.getAddressTxs(account, account.lastTxId, account.lastBlockHash)
+      if (resp && typeof resp.blockchain_height === 'number') detect(resp.blockchain_height)
+      const txs = (resp && resp.transactions) || []
+      // bootstrapping filter: skip confirmed txs already behind the cursor. null
+      // lastTxId = nothing seen yet, so process the whole returned history (this
+      // is what lets a brand-new account's FIRST lws tx, which has id 0, through).
+      const fresh = txs.filter(t => t.height == null || typeof t.id !== 'number' || account.lastTxId == null || BigInt(t.id) > account.lastTxId)
+      await runRewardsWalletObserverOnce({ models, account, txs: fresh })
+
+      let maxId = 0
+      for (const t of txs) {
+        if (typeof t.id === 'number' && t.id > maxId) maxId = t.id
+      }
+      if (txs.length > 0) {
+        await models.moneroAccount.update({ where: { id: account.id }, data: { lastTxId: BigInt(maxId) } })
+      }
+    }
+    // Auto top-up: extend the fee subaddress pool when AVAILABLE dips below the
+    // threshold (default 100). Runs on every poll; the check is a cheap count and
+    // derivation only fires when a major is low. Errors are logged, never fatal.
+    try {
+      await topUpFeePoolIfLow(models, { account })
+    } catch (err) {
+      console.error('fee-pool auto top-up failed:', err?.message || err)
+    }
+  } finally {
+    await boss.send('rewardsWalletObserver', {}, { startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
   }
-  await boss.send('rewardsWalletObserver', {}, { startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
 }

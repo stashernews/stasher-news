@@ -249,6 +249,9 @@ export async function backfillNullBountyHeights ({ models, lws, bounties }) {
 // worker/index.js carries a singletonKey guard so restarts cannot spawn
 // duplicate loops; the requeue deliberately omits it (mirrors moneroIndexer).
 export async function confirmFinalizer ({ boss, models }) {
-  await runConfirmFinalizerOnce({ models })
-  await boss.send('confirmFinalizer', {}, { startAfter: CONFIRM_POLL_INTERVAL_MS / 1000 })
+  try {
+    await runConfirmFinalizerOnce({ models })
+  } finally {
+    await boss.send('confirmFinalizer', {}, { startAfter: CONFIRM_POLL_INTERVAL_MS / 1000 })
+  }
 }

@@ -106,6 +106,9 @@ export async function runHealthProbeOnce ({
 }
 
 export async function healthProbe ({ boss }) {
-  await runHealthProbeOnce()
-  await boss.send('healthProbe', {}, { startAfter: PROBE_INTERVAL_SECONDS })
+  try {
+    await runHealthProbeOnce()
+  } finally {
+    await boss.send('healthProbe', {}, { startAfter: PROBE_INTERVAL_SECONDS })
+  }
 }
