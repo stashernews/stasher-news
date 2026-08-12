@@ -15,7 +15,7 @@ import { SubmitButton } from './form'
 
 const FeeButtonContext = createContext()
 
-export function postCommentBaseLineItems ({ comment = false, bio = false, me, ownsSub = false }) {
+export function postCommentBaseLineItems ({ comment = false, bio = false, me, subs = [] }) {
   // anon multiplier is context-dependent: comments x ANON_COMMENT_FEE_MULTIPLIER (3),
   // posts/bios x ANON_POST_FEE_MULTIPLIER (10).
   const anonMultiplier = comment ? ANON_COMMENT_FEE_MULTIPLIER : ANON_POST_FEE_MULTIPLIER
@@ -35,7 +35,9 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, ow
   // (commentFeePiconeros — the postingFeeFloorPiconeros default) to the
   // platform rewards wallet.
   if (comment || bio) {
-    const freebie = ownsSub || !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
+    const nonOwnedSubs = me ? subs.filter(s => Number(s.userId) !== Number(me.id)) : subs
+    const ownerFree = subs.length > 0 && nonOwnedSubs.length === 0
+    const freebie = ownerFree || !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
     const commentFee = me?.privates?.commentFeePiconeros
       ? BigInt(me.privates.commentFeePiconeros)
       : (me ? 0n : DEFAULT_POSTING_FEE_PICONEROS)
@@ -48,20 +50,23 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, ow
           modifier: (cost) => cost + 1,
           allowFreebies: true,
           isComment: comment,
-          ownerFree: ownsSub
+          ownerFree
         },
         ...anonCharge
       }
     }
     if (commentFee <= 0n) return { ...anonCharge }
+    const commentMultiplier = subs.length === 0 ? 1 : nonOwnedSubs.length
+    const scaledCommentFee = commentFee * BigInt(commentMultiplier)
+    if (scaledCommentFee <= 0n) return { ...anonCharge }
     return {
       commentFee: {
-        term: `+ ${piconerosToXmr(commentFee)}`,
-        label: 'comment fee',
+        term: `+ ${piconerosToXmr(scaledCommentFee)}`,
+        label: commentMultiplier > 1 ? `comment fee \u00d7 ${commentMultiplier} turfs` : 'comment fee',
         // base line so the itemRepetition multiplier (op '*') scales it
         // server-side too: 0.001 x 10^n (sortHelper runs _ first, then * and /)
         op: '_',
-        modifier: () => Number(commentFee / 1000n),
+        modifier: () => Number(scaledCommentFee / 1000n),
         allowFreebies: false,
         isComment: comment
       },
@@ -74,8 +79,10 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, ow
   // nothing for established ones. Legacy per-turf baseCost lines are denominated
   // in sats and would misquote the fee, so posts render a single postingFee line
   // (or no lines at all when the author posts free).
-  // Turf owners post free in their own turf regardless of reputation/quota.
-  if (ownsSub) {
+  // Turf owners post free when ALL selected turfs are owned.
+  const postNonOwned = me ? subs.filter(s => Number(s.userId) !== Number(me.id)) : subs
+  const postOwnerFree = subs.length > 0 && postNonOwned.length === 0
+  if (postOwnerFree) {
     return {
       baseCost: {
         term: 1,
@@ -106,15 +113,17 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, ow
       ...anonCharge
     }
   }
-  if (feePiconeros <= 0n) return {}
+  const postMultiplier = subs.length === 0 ? 1 : postNonOwned.length
+  const scaledFeePiconeros = feePiconeros * BigInt(postMultiplier)
+  if (scaledFeePiconeros <= 0n) return {}
 
   return {
     postingFee: {
-      term: `+ ${piconerosToXmr(feePiconeros)}`,
-      label: 'posting fee',
+      term: `+ ${piconerosToXmr(scaledFeePiconeros)}`,
+      label: postMultiplier > 1 ? `posting fee \u00d7 ${postMultiplier} turfs` : 'posting fee',
       // base line so the itemRepetition multiplier (op '*') scales it
       op: '_',
-      modifier: () => Number(feePiconeros / 1000n),
+      modifier: () => Number(scaledFeePiconeros / 1000n),
       allowFreebies: false,
       isComment: false
     },
@@ -122,7 +131,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, ow
   }
 }
 
-export function postCommentUseRemoteLineItems ({ parentId, ownsSub = false } = {}) {
+export function postCommentUseRemoteLineItems ({ parentId, subs = [] } = {}) {
   const query = parentId
     ? gql`{ itemRepetition(parentId: "${parentId}") }`
     : gql`{ itemRepetition }`
@@ -133,12 +142,15 @@ export function postCommentUseRemoteLineItems ({ parentId, ownsSub = false } = {
 
     const { data } = useQuery(query, SSR ? {} : { pollInterval: FAST_POLL_INTERVAL_MS, nextFetchPolicy: 'cache-and-network' })
 
+    const nonOwnedSubs = me ? subs.filter(s => Number(s.userId) !== Number(me.id)) : subs
+    const multiplier = subs.length === 0 ? 1 : nonOwnedSubs.length
+
     useEffect(() => {
       const repetition = data?.itemRepetition
       // only show the x10^n line when a fee actually applies: a comment past the
       // freebie quota, or a low-rep post. Freebie comments (base 1) and free posts
       // must never be multiplied.
-      const feeApplies = !ownsSub && (parentId
+      const feeApplies = multiplier > 0 && (parentId
         ? (me?.privates?.freeCommentsLeft ?? 0) <= 0
         : !!me?.privates?.postingFeeRequired)
       if (!repetition || !feeApplies) return setLine({})
@@ -150,7 +162,7 @@ export function postCommentUseRemoteLineItems ({ parentId, ownsSub = false } = {
           modifier: (cost) => cost * Math.pow(10, repetition)
         }
       })
-    }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.postingFeeRequired, ownsSub])
+    }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.postingFeeRequired, multiplier])
 
     return line
   }
