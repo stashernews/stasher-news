@@ -475,7 +475,7 @@ describe('getInitial — turf-owner fee waiver', () => {
     expect(result.moneroUri).toContain('tx_amount=0.001')
   })
 
-  test('a multi-turf post is free if the author owns ANY of the turfs', async () => {
+  test('a mixed multi-turf post (1 owned + 1 non-owned) charges a single posting fee', async () => {
     const ownerId = await createUser()
     await ensureFeeConfig()
     const owned = `multi-owned-${ownerId}-${Date.now()}`
@@ -485,8 +485,61 @@ describe('getInitial — turf-owner fee waiver', () => {
     await prisma.sub.create({ data: { name: notOwned, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
     created.subs.push(owned, notOwned)
     const result = await getInitial(prisma, { subNames: [owned, notOwned] }, { me: { id: ownerId } })
-    expect(result).toEqual({ payInType: 'ITEM_CREATE', userId: ownerId, piconeros: 0n })
-    expect(result).not.toHaveProperty('moneroUri')
+    expect(result.piconeros).toBe(0n)
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(result.moneroUri).toContain('tx_amount=0.001')
+  })
+
+  test('a post to 2 non-owned turfs charges a double fee (0.002 XMR)', async () => {
+    const userId = await createUser()
+    const otherId = await createUser()
+    await ensureFeeConfig()
+    const a = `twofee-a-${userId}-${Date.now()}`
+    const b = `twofee-b-${userId}-${Date.now()}`
+    await prisma.sub.create({ data: { name: a, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    await prisma.sub.create({ data: { name: b, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    created.subs.push(a, b)
+    const result = await getInitial(prisma, { subNames: [a, b] }, { me: { id: userId } })
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(result.moneroUri).toContain('tx_amount=0.002')
+  })
+
+  test('an anon post to 2 turfs charges 0.02 XMR (0.001 x 2 turfs x 10 anon)', async () => {
+    await ensureFeeConfig()
+    const ownerId = await createUser()
+    const a = `anon2-a-${Date.now()}`
+    const b = `anon2-b-${Date.now()}`
+    await prisma.sub.create({ data: { name: a, userId: ownerId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    await prisma.sub.create({ data: { name: b, userId: ownerId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    created.subs.push(a, b)
+    const result = await getInitial(prisma, { subNames: [a, b] }, { me: { id: USER_ID.anon } })
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(result.moneroUri).toContain('tx_amount=0.02')
+  })
+
+  test('a comment past quota in a 2-non-owned-turf thread charges 0.002 XMR', async () => {
+    const userId = await createUser()
+    const otherId = await createUser()
+    await ensureFeeConfig()
+    await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 15 WHERE id = ${userId}::int`
+    const a = `cmte2-a-${userId}-${Date.now()}`
+    const b = `cmte2-b-${userId}-${Date.now()}`
+    await prisma.sub.create({ data: { name: a, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    await prisma.sub.create({ data: { name: b, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    created.subs.push(a, b)
+    // root post in both turfs authored by otherId
+    const rootRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", title, "created_at")
+      VALUES (${otherId}::int, ${'two-turf root'}, now())
+      RETURNING id::int AS id`
+    const rootId = rootRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId)}::ltree WHERE id = ${rootId}::int`
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: a } })
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: b } })
+    created.items.push(rootId)
+    const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: userId } })
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(result.moneroUri).toContain('tx_amount=0.002')
   })
 })
 

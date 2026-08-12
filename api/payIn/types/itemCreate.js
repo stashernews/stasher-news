@@ -1,6 +1,6 @@
 import { ANON_COMMENT_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ANON_POST_FEE_MULTIPLIER, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { notifyItemMention, notifyItemParents, notifyMention, notifyTerritorySubscribers, notifyUserSubscribers, notifyThreadSubscribers } from '@/lib/webPush'
-import { getItemMentions, getMentions, performBotBehavior, ownsAnySub } from '../lib/item'
+import { getItemMentions, getMentions, performBotBehavior, getSubs, countNonOwnedSubs } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
 import { GqlInputError } from '@/lib/error'
 import { getItem } from '@/api/resolvers/item'
@@ -55,16 +55,15 @@ export async function getInitial (models, args, { me }) {
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds: args.uploadIds }, { me }))
   }
 
-  // StasherNews turf-owner perk: the owner of a turf always posts and comments
-  // free in it — no posting/comment fee, regardless of reputation, freebie
-  // quota, or spam escalation. Upload fees (>10MB) still apply (image-hosting
-  // cost, not a posting/comment fee).
-  const ownerFree = await ownsAnySub(models, {
-    subNames: args.subNames,
-    parentId: args.parentId,
-    userId: me.id
-  })
-  if (ownerFree) {
+  // StasherNews per-turf-scaled fee: the posting/comment fee is the flat floor
+  // × the number of target turfs the author does NOT own. Owned turfs are free.
+  // When ALL target turfs are owned the post is free (no fee subaddress). When
+  // no turfs are resolved (empty subNames — defensive/legacy) the multiplier is
+  // 1, preserving the original flat-fee behavior.
+  const itemSubs = await getSubs(models, { subNames: args.subNames, parentId: args.parentId })
+  const feeMultiplier = itemSubs.length === 0 ? 1n : BigInt(countNonOwnedSubs(itemSubs, me.id))
+
+  if (feeMultiplier === 0n) {
     if (uploadFeesPiconeros > 0n) {
       const sub = await reserveFeeSubaddress(models, 'POSTING')
       const moneroUri = buildMoneroUri(
@@ -95,7 +94,7 @@ export async function getInitial (models, args, { me }) {
       // No spam escalation: ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0.
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       if (!config) throw new GqlInputError('fee config not initialized')
-      const fee = postingFeePiconeros(config) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
+      const fee = postingFeePiconeros(config) * feeMultiplier * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
       const sub = await reserveFeeSubaddress(models, 'POSTING')
       const moneroUri = buildMoneroUri(
         [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
@@ -136,7 +135,7 @@ export async function getInitial (models, args, { me }) {
     const fee = await escalatedFeePiconeros(models, {
       parentId: args.parentId,
       userId: me.id,
-      basePiconeros: postingFeePiconeros(config)
+      basePiconeros: postingFeePiconeros(config) * feeMultiplier
     })
     const sub = await reserveFeeSubaddress(models, 'POSTING')
     const moneroUri = buildMoneroUri(
@@ -191,12 +190,13 @@ export async function getInitial (models, args, { me }) {
   // fee and flips it to FEE_PAID. Anon posts pay the flat fee x
   // ANON_POST_FEE_MULTIPLIER (no spam escalation: ANON_ITEM_SPAM_INTERVAL '0'
   // -> item_spam returns 0).
+  const baseFee = postingFeePiconeros(config) * feeMultiplier
   const fee = me.id === USER_ID.anon
-    ? postingFeePiconeros(config) * BigInt(ANON_POST_FEE_MULTIPLIER)
+    ? baseFee * BigInt(ANON_POST_FEE_MULTIPLIER)
     : await escalatedFeePiconeros(models, {
       parentId: null,
       userId: me.id,
-      basePiconeros: postingFeePiconeros(config)
+      basePiconeros: baseFee
     })
   const sub = await reserveFeeSubaddress(models, 'POSTING')
   const moneroUri = buildMoneroUri(
@@ -361,11 +361,8 @@ export async function onPaid (tx, payInId) {
   // free, independent of the 15-comment / 5-post counters. Re-derive ownership
   // here (item.subNames for posts; the parent thread for comments) since the
   // prospect carries no owner marker.
-  const ownerFree = await ownsAnySub(tx, {
-    subNames: item.subNames,
-    parentId: item.parentId,
-    userId: payIn.userId
-  })
+  const itemSubs = await getSubs(tx, { subNames: item.subNames, parentId: item.parentId })
+  const ownerFree = itemSubs.length > 0 && countNonOwnedSubs(itemSubs, payIn.userId) === 0
   if (!ownerFree) {
     // If this is a freebie comment, increment the free comment counter.
     await incrementFreeCommentCount(tx, { item, userId: payIn.userId })
