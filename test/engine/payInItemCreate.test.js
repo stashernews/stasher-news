@@ -543,6 +543,28 @@ describe('getInitial — turf-owner fee waiver', () => {
   })
 })
 
+// --- bios are free to create (first-bio creation goes through ITEM_CREATE) ---
+describe('getInitial — bios', () => {
+  test('a low-rep user creates their first bio free (no posting-fee URI)', async () => {
+    const userId = await createUser()
+    await ensureFeeConfig()
+    const result = await getInitial(prisma, { bio: true, text: 'hello' }, { me: { id: userId } })
+    expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
+    expect(result).not.toHaveProperty('moneroUri')
+  })
+
+  test('a bio with a >10MB upload charges the upload fee only, not the posting fee', async () => {
+    const userId = await createUser()
+    await ensureFeeConfig()
+    const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 }) // >10MB -> 0.001 XMR upload fee
+    const result = await getInitial(prisma, { bio: true, text: 'hello', uploadIds: [uploadId] }, { me: { id: userId } })
+    expect(result.piconeros).toBe(0n)
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(result.moneroUri).toContain('tx_amount=0.001') // upload fee only — no posting fee on top
+    expect(result.beneficiaries?.some(b => b.payInType === 'MEDIA_UPLOAD')).toBe(true)
+  })
+})
+
 // --- turf-owner free posting: owner-free items do not consume the freebie quota ---
 describe('onPaid — turf-owner quota skip', () => {
   test('an owner-free comment does not increment freeCommentCount', async () => {
