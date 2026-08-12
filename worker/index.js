@@ -49,6 +49,8 @@ if (typeof WebSocket === 'undefined') {
   global.WebSocket = ws
 }
 
+const _runtime = { boss: null, models: null }
+
 async function work () {
   validateEnv()
   const CLEANUP_INTERVAL_SECONDS = 60 * 60 // hourly — must match worker/webhookCleanup.js
@@ -56,6 +58,8 @@ async function work () {
   const models = createPrisma({
     connectionParams: { connection_limit: process.env.DB_WORKER_CONNECTION_LIMIT }
   })
+  _runtime.boss = boss
+  _runtime.models = models
 
   const apollo = new ApolloClient({
     link: new HttpLink({
@@ -226,5 +230,25 @@ async function work () {
 
   logInfo('working jobs')
 }
+
+let shuttingDown = false
+// exitCode: 0 for signals (clean drain), 1 for error handlers so the supervisor restarts us.
+async function shutdown (sig, exitCode = 0) {
+  if (shuttingDown) return
+  shuttingDown = true
+  logInfo(`worker received ${sig}, draining`)
+  try {
+    if (_runtime.boss) await _runtime.boss.stop({ graceful: true, timeout: 25_000 })
+  } catch (e) { logError('boss.stop failed', e) }
+  try {
+    if (_runtime.models) await _runtime.models.$disconnect()
+  } catch (e) { logError('prisma disconnect failed', e) }
+  process.exit(exitCode)
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM', 0))
+process.on('SIGINT', () => shutdown('SIGINT', 0))
+process.on('uncaughtException', (err) => { logError('uncaughtException', err); shutdown('uncaughtException', 1) })
+process.on('unhandledRejection', (err) => { logError('unhandledRejection', err); shutdown('unhandledRejection', 1) })
 
 work()
