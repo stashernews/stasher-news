@@ -1,6 +1,7 @@
 const { ApolloClient, InMemoryCache, HttpLink, gql } = require('@apollo/client')
 const { datePivot } = require('../lib/time.js')
 const { piconerosToXmr } = require('../lib/format.js')
+const { buildGateCookieHeader } = require('../lib/invite-gate.js')
 
 const ITEMS = gql`
   query items ($sort: String, $when: String, $sub: String, $by: String, $from: String, $to: String, $limit: Limit) {
@@ -56,8 +57,13 @@ const TOP_USERS = gql`
   }
 `
 
+const gateCookieHeader = buildGateCookieHeader()
+
 const client = new ApolloClient({
-  link: new HttpLink({ uri: 'https://stasher.news/api/graphql' }),
+  link: new HttpLink({
+    uri: 'https://stasher.news/api/graphql',
+    headers: gateCookieHeader ? { Cookie: gateCookieHeader } : undefined
+  }),
   cache: new InMemoryCache()
 })
 

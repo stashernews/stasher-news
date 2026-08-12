@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+const { buildGateCookieHeader } = require('../lib/invite-gate.js')
+
 function usage () {
   console.log('Usage: scripts/welcome.js <fetch-after> [--prod]')
   process.exit(1)
@@ -27,10 +29,16 @@ if (!SN_API_KEY) {
 
 const LIMIT = 50
 
+const gateCookieHeader = buildGateCookieHeader()
+
 async function gql (query, variables = {}) {
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': SN_API_KEY }
+  if (gateCookieHeader) {
+    headers.Cookie = gateCookieHeader
+  }
   const response = await fetch(`${SN_API_URL}/api/graphql`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': SN_API_KEY },
+    headers,
     body: JSON.stringify({ query, variables })
   })
 

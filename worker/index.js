@@ -41,6 +41,7 @@ import { dbBackup } from './dbBackup'
 import { writeWorkerHeartbeat } from './heartbeat'
 import { logInfo, logError } from '@/lib/logger'
 import { moneroJobDurationSeconds } from '@/lib/metrics'
+import { buildGateCookieHeader } from '@/lib/invite-gate'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -61,10 +62,12 @@ async function work () {
   _runtime.boss = boss
   _runtime.models = models
 
+  const gateCookieHeader = buildGateCookieHeader()
   const apollo = new ApolloClient({
     link: new HttpLink({
       uri: `${process.env.SELF_URL}/api/graphql`,
-      fetch
+      fetch,
+      headers: gateCookieHeader ? { Cookie: gateCookieHeader } : undefined
     }),
     cache: new InMemoryCache(),
     defaultOptions: {

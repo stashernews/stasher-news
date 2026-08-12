@@ -1,7 +1,7 @@
 /* eslint-env jest */
 import {
   GATE_COOKIE, isGateEnabled, getGateCodes, issueGateToken, verifyGateToken,
-  gatePasses, shouldGateRequest, sanitizeNext
+  gatePasses, shouldGateRequest, sanitizeNext, buildGateCookieHeader
 } from '@/lib/invite-gate'
 
 // lib/invite-gate imports @/lib/auth (next-auth/jwt chain is ESM-only under
@@ -44,6 +44,13 @@ test('issueGateToken is deterministic and verifyGateToken accepts the matching t
   expect(verifyGateToken(token)).toBe(true)
 })
 
+test('buildGateCookieHeader returns a valid cookie header when enabled, null when disabled', () => {
+  const header = buildGateCookieHeader()
+  expect(header).toBe(`sn_gate=${issueGateToken('alpha')}`)
+  delete process.env.SITE_INVITE_CODES
+  expect(buildGateCookieHeader()).toBeNull()
+})
+
 test('verifyGateToken rejects wrong, empty, and non-string tokens', () => {
   expect(verifyGateToken(issueGateToken('charlie'))).toBe(false)
   expect(verifyGateToken(issueGateToken('ALPHA'))).toBe(false) // case-sensitive
@@ -62,16 +69,6 @@ test('shouldGateRequest passes everything when the gate is disabled', () => {
   delete process.env.SITE_INVITE_CODES
   expect(shouldGateRequest({ pathname: '/', cookie: undefined })).toBe('pass')
   expect(shouldGateRequest({ pathname: '/api/graphql', cookie: undefined })).toBe('pass')
-})
-
-test('shouldGateRequest passes loopback hostnames (server-to-server callers)', () => {
-  for (const hostname of ['127.0.0.1', 'localhost', '::1']) {
-    expect(shouldGateRequest({ pathname: '/api/graphql', hostname, cookie: undefined })).toBe('pass')
-    expect(shouldGateRequest({ pathname: '/', hostname, cookie: undefined })).toBe('pass')
-  }
-  // a real (non-loopback) host is still gated
-  expect(shouldGateRequest({ pathname: '/', hostname: 'stasher.news', cookie: undefined })).toBe('redirect')
-  expect(shouldGateRequest({ pathname: '/api/graphql', hostname: 'stasher.news', cookie: undefined })).toBe('api-401')
 })
 
 test('shouldGateRequest redirects gated HTML without a valid cookie', () => {
