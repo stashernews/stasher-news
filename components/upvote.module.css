@@ -12,6 +12,12 @@
     -webkit-touch-callout: none;
 }
 
+.downvote {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
 @media (hover: hover) {
     .upvote:hover {
         fill: var(--hover-fill) !important;
@@ -19,6 +25,11 @@
     }
 
     .boost:hover {
+        fill: var(--hover-fill) !important;
+        filter: var(--hover-filter) !important;
+    }
+
+    .downvote:hover {
         fill: var(--hover-fill) !important;
         filter: var(--hover-filter) !important;
     }

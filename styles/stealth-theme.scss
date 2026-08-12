@@ -149,7 +149,7 @@
   // (fill="currentColor" on the SVG path picks up the color change). Arrow
   // sizing/alignment matches the upvote via the shared item.module .upvote
   // class (padding-right .2rem under box-sizing:border-box shrinks the drawn
-  // arrow identically).
+  // arrow identically). !important beats the .text-muted !important grey.
   .downvoteArrow {
     margin-left: -.4rem;
     opacity: 0.65;
@@ -158,7 +158,7 @@
 
   .downvoteArrow:hover {
     opacity: 1;
-    color: var(--bs-danger);
+    color: var(--bs-danger) !important;
   }
 }
 
