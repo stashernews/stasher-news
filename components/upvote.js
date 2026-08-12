@@ -35,7 +35,7 @@ export default function UpVote ({ item, className, collapsed }) {
   const disabled = useMemo(() => collapsed || item?.mine || item?.deletedAt,
     [collapsed, item?.mine, item?.deletedAt])
 
-  const [meSats, overlayText, color, nextColor] = useMemo(() => {
+  const [meSats, overlayText, color] = useMemo(() => {
     const meSats = Number(me ? item?.mePiconeros : item?.meAnonPiconeros) || 0
 
     // what should our next tip be?
@@ -49,7 +49,7 @@ export default function UpVote ({ item, className, collapsed }) {
 
     return [
       meSats, overlayTextContent,
-      getColor(meSats), getColor(meSats + sats)]
+      getColor(meSats)]
   }, [
     me, item?.mePiconeros, item?.meAnonPiconeros, me?.privates?.tipDefault,
     me?.privates?.tipRandom, me?.privates?.tipRandomMin, me?.privates?.tipRandomMax])
@@ -60,11 +60,11 @@ export default function UpVote ({ item, className, collapsed }) {
   }
 
   const style = useMemo(() => ({
-    '--hover-fill': nextColor,
-    '--hover-filter': `drop-shadow(0 0 6px ${nextColor}90)`,
+    '--hover-fill': 'var(--bs-success)',
+    '--hover-filter': 'drop-shadow(0 0 6px var(--bs-success)90)',
     '--fill': color,
     '--filter': `drop-shadow(0 0 6px ${color}90)`
-  }), [color, nextColor])
+  }), [color])
 
   return (
     <div className='upvoteParent' onClick={handlePress}>

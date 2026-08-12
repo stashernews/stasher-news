@@ -6,21 +6,27 @@ import Flag from '@/svgs/flag-fill.svg'
 import { useMemo } from 'react'
 import getColor from '@/lib/rainbow'
 import styles from './upvote.module.css'
+import classNames from 'classnames'
 
-export function DownZap ({ item, ...props }) {
+export function DownZap ({ item, className, ...props }) {
   const { meDontLikePiconeros } = item
-  const style = useMemo(() => (meDontLikePiconeros
-    ? {
-        fill: getColor(meDontLikePiconeros),
-        filter: `drop-shadow(0 0 6px ${getColor(meDontLikePiconeros)}90)`
-      }
-    : undefined), [meDontLikePiconeros])
+  const color = getColor(meDontLikePiconeros)
+  const style = useMemo(() => ({
+    '--hover-fill': 'var(--bs-danger)',
+    '--hover-filter': 'drop-shadow(0 0 6px var(--bs-danger)90)',
+    ...(meDontLikePiconeros
+      ? { fill: color, filter: `drop-shadow(0 0 6px ${color}90)` }
+      : {})
+  }), [meDontLikePiconeros, color])
   return (
     <DownZapper
       item={item} As={({ ...oprops }) =>
         <div className='upvoteParent'>
           <div className={styles.upvoteWrapper}>
-            <Flag {...props} {...oprops} style={style} />
+            <Flag
+              {...props} {...oprops} style={style}
+              className={classNames(styles.downvote, className)}
+            />
           </div>
         </div>}
     />

@@ -5,18 +5,17 @@ import { useMemo } from 'react'
 import getColor from '@/lib/rainbow'
 import BoostIcon from '@/svgs/arrow-up-double-line.svg'
 import styles from './upvote.module.css'
-import { BOOST_MIN } from '@/lib/constants'
 import classNames from 'classnames'
 export default function Boost ({ item, className, ...props }) {
   const { boost } = item
-  const [color, nextColor] = useMemo(() => [getColor(boost), getColor(boost + BOOST_MIN)], [boost])
+  const color = useMemo(() => getColor(boost), [boost])
 
   const style = useMemo(() => ({
-    '--hover-fill': nextColor,
-    '--hover-filter': `drop-shadow(0 0 6px ${nextColor}90)`,
+    '--hover-fill': 'var(--bs-success)',
+    '--hover-filter': 'drop-shadow(0 0 6px var(--bs-success)90)',
     '--fill': color,
     '--filter': `drop-shadow(0 0 6px ${color}90)`
-  }), [color, nextColor])
+  }), [color])
 
   return (
     <Booster
