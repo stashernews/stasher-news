@@ -9,7 +9,6 @@ import { formatHost, parseSafeHost } from '@/lib/safe-url'
 import { COPY } from '@/lib/rebrand-copy'
 import { MULTI_AUTH_ANON, MULTI_AUTH_LIST, MULTI_AUTH_POINTER } from '@/lib/auth'
 import { getDomainBranding } from '@/lib/domains'
-import AmbientBg from '@/components/ambient-bg'
 
 export async function getServerSideProps ({ req, res, query: { callbackUrl, multiAuth = false, domain = null, error = null } }) {
   // the ?domain= query param carries the custom domain's host as-is (with its port in local dev);
@@ -113,16 +112,14 @@ export default function LoginPage ({ multiAuth, ...props }) {
   const multiAuthBool = multiAuth === 'true'
   return (
     <StaticLayout footerLinks={false}>
-      <AmbientBg>
-        <Login
-          Footer={multiAuthBool ? undefined : () => <LoginFooter callbackUrl={props.callbackUrl} domain={props.canonicalDomain} />}
-          Header={multiAuthBool ? () => <MultiAuthHeader /> : () => <LoginHeader domainData={props.domainData} />}
-          text='Log in'
-          signin
-          multiAuth={multiAuth}
-          {...props}
-        />
-      </AmbientBg>
+      <Login
+        Footer={multiAuthBool ? undefined : () => <LoginFooter callbackUrl={props.callbackUrl} domain={props.canonicalDomain} />}
+        Header={multiAuthBool ? () => <MultiAuthHeader /> : () => <LoginHeader domainData={props.domainData} />}
+        text='Log in'
+        signin
+        multiAuth={multiAuth}
+        {...props}
+      />
     </StaticLayout>
   )
 }

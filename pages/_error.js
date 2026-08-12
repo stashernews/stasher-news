@@ -1,7 +1,6 @@
 import { StaticLayout } from '@/components/layout'
 import styles from '@/styles/error.module.css'
 import { DISPLAY_FONT } from '@/lib/rebrand'
-import AmbientBg from '@/components/ambient-bg'
 
 const statusDescribe = {
   200: 'OK',
@@ -47,26 +46,9 @@ const statusDescribe = {
   505: 'HTTP Version Not Supported'
 }
 
-function ErrorImage ({ statusCode }) {
-  if (statusCode === 404) {
-    return <AmbientBg width='640' height='640' />
-  }
-  if (statusCode >= 500) {
-    return <AmbientBg width='540' height='400' />
-  }
-  if (statusCode >= 400) {
-    return <AmbientBg width='640' height='288' />
-  }
-  if (statusCode >= 300) {
-    return <AmbientBg width='640' height='288' />
-  }
-  return <AmbientBg width='540' height='400' />
-}
-
 export default function Error ({ statusCode }) {
   return (
     <StaticLayout>
-      <ErrorImage statusCode={statusCode} />
       <h1 className={styles.status} style={{ fontFamily: DISPLAY_FONT }}><span>{statusCode}</span><span className={styles.describe}>{statusDescribe[statusCode].toUpperCase()}</span></h1>
     </StaticLayout>
   )

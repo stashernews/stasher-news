@@ -162,39 +162,6 @@
   }
 }
 
-// ---- ambient backgrounds (rebrand) ----
-// Pure-CSS covert background replacing the western LoopVideo assets on
-// error/email/offline/auth pages and behind the login/signup card. The layer
-// is absolutely positioned inside a relative .ambient-bg wrapper sized by the
-// component (video footprint via aspect-ratio, or a page-level fill), so no
-// network or asset sourcing is involved.
-.stealth-rebrand {
-  .ambient-bg {
-    min-height: 40vh;
-  }
-
-  .ambient-bg__layer {
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(600px 300px at 50% -10%, rgba(255, 102, 0, 0.16), transparent 70%),
-      radial-gradient(400px 240px at 85% 110%, rgba(255, 102, 0, 0.08), transparent 70%),
-      #0c0c0e;
-  }
-
-  .ambient-bg__layer::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-    background-size: 42px 42px;
-    -webkit-mask-image: radial-gradient(700px 380px at 50% 30%, black, transparent 80%);
-    mask-image: radial-gradient(700px 380px at 50% 30%, black, transparent 80%);
-  }
-}
-
 // ---- payment-success glyph + login wordmark (rebrand) ----
 // Success state of the tip/downvote/posting-fee flow shows the keyhole mark in
 // an orange ring ("stash, locked away"). The login card gets the lowercase
