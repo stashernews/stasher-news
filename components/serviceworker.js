@@ -3,15 +3,13 @@ import { Workbox } from 'workbox-window'
 import { gql } from '@apollo/client'
 import { useMutation } from '@apollo/client/react'
 import { requestPersistentStorage } from './use-indexeddb'
+import { CLEAR_NOTIFICATIONS, DELETE_SUBSCRIPTION, STORE_SUBSCRIPTION } from '@/lib/sw-messages'
 
 const applicationServerKey = process.env.NEXT_PUBLIC_VAPID_PUBKEY
 
 const ServiceWorkerContext = createContext()
 
-// message types for communication between app and service worker
-export const DELETE_SUBSCRIPTION = 'DELETE_SUBSCRIPTION'
-export const STORE_SUBSCRIPTION = 'STORE_SUBSCRIPTION'
-export const CLEAR_NOTIFICATIONS = 'CLEAR_NOTIFICATIONS'
+export { CLEAR_NOTIFICATIONS, DELETE_SUBSCRIPTION, STORE_SUBSCRIPTION }
 
 export const ServiceWorkerProvider = ({ children }) => {
   const [registration, setRegistration] = useState(null)
