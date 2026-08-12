@@ -4,11 +4,13 @@ import { safeEqual } from '@/lib/domains/auth'
 
 // Prometheus scrape endpoint (Task D7).
 //
-// Token-gated: if METRICS_TOKEN is set, the scrape must carry ?token=<value>
-// matching it or the endpoint returns 401. When METRICS_TOKEN is unset the
-// endpoint is open (dev convenience) — production MUST either set METRICS_TOKEN
-// or restrict the endpoint at the network/reverse-proxy layer (e.g. allow only
-// the Prometheus server's IP). The exposition contains only metric names +
+// Token-gated and FAILS CLOSED in production (Task C4): in production the
+// endpoint returns 401 when METRICS_TOKEN is unset (defense in depth), so an
+// operator can never accidentally expose the scrape by forgetting to set the
+// token. In non-production (dev convenience) the endpoint is open when
+// METRICS_TOKEN is unset. When METRICS_TOKEN is set (any environment) the
+// scrape must carry ?token=<value> matching it via timing-safe compare or the
+// endpoint returns 401. The exposition contains only metric names +
 // aggregate counts (no secrets, no PII, no user data), but on a privacy-focused
 // Monero platform even aggregate counts (treasury balance, pending-tip counts,
 // distribution status) are an avoidable info leak, so gate it in prod. See

@@ -27,6 +27,7 @@ else
 fi
 if [ "$needs_base" -eq 1 ]; then
   echo "$(date -u +%FT%TZ) taking base backup"
+  rm -rf "$WAL_ARCHIVE_DIR/base"
   if pg_basebackup -D "$WAL_ARCHIVE_DIR/base" -Ft -z -P -U "$POSTGRES_USER"; then
     date -u +%FT%TZ > "$BASE_FLAG"
   else
