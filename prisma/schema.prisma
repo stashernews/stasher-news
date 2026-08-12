@@ -1593,6 +1593,8 @@ model PlatformFeeConfig {
   bountyFeePct          Int    @default(1)
   bountyExpiryDays      Int    @default(30)
   // rewards distribution
-  distributionTopN               Int    @default(25)
+  // Top-N curator count: 10 at launch (fewer, larger payouts); raise as the
+  // platform grows — operator-tunable via the PlatformFeeConfig row.
+  distributionTopN               Int    @default(10)
   distributionMinPayoutPiconeros BigInt @default(1000000000)
 }

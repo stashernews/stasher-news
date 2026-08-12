@@ -87,6 +87,10 @@ export default function Rewards ({ ssrData }) {
               <Link href='/faq#how-do-i-earn-xmr-on-stasher-news' className='text-info fw-normal'>
                 <small><small><small>learn about rewards</small></small></small>
               </Link>
+              <span className='text-muted mx-2'>·</span>
+              <Link href='/transparency' className='text-info fw-normal'>
+                <small><small><small>wallet transparency</small></small></small>
+              </Link>
             </h3>
             {sources?.length > 0 &&
               <div className='my-3 w-100'>

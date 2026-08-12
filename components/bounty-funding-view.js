@@ -120,13 +120,10 @@ export default function BountyFundingView ({ postId, amountPiconeros, onClose })
     )
   }
 
-  const amount = BigInt(amountPiconeros)
-
   return (
     <div className='p-3'>
       <MoneroPaymentView
         moneroUri={uri}
-        amountPiconeros={amount}
         heading='Fund this bounty'
         description={bountyFundingDescription(amountPiconeros, feePiconeros)}
       >

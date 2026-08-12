@@ -13,6 +13,7 @@ import { MEDIA_URL } from '@/lib/constants'
 import { Badge } from 'react-bootstrap'
 import SubPopover from './sub-popover'
 import { piconerosToXmr } from '@/lib/format'
+import { ensureProtocol } from '@/lib/url'
 import { PayInInfo, InfoDropdownItem } from './item-info'
 import Boost from './boost-button'
 import ActionDropdown from './action-dropdown'
@@ -34,7 +35,11 @@ function CompanyImage ({ item }) {
 
 export default function ItemJob ({ item, toc, rank, children, ...props }) {
   const { me } = useMe()
-  const isEmail = string().email().isValidSync(item.url)
+  const isEmail = !!item.url && string().email().isValidSync(item.url)
+  const hasApplyUrl = !!item.url
+  const applyHref = isEmail
+    ? `mailto:${item.url}?subject=${encodeURIComponent(item.title)} via Stasher News`
+    : ensureProtocol(item.url || undefined)
 
   return (
     <>
@@ -130,7 +135,9 @@ export default function ItemJob ({ item, toc, rank, children, ...props }) {
         <div className={styles.children} style={{ marginLeft: 'calc(42px + .8rem)' }}>
           <div className='mb-3 d-flex'>
             <Button
-              target='_blank' href={isEmail ? `mailto:${item.url}?subject=${encodeURIComponent(item.title)} via Stasher News` : item.url}
+              target={hasApplyUrl ? '_blank' : undefined}
+              href={applyHref}
+              disabled={!hasApplyUrl}
             >
               apply {isEmail && <EmailIcon className='ms-1' />}
             </Button>

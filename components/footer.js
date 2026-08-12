@@ -30,8 +30,8 @@ const RssPopover = (
         </a>
       </div>
       <div className='d-flex justify-content-center'>
-        <a href='/~tech/rss' className='nav-link p-0 d-inline-flex'>
-          tech
+        <a href='/~monero/rss' className='nav-link p-0 d-inline-flex'>
+          monero
         </a>
         <span className='mx-2 text-muted'> \ </span>
         <a href='/~meta/rss' className='nav-link p-0 d-inline-flex'>

@@ -7,7 +7,7 @@ import { GqlAuthenticationError, GqlInputError, GqlAuthorizationError } from '@/
 import { uploadIdsFromText } from './upload'
 import { Prisma } from '@prisma/client'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
-import { DOMAIN_BETA_IDS } from '@/lib/constants'
+import { DOMAIN_BETA_IDS, ACTIVE_SUBS_PRIORITY } from '@/lib/constants'
 
 export async function getSub (parent, { name }, { models, me }) {
   if (!name) return null
@@ -155,7 +155,7 @@ export default {
         const currentUser = await userLoader.load(me.id)
         const showNsfw = currentUser ? currentUser.nsfwMode : false
 
-        return await models.$queryRaw`
+        return sortActiveSubs(await models.$queryRaw`
           SELECT "Sub".*, "Sub".created_at as "createdAt", COALESCE("Sub"."postTypes", '{}') AS "postTypes", ss."userId" IS NOT NULL as "meSubscription", COALESCE(json_agg("MuteSub".*) FILTER (WHERE "MuteSub"."userId" IS NOT NULL), '[]') AS "MuteSub"
           FROM "Sub"
           LEFT JOIN "SubSubscription" ss ON "Sub".name = ss."subName" AND ss."userId" = ${me.id}::INTEGER
@@ -163,10 +163,10 @@ export default {
           WHERE status <> 'STOPPED' AND "Sub".name NOT LIKE '\\_p4downvote\\_%' ${showNsfw ? Prisma.empty : Prisma.sql`AND ("Sub"."nsfw" = FALSE OR "Sub"."userId" = ${me.id}::INTEGER)`}
           GROUP BY "Sub".name, ss."userId", "MuteSub"."userId"
           ORDER BY "Sub".name ASC
-        `
+        `)
       }
 
-      return await models.sub.findMany({
+      return sortActiveSubs(await models.sub.findMany({
         where: {
           status: {
             not: 'STOPPED'
@@ -181,7 +181,7 @@ export default {
         orderBy: {
           name: 'asc'
         }
-      })
+      }))
     },
     subLatestPost: async (parent, { name }, { models, me }) => {
       const latest = await models.item.findFirst({
@@ -474,6 +474,14 @@ function canAccessDomainSettings ({ sub, me }) {
   if (!DOMAIN_BETA_IDS.includes(Number(me.id))) return false
   if (Number(sub.userId) !== Number(me.id)) return false
   return true
+}
+
+// Pin the priority turfs (monero, bitcoin, crypto) to the top of the dropdown in
+// order; everything else keeps its alphabetical order (stable sort preserves it).
+function sortActiveSubs (subs) {
+  const priority = new Map(ACTIVE_SUBS_PRIORITY.map((name, i) => [name, i]))
+  return [...subs].sort((a, b) =>
+    (priority.get(a.name) ?? Infinity) - (priority.get(b.name) ?? Infinity))
 }
 
 async function createSub (parent, { sendProtocolId, ...data }, { me, models }) {
