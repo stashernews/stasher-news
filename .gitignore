@@ -31,6 +31,12 @@ yarn-error.log*
 !.env.development
 !.env.production
 
+# sensitive / ops-only — operator keeps local copies
+docs/ops/
+docs/superpowers/
+docs/mockups/
+AGENTS.md
+
 # local settings
 .vscode/settings.json
 
