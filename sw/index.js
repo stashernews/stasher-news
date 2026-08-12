@@ -6,7 +6,7 @@ import { NetworkOnly } from 'workbox-strategies'
 import { enable } from 'workbox-navigation-preload'
 
 import ServiceWorkerStorage from 'serviceworker-storage'
-import { CLEAR_NOTIFICATIONS, DELETE_SUBSCRIPTION, STORE_SUBSCRIPTION } from '@/components/serviceworker'
+import { CLEAR_NOTIFICATIONS, DELETE_SUBSCRIPTION, STORE_SUBSCRIPTION } from '@/lib/sw-messages'
 
 // we store existing push subscriptions for the onpushsubscriptionchange event
 const storage = new ServiceWorkerStorage('sw:storage', 1)
