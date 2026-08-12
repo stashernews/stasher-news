@@ -74,7 +74,7 @@ If you regularly stash XMR for your content, consider it a signal that other sta
 
 Generally speaking, referral links and repetitive content tend to be ignored by the Stasher News community.
 
-Because posting and commenting are gated by fees — posts cost 0.001 XMR until a stasher has stacked 0.01 XMR and been around for 7 days, and comments cost 0.001 XMR beyond 15 per month — anyone who is regularly posting content that the community ignores has a financial and social incentive to either share more relevant content or avoid posting at all.
+Because posting and commenting are gated by fees — posts cost 0.001 XMR until a stasher has stacked 0.01 XMR and been around for 7 days, after which the first 5 posts each month are free and later ones cost 0.001 XMR, and comments cost 0.001 XMR beyond 5 per month (15 once established) — anyone who is regularly posting content that the community ignores has a financial and social incentive to either share more relevant content or avoid posting at all.
 
 ## Connect with Stashers
 
