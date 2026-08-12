@@ -20,7 +20,7 @@
 import { PrismaClient } from '@prisma/client'
 import pay from '@/api/payIn/index'
 import { onPaid, getInitial } from '@/api/payIn/types/itemCreate'
-import { performBotBehavior, ownsAnySub } from '@/api/payIn/lib/item'
+import { performBotBehavior, countNonOwnedSubs } from '@/api/payIn/lib/item'
 import { flipPendingToLive } from '@/worker/rewardsWalletObserver'
 import { USER_ID } from '@/lib/constants'
 
@@ -401,61 +401,22 @@ test('pay("ITEM_CREATE", { uploadIds }) completes without flipping the upload; t
   await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
 
-// --- turf-owner free posting: ownsAnySub resolves post and comment turfs ---
-describe('ownsAnySub', () => {
-  test('true when the user owns one of the post turfs', async () => {
-    const userId = await createUser()
-    // create a turf owned by this user
-    const turfName = `ownsub-post-${userId}-${Date.now()}`
-    await prisma.sub.create({
-      data: { name: turfName, userId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
-    })
-    created.subs.push(turfName)
-    const result = await ownsAnySub(prisma, { subNames: [turfName], parentId: undefined, userId })
-    expect(result).toBe(true)
+// --- turf-owner free posting: countNonOwnedSubs scales the fee by non-owned turfs ---
+describe('countNonOwnedSubs', () => {
+  test('0 when the user owns all subs', () => {
+    expect(countNonOwnedSubs([{ userId: 1 }, { userId: 1 }], 1)).toBe(0)
   })
 
-  test('false for a turf the user does not own', async () => {
-    const owner = await createUser()
-    const other = await createUser()
-    const turfName = `ownsub-other-${other}-${Date.now()}`
-    await prisma.sub.create({
-      data: { name: turfName, userId: owner, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
-    })
-    created.subs.push(turfName)
-    const result = await ownsAnySub(prisma, { subNames: [turfName], parentId: undefined, userId: other })
-    expect(result).toBe(false)
+  test('counts non-owned subs', () => {
+    expect(countNonOwnedSubs([{ userId: 1 }, { userId: 2 }], 1)).toBe(1)
   })
 
-  test('true for a comment whose parent thread turf the user owns', async () => {
-    const owner = await createUser()
-    const turfName = `ownsub-comment-${owner}-${Date.now()}`
-    await prisma.sub.create({
-      data: { name: turfName, userId: owner, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
-    })
-    created.subs.push(turfName)
-    // root post in the owned turf
-    const rootRows = await prisma.$queryRaw`
-      INSERT INTO "Item" ("userId", title, "created_at")
-      VALUES (${owner}::int, ${'owner root'}, now())
-      RETURNING id::int AS id`
-    const rootId = rootRows[0].id
-    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId)}::ltree WHERE id = ${rootId}::int`
-    await prisma.itemSub.create({ data: { itemId: rootId, subName: turfName } }) // triggers item_subnames -> root.subNames
-    created.items.push(rootId)
-    const result = await ownsAnySub(prisma, { subNames: undefined, parentId: String(rootId), userId: owner })
-    expect(result).toBe(true)
+  test('all subs count for anon (anon owns nothing)', () => {
+    expect(countNonOwnedSubs([{ userId: 1 }, { userId: 2 }], USER_ID.anon)).toBe(2)
   })
 
-  test('false for anon (anon can never own a turf)', async () => {
-    const result = await ownsAnySub(prisma, { subNames: ['bitcoin'], parentId: undefined, userId: USER_ID.anon })
-    expect(result).toBe(false)
-  })
-
-  test('false when neither subNames nor parentId is set (bios)', async () => {
-    const userId = await createUser()
-    const result = await ownsAnySub(prisma, { subNames: undefined, parentId: undefined, userId })
-    expect(result).toBe(false)
+  test('0 for empty subs', () => {
+    expect(countNonOwnedSubs([], 1)).toBe(0)
   })
 })
 
