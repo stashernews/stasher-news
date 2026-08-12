@@ -1,0 +1,21 @@
+name: Security
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.21.1"
+          cache: 'npm'
+      - name: Install
+        run: npm ci --legacy-peer-deps
+      - name: Audit production dependencies (high+)
+        run: npm audit --omit=dev --audit-level=high
