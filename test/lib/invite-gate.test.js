@@ -64,6 +64,16 @@ test('shouldGateRequest passes everything when the gate is disabled', () => {
   expect(shouldGateRequest({ pathname: '/api/graphql', cookie: undefined })).toBe('pass')
 })
 
+test('shouldGateRequest passes loopback hostnames (server-to-server callers)', () => {
+  for (const hostname of ['127.0.0.1', 'localhost', '::1']) {
+    expect(shouldGateRequest({ pathname: '/api/graphql', hostname, cookie: undefined })).toBe('pass')
+    expect(shouldGateRequest({ pathname: '/', hostname, cookie: undefined })).toBe('pass')
+  }
+  // a real (non-loopback) host is still gated
+  expect(shouldGateRequest({ pathname: '/', hostname: 'stasher.news', cookie: undefined })).toBe('redirect')
+  expect(shouldGateRequest({ pathname: '/api/graphql', hostname: 'stasher.news', cookie: undefined })).toBe('api-401')
+})
+
 test('shouldGateRequest redirects gated HTML without a valid cookie', () => {
   expect(shouldGateRequest({ pathname: '/', cookie: undefined })).toBe('redirect')
   expect(shouldGateRequest({ pathname: '/items/3', cookie: '' })).toBe('redirect')
