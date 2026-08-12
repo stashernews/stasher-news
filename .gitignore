@@ -100,3 +100,6 @@ docker/dnsmasq/dnsmasq.d/*
 ADMIN-GUIDE.md
 # local opencode tooling
 .opencode/
+
+# SOPS-encrypted runtime secrets (live at /etc/stashernews/secrets.env on the VPS)
+/secrets.env
