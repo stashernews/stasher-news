@@ -1,0 +1,3 @@
+creation_rules:
+  - path_regex: secrets\.env$
+    age: "age1...."   # paste the PUBLIC key from Step 2
