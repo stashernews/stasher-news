@@ -5,9 +5,6 @@ const fetch = require('cross-fetch')
 const GRAPHQL_ENDPOINT = process.env.GRAPHQL_ENDPOINT || 'http://localhost:3000/api/graphql'
 const PLAUSIBLE_API_KEY = process.env.PLAUSIBLE_API_KEY
 
-// Territory profitability threshold (in sats)
-const TERRITORY_PROFIT_THRESHOLD = 50000
-
 // Apollo Client setup
 const client = new ApolloClient({
   link: new HttpLink({
@@ -39,7 +36,7 @@ const GROWTH_QUERY = gql`
         value
       }
     }
-    stackingGrowth(when: $when, sub: $sub) {
+    stashingGrowth(when: $when, sub: $sub) {
       time
       data {
         name
@@ -56,22 +53,8 @@ const GROWTH_QUERY = gql`
   }
 `
 
-// Territory payment types that represent SN revenue
+// Turf fee types that count as SN platform revenue (founders earn no share; fees fund rewards pool + ops)
 const TERRITORY_REVENUE_TYPES = ['TERRITORY_BILLING', 'TERRITORY_CREATE', 'TERRITORY_UPDATE', 'TERRITORY_UNARCHIVE']
-
-const TOP_SUBS_QUERY = gql`
-  query TopSubs($when: String, $from: String, $to: String, $by: String) {
-    topSubs(when: $when, from: $from, to: $to, by: $by, limit: 200) {
-      subs {
-        name
-        status
-        optional {
-          revenue(when: $when, from: $from, to: $to)
-        }
-      }
-    }
-  }
-`
 
 // Utility functions
 function formatNumber (num) {
@@ -83,8 +66,8 @@ function formatNumber (num) {
   return num.toString()
 }
 
-function formatXmr (sats) {
-  const n = sats / 1e9
+function formatXmr (piconeros) {
+  const n = piconeros / 1e12
   const str = n % 1 === 0 ? Number(n).toString() : Number(n).toFixed(12).replace(/0+$/, '').replace(/\.$/, '')
   return formatNumber(str) + ' XMR'
 }
@@ -209,12 +192,12 @@ async function generateKPISummary (monthsBack = 6) {
       }
     }
 
-    // Process stacking data
-    if (data.stackingGrowth) {
-      for (const entry of data.stackingGrowth) {
+    // Process stashing data
+    if (data.stashingGrowth) {
+      for (const entry of data.stashingGrowth) {
         const month = timeToMonth(entry.time)
         if (!monthlyDataMap[month]) monthlyDataMap[month] = {}
-        monthlyDataMap[month].stacking = sumDataValues(entry.data)
+        monthlyDataMap[month].stashing = sumDataValues(entry.data)
       }
     }
 
@@ -231,46 +214,11 @@ async function generateKPISummary (monthsBack = 6) {
     const monthlyData = months.map(month => ({
       month,
       spending: monthlyDataMap[month]?.spending ?? 'N/A',
-      stacking: monthlyDataMap[month]?.stacking ?? 'N/A',
+      stashing: monthlyDataMap[month]?.stashing ?? 'N/A',
       registrations: monthlyDataMap[month]?.registrations ?? 'N/A',
       territoryRevenue: monthlyDataMap[month]?.territoryRevenue ?? 'N/A',
       uniqueSpenders: monthlyDataMap[month]?.uniqueSpenders ?? 'N/A'
     }))
-
-    // Get territory profits data for each month
-    const territoryProfits = []
-
-    for (const month of months) {
-      const { from, to, startDateStr, endDateStr } = getMonthDateRange(month)
-
-      console.log(`Querying territory profits for ${month}: ${startDateStr} to ${endDateStr}`)
-
-      try {
-        const { data } = await client.query({
-          query: TOP_SUBS_QUERY,
-          variables: {
-            when: 'custom',
-            from,
-            to,
-            by: 'revenue'
-          }
-        })
-
-        const profitableTerritories = data.topSubs.subs.filter(sub => {
-          if (sub.status === 'STOPPED') return false
-          const revenue = sub.optional?.revenue || 0
-          return revenue > TERRITORY_PROFIT_THRESHOLD
-        })
-
-        territoryProfits.push({
-          month,
-          profitable: profitableTerritories.length
-        })
-      } catch (error) {
-        console.warn(`Failed to fetch territory profits for ${month}:`, error.message)
-        territoryProfits.push({ month, profitable: 'N/A' })
-      }
-    }
 
     // Get Plausible data for each month
     const plausibleData = []
@@ -365,18 +313,18 @@ async function generateKPISummary (monthsBack = 6) {
       console.log(`${formatMonth(current.month)}: ${value}${change}`)
     }
 
-    console.log('\n## Total Stacking:')
+    console.log('\n## Total Stashing:')
     for (let i = 1; i < monthlyData.length; i++) {
       const current = monthlyData[i]
       const previous = monthlyData[i - 1]
-      const change = current.stacking !== 'N/A' && previous.stacking !== 'N/A'
-        ? ` (${calculatePercentChange(current.stacking, previous.stacking)})`
+      const change = current.stashing !== 'N/A' && previous.stashing !== 'N/A'
+        ? ` (${calculatePercentChange(current.stashing, previous.stashing)})`
         : ''
-      const value = current.stacking === 'N/A' ? 'N/A' : formatXmr(current.stacking)
+      const value = current.stashing === 'N/A' ? 'N/A' : formatXmr(current.stashing)
       console.log(`${formatMonth(current.month)}: ${value}${change}`)
     }
 
-    console.log('\n## Territory Revenue (SN earnings):')
+    console.log('\n## Turf Revenue (SN earnings):')
     for (let i = 1; i < monthlyData.length; i++) {
       const current = monthlyData[i]
       const previous = monthlyData[i - 1]
@@ -385,16 +333,6 @@ async function generateKPISummary (monthsBack = 6) {
         : ''
       const value = current.territoryRevenue === 'N/A' ? 'N/A' : formatXmr(current.territoryRevenue)
       console.log(`${formatMonth(current.month)}: ${value}${change}`)
-    }
-
-    console.log('\n## Territories in Profit:')
-    for (let i = 1; i < territoryProfits.length; i++) {
-      const current = territoryProfits[i]
-      const previous = territoryProfits[i - 1]
-      const change = current.profitable !== 'N/A' && previous.profitable !== 'N/A'
-        ? ` (${calculatePercentChange(current.profitable, previous.profitable)})`
-        : ''
-      console.log(`${formatMonth(current.month)}: ${current.profitable}${change}`)
     }
 
     console.log('\n---')
