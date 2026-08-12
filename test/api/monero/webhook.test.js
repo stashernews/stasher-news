@@ -142,10 +142,12 @@ test('flips DETECTED -> CONFIRMED at REQUIRED_CONFIRMATIONS, bumps stackedPicone
   const tip = { id: 1, postId: 10, state: 'DETECTED', paymentId: 'abc123', piconeros: 1000000000n, height: 2172600, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: { label: 'author' } }
   const txUpdate = jest.fn().mockResolvedValue({})
   const userUpdate = jest.fn().mockResolvedValue({})
+  const execRaw = jest.fn().mockResolvedValue(1)
   const models = mockModels({
     observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
     txUpdate,
-    userUpdate
+    userUpdate,
+    execRaw
   })
   const monero = mockMonero()
   const res = mockRes()
@@ -153,7 +155,12 @@ test('flips DETECTED -> CONFIRMED at REQUIRED_CONFIRMATIONS, bumps stackedPicone
     body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
   }, res, models, monero)
   expect(res.status).toHaveBeenCalledWith(200)
-  expect(txUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ state: 'CONFIRMED' }) }))
+  // The CONFIRMED transition is an atomic conditional claim via $executeRaw
+  // (mirrors the PENDING->DETECTED guard), not tx.observedTip.update.
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const sqls = execRaw.mock.calls.map(sqlOf)
+  expect(sqls.some(sql => sql.includes("state = 'CONFIRMED'") && sql.includes("state = 'DETECTED'"))).toBe(true)
+  expect(txUpdate).not.toHaveBeenCalled()
   expect(userUpdate).toHaveBeenCalledWith(expect.objectContaining({
     where: { id: 99 },
     data: { stackedPiconeros: { increment: 1000000000n } }
@@ -175,10 +182,12 @@ test('does NOT bump author stackedPiconeros when the recipient is the rewards wa
   }
   const userUpdate = jest.fn().mockResolvedValue({})
   const txUpdate = jest.fn().mockResolvedValue({})
+  const execRaw = jest.fn().mockResolvedValue(1)
   const models = mockModels({
     observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
     txUpdate,
-    userUpdate
+    userUpdate,
+    execRaw
   })
   const monero = mockMonero()
   const res = mockRes()
@@ -186,8 +195,11 @@ test('does NOT bump author stackedPiconeros when the recipient is the rewards wa
     body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
   }, res, models, monero)
   expect(res.status).toHaveBeenCalledWith(200)
-  // the tip row still flips to CONFIRMED ...
-  expect(txUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ state: 'CONFIRMED' }) }))
+  // the tip row still flips to CONFIRMED via the conditional claim ...
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const sqls = execRaw.mock.calls.map(sqlOf)
+  expect(sqls.some(sql => sql.includes("state = 'CONFIRMED'") && sql.includes("state = 'DETECTED'"))).toBe(true)
+  expect(txUpdate).not.toHaveBeenCalled()
   // ... but the author stackedPiconeros bump is SKIPPED (nobody was paid)
   expect(userUpdate).not.toHaveBeenCalled()
   expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-1')
@@ -495,4 +507,25 @@ test('bounty branch: an EXPIRED BountyPidMap is unconsumable — a late callback
   // No state change: no claim, no pid-map consumption, no transaction at all.
   expect(execRaw).not.toHaveBeenCalled()
   expect(models.$transaction).not.toHaveBeenCalled()
+})
+
+test('DETECTED->CONFIRMED does not credit the author when the conditional claim loses (race loser)', async () => {
+  process.env.LWS_WEBHOOK_TOKEN = 't'
+  const userUpdate = jest.fn().mockResolvedValue({})
+  // claim lost: another claimer already flipped the row to CONFIRMED
+  const execRaw = jest.fn().mockResolvedValue(0)
+  const models = mockModels({ execRaw, userUpdate })
+  models.observedTip.findFirst.mockResolvedValue({ id: 1, state: 'DETECTED', piconeros: 1000n, postId: 10, tipperId: 5, post: { userId: 7 }, recipientAccount: { label: 'author', ownerUserId: 7 } })
+  const res = mockRes()
+  await handleWebhook(
+    {
+      method: 'POST',
+      headers: { 'x-lws-token': 't' },
+      body: { payment_id: 'p1', confirmations: 15, tx_info: { tx_hash: 'h', block: 100, amount: '1000' } }
+    },
+    res, models, mockMonero()
+  )
+  expect(execRaw).toHaveBeenCalled()
+  expect(userUpdate).not.toHaveBeenCalled() // race loser MUST NOT increment
+  expect(res.status).toHaveBeenLastCalledWith(200)
 })

@@ -90,25 +90,22 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     }
 
     if (tip.state === 'DETECTED' && confirmations >= REQUIRED_CONFIRMATIONS) {
-      const data = { state: 'CONFIRMED', confirmations, confirmedAt: new Date() }
-      if (height != null) data.height = height
-      if (txHash) data.txHash = txHash
       await models.$transaction(async (tx) => {
-        await tx.observedTip.update({
-          where: { id: tip.id },
-          data
-        })
-        // Skip the author lifetime-received denorm when the tip went to the
-        // rewards pool (wallet-less author) — nobody was paid, so there is no
-        // recipient to credit. The ranking bump (Item.piconeros) already ran at
-        // DETECTION and is unaffected.
-        if (tip.recipientAccount?.label !== 'platform_rewards') {
+        // Atomic conditional claim: only the first claimer (us or the confirmFinalizer
+        // backstop, or a retried lws callback) wins. A retried callback for an already-
+        // CONFIRMED tip loses the claim (state no longer DETECTED) and is a no-op, so
+        // stackedPiconeros is never double-credited. Mirrors the PENDING->DETECTED guard.
+        const claimed = await tx.$executeRaw`
+          UPDATE "ObservedTip"
+          SET state = 'CONFIRMED', confirmations = ${confirmations}, "confirmedAt" = NOW()
+          WHERE id = ${tip.id} AND state = 'DETECTED'`
+        if (claimed > 0 && tip.recipientAccount?.label !== 'platform_rewards' && tip.post?.userId != null) {
           await tx.user.update({
             where: { id: tip.post.userId },
             data: { stackedPiconeros: { increment: tip.piconeros } }
           })
         }
-      })
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
       // Verified-badge graduation check: a tip that crosses the reputation
       // threshold may newly qualify the author. No-op unless all conditions met.
       if (tip.recipientAccount?.label !== 'platform_rewards') {
