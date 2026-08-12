@@ -104,6 +104,7 @@ test('sanitizeNext only allows same-origin relative paths', () => {
   expect(sanitizeNext('/items/3?commentId=5')).toBe('/items/3?commentId=5')
   expect(sanitizeNext('/')).toBe('/')
   expect(sanitizeNext('//evil.com')).toBe('/')
+  expect(sanitizeNext('/\\evil.com')).toBe('/')
   expect(sanitizeNext('https://evil.com')).toBe('/')
   expect(sanitizeNext('javascript:alert(1)')).toBe('/')
   expect(sanitizeNext(undefined)).toBe('/')
