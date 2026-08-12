@@ -88,21 +88,17 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     // the tip exists — post is always present. The guard is defensive only.
     const authorId = tip.post?.userId
     await models.$transaction(async (tx) => {
-      await tx.observedTip.update({
-        where: { id: tip.id },
-        data: {
-          state: 'CONFIRMED',
-          confirmations,
-          confirmedAt: new Date()
-        }
-      })
-      if (authorId != null && tip.recipientAccount?.label !== 'platform_rewards') {
+      const claimed = await tx.$executeRaw`
+        UPDATE "ObservedTip"
+        SET state = 'CONFIRMED', confirmations = ${confirmations}, "confirmedAt" = NOW()
+        WHERE id = ${tip.id} AND state = 'DETECTED'`
+      if (claimed > 0 && authorId != null && tip.recipientAccount?.label !== 'platform_rewards') {
         await tx.user.update({
           where: { id: authorId },
           data: { stackedPiconeros: { increment: tip.piconeros } }
         })
       }
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     if (authorId != null && tip.recipientAccount?.label !== 'platform_rewards') {
       try {
         await maybeGrantVerifiedBadge(models, authorId)
