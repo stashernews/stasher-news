@@ -951,7 +951,7 @@ help="
           X88 888  888 Y88b 888 Y8b.      Y8bd8P
       88888P' 888  888  'Y88888  'Y8888    Y88P
 
-manages a docker based stacker news development environment
+manages a docker based stasher news development environment
 
 USAGE
   $ sndev [COMMAND]

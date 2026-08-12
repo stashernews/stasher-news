@@ -5,11 +5,11 @@
 </p>
 
 
-- Stasher News moderates forums with money
+- Stasher News is digital cash content curation
 - What You See is What We Ship (look ma, I invented an initialism)
 - 100% FOSS
-- We pay bitcoin for PRs, issues, documentation, code reviews and more
-- Next.js, postgres, graphql, and lnd
+- Non-custodial Monero payments: tips, posting fees, rewards
+- Next.js, postgres, graphql, and monerod + monero-lws
 
 <br>
 
@@ -105,11 +105,9 @@ COMMANDS
 
   sn:
     login                 login as a nym
-    set_balance           set the balance of a nym
 
-  monero:
-    fund                   pay a bolt11 for funding
-    withdraw               create a bolt11 for withdrawal
+  codespaces:
+    setup_codespaces      setup environment for GitHub Codespaces
 
   db:
     psql                   open psql on db
@@ -117,6 +115,9 @@ COMMANDS
 
   domains:
     domains                custom domains dev management
+
+  monero:
+    monero                 monerod + monero-lws management (network set by MONERO_NETWORK)
 
   dev:
     pr                     fetch and checkout a pr
@@ -135,16 +136,16 @@ COMMANDS
 
 #### Running specific services
 
-By default all services will be run. If you want to exclude specific services from running, set `COMPOSE_PROFILES` in a `.env.local` file to one or more of `minimal,images,search,payments,wallets,email,capture,domains,domains-caddy`. To only run minimal necessary without things like payments in `.env.local`:
+By default all services will be run. If you want to exclude specific services from running, set `COMPOSE_PROFILES` in a `.env.local` file to one or more of `minimal,images,search,monero,email,capture,domains,domains-caddy`. To only run minimal necessary without things like payments in `.env.local`:
 
 ```.env
 COMPOSE_PROFILES=minimal
 ```
 
-To run with images and payments services:
+To run with images and monero services:
 
 ```.env
-COMPOSE_PROFILES=images,payments
+COMPOSE_PROFILES=images,monero
 ```
 
 #### Merging compose files
@@ -203,27 +204,14 @@ The `domains` profile enables dnsmasq and custom-domain worker jobs. The bundled
             - [Running specific services](#running-specific-services)
             - [Merging compose files](#merging-compose-files)
 - [Contributing](#contributing)
-    - [We pay bitcoin for contributions](#we-pay-bitcoin-for-contributions)
-    - [Pull request awards](#pull-request-awards)
-    - [Code review awards](#code-review-awards)
-    - [Issue specification awards](#issue-specification-awards)
-    - [Responsible disclosure of security or privacy vulnerability awards](#responsible-disclosure-of-security-or-privacy-vulnerability-awards)
-    - [Development documentation awards](#development-documentation-awards)
-    - [Helpfulness awards](#helpfulness-awards)
-- [Contribution extras](#contribution-extras)
-    - [Dev chat](#dev-chat)
-    - [Triage permissions](#triage-permissions)
-    - [Contributor badges on SN profiles](#contributor-badges-on-sn-profiles)
-    - [What else you got](#what-else-you-got)
 - [Development Tips](#development-tips)
     - [Linting](#linting)
     - [Database migrations](#database-migrations)
     - [Connecting to the local database](#connecting-to-the-local-database)
-    - [Running lncli on the local lnd nodes](#running-lncli-on-the-local-lnd-nodes)
+    - [Running cli on local monero nodes](#running-cli-on-local-monero-nodes)
     - [Testing local auth](#testing-local-auth)
         - [Login with Email](#login-with-email)
         - [Login with Github](#login-with-github)
-        - [Login with Monero](#login-with-monero)
     - [Enabling web push notifications](#enabling-web-push-notifications)
 - [Internals](#internals)
     - [Stack](#stack)
@@ -236,157 +224,15 @@ The `domains` profile enables dnsmasq and custom-domain worker jobs. The bundled
 <br>
 
 # Contributing
-We want your help.
 
-<br>
+We want your help. Contributions are welcome in the form of pull requests, issues,
+code review, documentation, and bug reports.
 
-## We pay bitcoin for contributions
-- pull requests closing existing issues
-- code review
-- issue specification whether for bugs, features, or enhancements
-- discovery of security vulnerabilities
-- discovery of privacy vulnerabilities
-- improvements to development documentation
-- helpfulness
+There is currently no contribution awards program. We may introduce one in the
+future — if we do, this section will be updated.
 
-[View a current list of granted awards](awards.csv)
-
-<br>
-
-## Just in case
-*This document in no way legally entitles you to payments for contributions, entitles you to being a contributor, or entitles you to the attention of other contributors. This document lays out the system we **can** use to determine contribution awards which we generally intend to abide by but importantly we reserve the right to refuse payments or contributions, modify rules and award amounts, make exceptions to rules or reward amounts, and withhold awards for any reason at anytime, even just for the heck of it, at our sole discretion. If you need more certainty than what I've just described, don't participate. We provide awards as an experiment to make FOSS less sucky.*
-
-<br>
-
-## Pull request awards
-
-###  Rules
-1. PRs closing an issue will be awarded according to the `difficulty` tag on an issue,  e.g. `difficulty:easy` pays 100k sats.
-2. Issues are occasionally marked with a `priority` tag which multiplies the award of a PR closing an issue, e.g. an issue marked with `priority:high` and `difficulty:hard` awards 2m sats.
-3. An award is reduced by 10% of the award amount for each substantial change requested to the PR on code review, e.g. if two changes are requested on a PR closing an issue tagged with `difficulty:hard`, 800k sats will be awarded.
-	- Reductions are applied before `priority` multipliers, e.g. a PR closing a `priority:high` and `difficulty:hard` issue that's approved after two changes are requested awards 1.6m sats.
-	- You are responsible for understanding the issue and requirements **before requesting review on a PR**.
-	- There is no award reduction for asking specific questions on the issue itself or on the PR **before requesting review**
-	- There is no award reduction for asking more general questions in a discussion
-4. A PR must be merged by an SN engineer before a PR receives an award
-
-_Due to Rule 3, make sure that you mark your PR as a draft when you create it and it's not ready for review yet._
-
-### Difficulty award amounts
-
-| tag                           | description                                                                                                                                                                                      | award       |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
-| `difficulty:good-first-issue` | at most a couple lines of code in a couple files and does not require much familiarity with the codebase                                                                                         | `20k sats`  |
-| `difficulty:easy`             | at most a couple lines of code in a couple files but does require familiarity with the code base                                                                                                 | `100k sats` |
-| `difficulty:medium`           | more code, more places and could require adding columns in the db and some modification chunky db queries                                                                                        | `250k sats` |
-| `difficulty:medium-hard`      | even more code, even more places and requires either more sophisticated logic, more significant db modeling eg adding a table, and/or a deeper study of a something                              | `500k sats` |
-| `difficulty:hard`             | either a bigger lift than the what's required of medium-hard or very tricky in a particular way that might not require a lot of code but does require a lot of context/troubleshooting/expertise | `1m sats`   |
-
-### Priority multipliers
-
-| tag               | multiplier |
-| ----------------- | ---------- |
-| `priority:low`    | 0.5        |
-| `priority:medium` | 1.5        |
-| `priority:high`   | 2          |
-| `priority:urgent` | 3          |
-
-### Requesting modifications to reward amounts
-We try to assign difficulty and priority tags to issues accurately, but we're not perfect. If you believe an issue is mis-tagged, you can request a change to the issue's tags.
-
-<br>
-
-## Code review awards
-
-Code reviewers will be awarded the amount their code review reduced from the PR author's reward, e.g. two substantial problems/areas of improvement identified in a PR closing a `priority:high` and `difficulty:hard` issue awards 400k sats.
-
-### Rules
-1. The problem or improvement must be acknowledged as such by SN engineers explicitly
-2. A PR must be merged by an SN engineer before a PR's code reviewers receive an award
-
-Code review approvals are more than welcome, but we can't guarantee awards for them because the work performed to approve a PR is unverifiable.
-
-<br>
-
-## Issue specification awards
-
-Issue specifiers will be awarded up to 10% of a PR award for issues resulting in a PR being merged by an SN engineer that closes the issue. In addition to being subject to PR award amounts and reductions, specification amounts are awarded on the basis of how much additional help and specification is required by other contributors.
-
-### Rules
-1. The issue must directly result in PR being merged by an SN engineer that closes the issue
-2. Issue specification award amounts are based on the final PR award amounts
-	- that is, they are subject to PR award code review reductions and priority multipliers
-3. Award amounts will be reduced on the basis of how much additional help and specification is required by other contributors
-4. Issue specifiers who can close their own issues with their own PRs are also eligible for this 10%
-    - e.g an issue tagged as `difficulty:hard` that is both specified and closed by a PR from the same contributor without changes requested awards 1.1m sats
-
-### Relative awards
-
-| circumstances                                                                                              | award |
-| ---------------------------------------------------------------------------------------------------------- | ----- |
-| issue doesn't require further help and/or specification from other contributors                            | 10%   |
-| issue requires little help and/or specification from other contributors                                    | 5%    |
-| issue requires more help and/or specification from other contributors than the issue specifier contributed | 1%    |
-| issue is vague and/or incomplete and must mostly be entirely specified by someone else                     | 0%    |
-
-For example: a specified issue that's tagged as `difficulty:hard`, doesn't require additional specification and disambiguation by other contributors, and results in PR being merged without changes requested awards the issue specifier 100k sats.
-
-<br>
-
-## Responsible disclosure of security or privacy vulnerability awards
-
-Awards for responsible disclosures are assessed on the basis of:
-
-1. the potential loss resulting from an exploit of the vulnerability
-2. the trivialness of exploiting the vulnerability
-3. the disclosure's detail
-
-Award amounts will be easiest to assess on a case by case basis. Upon confirmation of a vulnerability, we agree to award responsible disclosures at minimum 100k sats and as high as the total potential loss that would result from exploiting the vulnerability.
-
-### Rules
-1. Disclosure is responsible and does not increase the likelihood of an exploit.
-2. Disclosure includes steps to reproduce.
-3. Disclosure includes a realistic attack scenario with prerequisites for an attack and expected gains after the exploitation. Disclosures without such scenario, with unrealistic assumptions or without meaningful outcomes will not be eligible for awards.
-4. You must be the first person to responsibly disclose the issue to be eligible for awards.
-
-<br>
-
-## Development documentation awards
-
-For significant changes to documentation, create an issue before making said changes. In such cases we will award documentation improvements in accordance with issue specification and PR awards.
-
-For changes on the order of something like a typo, we'll award a nominal amount at our discretion.
-
-<br>
-
-## Helpfulness awards
-
-Like issue specification awards, helping fellow contributors substantially in a well documented manner such that the helped fellow contributes a merged PR is eligible for a one-time relative reward.
-
-| circumstances                                                                          | award |
-| -------------------------------------------------------------------------------------- | ----- |
-| substantial and singular source of help                                                | 10%   |
-| substantial but nonsingular source of help                                             | 1-5%  |
-| source of relatively trivial help                                                      | 1%    |
-
-<br>
-
-# Contribution extras
-We want to make contributing to SN as rewarding as possible, so we offer a few extras to contributors.
-
-## Dev chat
-We self-host a private chat server for contributors to SN. If you'd like to join, please respond in this [discussion](https://github.com/stackernews/stasher.news/discussions/1059).
-
-## Triage permissions
-We offer triage permissions to contributors after they've made a few contributions. I'll usually add them as I notice people contributing, but if I missed you and you'd like to be added, let me know!
-
-## Contributor badges on SN profiles
-Contributors can get badges on their SN profiles by opening a pull request adding their SN nym to the [contributors.txt](/contributors.txt) file.
-
-## What else you got
-In the future we plan to offer more, like gratis github copilot subscriptions, reverse tunnels, codespaces, and merch.
-
-If you'd like to see something added, please make a suggestion.
+Open a [discussion](https://github.com/stackernews/stasher.news/discussions) or
+[issue](https://github.com/stackernews/stasher.news/issues/new) to get started.
 
 <br>
 
@@ -426,9 +272,17 @@ You can connect to the local database via `./sndev psql`. [psql](https://www.pos
 
 ## Running cli on local monero nodes
 
-You can run `lncli` on the local lnd nodes via `./sndev cli lnd` and `./sndev cli sn_lnd`. The node for your local SN instance is `sn_lnd` and the node serving as any external node, like a stasher's node or external wallet, is `lnd`.
+The local monero stack consists of a `monerod` daemon and a `monero-lws` light wallet server, on the network set by `MONERO_NETWORK` (stagenet by default). Manage them with:
 
-You can run `monero-cli` on the local cln node via `./sndev cli cln` which serves as an external node or wallet.
+```sh
+$ ./sndev monero status         # monerod + lws health
+$ ./sndev monero accounts       # list lws-watched accounts
+$ ./sndev monero add_account <address> <viewkey>
+$ ./sndev monero faucet <address>   # print faucet/explorer URLs (network-aware)
+$ ./sndev monero rescan <address> <height>
+```
+
+For a raw shell on either service use `./sndev compose exec monerod bash` or `./sndev compose exec monero-lws bash`.
 
 <br>
 
@@ -513,7 +367,7 @@ For every edit on dnsmasq, it will give you the option to either edit the `/etc/
 
 ## Stack
 
-The site is written in javascript (not typescript 😱) using [Next.js](https://nextjs.org/), a [React](https://react.dev/) framework. The backend API is provided via [GraphQL](https://graphql.org/). The database is [PostgreSQL](https://www.postgresql.org/) modeled with [Prisma](https://www.prisma.io/). The [job queue](https://github.com/timgit/pg-boss) is also maintained in PostgreSQL. We use [lnd](https://github.com/lightningnetwork/lnd) for our monero node. A customized [Bootstrap](https://react-bootstrap.netlify.app/) theme is used for styling.
+The site is written in javascript (not typescript 😱) using [Next.js](https://nextjs.org/), a [React](https://react.dev/) framework. The backend API is provided via [GraphQL](https://graphql.org/). The database is [PostgreSQL](https://www.postgresql.org/) modeled with [Prisma](https://www.prisma.io/). The [job queue](https://github.com/timgit/pg-boss) is also maintained in PostgreSQL. We use [monerod](https://github.com/monero-project/monero) and [monero-lws](https://github.com/vtnerd/monero-lws) for our non-custodial monero payment layer. A customized [Bootstrap](https://react-bootstrap.netlify.app/) theme is used for styling.
 
 <br>
 
@@ -525,7 +379,7 @@ Currently, SN runs and maintains two significant services and one microservice:
 2. the worker service, found in `./worker`, which runs periodic jobs and jobs sent to it by the web app
 3. a screenshot microservice, found in `./capture`, which takes screenshots of SN for social previews
 
-In addition, we run other critical services the above services interact with like `lnd`, `postgres`, `opensearch`, `tor`, and `s3`.
+In addition, we run other critical services the above services interact with like `monerod`, `monero-lws`, `postgres`, `opensearch`, `tor`, and `s3`.
 
 <br>
 
@@ -538,7 +392,7 @@ To ensure stashers balances are kept sane, some wallet updates are run in [seria
 <br>
 
 # Need help?
-Open a [discussion](http://github.com/stackernews/stasher.news/discussions) or [issue](http://github.com/stackernews/stasher.news/issues/new) or [email us](mailto:kk@stasher.news) or request joining the [dev chat](#dev-chat).
+Open a [discussion](http://github.com/stackernews/stasher.news/discussions) or [issue](http://github.com/stackernews/stasher.news/issues/new) or [email us](mailto:hello@stasher.news).
 
 <br>
 
