@@ -9,6 +9,7 @@ import {
   DOMAINS_AUTH_VERIFIER_TTL_S
 } from '@/lib/domains/auth'
 import { getDomainMapping, createDomainsDebugLogger } from '@/lib/domains'
+import { GATE_COOKIE, shouldGateRequest } from '@/lib/invite-gate'
 
 const REFERRER_TTL_S = 60 * 60 * 24
 
@@ -250,6 +251,26 @@ export async function proxy (req) {
   headers.delete('x-stacker-news-domain')
   const request = new NextRequest(req, { headers })
 
+  // invite gate (closed beta): gate everything except the gate page itself,
+  // static assets, and the explicit exempt paths. Gate-off ('pass') is a no-op.
+  const gate = shouldGateRequest({
+    pathname: request.nextUrl.pathname,
+    cookie: request.cookies.get(GATE_COOKIE)?.value
+  })
+  if (gate === 'api-401') {
+    return NextResponse.json({ error: 'invite gate: unauthorized' }, { status: 401 })
+  }
+  if (gate === 'data-redirect') {
+    // Same shape getServerSideProps redirects produce; the client router
+    // navigates to /gate natively instead of erroring on an HTML redirect.
+    return NextResponse.json({ pageProps: {}, __N_REDIRECT: '/gate', __N_REDIRECT_BASE_PATH: true })
+  }
+  if (gate === 'redirect') {
+    const gateUrl = new URL('/gate', request.url)
+    gateUrl.searchParams.set('next', request.nextUrl.pathname + request.nextUrl.search)
+    return applySecurityHeaders(NextResponse.redirect(gateUrl))
+  }
+
   // domain can have a port (local dev), so we pass the whole domain to the middleware
   // instead of the domain retrieved from the mapping
   const domain = request.headers.get('host')
@@ -286,6 +307,11 @@ export const config = {
     // See https://nextjs.org/docs/app/building-your-application/configuring/content-security-policy
     {
       source: '/((?!api|_next/static|_error|404|500|offline|_next/image|_next/webpack-hmr|favicon.ico).*)'
+    },
+    // the invite gate also protects the GraphQL API; all other /api/* routes
+    // (next-auth, webhooks, metrics, health, ots) are intentionally NOT gated
+    {
+      source: '/api/graphql'
     }
   ]
 }
