@@ -18,6 +18,7 @@ import {
 } from '@/lib/constants'
 import uu from 'url-unshort'
 import { actSchema, bountySchema, commentSchema, discussionSchema, jobSchema, linkSchema, pollSchema, validateSchema } from '@/lib/validate'
+import { string } from '@/lib/yup'
 import { defaultCommentSort, isJob, deleteItemByAuthor } from '@/lib/item'
 import { datePivot, whenRange } from '@/lib/time'
 import { uploadIdsFromText } from './upload'
@@ -1370,11 +1371,15 @@ export const updateItem = async (parent, { hash, hmac, sendProtocolId, ...item }
 
   // A bounty's amount is escrow-backed: once funding has been initiated
   // (PENDING_FUNDING) or completed (FUNDED onward), changing bountyPiconeros
-  // desyncs the escrow — dispositions would exceed the held balance (the
+  // desyncs the escrow — the funding quote/URI was minted on the old amount, so
+  // a payer who sends that quoted total gets a fee and booked bounty computed
+  // on the NEW declared amount, dispositions would exceed the held balance (the
   // signer would skip forever) or edits downward would strand dust. Freeze the
-  // amount from the moment funding is in progress.
+  // amount from the moment funding is in progress; an author who mis-entered
+  // the amount can delete and recreate the bounty (deleteItemByAuthor is
+  // unaffected by this gate).
   if (item.bountyPiconeros != null &&
-      old.bountyStatus !== 'UNFUNDED' && old.bountyStatus !== 'PENDING_FUNDING' &&
+      old.bountyStatus !== 'UNFUNDED' &&
       BigInt(item.bountyPiconeros) !== BigInt(old.bountyPiconeros)) {
     throw new GqlInputError('the bounty amount cannot be changed once funding is in progress or complete')
   }
@@ -1393,6 +1398,8 @@ export const updateItem = async (parent, { hash, hmac, sendProtocolId, ...item }
   if (item.url && !isJob(item)) {
     item.url = ensureProtocol(item.url)
     item.url = removeTracking(item.url)
+  } else if (item.url && !string().email().isValidSync(item.url)) {
+    item.url = ensureProtocol(item.url)
   }
 
   if (old.bio) {
@@ -1419,6 +1426,8 @@ export const createItem = async (parent, { sendProtocolId, ...item }, { me, mode
   if (item.url && !isJob(item)) {
     item.url = ensureProtocol(item.url)
     item.url = removeTracking(item.url)
+  } else if (item.url && !string().email().isValidSync(item.url)) {
+    item.url = ensureProtocol(item.url)
   }
 
   if (item.parentId) {
