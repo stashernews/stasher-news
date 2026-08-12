@@ -99,45 +99,56 @@ describe('postCommentBaseLineItems — comments and bios', () => {
   })
 })
 
-describe('postCommentBaseLineItems — turf owners (ownsSub)', () => {
-  test('a low-rep owner sees the free post line in their turf, not the posting fee', () => {
+describe('postCommentBaseLineItems — turf owners (subs)', () => {
+  test('a low-rep owner sees the free post line when all turfs are owned', () => {
     const lines = postCommentBaseLineItems({
-      me: { privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } },
-      ownsSub: true
+      me: { id: 1, privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } },
+      subs: [{ name: 'myturf', userId: 1 }]
     })
     expect(lines.baseCost).toBeTruthy()
     expect(lines.baseCost.label).toBe('post')
-    expect(lines.baseCost.allowFreebies).toBe(true)
     expect(lines.baseCost.ownerFree).toBe(true)
-    expect(lines.baseCost.isComment).toBe(false)
     expect(lines).not.toHaveProperty('postingFee')
   })
 
-  test('an owner past the comment quota sees the free comment line in their turf', () => {
+  test('an owner past the comment quota sees the free comment line when all turfs owned', () => {
     const lines = postCommentBaseLineItems({
       comment: true,
-      me: { privates: { freeCommentsLeft: 0, commentFeePiconeros: 1000000000 } },
-      ownsSub: true
+      me: { id: 1, privates: { freeCommentsLeft: 0, commentFeePiconeros: 1000000000 } },
+      subs: [{ name: 'myturf', userId: 1 }]
     })
     expect(lines.baseCost).toBeTruthy()
-    expect(lines.baseCost.label).toBe('comment')
-    expect(lines.baseCost.allowFreebies).toBe(true)
     expect(lines.baseCost.ownerFree).toBe(true)
-    expect(lines.baseCost.isComment).toBe(true)
     expect(lines).not.toHaveProperty('commentFee')
   })
 
-  test('ownsSub does not change bio behavior (bios are always free)', () => {
-    const lines = postCommentBaseLineItems({ bio: true, me: { privates: { freeCommentsLeft: 0 } }, ownsSub: true })
-    expect(lines.baseCost).toBeTruthy()
-    expect(lines.baseCost.allowFreebies).toBe(true)
+  test('a post to 2 non-owned turfs shows a scaled posting fee (0.002 XMR)', () => {
+    const lines = postCommentBaseLineItems({
+      me: { id: 1, privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } },
+      subs: [{ name: 'a', userId: 2 }, { name: 'b', userId: 3 }]
+    })
+    expect(lines.postingFee).toBeTruthy()
+    expect(lines.postingFee.term).toBe('+ 0.002 XMR')
+    expect(lines.postingFee.label).toBe('posting fee \u00d7 2 turfs')
   })
 
-  test('ownsSub false preserves the existing low-rep posting fee', () => {
+  test('a mixed post (1 owned + 1 non-owned) shows a single posting fee', () => {
     const lines = postCommentBaseLineItems({
-      me: { privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000 } },
-      ownsSub: false
+      me: { id: 1, privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } },
+      subs: [{ name: 'mine', userId: 1 }, { name: 'yours', userId: 2 }]
     })
-    expect(Object.keys(lines)).toEqual(['postingFee'])
+    expect(lines.postingFee).toBeTruthy()
+    expect(lines.postingFee.term).toBe('+ 0.001 XMR')
+    expect(lines.postingFee.label).toBe('posting fee')
+  })
+
+  test('bios stay free regardless of subs', () => {
+    const lines = postCommentBaseLineItems({
+      bio: true,
+      me: { id: 1, privates: { freeCommentsLeft: 0 } },
+      subs: [{ name: 'x', userId: 2 }]
+    })
+    expect(lines.baseCost).toBeTruthy()
+    expect(lines.baseCost.allowFreebies).toBe(true)
   })
 })
