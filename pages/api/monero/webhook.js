@@ -6,6 +6,7 @@ import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { moneroWebhooksReceivedTotal } from '@/lib/metrics'
 import { driveBountyFunding } from '@/api/monero/bountyFunding'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
+import { safeEqual } from '@/lib/domains/auth'
 
 // lws tx-confirmation webhook receiver (spec §4.4).
 //
@@ -37,8 +38,13 @@ const prisma = new PrismaClient()
 
 export async function handleWebhook (req, res, models = prisma, monero = lwsClient) {
   const token = req.headers && req.headers['x-lws-token']
-  const expected = process.env.LWS_WEBHOOK_TOKEN || ''
-  if (expected && token !== expected) {
+  const expected = process.env.LWS_WEBHOOK_TOKEN
+  if (!expected) {
+    // Fail closed: an unconfigured token must never accept money-moving callbacks.
+    // (Task 2's validator makes this unreachable in prod; this is the belt-and-suspenders.)
+    if (process.env.NODE_ENV === 'production') return res.status(401).end()
+    // dev convenience: no token configured -> open
+  } else if (!safeEqual(token, expected)) {
     return res.status(401).end()
   }
 
