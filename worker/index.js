@@ -1,5 +1,6 @@
 // environment variables are loaded from files and imports run before the rest of the code
 import './loadenv'
+import { validateEnv } from '@/lib/env'
 import PgBoss from 'pg-boss'
 import createPrisma from '@/lib/create-prisma'
 import { repin } from './repin'
@@ -49,6 +50,7 @@ if (typeof WebSocket === 'undefined') {
 }
 
 async function work () {
+  validateEnv()
   const CLEANUP_INTERVAL_SECONDS = 60 * 60 // hourly — must match worker/webhookCleanup.js
   const boss = new PgBoss(process.env.DATABASE_URL)
   const models = createPrisma({
