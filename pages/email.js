@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { Form, SubmitButton, MultiInput } from '@/components/form'
 import { emailTokenSchema } from '@/lib/validate'
 import ArrowRightLineIcon from '@/svgs/arrow-right-line.svg'
-import AmbientBg from '@/components/ambient-bg'
 
 // force SSR to include CSP nonces
 export const getServerSideProps = getGetServerSideProps({ query: null })
@@ -41,13 +40,6 @@ export default function Email () {
   return (
     <StaticLayout>
       <div className='p-4 text-center'>
-        {signin
-          ? (
-            <AmbientBg width='480' height='270' />
-            )
-          : (
-            <AmbientBg width='640' height='302' />
-            )}
         <h2 className='pt-4'>Check your email</h2>
         <h4 className='text-muted pt-2 pb-4'>{buildMessage()}</h4>
         <MagicCodeForm onSubmit={(token) => pushCallback(token)} disabled={!callback} signin={signin} />

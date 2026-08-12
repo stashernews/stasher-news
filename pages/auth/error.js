@@ -3,7 +3,6 @@ import styles from '@/styles/error.module.css'
 import { DISPLAY_FONT } from '@/lib/rebrand'
 import { useRouter } from 'next/router'
 import Button from 'react-bootstrap/Button'
-import AmbientBg from '@/components/ambient-bg'
 
 export function getServerSideProps ({ query }) {
   return {
@@ -19,14 +18,12 @@ export default function AuthError ({ error }) {
   if (error === 'AccessDenied') {
     return (
       <StaticLayout>
-        <AmbientBg width='640' height='288' />
         <h1 className={[styles.status, styles.smaller].join(' ')} style={{ fontFamily: DISPLAY_FONT }}><span>ACCESS DENIED</span></h1>
       </StaticLayout>
     )
   } else if (error === 'Verification') {
     return (
       <StaticLayout>
-        <AmbientBg width='640' height='288' />
         <h2 className='pt-4'>Incorrect magic code</h2>
         <Button
           className='align-items-center my-3'
@@ -42,7 +39,6 @@ export default function AuthError ({ error }) {
   } else if (error === 'Configuration') {
     return (
       <StaticLayout>
-        <AmbientBg width='640' height='288' />
         <h1 className={[styles.status, styles.smaller].join(' ')} style={{ fontFamily: DISPLAY_FONT }}><span>configuration error</span></h1>
       </StaticLayout>
     )
@@ -50,7 +46,6 @@ export default function AuthError ({ error }) {
 
   return (
     <StaticLayout>
-      <AmbientBg width='640' height='288' />
       <h1 className={[styles.status, styles.smaller].join(' ')} style={{ fontFamily: DISPLAY_FONT }}><span>auth error</span></h1>
     </StaticLayout>
   )
