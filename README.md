@@ -1,6 +1,6 @@
 <p align="center">
 <a href="https://stasher.news">
-<img height="50" alt="sn banner" src="https://github.com/stackernews/stasher.news/assets/34140557/a8ccc5dc-c453-46dc-be74-60dd0a42ce09">
+<img height="50" alt="sn banner" src="https://raw.githubusercontent.com/stashernews/stasher-news/master/public/stasher-news-wordmark.png">
 </a>
 </p>
 
@@ -28,8 +28,8 @@ Go to [localhost:3000](http://localhost:3000).
 ## Installation
 
 - Clone the repo
-   - ssh: `git clone git@github.com:stackernews/stasher.news.git`
-   - https: `git clone https://github.com/stackernews/stasher.news.git`
+   - ssh: `git clone git@github.com:stashernews/stasher-news.git`
+   - https: `git clone https://github.com/stashernews/stasher-news.git`
 - Install [docker](https://docs.docker.com/compose/install/)
     - If you're running MacOS or Windows, I ***highly recommend***  using [OrbStack](https://orbstack.dev/) instead of Docker Desktop
 - Please make sure that at least 10 GB of free space is available, otherwise you may encounter issues while setting up the development environment.
@@ -38,7 +38,7 @@ Go to [localhost:3000](http://localhost:3000).
 
 ### GitHub Codespaces
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/stackernews/stasher.news)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/stashernews/stasher-news)
 
 You can run Stasher News on Github Codespaces
 
@@ -231,8 +231,8 @@ code review, documentation, and bug reports.
 There is currently no contribution awards program. We may introduce one in the
 future — if we do, this section will be updated.
 
-Open a [discussion](https://github.com/stackernews/stasher.news/discussions) or
-[issue](https://github.com/stackernews/stasher.news/issues/new) to get started.
+Open a [discussion](https://github.com/stashernews/stasher-news/discussions) or
+[issue](https://github.com/stashernews/stasher-news/issues/new) to get started.
 
 <br>
 
@@ -392,13 +392,13 @@ To ensure stashers balances are kept sane, some wallet updates are run in [seria
 <br>
 
 # Need help?
-Open a [discussion](http://github.com/stackernews/stasher.news/discussions) or [issue](http://github.com/stackernews/stasher.news/issues/new) or [email us](mailto:hello@stasher.news).
+Open a [discussion](http://github.com/stashernews/stasher-news/discussions) or [issue](http://github.com/stashernews/stasher-news/issues/new) or [email us](mailto:hello@stasher.news).
 
 <br>
 
 # Responsible disclosure
 
-If you found a vulnerability, we would greatly appreciate it if you contact us via [security@stasher.news](mailto:security@stasher.news) or open a [security advisory](https://github.com/stackernews/stasher.news/security/advisories/new). Our PGP key can be found [here](https://stasher.news/pgp.txt) (FEE1 E768 E0B3 81F5).
+If you found a vulnerability, we would greatly appreciate it if you contact us via [security@stasher.news](mailto:security@stasher.news) or open a [security advisory](https://github.com/stashernews/stasher-news/security/advisories/new). Our PGP key can be found [here](https://stasher.news/pgp.txt) (FEE1 E768 E0B3 81F5).
 
 <br>
 
