@@ -11,6 +11,14 @@
 
 import { handleWebhook } from '@/pages/api/monero/webhook'
 
+// lib/auth pulls in next-auth/jwt -> uuid (ESM-only under jest CJS require); the
+// webhook graph only uses lib/domains/auth's `safeEqual` (pure node:crypto), so
+// mock lib/auth at the module boundary — safeEqual stays real, only the unused
+// secureCookie helper is stubbed. (Same pattern as test/components/sticky-bar.test.js.)
+jest.mock(`${process.cwd()}/lib/auth`, () => ({
+  secureCookie: (name) => name
+}))
+
 function mockModels (overrides = {}) {
   const txUpdate = overrides.txUpdate || jest.fn().mockResolvedValue({})
   const userUpdate = overrides.userUpdate || jest.fn().mockResolvedValue({})
@@ -528,4 +536,31 @@ test('DETECTED->CONFIRMED does not credit the author when the conditional claim 
   expect(execRaw).toHaveBeenCalled()
   expect(userUpdate).not.toHaveBeenCalled() // race loser MUST NOT increment
   expect(res.status).toHaveBeenLastCalledWith(200)
+})
+
+// --- auth-denial tests (Task 3 / C4) ---
+const _origNodeEnv = process.env.NODE_ENV
+const _origToken = process.env.LWS_WEBHOOK_TOKEN
+afterEach(() => {
+  process.env.NODE_ENV = _origNodeEnv
+  if (_origToken === undefined) delete process.env.LWS_WEBHOOK_TOKEN
+  else process.env.LWS_WEBHOOK_TOKEN = _origToken
+})
+
+test('rejects with 401 in production when LWS_WEBHOOK_TOKEN is not configured', async () => {
+  process.env.NODE_ENV = 'production'
+  delete process.env.LWS_WEBHOOK_TOKEN
+  const res = mockRes()
+  await handleWebhook({ method: 'POST', headers: {}, body: {} }, res, mockModels(), mockMonero())
+  expect(res.status).toHaveBeenLastCalledWith(401)
+})
+
+test('rejects with 401 when the x-lws-token header does not match', async () => {
+  process.env.NODE_ENV = 'production'
+  process.env.LWS_WEBHOOK_TOKEN = 'real-token'
+  const res = mockRes()
+  await handleWebhook(
+    { method: 'POST', headers: { 'x-lws-token': 'wrong' }, body: {} },
+    res, mockModels(), mockMonero())
+  expect(res.status).toHaveBeenLastCalledWith(401)
 })

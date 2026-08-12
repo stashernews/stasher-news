@@ -1,5 +1,6 @@
 import models from '@/api/models'
 import { register, collectDBBackedMetrics, collectHealthGauges } from '@/lib/metrics'
+import { safeEqual } from '@/lib/domains/auth'
 
 // Prometheus scrape endpoint (Task D7).
 //
@@ -22,8 +23,11 @@ export default async function handler (req, res) {
     res.status(405).end()
     return
   }
-  const expectedToken = process.env.METRICS_TOKEN || ''
-  if (expectedToken && req.query.token !== expectedToken) {
+  const expectedToken = process.env.METRICS_TOKEN
+  if (!expectedToken) {
+    if (process.env.NODE_ENV === 'production') return res.status(401).end()
+    // dev convenience: open
+  } else if (!safeEqual(req.query.token, expectedToken)) {
     res.status(401).end()
     return
   }
