@@ -35,6 +35,17 @@ export default function GatePage ({ next }) {
         setSubmitting(false)
         return
       }
+      // the code was accepted; make sure the browser actually kept the cookie
+      // before navigating, otherwise the middleware silently bounces us back
+      // to the gate and the user is stuck with no explanation
+      const check = await fetch('/api/gate', { method: 'GET' })
+        .then(r => r.json().catch(() => ({})))
+      if (!check.ok) {
+        setError('the invite code worked, but your browser did not save the access cookie — check your cookie settings and try again')
+        setSubmitting(false)
+        return
+      }
+      setSubmitting(false)
       router.push(data.next || next || '/')
     } catch (err) {
       console.error(err)

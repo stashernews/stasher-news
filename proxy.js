@@ -263,7 +263,13 @@ export async function proxy (req) {
   if (gate === 'data-redirect') {
     // Same shape getServerSideProps redirects produce; the client router
     // navigates to /gate natively instead of erroring on an HTML redirect.
-    return NextResponse.json({ pageProps: {}, __N_REDIRECT: '/gate', __N_REDIRECT_BASE_PATH: true })
+    // Keep the next target, like the HTML redirect below, so a bounce
+    // preserves where the user was headed. _next/data paths map back to
+    // the page path (same strip as api/ssrApollo.js authRequired).
+    const gateUrl = new URL('/gate', request.url)
+    const pagePath = request.nextUrl.pathname.replace(/\/_next\/data\/[^/]+\//, '/').replace(/\.json$/, '')
+    gateUrl.searchParams.set('next', pagePath + request.nextUrl.search)
+    return NextResponse.json({ pageProps: {}, __N_REDIRECT: gateUrl.pathname + gateUrl.search, __N_REDIRECT_BASE_PATH: true })
   }
   if (gate === 'redirect') {
     const gateUrl = new URL('/gate', request.url)
