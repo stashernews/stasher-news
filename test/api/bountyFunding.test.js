@@ -486,3 +486,22 @@ test('rejects changing the bounty amount on a FUNDED bounty (A-13 final: escrow 
   expect(after.bountyPiconeros).toBe(5_000_000_000n)
   expect(after.bountyStatus).toBe('FUNDED')
 })
+
+// The gate comment claims the amount is frozen "from the moment funding is in
+// progress", but PENDING_FUNDING was exempted: a bounty whose funding was
+// minted but not yet paid could be re-amounted, desyncing the escrow from the
+// already-minted quote/URI (a payer who sends the OLD quoted total gets a
+// bounty booked on the NEW declared amount). Freeze from PENDING_FUNDING too;
+// the author's escape hatch for a mis-entered amount is delete + recreate
+// (deleteItemByAuthor is unaffected by this gate).
+test('rejects changing the bounty amount on a PENDING_FUNDING bounty (funding quote already minted)', async () => {
+  const userId = await createUser()
+  const item = await createPost(userId, { bountyPiconeros: 10_000_000_000n, bountyStatus: 'PENDING_FUNDING' })
+
+  await expect(updateItem(null, { id: item.id, bountyPiconeros: 12_000_000_000n }, { me: { id: userId }, models: prisma }))
+    .rejects.toThrow('the bounty amount cannot be changed once funding is in progress or complete')
+
+  const after = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(after.bountyPiconeros).toBe(10_000_000_000n)
+  expect(after.bountyStatus).toBe('PENDING_FUNDING')
+})
