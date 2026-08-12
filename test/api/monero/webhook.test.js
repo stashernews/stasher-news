@@ -43,7 +43,14 @@ function mockModels (overrides = {}) {
       user: { update: userUpdate },
       observedBounty: { update: overrides.txBountyUpdate || jest.fn().mockResolvedValue({}) },
       bountyPidMap: { update: overrides.txPidMapUpdate || jest.fn().mockResolvedValue({}) },
-      item: { update: overrides.txItemUpdate || jest.fn().mockResolvedValue({}) },
+      item: {
+        update: overrides.txItemUpdate || jest.fn().mockResolvedValue({}),
+        // driveBountyFunding computes the fee from the DECLARED bounty
+        // (item.bountyPiconeros), not the observed amount. 1e11 declared → fee
+        // 1e10 (floor regime), matching the 1.1e11 observed → 1e11 booked
+        // assertions below.
+        findUnique: overrides.txItemFind || jest.fn().mockResolvedValue({ bountyPiconeros: 100_000_000_000n })
+      },
       platformFeeConfig: { findUnique: overrides.txConfigFind || jest.fn().mockResolvedValue({ bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }) },
       $executeRaw: execRaw,
       $queryRaw: queryRaw
