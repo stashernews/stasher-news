@@ -55,6 +55,29 @@ export async function getInitial (models, args, { me }) {
     beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds: args.uploadIds }, { me }))
   }
 
+  // Bios are always free to create — the posting/comment fee gate targets spam
+  // in turfs, not profile content. Upload fees (>10MB images in the bio text)
+  // still apply, exactly like posts/comments.
+  if (args.bio) {
+    if (uploadFeesPiconeros > 0n) {
+      const sub = await reserveFeeSubaddress(models, 'POSTING')
+      const moneroUri = buildMoneroUri(
+        [{ address: sub.address, amount: uploadFeesPiconeros }],
+        { description: 'StasherNews upload fee' }
+      )
+      return {
+        payInType: 'ITEM_CREATE',
+        userId: me.id,
+        piconeros: 0n,
+        moneroUri,
+        moneroSubaddressMajor: sub.major,
+        moneroSubaddressMinor: sub.minor,
+        beneficiaries
+      }
+    }
+    return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
+  }
+
   // StasherNews per-turf-scaled fee: the posting/comment fee is the flat floor
   // × the number of target turfs the author does NOT own. Owned turfs are free.
   // When ALL target turfs are owned the post is free (no fee subaddress). When
