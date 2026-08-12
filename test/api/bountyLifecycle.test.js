@@ -36,6 +36,7 @@ const FEE = 10_000_000_000n
 const created = { users: [], items: [], accounts: [], payments: [] }
 
 async function cleanupTracked () {
+  await prisma.feeObservation.deleteMany({ where: { postId: { in: created.items }, feeType: 'BOUNTY_FEE' } })
   await prisma.bountyPayment.deleteMany({ where: { itemId: { in: created.items } } })
   await prisma.item.deleteMany({ where: { id: { in: created.items } } })
   await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
@@ -75,6 +76,9 @@ async function seedWallet (userId, address, label) {
 // A bounty on a TOP-LEVEL post (rootId null, the primary use case) + the
 // winner comment as its descendant (rootId = the post id, satisfying the
 // award guard winner.rootId === (item.rootId ?? item.id) = the post id).
+// Also seeds the BOUNTY_FEE FeeObservation driveBountyFunding would have booked
+// at funding confirmation: dispositions settle the BOOKED fee (bookedBountyFeePiconeros),
+// so a funded item without its ledger row would fall back to the formula fee.
 async function seedThread (authorId, winnerId, { bountyStatus = 'FUNDED' } = {}) {
   const item = await prisma.item.create({
     data: {
@@ -87,6 +91,17 @@ async function seedThread (authorId, winnerId, { bountyStatus = 'FUNDED' } = {})
     }
   })
   created.items.push(item.id)
+  await prisma.feeObservation.create({
+    data: {
+      txHash: `lc-${item.id}`,
+      feeType: 'BOUNTY_FEE',
+      postId: item.id,
+      recipientMajor: 0,
+      recipientMinor: 0,
+      piconeros: FEE,
+      state: 'CONFIRMED'
+    }
+  })
   const winner = await prisma.item.create({
     data: { userId: winnerId, parentId: item.id, rootId: item.id, text: 'the winning comment', status: 'ACTIVE' }
   })
@@ -350,6 +365,17 @@ test('payBounty accepts a comment whose rootId is populated by the item_path tri
     }
   })
   created.items.push(item.id)
+  await prisma.feeObservation.create({
+    data: {
+      txHash: `lc-${item.id}`,
+      feeType: 'BOUNTY_FEE',
+      postId: item.id,
+      recipientMajor: 0,
+      recipientMinor: 0,
+      piconeros: FEE,
+      state: 'CONFIRMED'
+    }
+  })
   const winner = await prisma.item.create({
     // NO rootId here — mirrors production item creation; the item_path
     // trigger must derive it from the parent's path.

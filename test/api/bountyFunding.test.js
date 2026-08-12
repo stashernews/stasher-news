@@ -46,8 +46,9 @@ const ESCROW_ADDR = '5' + '1'.repeat(94)
 const PAYER_ADDR = '5' + '2'.repeat(94)
 
 // Deterministic fee config: min 0.01 XMR / 1%. The CONFIRMED-branch test funds
-// 0.11 XMR, where the min fee (0.01 XMR) dominates — the floor regime gives
-// exact, readable math (observed 1.1e11 → fee 1e10 → bounty 1e11).
+// 0.11 XMR on a 1 XMR declared bounty, where the min fee (0.01 XMR) dominates —
+// the floor regime gives exact, readable math (declared 1e12 → fee 1e10 →
+// bounty = 1.1e11 − 1e10 = 1e11).
 const FEE_CONFIG = { bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }
 
 const created = { users: [], items: [], accounts: [], pids: [], bounties: [] }
@@ -203,9 +204,11 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   created.bounties.push(bounty.id)
 
   // The payer actually sent a different amount than the expected bounty:
-  // 0.11 XMR total, of which the fee (floor = 0.01 XMR) dominates.
+  // 0.11 XMR total. The fee is booked from the DECLARED bounty (1e12), where
+  // the min fee (0.01 XMR) dominates — the floor regime gives exact, readable
+  // math (declared 1e12 → fee 1e10 → bounty = 1.1e11 − 1e10 = 1e11).
   const observed = 110_000_000_000n
-  const feePiconeros = bountyFeePiconeros(observed, FEE_CONFIG)
+  const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, FEE_CONFIG)
   expect(feePiconeros).toBe(10_000_000_000n)
   const txHash = 'ab'.repeat(32)
   await prisma.$transaction(async (tx) => {
@@ -228,8 +231,8 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   expect(afterItem.bountyConfirmedAt).toBeInstanceOf(Date)
 
   // BOUNTY_FEE booked born-CONFIRMED at the funding height, computed from the
-  // observed amount: max(1.1e11 / 100, 1e10) = 1e10 — the min-fee floor dominates
-  // (1% of 1.1e11 is only 1.1e9).
+  // declared bounty: max(1e12 / 100, 1e10) = 1e10 — the min-fee floor dominates
+  // (1% of 1e12 is only 1e10, exactly the floor).
   const fee = await prisma.feeObservation.findFirst({ where: { txHash, feeType: 'BOUNTY_FEE' } })
   expect(fee).toMatchObject({
     payInId: null,
@@ -242,6 +245,41 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   })
   expect(fee.piconeros).toBe(10_000_000_000n)
   expect(fee.confirmedAt).toBeInstanceOf(Date)
+})
+
+// Regression (2026-08-11 live, items/5227): a minimum bounty (0.01 XMR) paid at
+// its quoted total (0.012 = 0.01 bounty + 0.002 fee) used to book the fee from
+// the OBSERVED amount — where the 20% cap binds below the 0.01 floor — shorting
+// the bounty to 0.0096, BELOW BOUNTY_MIN_PICONEROS. The fee must come from the
+// DECLARED bounty, so paying the quoted total books exactly the declared 0.01.
+test('driveBountyFunding books the fee from the DECLARED bounty: a minimum bounty paid at its quote books exactly 0.01', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId, { bountyPiconeros: 10_000_000_000n })
+  await seedEscrow()
+  await seedPayer(userId)
+
+  const out = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } })
+  const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
+  created.bounties.push(bounty.id)
+
+  // Quoted total: 0.01 bounty + 0.002 fee (fee on the declared bounty:
+  // max(1e8, 1e10) capped at 20% of 1e10 = 2e9). The payer sends exactly it.
+  expect(out.feePiconeros).toBe(2_000_000_000n)
+  const observed = 12_000_000_000n
+  const txHash = '52'.repeat(32)
+  await prisma.$transaction(async (tx) => {
+    await driveBountyFunding(tx, bounty, { txHash, height: 123457, confirmations: 10, piconeros: observed })
+  })
+
+  // Booked exactly the declared minimum — never below BOUNTY_MIN_PICONEROS.
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('FUNDED')
+  expect(afterItem.bountyPiconeros).toBe(10_000_000_000n)
+
+  // BOUNTY_FEE booked from the declared bounty (2e9), not the observed 2.4e9.
+  const fee = await prisma.feeObservation.findFirst({ where: { txHash, feeType: 'BOUNTY_FEE' } })
+  expect(fee.piconeros).toBe(2_000_000_000n)
 })
 
 test('re-entry: PENDING_FUNDING returns the SAME payment id and integrated address without re-minting', async () => {

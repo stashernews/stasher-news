@@ -283,9 +283,23 @@ async function seedBounty ({ postId, piconeros, height, recipientAccountId }) {
   return bounty
 }
 
+// A bounty post with a DECLARED bounty amount — real fundings always carry one
+// (the raw createRoot default of 0 would book a zero fee under the
+// declared-amount fee rule). The fixtures declare the same amount they observe,
+// so the fee math stays exact and readable.
+async function createBountyRoot (userId, title, bountyPiconeros) {
+  const postId = await createRoot(userId, title)
+  await prisma.item.update({
+    where: { id: postId },
+    data: { bountyPiconeros }
+  })
+  created.items.push(postId)
+  return postId
+}
+
 test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs driveBountyFunding (Item FUNDED + BOUNTY_FEE booked) — true backstop for a missed webhook CONFIRMED callback', async () => {
   const authorId = await createUser(); created.users.push(authorId)
-  const postId = await createRoot(authorId, 'bounty-confirm-target'); created.items.push(postId)
+  const postId = await createBountyRoot(authorId, 'bounty-confirm-target', 5_000_000_000n)
   const account = await seedAccount()
   const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: 700, recipientAccountId: account.id })
 
@@ -298,7 +312,8 @@ test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs d
 
   // The finalizer is the BACKSTOP for a missed webhook CONFIRMED callback, so it
   // must run the same ledger effects as driveBountyFunding — not just flip the
-  // row. Item -> FUNDED with bountyPiconeros = observed − fee.
+  // row. Item -> FUNDED with bountyPiconeros = observed − fee (fee booked from
+  // the DECLARED bounty; declared = observed here, so 5e9 → fee 1e9).
   const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
   const feePiconeros = bountyFeePiconeros(5_000_000_000n, config)
   const item = await prisma.item.findUnique({ where: { id: postId } })
@@ -311,7 +326,7 @@ test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs d
 
 test('a DETECTED ObservedBounty stays DETECTED below 10 confirmations', async () => {
   const authorId = await createUser(); created.users.push(authorId)
-  const postId = await createRoot(authorId, 'bounty-not-yet'); created.items.push(postId)
+  const postId = await createBountyRoot(authorId, 'bounty-not-yet', 5_000_000_000n)
   const account = await seedAccount()
   const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: 700, recipientAccountId: account.id })
 
@@ -333,7 +348,7 @@ test('a NULL-height DETECTED bounty (webhook CONFIRMED callback missed at 0-conf
   // backfilled height. The finalizer must resolve the tx height from lws (which
   // watches the escrow account), backfill the row, then fund it.
   const authorId = await createUser(); created.users.push(authorId)
-  const postId = await createRoot(authorId, 'bounty-null-height'); created.items.push(postId)
+  const postId = await createBountyRoot(authorId, 'bounty-null-height', 5_000_000_000n)
   const account = await seedAccountWithViewKey()
   const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: null, recipientAccountId: account.id })
 
@@ -365,7 +380,7 @@ test('a NULL-height DETECTED bounty (webhook CONFIRMED callback missed at 0-conf
 
 test('a NULL-height DETECTED bounty whose tx is still in mempool (lws reports height null) is left DETECTED, not funded', async () => {
   const authorId = await createUser(); created.users.push(authorId)
-  const postId = await createRoot(authorId, 'bounty-mempool-null'); created.items.push(postId)
+  const postId = await createBountyRoot(authorId, 'bounty-mempool-null', 5_000_000_000n)
   const account = await seedAccountWithViewKey()
   const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: null, recipientAccountId: account.id })
 
