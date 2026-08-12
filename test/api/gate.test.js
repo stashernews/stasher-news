@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import * as cookie from 'cookie'
-import handler, { handleGate } from '@/pages/api/gate'
+import handler, { handleGate, handleGateCheck } from '@/pages/api/gate'
 import { issueGateToken } from '@/lib/invite-gate'
 
 // Same lib/auth module mock as test/api/monero/webhook.test.js:14-18; here the
@@ -76,8 +76,30 @@ test('sanitizes the next target against open redirects', async () => {
   expect(res.json).toHaveBeenCalledWith({ next: '/' })
 })
 
-test('default handler rejects non-POST methods with 405', async () => {
+test('default handler rejects unsupported methods with 405', async () => {
   const res = mockRes()
-  await handler({ method: 'GET', body: {} }, res)
+  await handler({ method: 'PUT', body: {} }, res)
   expect(res.status).toHaveBeenCalledWith(405)
+})
+
+test('check reports ok with a valid gate cookie', async () => {
+  const res = mockRes()
+  const token = issueGateToken('alpha')
+  await handleGateCheck({ cookies: { sn_gate: token } }, res)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(res.json).toHaveBeenCalledWith({ ok: true })
+})
+
+test('check reports not ok without a valid gate cookie', async () => {
+  const res = mockRes()
+  await handleGateCheck({ cookies: {} }, res)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(res.json).toHaveBeenCalledWith({ ok: false })
+})
+
+test('check returns 404 when the gate is disabled', async () => {
+  delete process.env.SITE_INVITE_CODES
+  const res = mockRes()
+  await handleGateCheck({ cookies: {} }, res)
+  expect(res.status).toHaveBeenCalledWith(404)
 })
