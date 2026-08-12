@@ -38,8 +38,6 @@ export default forwardRef(function Reply ({
     variables: { subNames: root?.subNames || [] },
     skip: !root?.subNames?.length
   })
-  const ownsSub = !!me && (subsData?.subs?.some(s => Number(s.userId) === Number(me.id)) ?? false)
-
   useEffect(() => {
     if (replyOpen || quote || !!window.localStorage.getItem('reply-' + parentId + '-' + 'text')) {
       setReply(true)
@@ -152,8 +150,8 @@ export default forwardRef(function Reply ({
       {reply &&
         <div className={styles.reply}>
           <FeeButtonProvider
-            baseLineItems={postCommentBaseLineItems({ comment: true, me, ownsSub })}
-            useRemoteLineItems={postCommentUseRemoteLineItems({ parentId: item.id, ownsSub })}
+            baseLineItems={postCommentBaseLineItems({ comment: true, me, subs: subsData?.subs ?? [] })}
+            useRemoteLineItems={postCommentUseRemoteLineItems({ parentId: item.id, subs: subsData?.subs ?? [] })}
           >
             <Form
               initial={{
