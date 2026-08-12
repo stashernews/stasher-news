@@ -18,6 +18,9 @@
     "worker": "tsx --tsconfig jsconfig.json --trace-warnings worker/index.js",
     "worker:dev": "tsx --tsconfig jsconfig.json --trace-warnings --watch worker/index.js"
   },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
   "dependencies": {
     "@apollo/client": "^4.1.6",
     "@apollo/server": "^5.5.0",

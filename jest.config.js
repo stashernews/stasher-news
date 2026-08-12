@@ -7,4 +7,10 @@ const createJestConfig = nextJest({ dir: './' })
 // NOTE: SN legacy ignored a top-level `/payIn/` integration-test dir that does not
 // exist in this fork. That broad pattern silently swallowed `test/api/payIn/**`,
 // so it is removed — payIn-type unit tests now run in the default suite.
-module.exports = createJestConfig({})
+// The stagenet E2E suite under `test/integration/` is opt-in via
+// RUN_STAGENET_INTEGRATION=1; by default those files are not even collected.
+module.exports = createJestConfig({
+  testPathIgnorePatterns: process.env.RUN_STAGENET_INTEGRATION === '1'
+    ? []
+    : ['<rootDir>/test/integration/']
+})
