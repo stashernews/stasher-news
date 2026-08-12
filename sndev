@@ -517,11 +517,18 @@ sndev__login() {
     sndev__help_login
     exit 1
   fi
-  # hardcode token for which is the hex digest of the sha256 of
-  # "SNDEV-TOKEN3_0W_PhDRZVanbeJsZZGIEljexkKoGbL6qGIqSwTjjI"
-  # next-auth concats the token with the secret from env and then sha256's it
-  token="d5fce54babffcb070c39f78d947761fd9ec37647fafcecb9734a3085a78e5c5e"
-  salt="202c90943c313b829e65e3f29164fb5dd7ea3370d7262c4159691c2f6493bb8b"
+  # the magic link contains the raw token; next-auth stores sha256(token + secret)
+  # in the DB (core/lib/email/signin.js) and hashes the URL token the same way
+  # before comparing, so derive the DB token from the CURRENT NEXTAUTH_SECRET —
+  # a hardcoded hash silently breaks whenever the secret changes
+  magicToken="SNDEV-TOKEN"
+  if command -v sha256sum >/dev/null 2>&1; then
+    token=$(printf '%s%s' "$magicToken" "$NEXTAUTH_SECRET" | sha256sum | cut -d' ' -f1)
+  else
+    token=$(printf '%s%s' "$magicToken" "$NEXTAUTH_SECRET" | shasum -a 256 | cut -d' ' -f1)
+  fi
+  # hash the email with the same salt the app uses
+  salt="${EMAIL_SALT:-202c90943c313b829e65e3f29164fb5dd7ea3370d7262c4159691c2f6493bb8b}"
   # upsert user with nym and nym@sndev.team
   email="$1@sndev.team"
 
@@ -559,7 +566,7 @@ EOF
 
   echo
   echo "open url in browser"
-  echo "$BASE_URL/api/auth/callback/email?token=SNDEV-TOKEN&email=$1%40sndev.team"
+  echo "$BASE_URL/api/auth/callback/email?token=$magicToken&email=$1%40sndev.team"
   echo
 }
 
