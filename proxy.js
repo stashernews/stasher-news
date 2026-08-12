@@ -255,6 +255,7 @@ export async function proxy (req) {
   // static assets, and the explicit exempt paths. Gate-off ('pass') is a no-op.
   const gate = shouldGateRequest({
     pathname: request.nextUrl.pathname,
+    hostname: request.nextUrl.hostname,
     cookie: request.cookies.get(GATE_COOKIE)?.value
   })
   if (gate === 'api-401') {
