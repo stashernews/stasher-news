@@ -191,7 +191,7 @@ To enable dnsmasq:
 
 To add/remove DNS records you can now use `./sndev domains dns`. More on this [here](#add-or-remove-dns-records-in-local).
 
-The `domains` profile enables dnsmasq and custom-domain worker jobs. The bundled Caddy HTTPS proxy is separate in `domains-caddy`, so you can keep local domain verification while omitting Caddy if an external TLS-terminating load balancer handles your dev domains.
+The `domains` profile enables dnsmasq and custom-domain worker jobs. The bundled Caddy HTTPS proxy is separate in `domains-caddy`, so you can keep local domain verification while omitting Caddy if an external TLS-terminating load balancer handles your dev domains. The bundled Caddy proxy can also serve production: point DNS for `stasher.news` at the host, set `CADDYFILE=./docker/caddy/Caddyfile.prod` in the deployment env, and Caddy issues automatic Let's Encrypt certificates (the dev Caddyfile with its internal CA must not be used for real domains).
 
 <br>
 
@@ -346,7 +346,7 @@ To enable Web Push locally, you will need to set the `VAPID_*` env vars. `VAPID_
 
 A worker dedicated to verifying custom domains, checks, among other things, if a domain has the correct DNS records and values. This would normally require a real domain and access to its DNS configuration. Therefore we use dnsmasq to have local DNS, make sure you have [enabled it](#local-dns-via-dnsmasq).
 
-If you access local custom domains through the bundled Caddy proxy, keep `domains-caddy` enabled too. If you use your own TLS-terminating load balancer, it should forward `X-Forwarded-Proto: https` so dev cookies that depend on secure requests are marked `Secure`.
+If you access local custom domains through the bundled Caddy proxy, keep `domains-caddy` enabled too. If you use your own TLS-terminating load balancer, it should forward `X-Forwarded-Proto: https` so dev cookies that depend on secure requests are marked `Secure`. Production deployments of the same service set `CADDYFILE=./docker/caddy/Caddyfile.prod` (default is the dev Caddyfile; a missing var is a loud failure — an untrusted certificate — never a silent wrong config).
 
 To add a DNS record the syntax is the following:
 

@@ -336,6 +336,18 @@ to the app so dev `Secure` cookies follow the browser-facing protocol.
 volume across container restarts; you don't need to re-run it after
 `./sndev restart` or `./sndev stop`.
 
+#### Production use
+
+The same `caddy` service can terminate TLS for production. Point DNS for
+`stasher.news` at the deployment host, enable the `domains-caddy` profile,
+and set `CADDYFILE=./docker/caddy/Caddyfile.prod` in the deployment env
+(`docker-compose.yml` defaults to the dev Caddyfile). Caddy then issues and
+renews Let's Encrypt certificates automatically, answering the HTTP-01
+challenge on port 80; certs persist in the `caddy_data` volume. Never use
+the dev Caddyfile for a real domain — its internal CA certs are untrusted
+everywhere outside this machine, so a mis-set `CADDYFILE` fails loudly at
+the browser, never silently.
+
 #### Caveats
 
 - The Caddy local CA is **only** trusted on the machine that ran

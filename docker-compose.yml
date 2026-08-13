@@ -290,7 +290,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # dev default; prod deploys set CADDYFILE=./docker/caddy/Caddyfile.prod
+      - ${CADDYFILE:-./docker/caddy/Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     cpu_shares: "${CPU_SHARES_LOW}"

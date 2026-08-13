@@ -1,0 +1,26 @@
+# Production TLS terminator for stasher.news. Automatic Let's Encrypt:
+# Caddy answers the HTTP-01 challenge on :80, issues/renews the cert, and
+# redirects http -> https — no manual cert management. Certificates persist
+# in the caddy_data named volume across restarts.
+#
+# Dev-only machinery (local_certs, on_demand_tls, the internal CA, the :5555
+# ask endpoint) is deliberately absent — this file must never mint internal
+# certs. Select it by setting CADDYFILE=./docker/caddy/Caddyfile.prod.
+{
+	# Let's Encrypt account contact for expiry/renewal notices. Publicly
+	# visible in certificate transparency logs.
+	email security@stasher.news
+}
+
+stasher.news {
+	encode zstd gzip
+
+	reverse_proxy app:3000 {
+		# preserve the original Host so proxy.js's getDomainMapping(host) sees
+		# the user-facing domain, not "app:3000"
+		header_up Host {host}
+		# Tell Next.js the browser-facing request was HTTPS, preserving the
+		# ALB-era X-Forwarded-Proto contract (Secure cookies, crypto.subtle)
+		header_up X-Forwarded-Proto https
+	}
+}
