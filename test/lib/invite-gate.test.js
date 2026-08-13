@@ -95,7 +95,11 @@ test('shouldGateRequest passes a valid cookie everywhere', () => {
 
 test('shouldGateRequest exempts the gate page and static/asset paths', () => {
   for (const pathname of ['/gate', '/sw.js', '/offline', '/404', '/500', '/_error',
-    '/favicon.ico', '/.well-known/web-app-origin-association']) {
+    '/favicon.ico', '/.well-known/web-app-origin-association',
+    // _document.js <Head> injects these on every page (even /gate) before the
+    // visitor has a cookie; gating them 307s the font preloads and the display
+    // font silently falls back
+    '/fonts/chakra-petch-600.woff2', '/icons/icon_x192.png', '/apple-touch-icon.png']) {
     expect(shouldGateRequest({ pathname, cookie: undefined })).toBe('pass')
   }
 })
