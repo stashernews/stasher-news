@@ -5,6 +5,17 @@ x-env_file: &env_file
     required: true
   - path: .env.local
     required: false
+# app/worker variant: additionally loads .env.production when the deploy shell
+# exports NODE_ENV=production (later files override earlier ones, so prod URLs
+# win over the dev defaults). In dev the interpolated path falls back to
+# .env.development — a harmless no-op duplicate.
+x-env_file_app: &env_file_app
+  - path: .env.development
+    required: true
+  - path: .env.local
+    required: false
+  - path: .env.${NODE_ENV:-development}
+    required: false
 x-healthcheck: &healthcheck
   interval: 10s
   timeout: 10s
@@ -70,7 +81,7 @@ services:
       <<: *healthcheck
       test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
     depends_on: *depends_on_db
-    env_file: *env_file
+    env_file: *env_file_app
     expose:
       - "3000"
     ports:
@@ -121,7 +132,7 @@ services:
       <<:
          - *depends_on_db
          - *depends_on_app
-    env_file: *env_file
+    env_file: *env_file_app
     volumes:
       - ./:/app
       - backups:/backups
