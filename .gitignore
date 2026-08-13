@@ -59,7 +59,6 @@ docker-compose.*.yml
 *.sql
 *.sql.gz
 !/prisma/migrations/*/*.sql
-!/docker/db/000_seed.sql.gz
 
 # archived (collapsed) Stacker.news migrations — kept locally for reference,
 # not tracked. See prisma/migrations.archive/ and the stealth_baseline migration.

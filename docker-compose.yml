@@ -27,15 +27,18 @@ services:
     restart: unless-stopped
     healthcheck:
       <<: *healthcheck
-      test: ["CMD-SHELL", "PGPASSWORD=${POSTGRES_PASSWORD} pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1 && psql -U ${POSTGRES_USER} ${POSTGRES_DB} -c 'SELECT 1 FROM users LIMIT 1'"]
+      # readiness only: the app container runs `prisma migrate deploy`, which
+      # creates the public schema (including users), and it depends_on this
+      # service being healthy. A check that touches a migrated table (e.g. the
+      # old `SELECT 1 FROM users`) deadlocks on a fresh volume — postgres is up
+      # but no table exists until the app starts, which waits on this check.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1"]
     expose:
       - "5432"
     ports:
       - "5431:5432"
     env_file: *env_file
     volumes:
-      # the prefix makes sure the seeds are executed in the correct order instead of alphabetical by default
-      - ./docker/db/000_seed.sql.gz:/docker-entrypoint-initdb.d/000_seed.sql.gz
       - db:/var/lib/postgresql/data
       - wal_archive:/wal-archive
     labels:
