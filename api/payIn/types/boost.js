@@ -3,6 +3,7 @@ import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { piconerosToXmr, xmrToPiconeros } from '@/lib/format'
 import { GqlInputError } from '@/lib/error'
+import { getItemResult } from '../lib/item'
 
 // StasherNews boost (A-14) — upstream-faithful one-time permanent ranking
 // weight, 1:1 with tips, paid to the platform rewards wallet via a DEDICATED
@@ -57,11 +58,16 @@ export async function getInitial (models, { id, piconeros }, { me }) {
 
 export async function onRetry (tx, oldPayInId) {
   const { itemId, payIn } = await tx.itemPayIn.findUnique({ where: { payInId: oldPayInId }, include: { payIn: true } })
-  return { id: itemId, piconeros: payIn.piconeros, act: 'BOOST' }
+  const item = await getItemResult(tx, { id: itemId })
+  return { id: item.id, path: item.path, piconeros: payIn.piconeros, act: 'BOOST' }
 }
 
 export async function onBegin (tx, payInId, { id }) {
-  const item = await tx.item.findUnique({ where: { id: parseInt(id) } })
+  // getItemResult, not tx.item.findUnique: Item.path is an Unsupported("ltree")
+  // column Prisma cannot read (findUnique returns the row without it, so the
+  // response's path would be null and the client's ancestor walk would crash
+  // on null.split('.')).
+  const item = await getItemResult(tx, { id })
   return { id: item.id, path: item.path, piconeros: 0n, act: 'BOOST' }
 }
 

@@ -198,6 +198,10 @@ function updateAncestors (cache, { payerPrivates }) {
   const result = payerPrivates?.result
   if (!result) return
   const { id, act, path } = result
+  // a null/absent path (e.g. an Item whose ltree path was never written) means
+  // there is no ancestor chain to walk — treat it as a no-op rather than
+  // crashing on null.split('.')
+  if (!path) return
   const piconeros = Number(result.piconeros)
 
   if (act === 'TIP') {
