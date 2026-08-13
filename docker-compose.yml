@@ -111,6 +111,9 @@ services:
         - UID=${CURRENT_UID}
         - GID=${CURRENT_GID}
     restart: unless-stopped
+    # the worker drains on SIGTERM for up to ~25s (boss.stop graceful timeout);
+    # compose's default 10s SIGKILLs in-flight money jobs mid-drain
+    stop_grace_period: 30s
     healthcheck:
       <<: *healthcheck
       test: ["CMD-SHELL", "find ${WORKER_HEARTBEAT_PATH:-/tmp/worker-heartbeat} -mmin -5 | grep -q . || exit 1"]
@@ -304,6 +307,11 @@ services:
       - --zmq-rpc-bind-ip=0.0.0.0
       - --confirm-external-bind
       - --confirm-zmq-rpc-external-bind
+      # pruned from the start of the sync: stagenet chain ~7 GB -> ~1 GB,
+      # mainnet ~160 GB -> fits the current tier. Wallet ops (view-key
+      # scanning + sending) work on pruned nodes by design.
+      - --prune-blockchain
+      - --sync-pruned-blocks
     volumes:
       - monerod:/root/.bitmonero
     ports:
