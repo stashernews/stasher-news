@@ -10,6 +10,7 @@ const GOOD = {
   LWS_WEBHOOK_TOKEN: 'real-token',
   MONERO_LWS_ADMIN_AUTH: 'real-admin-key',
   NEXTAUTH_URL: 'https://stasher.news',
+  NEXT_PUBLIC_URL: 'https://stasher.news',
   LOGIN_EMAIL_SERVER: 'smtps://resend:real-key@smtp.resend.com:465',
   LOGIN_EMAIL_FROM: 'login@stasher.news'
 }
@@ -46,6 +47,11 @@ test('throws in production when LOGIN_EMAIL_SERVER targets mailhog', () => {
 test('throws in production when LOGIN_EMAIL_FROM is the dev sender', () => {
   const env = { ...GOOD, LOGIN_EMAIL_FROM: 'sndev@mailhog.dev' }
   expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/LOGIN_EMAIL_FROM/)
+})
+
+test('throws in production when NEXT_PUBLIC_URL points at localhost', () => {
+  const env = { ...GOOD, NEXT_PUBLIC_URL: 'http://localhost:3000' }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/NEXT_PUBLIC_URL/)
 })
 
 test('does not throw in non-production even with insecure defaults', () => {
