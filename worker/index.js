@@ -1,6 +1,6 @@
 // environment variables are loaded from files and imports run before the rest of the code
 import './loadenv'
-import { validateEnv } from '@/lib/env'
+import { validateEnv, assertExplicitNodeEnv } from '@/lib/env'
 import PgBoss from 'pg-boss'
 import createPrisma from '@/lib/create-prisma'
 import { repin } from './repin'
@@ -42,6 +42,8 @@ import { writeWorkerHeartbeat } from './heartbeat'
 import { logInfo, logError } from '@/lib/logger'
 import { moneroJobDurationSeconds } from '@/lib/metrics'
 import { buildGateCookieHeader } from '@/lib/invite-gate'
+import { BOSS_RETRY } from '@/lib/constants'
+import { alert } from '@/lib/alert'
 
 // WebSocket polyfill
 import ws from 'isomorphic-ws'
@@ -53,6 +55,7 @@ if (typeof WebSocket === 'undefined') {
 const _runtime = { boss: null, models: null }
 
 async function work () {
+  assertExplicitNodeEnv()
   validateEnv()
   const CLEANUP_INTERVAL_SECONDS = 60 * 60 // hourly — must match worker/webhookCleanup.js
   const boss = new PgBoss(process.env.DATABASE_URL)
@@ -98,6 +101,11 @@ async function work () {
         await fn({ ...job, ...args })
       } catch (error) {
         logError(`error running ${job.name}`, error)
+        if ((job.retrycount ?? 0) >= (job.retrylimit ?? 0)) {
+          try {
+            alert('critical', `job ${job.name} failed permanently`, String(error), { dedupeKey: `job-failed-${job.name}` })
+          } catch { /* alerting must not mask the rethrow */ }
+        }
         throw error
       } finally {
         try { moneroJobDurationSeconds.labels(job.name).observe((Date.now() - start) / 1000) } catch { /* metric never breaks a job */ }
@@ -110,60 +118,76 @@ async function work () {
   writeWorkerHeartbeat()
 
   if (isServiceEnabled('search')) {
-    await boss.work('indexItem', jobWrapper(indexItem))
-    await boss.work('indexAllItems', jobWrapper(indexAllItems))
+    await boss.work('indexItem', { includeMetadata: true }, jobWrapper(indexItem))
+    await boss.work('indexAllItems', { includeMetadata: true }, jobWrapper(indexAllItems))
   }
   if (isServiceEnabled('images')) {
-    await boss.work('imgproxy', jobWrapper(imgproxy))
-    await boss.work('deleteUnusedImages', jobWrapper(deleteUnusedImages))
+    await boss.work('imgproxy', { includeMetadata: true }, jobWrapper(imgproxy))
+    await boss.work('deleteUnusedImages', { includeMetadata: true }, jobWrapper(deleteUnusedImages))
     // daily unused-image sweep; self-requeues on a 24h startAfter. Seed on
     // fresh installs (deferred 24h) so a brand-new stack lands a first run,
     // mirroring the trust deferred-seed pattern.
     if (await boss.getQueueSize('deleteUnusedImages') === 0) {
-      await boss.send('deleteUnusedImages', {}, { startAfter: 24 * 60 * 60 })
+      await boss.send('deleteUnusedImages', {}, { ...BOSS_RETRY, startAfter: 24 * 60 * 60 })
     }
   }
   if (isServiceEnabled('domains')) {
-    await boss.work('domainVerification', jobWrapper(domainVerification))
-    await boss.work('deleteDomainCertificate', jobWrapper(deleteCertificateExternal))
-    await boss.work('checkActiveDomainsDNS', jobWrapper(checkActiveDomainsDNS))
-    await boss.work('clearLongHeldDomains', jobWrapper(clearLongHeldDomains))
+    await boss.work('domainVerification', { includeMetadata: true }, jobWrapper(domainVerification))
+    await boss.work('deleteDomainCertificate', { includeMetadata: true }, jobWrapper(deleteCertificateExternal))
+    await boss.work('checkActiveDomainsDNS', { includeMetadata: true }, jobWrapper(checkActiveDomainsDNS))
+    await boss.work('clearLongHeldDomains', { includeMetadata: true }, jobWrapper(clearLongHeldDomains))
   }
-  await boss.work('weeklyPost-*', jobWrapper(weeklyPost))
-  await boss.work('payWeeklyPostBounty', jobWrapper(payWeeklyPostBounty))
-  await boss.work('repin-*', jobWrapper(repin))
-  await boss.work('trust', jobWrapper(trust))
+  await boss.work('weeklyPost-*', { includeMetadata: true }, jobWrapper(weeklyPost))
+  await boss.work('payWeeklyPostBounty', { includeMetadata: true }, jobWrapper(payWeeklyPostBounty))
+  await boss.work('repin-*', { includeMetadata: true }, jobWrapper(repin))
+  await boss.work('trust', { includeMetadata: true }, jobWrapper(trust))
   // trust recomputes nightly via the pgboss.schedule row (0 2 * * * America/Chicago).
   // Self-seed on fresh installs (deferred 24h) so a brand-new stack lands a first run
   // without waiting on the cron, mirroring the rewardsDistributor deferred-seed pattern.
   if (await boss.getQueueSize('trust') === 0) {
-    await boss.send('trust', {}, { startAfter: 24 * 60 * 60 })
+    await boss.send('trust', {}, { ...BOSS_RETRY, startAfter: 24 * 60 * 60 })
   }
   await boss.work('timestampItem', { includeMetadata: true }, jobWrapper(timestampItem))
-  await boss.work('streak', jobWrapper(computeStreaks))
-  await boss.work('checkStreak', jobWrapper(checkStreak))
-  await boss.work('nip57', jobWrapper(nip57))
-  await boss.work('deleteItem', jobWrapper(deleteItem))
-  await boss.work('territoryBilling', jobWrapper(territoryBilling))
-  await boss.work('ofac', jobWrapper(ofac))
-  await boss.work('saltAndHashEmails', jobWrapper(saltAndHashEmails))
-  await boss.work('reminder', jobWrapper(remindUser))
-  await boss.work('thisDay', jobWrapper(thisDay))
-  await boss.work('socialPoster', jobWrapper(postToSocial))
-  await boss.work('untrackOldItems', jobWrapper(untrackOldItems))
+  await boss.work('streak', { includeMetadata: true }, jobWrapper(computeStreaks))
+  await boss.work('checkStreak', { includeMetadata: true }, jobWrapper(checkStreak))
+  await boss.work('nip57', { includeMetadata: true }, jobWrapper(nip57))
+  await boss.work('deleteItem', { includeMetadata: true }, jobWrapper(deleteItem))
+  await boss.work('territoryBilling', { includeMetadata: true }, jobWrapper(territoryBilling))
 
-  await boss.work('confirmFinalizer', jobWrapper(confirmFinalizer))
+  // territoryBilling chains are per-sub and self-requeue; a permanently failed
+  // run used to stop billing for that sub forever. Reseed any sub with no
+  // queued/active/retry job on boot (mirrors the confirmFinalizer seed guard).
+  // getQueueSize's default before:'active' counts only created+retry — pass
+  // before:'completed' to also count a currently-active run (pg-boss v9 state
+  // order: created < retry < active < completed < expired < cancelled < failed).
+  if (await boss.getQueueSize('territoryBilling', { before: 'completed' }) === 0) {
+    const subs = await models.sub.findMany({
+      where: { OR: [{ billingType: { not: 'ONCE' } }, { billingStatus: 'PENDING_FEE' }] },
+      select: { name: true }
+    })
+    for (const { name } of subs) {
+      await boss.send('territoryBilling', { subName: name }, { ...BOSS_RETRY, startAfter: 60 })
+    }
+  }
+  await boss.work('ofac', { includeMetadata: true }, jobWrapper(ofac))
+  await boss.work('saltAndHashEmails', { includeMetadata: true }, jobWrapper(saltAndHashEmails))
+  await boss.work('reminder', { includeMetadata: true }, jobWrapper(remindUser))
+  await boss.work('thisDay', { includeMetadata: true }, jobWrapper(thisDay))
+  await boss.work('socialPoster', { includeMetadata: true }, jobWrapper(postToSocial))
+  await boss.work('untrackOldItems', { includeMetadata: true }, jobWrapper(untrackOldItems))
+
+  await boss.work('confirmFinalizer', { includeMetadata: true }, jobWrapper(confirmFinalizer))
 
   // Seed the self-requeuing confirmFinalizer loop (singleton guard on the seed
   // only). Confirmation is low-frequency (CONFIRM_POLL_INTERVAL_MS, default 60s).
   if (await boss.getQueueSize('confirmFinalizer') === 0) {
-    await boss.send('confirmFinalizer', {})
+    await boss.send('confirmFinalizer', {}, { ...BOSS_RETRY })
   }
 
   // bounties: bounty lifecycle scans (expiry, payout dispatch, maturity).
   // Self-requeues every 60s — same singleton-guarded seed pattern as
   // confirmFinalizer.
-  await boss.work('bounties', jobWrapper(bounties))
+  await boss.work('bounties', { includeMetadata: true }, jobWrapper(bounties))
   if (await boss.getQueueSize('bounties') === 0) {
     await boss.send('bounties', {})
   }
@@ -171,30 +195,30 @@ async function work () {
   // healthProbe: probes lws + monerod reachability + chain-height advancement
   // every HEALTH_PROBE_INTERVAL_SECONDS (default 60s), publishes the snapshot to
   // lib/healthStatus, and alerts on lws/monerod outage or a stalled chain height.
-  await boss.work('healthProbe', jobWrapper(healthProbe))
+  await boss.work('healthProbe', { includeMetadata: true }, jobWrapper(healthProbe))
   if (await boss.getQueueSize('healthProbe') === 0) {
-    await boss.send('healthProbe', {})
+    await boss.send('healthProbe', {}, { ...BOSS_RETRY })
   }
 
   // reconcilePendingTips: recover PENDING tips stranded by a missed 0-conf webhook, and
   // expire never-paid tips. Self-requeues on a 2min startAfter.
-  await boss.work('reconcilePendingTips', jobWrapper(reconcilePendingTips))
+  await boss.work('reconcilePendingTips', { includeMetadata: true }, jobWrapper(reconcilePendingTips))
   if (await boss.getQueueSize('reconcilePendingTips') === 0) {
-    await boss.send('reconcilePendingTips', {})
+    await boss.send('reconcilePendingTips', {}, { ...BOSS_RETRY })
   }
 
   // webhookCleanup: hourly sweep of orphaned lws webhooks (CONFIRMED/EXPIRED tips).
-  await boss.work('webhookCleanup', jobWrapper(webhookCleanup))
+  await boss.work('webhookCleanup', { includeMetadata: true }, jobWrapper(webhookCleanup))
   if (await boss.getQueueSize('webhookCleanup') === 0) {
-    await boss.send('webhookCleanup', {}, { startAfter: CLEANUP_INTERVAL_SECONDS / 4 }) // first sweep after 15min
+    await boss.send('webhookCleanup', {}, { ...BOSS_RETRY, startAfter: CLEANUP_INTERVAL_SECONDS / 4 }) // first sweep after 15min
   }
 
   // rewardsWalletObserver: polls the platform rewards wallet for posting/territory
   // fee outputs (subaddress attribution) and downvote payments (payment_id
   // attribution). Same self-requeuing pattern as confirmFinalizer.
-  await boss.work('rewardsWalletObserver', jobWrapper(rewardsWalletObserver))
+  await boss.work('rewardsWalletObserver', { includeMetadata: true }, jobWrapper(rewardsWalletObserver))
   if (await boss.getQueueSize('rewardsWalletObserver') === 0) {
-    await boss.send('rewardsWalletObserver', {})
+    await boss.send('rewardsWalletObserver', {}, { ...BOSS_RETRY })
   }
 
   // rewardsDistributor: weekly rewards-pool distribution (earmark inflow, compute
@@ -202,22 +226,22 @@ async function work () {
   // pgboss.schedule row (cron 0 0 * * 1 UTC, migration
   // 20260807160000_schedule_rewards_distributor) — NOT a self-requeue — so each
   // run lands on the Monday 00:00 UTC the rewards resolver counts down to.
-  await boss.work('rewardsDistributor', jobWrapper(rewardsDistributor))
+  await boss.work('rewardsDistributor', { includeMetadata: true }, jobWrapper(rewardsDistributor))
   // Fresh-install seed only: the first payout needs a week of inflow to
   // accumulate, so on a brand-new stack we defer one run 7d (the cron then owns
   // every subsequent week). The handler does NOT self-requeue, so this cannot
   // create recurring double scheduling. `sndev monero distribute` covers any
   // out-of-band run before that.
   if (await boss.getQueueSize('rewardsDistributor') === 0) {
-    await boss.send('rewardsDistributor', {}, { startAfter: 7 * 24 * 60 * 60 })
+    await boss.send('rewardsDistributor', {}, { ...BOSS_RETRY, startAfter: 7 * 24 * 60 * 60 })
   }
 
   // rotateViewKeys: quarterly DEK-hygiene re-wrap of every encrypted view key.
   // Self-requeues on a 90d startAfter; the seed starts it after a day so it doesn't
   // fire on every fresh boot. Mirrors the rewardsDistributor deferred-seed pattern.
-  await boss.work('rotateViewKeys', jobWrapper(rotateViewKeys))
+  await boss.work('rotateViewKeys', { includeMetadata: true }, jobWrapper(rotateViewKeys))
   if (await boss.getQueueSize('rotateViewKeys') === 0) {
-    await boss.send('rotateViewKeys', {}, { startAfter: 24 * 60 * 60 })
+    await boss.send('rotateViewKeys', {}, { ...BOSS_RETRY, startAfter: 24 * 60 * 60 })
   }
 
   // dbBackup: nightly encrypted DB dump (pg_dump | gpg -> BACKUP_DIR) with
@@ -226,9 +250,9 @@ async function work () {
   // 20260808160000_schedule_db_backup) — NOT a self-requeue — mirroring
   // rewardsDistributor. Fresh installs get one deferred (24h) run so a
   // brand-new stack lands a first backup before waiting on the cron.
-  await boss.work('dbBackup', jobWrapper(dbBackup))
+  await boss.work('dbBackup', { includeMetadata: true }, jobWrapper(dbBackup))
   if (await boss.getQueueSize('dbBackup') === 0) {
-    await boss.send('dbBackup', {}, { startAfter: 24 * 60 * 60 })
+    await boss.send('dbBackup', {}, { ...BOSS_RETRY, startAfter: 24 * 60 * 60 })
   }
 
   logInfo('working jobs')

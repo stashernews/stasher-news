@@ -1,28 +1,14 @@
 name: Tests
-on: [pull_request]
+on: [pull_request, push]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-
-    services:
-      db:
-        image: postgres:16
-        env:
-          POSTGRES_USER: stasher
-          POSTGRES_PASSWORD: stasher
-          POSTGRES_DB: stashernews
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U stasher"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
 
     env:
       DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stashernews"
-      NODE_ENV: test   # the Task 2 validator only enforces in production
+      NODE_ENV: test
 
     steps:
       - name: Checkout
@@ -37,11 +23,43 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      # stock postgres:16 lacks the ip4r extension the baseline migration
+      # creates (only docker/db installs it) — build and run that image.
+      - name: Start database (ip4r-enabled)
+        run: |
+          docker build -t stasher-db docker/db
+          docker run -d --name db -p 5432:5432 \
+            -e POSTGRES_USER=stasher -e POSTGRES_PASSWORD=stasher \
+            -e POSTGRES_DB=stashernews stasher-db
+          for i in $(seq 1 30); do
+            docker exec db pg_isready -U stasher && break
+            sleep 2
+          done
+          docker exec db pg_isready -U stasher
+
       - name: Apply migrations
         run: npx prisma migrate deploy
 
+      - name: Check schema/migrations drift
+        run: |
+          # dedicated empty shadow DB: migrate diff wipes whatever it replays
+          # into, so it must never point at the migrated $DATABASE_URL
+          docker exec db createdb -U stasher shadow
+          npx prisma migrate diff \
+            --from-migrations ./prisma/migrations \
+            --to-schema-datamodel ./prisma/schema.prisma \
+            --shadow-database-url "postgres://stasher:stasher@localhost:5432/shadow" \
+            --script > drift.sql
+          # prisma prints a comment even on zero drift ("This is an empty
+          # migration.") — only real SQL lines count as drift
+          if sed '/^--/d; /^$/d' drift.sql | grep -q .; then
+            echo '::error::schema.prisma and migrations have drifted — generate a migration'
+            cat drift.sql
+            exit 1
+          fi
+
       - name: Seed
-        run: npx prisma db seed || true
+        run: npx prisma db seed
 
       - name: Run tests
         run: npm test

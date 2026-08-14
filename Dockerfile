@@ -11,6 +11,11 @@ RUN useradd -om -u "$UID" -g "$GID" apprunner
 
 WORKDIR /app
 
+# pg_dump/psql for scripts/deploy-migrate.sh (pre-migration snapshot + rollback)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
 EXPOSE 3000
 
 COPY package.json package-lock.json ./

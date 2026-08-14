@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { validateEnv } from '@/lib/env'
+import { validateEnv, assertExplicitNodeEnv } from '@/lib/env'
 
 const GOOD = {
   DATABASE_URL: 'postgres://u:p@h:5432/db',
@@ -56,4 +56,32 @@ test('throws in production when NEXT_PUBLIC_URL points at localhost', () => {
 
 test('does not throw in non-production even with insecure defaults', () => {
   expect(() => validateEnv({ env: {}, nodeEnv: 'development' })).not.toThrow()
+})
+
+describe('assertExplicitNodeEnv', () => {
+  it('accepts explicit development, test, production', () => {
+    expect(() => assertExplicitNodeEnv({ nodeEnv: 'development' })).not.toThrow()
+    expect(() => assertExplicitNodeEnv({ nodeEnv: 'test' })).not.toThrow()
+    expect(() => assertExplicitNodeEnv({ nodeEnv: 'production' })).not.toThrow()
+  })
+
+  it('rejects unset NODE_ENV', () => {
+    // brief passed { nodeEnv: undefined }, but the destructuring default then
+    // substitutes the ambient process.env.NODE_ENV (a recognized value under
+    // jest), so the rejection can never fire. Simulate the real no-arg call
+    // path (how worker/index.js invokes it) with NODE_ENV actually unset.
+    const saved = process.env.NODE_ENV
+    delete process.env.NODE_ENV
+    try {
+      expect(() => assertExplicitNodeEnv())
+        .toThrow(/NODE_ENV must be explicitly set/)
+    } finally {
+      process.env.NODE_ENV = saved
+    }
+  })
+
+  it('rejects unrecognized values like "staging"', () => {
+    expect(() => assertExplicitNodeEnv({ nodeEnv: 'staging' }))
+      .toThrow(/NODE_ENV must be explicitly set/)
+  })
 })

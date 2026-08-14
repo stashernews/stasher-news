@@ -1,6 +1,7 @@
 import { USER_ID, IMAGE_PIXELS_MAX, UPLOAD_SIZE_MAX, UPLOAD_SIZE_MAX_AVATAR, UPLOAD_FREE_BYTES_MAX, UPLOAD_FEE_PICONEROS, UPLOAD_TYPES_ALLOW, AWS_S3_URL_REGEXP, AVATAR_TYPES_ALLOW, MEDIA_URL, DOMAIN_BETA_IDS } from '@/lib/constants'
 import { createPresignedPost } from '@/api/s3'
 import { GqlAuthenticationError, GqlAuthorizationError, GqlInputError } from '@/lib/error'
+import { rateLimit } from '@/lib/rate-limit'
 import { Prisma } from '@prisma/client'
 
 export default {
@@ -20,7 +21,14 @@ export default {
     }
   },
   Mutation: {
-    getSignedPOST: async (parent, { type, size, width, height, avatar, subName }, { models, me }) => {
+    getSignedPOST: async (parent, { type, size, width, height, avatar, subName }, { models, me, headers }) => {
+      if (!me) {
+        const fwd = headers?.['x-forwarded-for']
+        const ip = (typeof fwd === 'string' && fwd.length > 0) ? fwd.split(',')[0].trim() : 'unknown'
+        const rl = rateLimit({ key: `upload:${ip}`, limit: 20, windowMs: 60 * 60_000 })
+        if (!rl.allowed) throw new GqlInputError('upload rate limit exceeded, try again later')
+      }
+
       if (UPLOAD_TYPES_ALLOW.indexOf(type) === -1) {
         throw new GqlInputError(`upload must be ${UPLOAD_TYPES_ALLOW.map(t => t.replace(/^(image|video)\//, '')).join(', ')}`)
       }

@@ -1,8 +1,9 @@
 import { Prisma } from '@prisma/client'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { applyTipDetected } from '@/api/monero/ranking'
-import { RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
+import { BOSS_RETRY, RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
 import { alert } from '@/lib/alert'
+import { logError } from '@/lib/logger'
 import { moneroPendingTips } from '@/lib/metrics'
 
 // reconcilePendingTips — recover tips stranded in PENDING by a missed 0-conf webhook.
@@ -109,12 +110,19 @@ export async function runReconcilePendingTipsOnce ({
 }
 
 export async function reconcilePendingTips ({ boss, models }) {
+  // Run first, requeue only on success: a requeue sent from a FAILED run
+  // forks the chain (pg-boss retries this same job, whose success sends
+  // another requeue). On a run error just rethrow — the retry re-executes
+  // the whole handler, which re-sends on eventual success.
+  const out = await runReconcilePendingTipsOnce({ models })
+  if (out.recovered || out.expired) {
+    console.log(`reconcilePendingTips: recovered ${out.recovered}, expired ${out.expired}`)
+  }
   try {
-    const out = await runReconcilePendingTipsOnce({ models })
-    if (out.recovered || out.expired) {
-      console.log(`reconcilePendingTips: recovered ${out.recovered}, expired ${out.expired}`)
-    }
-  } finally {
-    await boss.send('reconcilePendingTips', {}, { startAfter: RECONCILE_INTERVAL_SECONDS })
+    await boss.send('reconcilePendingTips', {}, { ...BOSS_RETRY, startAfter: RECONCILE_INTERVAL_SECONDS })
+  } catch (e) {
+    logError('reconcilePendingTips requeue send failed', e)
+    alert('critical', 'reconcilePendingTips requeue failed', String(e), { dedupeKey: 'reconcilePendingTips-requeue' })
+    throw e // rethrow so pg-boss retries THIS run and the chain survives
   }
 }

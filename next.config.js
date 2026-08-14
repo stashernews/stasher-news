@@ -194,6 +194,18 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
   },
   async redirects () {
     return [
+      // invites UI was replaced by referrals (a9bfc27c); old invite links and
+      // notifications-rendered invite links must not 404
+      {
+        source: '/invites',
+        destination: '/referrals',
+        permanent: false
+      },
+      {
+        source: '/invites/:slug',
+        destination: '/referrals',
+        permanent: false
+      },
       {
         source: '/satistics',
         destination: '/statistics',

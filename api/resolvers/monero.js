@@ -6,6 +6,7 @@ import { buildMoneroUri } from '../monero/uri'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
+import { rateLimit } from '@/lib/rate-limit'
 
 // StasherNews Monero wallet-setup + tip-initiation resolvers (spec §4.5, §7.3).
 //
@@ -38,9 +39,19 @@ function networkForEnv () {
 // webhook receiver (pages/api/monero/webhook.js) handles detection + confirmation
 // and calls applyTipDetected (the ranking hook). 100% P2P — no PayIn, no platform
 // output. `me` is the tipper (auth is the caller's responsibility).
-export async function initiateTipCore ({ postId, amount, models, monero, me }) {
+export async function initiateTipCore ({ postId, amount, models, monero, me, headers }) {
   const id = Number(postId)
   const piconeros = BigInt(amount)
+
+  const fwd = headers?.['x-forwarded-for']
+  const ip = (typeof fwd === 'string' && fwd.length > 0) ? fwd.split(',')[0].trim() : 'unknown'
+  const ipRl = rateLimit({ key: `tip:${ip}`, limit: 10, windowMs: 60_000 })
+  if (!ipRl.allowed) throw new GqlInputError('too many tips initiated, try again shortly')
+
+  const pending = await models.observedTip.count({
+    where: { postId: id, state: 'PENDING' }
+  })
+  if (pending >= 20) throw new GqlInputError('too many pending tips on this post, try again later')
 
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
@@ -249,8 +260,8 @@ export default {
     // Anonymous tippers are allowed: initiateTipCore stores a null tipperId, which
     // the downstream pipeline already treats as "anonymous tip" (raw ranking only —
     // no curator shares, streaks, or trust-weighted votes).
-    async initiateTip (parent, { postId, amount }, { me, models, monero }) {
-      return initiateTipCore({ postId, amount, models, monero, me })
+    async initiateTip (parent, { postId, amount }, { me, models, monero, headers }) {
+      return initiateTipCore({ postId, amount, models, monero, me, headers })
     },
 
     // Revoke wallet observation. Mirrors registerMoneroAccount's "lws FIRST"

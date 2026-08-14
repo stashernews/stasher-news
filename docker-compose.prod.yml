@@ -1,0 +1,23 @@
+# Production overlay. Usage on the VPS:
+#   export NODE_ENV=production   # selects .env.production via x-env_file_app interpolation
+#   NODE_ENV=production npm run build   # npm run start serves .next — build BEFORE up
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Overrides dev-isms in the base file: dev watch commands -> prod commands,
+# explicit NODE_ENV for both processes. The app command runs the safe-migration
+# flow (scripts/deploy-migrate.sh: snapshot -> migrate -> rollback hint).
+services:
+  app:
+    environment:
+      - NODE_ENV=production
+      - BACKUP_DIR=/backups
+    volumes:
+      - backups:/backups
+    command:
+      - sh
+      - -c
+      - scripts/deploy-migrate.sh && npm run start
+  worker:
+    environment:
+      - NODE_ENV=production
+    command:
+      - npm run worker

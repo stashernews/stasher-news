@@ -1,4 +1,6 @@
 import { lwsClient } from '@/api/monero/lwsClient'
+import { alert } from '@/lib/alert'
+import { logError } from '@/lib/logger'
 
 // webhookCleanup — sweep orphaned lws tx-confirmation webhooks (Phase 5).
 //
@@ -42,10 +44,17 @@ export async function runWebhookCleanupOnce ({ models, monero = lwsClient }) {
 }
 
 export async function webhookCleanup ({ boss, models }) {
+  // Run first, requeue only on success: a requeue sent from a FAILED run
+  // forks the chain (pg-boss retries this same job, whose success sends
+  // another requeue). On a run error just rethrow — the retry re-executes
+  // the whole handler, which re-sends on eventual success.
+  const out = await runWebhookCleanupOnce({ models })
+  if (out.cleaned) console.log(`webhookCleanup: removed ${out.cleaned} stale webhook(s)`)
   try {
-    const out = await runWebhookCleanupOnce({ models })
-    if (out.cleaned) console.log(`webhookCleanup: removed ${out.cleaned} stale webhook(s)`)
-  } finally {
     await boss.send('webhookCleanup', {}, { startAfter: CLEANUP_INTERVAL_SECONDS })
+  } catch (e) {
+    logError('webhookCleanup requeue send failed', e)
+    alert('critical', 'webhookCleanup requeue failed', String(e), { dedupeKey: 'webhookCleanup-requeue' })
+    throw e // rethrow so pg-boss retries THIS run and the chain survives
   }
 }

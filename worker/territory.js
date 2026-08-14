@@ -1,4 +1,6 @@
-import { TERRITORY_GRACE_DAYS } from '@/lib/constants'
+import { BOSS_RETRY, TERRITORY_GRACE_DAYS } from '@/lib/constants'
+import { alert } from '@/lib/alert'
+import { logError } from '@/lib/logger'
 import { nextBillingWithGrace } from '@/lib/territory'
 import { datePivot } from '@/lib/time'
 import { notifyTerritoryStatusChange } from '@/lib/webPush'
@@ -31,13 +33,25 @@ export async function territoryBilling ({ data: { subName }, boss, models }) {
       })
       await notifyTerritoryStatusChange({ sub })
     }
-    await boss.send('territoryBilling', { subName }, { startAfter: datePivot(new Date(), { days: 1 }) })
+    try {
+      await boss.send('territoryBilling', { subName }, { ...BOSS_RETRY, startAfter: datePivot(new Date(), { days: 1 }) })
+    } catch (e) {
+      logError('territoryBilling requeue send failed', e)
+      alert('critical', 'territoryBilling requeue failed', `sub ${subName}: ${e.message}`, { dedupeKey: `territoryBilling-requeue-${subName}` })
+      throw e // rethrow so pg-boss retries THIS run and the chain survives
+    }
     return
   }
 
   // Paid up: nothing to do until the next billing boundary — one-shot, no daily churn.
   if (sub.billPaidUntil && new Date(sub.billPaidUntil) > new Date()) {
-    await boss.send('territoryBilling', { subName }, { startAfter: new Date(sub.billPaidUntil) })
+    try {
+      await boss.send('territoryBilling', { subName }, { ...BOSS_RETRY, startAfter: new Date(sub.billPaidUntil) })
+    } catch (e) {
+      logError('territoryBilling requeue send failed', e)
+      alert('critical', 'territoryBilling requeue failed', `sub ${subName}: ${e.message}`, { dedupeKey: `territoryBilling-requeue-${subName}` })
+      throw e // rethrow so pg-boss retries THIS run and the chain survives
+    }
     return
   }
 
@@ -57,5 +71,11 @@ export async function territoryBilling ({ data: { subName }, boss, models }) {
     }
   }
 
-  await boss.send('territoryBilling', { subName }, { startAfter: datePivot(new Date(), { days: 1 }) })
+  try {
+    await boss.send('territoryBilling', { subName }, { ...BOSS_RETRY, startAfter: datePivot(new Date(), { days: 1 }) })
+  } catch (e) {
+    logError('territoryBilling requeue send failed', e)
+    alert('critical', 'territoryBilling requeue failed', `sub ${subName}: ${e.message}`, { dedupeKey: `territoryBilling-requeue-${subName}` })
+    throw e // rethrow so pg-boss retries THIS run and the chain survives
+  }
 }

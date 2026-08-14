@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { alert } from '@/lib/alert'
 
 // dbBackup — nightly encrypted DB backup (Phase 6 Task E1). Spawns
 // scripts/backup-db.sh (pg_dump | gpg -> BACKUP_DIR), prunes local dumps older
@@ -78,10 +79,19 @@ async function defaultExec (cmd, opts) {
 }
 
 // pg-boss handler. Runs one nightly backup. Recurrence is owned by the
-// pgboss.schedule row; this does not self-requeue.
+// pgboss.schedule row; this does not self-requeue. Cron-created jobs carry
+// pg-boss's default retryLimit 0, so ANY failure is permanent — alert here in
+// addition to the jobWrapper permanent-failure alert (belt and braces: the
+// nightly cadence is the only retry).
 export async function dbBackup () {
   const dir = process.env.BACKUP_DIR || '/backups'
   const retentionDays = parseInt(process.env.BACKUP_RETENTION_DAYS || '30', 10)
-  const out = await runBackupOnce({ dir, retentionDays, upload: s3UploadIfConfigured() })
-  console.log(`dbBackup: wrote ${out.file}, pruned ${out.pruned.length} old backup(s)`)
+  try {
+    const out = await runBackupOnce({ dir, retentionDays, upload: s3UploadIfConfigured() })
+    console.log(`dbBackup: wrote ${out.file}, pruned ${out.pruned.length} old backup(s)`)
+  } catch (e) {
+    console.error('dbBackup failed', e)
+    alert('critical', 'dbBackup failed', String(e), { dedupeKey: 'dbBackup-failed' })
+    throw e
+  }
 }

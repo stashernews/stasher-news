@@ -2,7 +2,9 @@ import { Prisma } from '@prisma/client'
 import { daemonClient } from '@/api/monero/daemonClient'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { driveBountyFunding } from '@/api/monero/bountyFunding'
-import { CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constants'
+import { BOSS_RETRY, CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constants'
+import { alert } from '@/lib/alert'
+import { logError } from '@/lib/logger'
 import { createReorgDetector } from '@/lib/reorgDetector'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 
@@ -249,9 +251,16 @@ export async function backfillNullBountyHeights ({ models, lws, bounties }) {
 // worker/index.js carries a singletonKey guard so restarts cannot spawn
 // duplicate loops; the requeue deliberately omits it (mirrors moneroIndexer).
 export async function confirmFinalizer ({ boss, models }) {
+  // Run first, requeue only on success: a requeue sent from a FAILED run
+  // forks the chain (pg-boss retries this same job, whose success sends
+  // another requeue). On a run error just rethrow — the retry re-executes
+  // the whole handler, which re-sends on eventual success.
+  await runConfirmFinalizerOnce({ models })
   try {
-    await runConfirmFinalizerOnce({ models })
-  } finally {
-    await boss.send('confirmFinalizer', {}, { startAfter: CONFIRM_POLL_INTERVAL_MS / 1000 })
+    await boss.send('confirmFinalizer', {}, { ...BOSS_RETRY, startAfter: CONFIRM_POLL_INTERVAL_MS / 1000 })
+  } catch (e) {
+    logError('confirmFinalizer requeue send failed', e)
+    alert('critical', 'confirmFinalizer requeue failed', String(e), { dedupeKey: 'confirmFinalizer-requeue' })
+    throw e // rethrow so pg-boss retries THIS run and the chain survives
   }
 }

@@ -5,7 +5,9 @@ import {
 } from '@/api/monero/feePool'
 import { reverseMapPaymentId } from '@/api/monero/downvote'
 import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
-import { MONERO_POLL_INTERVAL_MS } from '@/lib/constants'
+import { BOSS_RETRY, MONERO_POLL_INTERVAL_MS } from '@/lib/constants'
+import { alert } from '@/lib/alert'
+import { logError } from '@/lib/logger'
 import { createReorgDetector } from '@/lib/reorgDetector'
 import { Prisma } from '@prisma/client'
 
@@ -319,6 +321,7 @@ export async function findRewardsAccount (models) {
 }
 
 export async function rewardsWalletObserver ({ boss, models, detectReorg: detect = detectReorg }) {
+  let runErr = null
   try {
     const account = await findRewardsAccount(models)
     if (account) {
@@ -347,7 +350,21 @@ export async function rewardsWalletObserver ({ boss, models, detectReorg: detect
     } catch (err) {
       console.error('fee-pool auto top-up failed:', err?.message || err)
     }
-  } finally {
-    await boss.send('rewardsWalletObserver', {}, { startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
+  } catch (runError) {
+    runErr = runError
   }
+  // Requeue only on success: a requeue sent from a FAILED run forks the
+  // chain (pg-boss retries this same job, whose success sends another
+  // requeue). On a run error just rethrow below — the retry re-executes the
+  // whole handler, which re-sends on eventual success.
+  if (!runErr) {
+    try {
+      await boss.send('rewardsWalletObserver', {}, { ...BOSS_RETRY, startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
+    } catch (e) {
+      logError('rewardsWalletObserver requeue send failed', e)
+      alert('critical', 'rewardsWalletObserver requeue failed', String(e), { dedupeKey: 'rewardsWalletObserver-requeue' })
+      throw e // rethrow so pg-boss retries THIS run and the chain survives
+    }
+  }
+  if (runErr) throw runErr
 }

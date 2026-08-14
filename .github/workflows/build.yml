@@ -1,0 +1,20 @@
+name: Build
+on: [pull_request, push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.21.1"
+          cache: 'npm'
+      - run: npm ci --legacy-peer-deps
+      - name: Production build
+        run: NODE_ENV=production npm run build
+        env:
+          # minimal env so next.config.js EB/CDN branches don't crash CI
+          NEXT_PUBLIC_URL: https://stasher.news
+          SELF_URL: http://localhost:3000

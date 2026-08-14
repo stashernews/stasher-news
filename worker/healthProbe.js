@@ -1,8 +1,9 @@
 import { lwsClient } from '@/api/monero/lwsClient'
 import { daemonClient } from '@/api/monero/daemonClient'
+import { BOSS_RETRY } from '@/lib/constants'
 import { alert } from '@/lib/alert'
 import { setHealthStatus } from '@/lib/healthStatus'
-import { logWarn } from '@/lib/logger'
+import { logError, logWarn } from '@/lib/logger'
 import { moneroLwsUp, moneroMonerodUp, moneroMonerodHeight } from '@/lib/metrics'
 
 // healthProbe (Task D4) — periodic lws + monerod health probe.
@@ -106,9 +107,16 @@ export async function runHealthProbeOnce ({
 }
 
 export async function healthProbe ({ boss }) {
+  // Run first, requeue only on success: a requeue sent from a FAILED run
+  // forks the chain (pg-boss retries this same job, whose success sends
+  // another requeue). On a run error just rethrow — the retry re-executes
+  // the whole handler, which re-sends on eventual success.
+  await runHealthProbeOnce()
   try {
-    await runHealthProbeOnce()
-  } finally {
-    await boss.send('healthProbe', {}, { startAfter: PROBE_INTERVAL_SECONDS })
+    await boss.send('healthProbe', {}, { ...BOSS_RETRY, startAfter: PROBE_INTERVAL_SECONDS })
+  } catch (e) {
+    logError('healthProbe requeue send failed', e)
+    alert('critical', 'healthProbe requeue failed', String(e), { dedupeKey: 'healthProbe-requeue' })
+    throw e // rethrow so pg-boss retries THIS run and the chain survives
   }
 }
