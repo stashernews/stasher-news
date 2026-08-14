@@ -39,7 +39,7 @@ export default function MoneroPaymentView ({ moneroUri, amountPiconeros, heading
             </div>}
         </div>}
       <div className='mt-2'>
-        <a href={moneroUri} className='fw-bold text-decoration-underline'>Open in Desktop Monero Wallet</a>
+        <a href={moneroUri} className='fw-bold text-decoration-underline'>Open in Monero Wallet</a>
       </div>
       <p className='text-muted text-center mt-3'>
         <small>
