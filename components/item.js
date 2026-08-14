@@ -13,6 +13,7 @@ import ImageIcon from '@/svgs/image-fill.svg'
 import VideoIcon from '@/svgs/video-on-fill.svg'
 import { piconerosToXmr } from '@/lib/format'
 import ItemInfo from './item-info'
+import { CardMedia } from './card-media'
 import { commentsViewedAt } from '@/lib/new-comments'
 import { useRouter } from 'next/router'
 import { DownZap } from './dont-link-this'
@@ -130,6 +131,7 @@ export default function Item ({
             </Link>
             {item.url && !media && <ItemLink url={item.url} rel={item.rel} />}
           </div>
+          <CardMedia item={item} />
           {excerpt && <p className='item-excerpt'>{excerpt}</p>}
           <ItemInfo
             full={full} item={item}
