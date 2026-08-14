@@ -177,6 +177,29 @@ export async function getInitial (models, args, { me }) {
   }
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
+
+  // anon has no user row and never qualifies for free posting: they pay the
+  // flat fee x ANON_POST_FEE_MULTIPLIER directly (no spam escalation:
+  // ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0). Like the anon comment
+  // branch above, this must run BEFORE the user lookup.
+  if (me.id === USER_ID.anon) {
+    const fee = postingFeePiconeros(config) * feeMultiplier * BigInt(ANON_POST_FEE_MULTIPLIER)
+    const sub = await reserveFeeSubaddress(models, 'POSTING')
+    const moneroUri = buildMoneroUri(
+      [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
+      { description: 'StasherNews anon posting fee' }
+    )
+    return {
+      payInType: 'ITEM_CREATE',
+      userId: me.id,
+      piconeros: 0n,
+      moneroUri,
+      moneroSubaddressMajor: sub.major,
+      moneroSubaddressMinor: sub.minor,
+      beneficiaries
+    }
+  }
+
   const user = await models.user.findUnique({ where: { id: me.id } })
   if (!user) throw new GqlInputError('user not found')
 
@@ -210,17 +233,14 @@ export async function getInitial (models, args, { me }) {
   // Low-rep user OR established user who has exhausted the free-post quota:
   // reserve a rewards-wallet posting-fee subaddress and build the URI. The post
   // is created PENDING_FEE (invisible) until rewardsWalletObserver observes the
-  // fee and flips it to FEE_PAID. Anon posts pay the flat fee x
-  // ANON_POST_FEE_MULTIPLIER (no spam escalation: ANON_ITEM_SPAM_INTERVAL '0'
-  // -> item_spam returns 0).
+  // fee and flips it to FEE_PAID. (Anon posts are handled in the early-return
+  // branch above.)
   const baseFee = postingFeePiconeros(config) * feeMultiplier
-  const fee = me.id === USER_ID.anon
-    ? baseFee * BigInt(ANON_POST_FEE_MULTIPLIER)
-    : await escalatedFeePiconeros(models, {
-      parentId: null,
-      userId: me.id,
-      basePiconeros: baseFee
-    })
+  const fee = await escalatedFeePiconeros(models, {
+    parentId: null,
+    userId: me.id,
+    basePiconeros: baseFee
+  })
   const sub = await reserveFeeSubaddress(models, 'POSTING')
   const moneroUri = buildMoneroUri(
     [{ address: sub.address, amount: fee + uploadFeesPiconeros }],

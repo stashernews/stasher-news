@@ -60,8 +60,15 @@ async function main () {
       name: 'stan'
     }
   })
-  const anon = await prisma.user.findUnique({
-    where: { name: 'anon' }
+  // id 27 per USER_ID.anon (lib/constants.js); normally already seeded by the
+  // 20260821000000_seed_anon_user migration — the upsert is a safety net for
+  // fresh databases seeded before migrations run.
+  const anon = await prisma.user.upsert({
+    where: { name: 'anon' },
+    update: {},
+    create: {
+      name: 'anon'
+    }
   })
 
   const ad = await prisma.user.findUnique({
