@@ -37,20 +37,23 @@ import { safeEqual } from '@/lib/domains/auth'
 const prisma = new PrismaClient()
 
 export async function handleWebhook (req, res, models = prisma, monero = lwsClient) {
-  const token = req.headers && req.headers['x-lws-token']
+  const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {})
+
+  // monero-lws delivers the auth token in the JSON body ("token" field), not a
+  // header; keep x-lws-token as a compat fallback. Fail closed when neither matches.
+  const headerToken = req.headers && req.headers['x-lws-token']
   const expected = process.env.LWS_WEBHOOK_TOKEN
   if (!expected) {
     // Fail closed: an unconfigured token must never accept money-moving callbacks.
     // (Task 2's validator makes this unreachable in prod; this is the belt-and-suspenders.)
     if (process.env.NODE_ENV === 'production') return res.status(401).end()
     // dev convenience: no token configured -> open
-  } else if (!safeEqual(token, expected)) {
+  } else if (!safeEqual(headerToken, expected) && !safeEqual(body.token, expected)) {
     return res.status(401).end()
   }
 
   moneroWebhooksReceivedTotal.inc()
 
-  const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {})
   const { payment_id: paymentId, confirmations = 0, tx_info: txInfo = {} } = body
   const { tx_hash: txHash, block: height, amount } = txInfo
 

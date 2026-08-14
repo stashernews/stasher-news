@@ -45,32 +45,18 @@ export const FileUpload = forwardRef(({ children, className, onSelect, onUpload,
           return
         }
 
-        const form = new FormData()
-        Object.keys(data.getSignedPOST.fields).forEach(key => form.append(key, data.getSignedPOST.fields[key]))
-        form.append('Content-Type', file.type)
-        form.append('Cache-Control', 'max-age=31536000')
-        form.append('acl', 'public-read')
-        form.append('file', file)
-
-        const res = await fetch(data.getSignedPOST.url, {
-          method: 'POST',
-          body: form
-        })
-
-        if (!res.ok) {
-          // TODO make sure this is actually a helpful error message and does not expose anything to the user we don't want
+        try {
+          const { id, url } = await uploadToS3({
+            file,
+            signedPost: data?.getSignedPOST,
+            mediaUrl: MEDIA_URL
+          })
+          onSuccess?.({ ...variables, id, name: file.name, url, file })
+          resolve(id)
+        } catch (e) {
           onError?.({ ...variables, name: file.name, file })
-          reject(new Error(res.statusText))
-          return
+          reject(e)
         }
-
-        const url = `${MEDIA_URL}/${data.getSignedPOST.fields.key}`
-        // key is upload id in database
-        const id = data.getSignedPOST.fields.key
-        onSuccess?.({ ...variables, id, name: file.name, url, file })
-
-        console.log('resolve id', id)
-        resolve(id)
       }
 
       // img fire 'load' event while videos fire 'loadeddata'
@@ -130,6 +116,31 @@ export const FileUpload = forwardRef(({ children, className, onSelect, onUpload,
     </>
   )
 })
+
+export async function uploadToS3 ({ file, signedPost, fetchImpl = fetch, mediaUrl = MEDIA_URL }) {
+  if (!signedPost?.fields) {
+    throw new Error('upload signing failed: no signed POST returned')
+  }
+
+  const form = new FormData()
+  Object.keys(signedPost.fields).forEach(key => form.append(key, signedPost.fields[key]))
+  form.append('Content-Type', file.type)
+  form.append('Cache-Control', 'max-age=31536000')
+  form.append('acl', 'public-read')
+  form.append('file', file)
+
+  const res = await fetchImpl(signedPost.url, {
+    method: 'POST',
+    body: form
+  })
+
+  if (!res.ok) {
+    throw new Error(res.statusText || `upload failed with status ${res.status}`)
+  }
+
+  const id = signedPost.fields.key
+  return { id, url: `${mediaUrl}/${id}` }
+}
 
 // from https://stackoverflow.com/a/77472484
 const removeExifData = async (file) => {

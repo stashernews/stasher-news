@@ -11,7 +11,8 @@
               "HEAD"
           ],
           "AllowedOrigins": [
-              "http://localhost:3000"
+              "http://localhost:3000",
+              "https://stasher.news"
           ],
           "ExposeHeaders": []
       }

@@ -132,10 +132,23 @@ export const ServiceWorkerProvider = ({ children }) => {
       return
     }
 
+    // public/sw.js is emitted only by the InjectManifest build step; it is
+    // absent under `next dev`, where /sw.js 302-redirects to the 404 page and
+    // register() rejects with SecurityError ("The operation is insecure"). Skip
+    // registration in dev, and always swallow failures so a missing/inaccessible
+    // sw.js never surfaces as an unhandled rejection.
+    if (process.env.NODE_ENV !== 'production') {
+      return
+    }
+
     const wb = new Workbox('/sw.js', { scope: '/' })
-    wb.register().then(registration => {
-      setRegistration(registration)
-    })
+    wb.register()
+      .then(registration => {
+        setRegistration(registration)
+      })
+      .catch(err => {
+        console.warn('service worker registration failed:', err?.message ?? err)
+      })
   }, [])
 
   const contextValue = useMemo(() => ({

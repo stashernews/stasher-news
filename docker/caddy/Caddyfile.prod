@@ -15,12 +15,25 @@
 stasher.news {
 	encode zstd gzip
 
-	reverse_proxy app:3000 {
-		# preserve the original Host so proxy.js's getDomainMapping(host) sees
-		# the user-facing domain, not "app:3000"
-		header_up Host {host}
-		# Tell Next.js the browser-facing request was HTTPS, preserving the
-		# ALB-era X-Forwarded-Proto contract (Secure cookies, crypto.subtle)
-		header_up X-Forwarded-Proto https
+	# Media uploads: same-origin /uploads/* is reverse-proxied to the localstack
+	# S3 service so browsers can POST presigned uploads and GET objects over TLS
+	# without a second host (no mixed content, no extra DNS). The bucket name
+	# `uploads` is the s3 path-style prefix, so /uploads/<key> maps 1:1 to
+	# aws:4566/uploads/<key>. Presigned POST signatures are policy-based and
+	# host-agnostic, so proxying does not invalidate them.
+	@uploads path /uploads/*
+	handle @uploads {
+		reverse_proxy aws:4566
+	}
+
+	handle {
+		reverse_proxy app:3000 {
+			# preserve the original Host so proxy.js's getDomainMapping(host) sees
+			# the user-facing domain, not "app:3000"
+			header_up Host {host}
+			# Tell Next.js the browser-facing request was HTTPS, preserving the
+			# ALB-era X-Forwarded-Proto contract (Secure cookies, crypto.subtle)
+			header_up X-Forwarded-Proto https
+		}
 	}
 }

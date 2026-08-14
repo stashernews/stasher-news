@@ -267,6 +267,20 @@ test('skips token check when LWS_WEBHOOK_TOKEN is not set (dev default)', async 
   expect(res.status).toHaveBeenCalledWith(200)
 })
 
+test('accepts requests with the correct token delivered in the body (monero-lws callback format)', async () => {
+  process.env.LWS_WEBHOOK_TOKEN = 'test-secret'
+  const res = mockRes()
+  await handleWebhook({ body: { payment_id: 'unknown', token: 'test-secret' }, headers: {} }, res, mockModels())
+  expect(res.status).toHaveBeenCalledWith(200)
+})
+
+test('rejects requests with a wrong token in the body', async () => {
+  process.env.LWS_WEBHOOK_TOKEN = 'test-secret'
+  const res = mockRes()
+  await handleWebhook({ body: { payment_id: 'unknown', token: 'wrong' }, headers: {} }, res, mockModels())
+  expect(res.status).toHaveBeenCalledWith(401)
+})
+
 test('enqueues a checkStreak job for the recipient when a PENDING tip is claimed', async () => {
   const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, tipperId: 5, webhookEventId: 'evt-1', post: { userId: 999 }, recipientAccount: { ownerUserId: 99 } }
   const execRaw = jest.fn().mockResolvedValue(1)
