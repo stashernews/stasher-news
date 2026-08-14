@@ -1,3 +1,7 @@
+import { useMe } from './me'
+import VideoIcon from '@/svgs/video-on-fill.svg'
+import styles from './card-media.module.css'
+
 const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 // first imgproxyUrls key that is an embedded upload (MEDIA_URL/<id>), excluding
@@ -27,4 +31,30 @@ export function previewDisabled (me, entry) {
   if (me?.privates?.showImagesAndVideos === false) return true
   if (me?.privates?.imgproxyOnly && entry?.video) return true
   return false
+}
+
+export function CardMedia ({ item }) {
+  const { me } = useMe()
+  const key = pickUploadKey(item?.imgproxyUrls, item?.url)
+  if (!key) return null
+  const entry = item.imgproxyUrls[key]
+  if (previewDisabled(me, entry)) return null
+  const preview = buildPreview(entry)
+  if (!preview) return null
+  return (
+    <div className={styles.wrap}>
+      <img
+        className={styles.img}
+        src={preview.src}
+        srcSet={preview.srcSet}
+        alt=''
+        loading='lazy'
+        decoding='async'
+        style={preview.aspectRatio ? { aspectRatio: preview.aspectRatio } : undefined}
+      />
+      {preview.isVideo && (
+        <span className={styles.badge}><VideoIcon className='fill-white' /></span>
+      )}
+    </div>
+  )
 }
