@@ -131,7 +131,6 @@ export default function Item ({
             </Link>
             {item.url && !media && <ItemLink url={item.url} rel={item.rel} />}
           </div>
-          <CardMedia item={item} />
           {excerpt && <p className='item-excerpt'>{excerpt}</p>}
           <ItemInfo
             full={full} item={item}
@@ -139,6 +138,7 @@ export default function Item ({
             pinnable={pinnable}
             {...props}
           />
+          {!full && <CardMedia item={item} onClick={(e) => onItemClick(e, router, item)} />}
           {belowTitle}
           {item.searchText && (
             <div className={styles.searchSnippet}>

@@ -114,6 +114,8 @@ describe('previewDisabled', () => {
 
 jest.mock(`${process.cwd()}/components/me`, () => ({ useMe: () => ({ me: mockMe }) }))
 jest.mock(`${process.cwd()}/svgs/video-on-fill.svg`, () => (props) => <svg {...props} data-testid='play-badge'><path d='play' /></svg>)
+// render Link as a plain anchor so clicks are testable without Next router state
+jest.mock('next/link', () => ({ href, children, ...props }) => <a href={href} {...props}>{children}</a>)
 
 // var (not let/const): jest.mock factories can only reference mock-prefixed
 // out-of-scope names; const/let would be in TDZ when the hoisted mock runs.
@@ -149,9 +151,9 @@ beforeEach(() => {
   container.innerHTML = ''
 })
 
-async function render (item) {
+async function render (item, props = {}) {
   const root = createRoot(container)
-  await act(async () => { root.render(<CardMedia item={item} />) })
+  await act(async () => { root.render(<CardMedia item={item} {...props} />) })
   return root
 }
 
@@ -195,6 +197,20 @@ describe('CardMedia render', () => {
     mockMe = { privates: { showImagesAndVideos: false } }
     const root = await render({ imgproxyUrls: upload() })
     expect(container.querySelector('img')).toBeNull()
+    await act(async () => { root.unmount() })
+  })
+
+  it('wraps the preview in a link to the post and forwards onClick', async () => {
+    const onClick = jest.fn()
+    const root = await render({ id: '42', imgproxyUrls: upload() }, { onClick })
+    const link = container.querySelector('a')
+    expect(link).toBeTruthy()
+    expect(link.getAttribute('href')).toBe('/items/42')
+    expect(link.getAttribute('aria-label')).toBe('view post 42')
+    await act(async () => {
+      link.dispatchEvent(new win.Event('click', { bubbles: true }))
+    })
+    expect(onClick).toHaveBeenCalledTimes(1)
     await act(async () => { root.unmount() })
   })
 })

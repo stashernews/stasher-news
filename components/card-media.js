@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { useMe } from './me'
 import VideoIcon from '@/svgs/video-on-fill.svg'
 import styles from './card-media.module.css'
@@ -35,7 +36,7 @@ export function previewDisabled (me, entry) {
   return false
 }
 
-export function CardMedia ({ item }) {
+export function CardMedia ({ item, onClick }) {
   const { me } = useMe()
   const key = pickUploadKey(item?.imgproxyUrls, item?.url)
   if (!key) return null
@@ -44,19 +45,26 @@ export function CardMedia ({ item }) {
   const preview = buildPreview(entry)
   if (!preview) return null
   return (
-    <div className={styles.wrap}>
-      <img
-        className={styles.img}
-        src={preview.src}
-        srcSet={preview.srcSet}
-        alt=''
-        loading='lazy'
-        decoding='async'
-        style={preview.aspectRatio ? { aspectRatio: preview.aspectRatio } : undefined}
-      />
-      {preview.isVideo && (
-        <span className={styles.badge} aria-hidden='true'><VideoIcon className='fill-white' /></span>
-      )}
-    </div>
+    <Link
+      href={`/items/${item.id}`}
+      onClick={onClick}
+      aria-label={item.title ?? `view post ${item.id}`}
+      className='d-block text-reset'
+    >
+      <div className={styles.wrap}>
+        <img
+          className={styles.img}
+          src={preview.src}
+          srcSet={preview.srcSet}
+          alt=''
+          loading='lazy'
+          decoding='async'
+          style={preview.aspectRatio ? { aspectRatio: preview.aspectRatio } : undefined}
+        />
+        {preview.isVideo && (
+          <span className={styles.badge} aria-hidden='true'><VideoIcon className='fill-white' /></span>
+        )}
+      </div>
+    </Link>
   )
 }
