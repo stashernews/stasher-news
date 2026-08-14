@@ -55,9 +55,13 @@ function xAxisName (when, from, to) {
   }
 }
 
-const transformData = data => {
+export const transformData = data => {
+  const names = [...new Set(data.flatMap(entry => entry.data.map(entry1 => entry1.name)))]
   return data.map(entry => {
     const obj = { time: entry.time }
+    names.forEach(name => {
+      obj[payTypeShortName(name)] = 0
+    })
     entry.data.forEach(entry1 => {
       obj[payTypeShortName(entry1.name)] = entry1.value
     })

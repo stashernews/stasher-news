@@ -9,7 +9,7 @@ import classNames from 'classnames'
 export function SubAnalyticsHeader ({ pathname = null }) {
   const router = useRouter()
 
-  const path = pathname || 'stackers'
+  const path = pathname || 'stashers'
 
   const select = async values => {
     const { sub, when, ...query } = values
