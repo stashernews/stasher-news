@@ -138,6 +138,15 @@ export async function uploadToS3 ({ file, signedPost, fetchImpl = fetch, mediaUr
     throw new Error(res.statusText || `upload failed with status ${res.status}`)
   }
 
+  // S3 never redirects a presigned POST and never returns HTML. A 2xx that was
+  // redirected or came back as text/html is a proxy misroute (e.g. the invite
+  // gate), not a real upload — reject so the editor surfaces an error instead
+  // of silently saving a dead image URL.
+  const contentType = res.headers.get('content-type') || ''
+  if (res.redirected || contentType.startsWith('text/html')) {
+    throw new Error('upload rejected: response was not from S3 (redirect or HTML)')
+  }
+
   const id = signedPost.fields.key
   return { id, url: `${mediaUrl}/${id}` }
 }

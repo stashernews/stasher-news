@@ -23,6 +23,18 @@ function readForm (body) {
   return entries
 }
 
+// minimal Response stand-in: only the fields uploadToS3 reads.contentType is
+// null for S3's empty 204 success; the gate page is text/html.
+function mockResponse ({ status = 204, statusText = '', redirected = false, contentType = null } = {}) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText,
+    redirected,
+    headers: { get: (name) => name.toLowerCase() === 'content-type' ? contentType : null }
+  }
+}
+
 // These tests pin the root-cause-#2 contract: the upload helper must SETTLE on
 // every path (reject by throwing), so the editor's ![Uploading …]() placeholder
 // is always swapped or cleared by the caller. Previously the network fetch and
@@ -52,7 +64,7 @@ describe('uploadToS3 — rejects on every failure path instead of hanging', () =
   })
 
   test('posts presigned fields + file and returns { id, url } on success', async () => {
-    const fetchImpl = jest.fn(() => Promise.resolve({ ok: true, status: 204 }))
+    const fetchImpl = jest.fn(() => Promise.resolve(mockResponse({ status: 204 })))
     const { id, url } = await uploadToS3({
       file: pngFile,
       signedPost,
@@ -72,5 +84,32 @@ describe('uploadToS3 — rejects on every failure path instead of hanging', () =
     expect(form['Cache-Control']).toBe('max-age=31536000')
     expect(form.acl).toBe('public-read')
     expect(form.file).toBe(pngFile)
+  })
+})
+
+// A misrouted upload (e.g. invite-gate 307 -> gate page) ends up as a 200 text/html
+// response after fetch follows the redirect. res.ok alone calls that success,
+// silently saving a dead image URL. These pin the contract that a response that
+// is not from S3 is rejected, so the editor surfaces a real error instead.
+describe('uploadToS3 — rejects misrouted responses (redirect / HTML), not just non-2xx', () => {
+  test('rejects when the POST was redirected (e.g. to the invite gate)', async () => {
+    const fetchImpl = jest.fn(() => Promise.resolve(
+      mockResponse({ status: 200, redirected: true, contentType: 'text/html; charset=utf-8' })))
+    await expect(uploadToS3({ file: pngFile, signedPost, fetchImpl }))
+      .rejects.toThrow('not from S3')
+  })
+
+  test('rejects a 200 HTML gate page even with no redirect', async () => {
+    const fetchImpl = jest.fn(() => Promise.resolve(
+      mockResponse({ status: 200, redirected: false, contentType: 'text/html; charset=utf-8' })))
+    await expect(uploadToS3({ file: pngFile, signedPost, fetchImpl }))
+      .rejects.toThrow('not from S3')
+  })
+
+  test('still accepts a genuine S3 2xx XML response (does not over-reject)', async () => {
+    const fetchImpl = jest.fn(() => Promise.resolve(
+      mockResponse({ status: 200, redirected: false, contentType: 'application/xml' })))
+    await expect(uploadToS3({ file: pngFile, signedPost, fetchImpl, mediaUrl: 'https://stasher.news/uploads' }))
+      .resolves.toEqual({ id: '42', url: 'https://stasher.news/uploads/42' })
   })
 })
