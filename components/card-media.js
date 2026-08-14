@@ -7,7 +7,8 @@ const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 // first imgproxyUrls key that is an embedded upload (MEDIA_URL/<id>), excluding
 // the link-post url. Reads env at call time so tests are deterministic.
 export function pickUploadKey (imgproxyUrls, itemUrl) {
-  const re = new RegExp(`^${escapeRe(process.env.NEXT_PUBLIC_MEDIA_URL ?? '')}/([0-9]+)$`)
+  const mediaUrl = process.env.NEXT_PUBLIC_MEDIA_URL || `https://${process.env.NEXT_PUBLIC_MEDIA_DOMAIN}`
+  const re = new RegExp(`^${escapeRe(mediaUrl)}/([0-9]+)$`)
   return Object.keys(imgproxyUrls ?? {})
     .find(k => k !== itemUrl && re.test(k))
 }
@@ -16,6 +17,7 @@ export function pickUploadKey (imgproxyUrls, itemUrl) {
 export function buildPreview (entry, { imgproxyUrl } = {}) {
   if (!entry?.['640w']) return null
   const base = imgproxyUrl || process.env.NEXT_PUBLIC_IMGPROXY_URL
+  if (!base) return null
   const src = new URL(entry['640w'], base).href
   const preview = { src, isVideo: !!entry.video }
   if (entry['960w']) {
@@ -53,7 +55,7 @@ export function CardMedia ({ item }) {
         style={preview.aspectRatio ? { aspectRatio: preview.aspectRatio } : undefined}
       />
       {preview.isVideo && (
-        <span className={styles.badge}><VideoIcon className='fill-white' /></span>
+        <span className={styles.badge} aria-hidden='true'><VideoIcon className='fill-white' /></span>
       )}
     </div>
   )

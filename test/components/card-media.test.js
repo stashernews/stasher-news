@@ -33,6 +33,27 @@ describe('pickUploadKey', () => {
     expect(pickUploadKey({ 'https://imgur.com/a.png': {} }, undefined)).toBeUndefined()
     expect(pickUploadKey(undefined, undefined)).toBeUndefined()
   })
+
+  // prod sets only NEXT_PUBLIC_MEDIA_DOMAIN (see .env.production); the upload
+  // regex must fall back to it the same way lib/constants.js does
+  it('picks uploads keyed by the MEDIA_DOMAIN fallback when MEDIA_URL is unset', () => {
+    const prevMediaUrl = process.env.NEXT_PUBLIC_MEDIA_URL
+    const prevMediaDomain = process.env.NEXT_PUBLIC_MEDIA_DOMAIN
+    delete process.env.NEXT_PUBLIC_MEDIA_URL
+    process.env.NEXT_PUBLIC_MEDIA_DOMAIN = 'm.stasher.news'
+    try {
+      const urls = {
+        'https://m.stasher.news/42': {},
+        'https://external.example.com/1.png': {}
+      }
+      expect(pickUploadKey(urls, undefined)).toBe('https://m.stasher.news/42')
+    } finally {
+      if (prevMediaUrl === undefined) delete process.env.NEXT_PUBLIC_MEDIA_URL
+      else process.env.NEXT_PUBLIC_MEDIA_URL = prevMediaUrl
+      if (prevMediaDomain === undefined) delete process.env.NEXT_PUBLIC_MEDIA_DOMAIN
+      else process.env.NEXT_PUBLIC_MEDIA_DOMAIN = prevMediaDomain
+    }
+  })
 })
 
 describe('buildPreview', () => {
