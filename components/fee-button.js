@@ -56,17 +56,17 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
       }
     }
     if (commentFee <= 0n) return { ...anonCharge }
-    const commentMultiplier = subs.length === 0 ? 1 : nonOwnedSubs.length
-    const scaledCommentFee = commentFee * BigInt(commentMultiplier)
-    if (scaledCommentFee <= 0n) return { ...anonCharge }
+    // the comment fee is FLAT: a replier's cost never scales with how many
+    // turfs the root post's author chose to post to (ownerFree above already
+    // waived it when the replier owns every turf in the thread)
     return {
       commentFee: {
-        term: `+ ${piconerosToXmr(scaledCommentFee)}`,
-        label: commentMultiplier > 1 ? `comment fee \u00d7 ${commentMultiplier} turfs` : 'comment fee',
+        term: `+ ${piconerosToXmr(commentFee)}`,
+        label: 'comment fee',
         // base line so the itemRepetition multiplier (op '*') scales it
         // server-side too: 0.001 x 10^n (sortHelper runs _ first, then * and /)
         op: '_',
-        modifier: () => Number(scaledCommentFee / 1000n),
+        modifier: () => Number(commentFee / 1000n),
         allowFreebies: false,
         isComment: comment
       },

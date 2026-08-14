@@ -517,7 +517,7 @@ describe('getInitial — turf-owner fee waiver', () => {
     expect(result.moneroUri).toContain('tx_amount=0.02')
   })
 
-  test('a comment past quota in a 2-non-owned-turf thread charges 0.002 XMR', async () => {
+  test('a comment past quota in a 2-non-owned-turf thread charges the flat 0.001 XMR fee', async () => {
     const userId = await createUser()
     const otherId = await createUser()
     await ensureFeeConfig()
@@ -539,7 +539,56 @@ describe('getInitial — turf-owner fee waiver', () => {
     created.items.push(rootId)
     const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: userId } })
     expect(result.moneroUri).toMatch(/^monero:/)
-    expect(result.moneroUri).toContain('tx_amount=0.002')
+    expect(result.moneroUri).toContain('tx_amount=0.001')
+  })
+
+  // --- the comment fee is flat: it never scales with the root post's turfs ---
+  // (only top-level posts pay per non-owned turf; a replier's cost must not
+  // depend on how many turfs the AUTHOR chose to post to)
+  test('a comment past quota in a mixed (1 owned + 1 non-owned) turf thread charges the flat 0.001 XMR fee', async () => {
+    const ownerId = await createUser()
+    const otherId = await createUser()
+    await ensureFeeConfig()
+    await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 15 WHERE id = ${ownerId}::int`
+    const owned = `mixc-owned-${ownerId}-${Date.now()}`
+    const notOwned = `mixc-other-${ownerId}-${Date.now()}`
+    await prisma.sub.create({ data: { name: owned, userId: ownerId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    await prisma.sub.create({ data: { name: notOwned, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    created.subs.push(owned, notOwned)
+    const rootRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", title, "created_at")
+      VALUES (${otherId}::int, ${'mixed turf root'}, now())
+      RETURNING id::int AS id`
+    const rootId = rootRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId)}::ltree WHERE id = ${rootId}::int`
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: owned } })
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: notOwned } })
+    created.items.push(rootId)
+    const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: ownerId } })
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(result.moneroUri).toContain('tx_amount=0.001')
+  })
+
+  test('an anon comment in a 2-non-owned-turf thread pays the flat 0.003 XMR fee (x3 anon, no turf scaling)', async () => {
+    await ensureFeeConfig()
+    const otherId = await createUser()
+    const a = `anonc-a-${Date.now()}`
+    const b = `anonc-b-${Date.now()}`
+    await prisma.sub.create({ data: { name: a, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    await prisma.sub.create({ data: { name: b, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    created.subs.push(a, b)
+    const rootRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", title, "created_at")
+      VALUES (${otherId}::int, ${'anon two-turf root'}, now())
+      RETURNING id::int AS id`
+    const rootId = rootRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId)}::ltree WHERE id = ${rootId}::int`
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: a } })
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: b } })
+    created.items.push(rootId)
+    const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: USER_ID.anon } })
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(result.moneroUri).toContain('tx_amount=0.003') // 0.001 x 3 anon — not x2 turfs
   })
 })
 

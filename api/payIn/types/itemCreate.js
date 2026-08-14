@@ -78,11 +78,15 @@ export async function getInitial (models, args, { me }) {
     return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
   }
 
-  // StasherNews per-turf-scaled fee: the posting/comment fee is the flat floor
+  // StasherNews per-turf-scaled POST fee: the posting fee is the flat floor
   // × the number of target turfs the author does NOT own. Owned turfs are free.
-  // When ALL target turfs are owned the post is free (no fee subaddress). When
-  // no turfs are resolved (empty subNames — defensive/legacy) the multiplier is
-  // 1, preserving the original flat-fee behavior.
+  // COMMENT fees are FLAT: a replier's cost never scales with how many turfs
+  // the thread's author chose to post to. The per-turf count still gates the
+  // owner-free waiver below (a reply is free only when the replier owns ALL
+  // turfs the root post is in). When ALL target turfs are owned the item is
+  // free (no fee subaddress). When no turfs are resolved (empty subNames —
+  // defensive/legacy) the multiplier is 1, preserving the original flat-fee
+  // behavior.
   const itemSubs = await getSubs(models, { subNames: args.subNames, parentId: args.parentId })
   const feeMultiplier = itemSubs.length === 0 ? 1n : BigInt(countNonOwnedSubs(itemSubs, me.id))
 
@@ -110,14 +114,15 @@ export async function getInitial (models, args, { me }) {
     // StasherNews comment fee (spec §6.2): comments are free while the author has
     // freebies left (15/month for all users); beyond the quota each comment costs
     // the flat comment fee (postingFeeFloorPiconeros) to the platform rewards
-    // wallet, observed by the rewardsWalletObserver like the posting fee. Anon comments
+    // wallet, observed by the rewardsWalletObserver like the posting fee. The fee
+    // is FLAT — it never scales with the root post's turfs. Anon comments
     // pay the comment fee x ANON_COMMENT_FEE_MULTIPLIER.
     if (me.id === USER_ID.anon) {
       // anon has no freebie quota and pays the comment fee x ANON_COMMENT_FEE_MULTIPLIER.
       // No spam escalation: ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0.
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       if (!config) throw new GqlInputError('fee config not initialized')
-      const fee = postingFeePiconeros(config) * feeMultiplier * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
+      const fee = postingFeePiconeros(config) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
       const sub = await reserveFeeSubaddress(models, 'POSTING')
       const moneroUri = buildMoneroUri(
         [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
@@ -158,7 +163,7 @@ export async function getInitial (models, args, { me }) {
     const fee = await escalatedFeePiconeros(models, {
       parentId: args.parentId,
       userId: me.id,
-      basePiconeros: postingFeePiconeros(config) * feeMultiplier
+      basePiconeros: postingFeePiconeros(config)
     })
     const sub = await reserveFeeSubaddress(models, 'POSTING')
     const moneroUri = buildMoneroUri(

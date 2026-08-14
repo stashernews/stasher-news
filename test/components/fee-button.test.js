@@ -142,6 +142,29 @@ describe('postCommentBaseLineItems — turf owners (subs)', () => {
     expect(lines.postingFee.label).toBe('posting fee')
   })
 
+  test('a comment past quota with 2 non-owned turfs shows the flat comment fee (no turf scaling)', () => {
+    const lines = postCommentBaseLineItems({
+      comment: true,
+      me: { id: 1, privates: { freeCommentsLeft: 0, commentFeePiconeros: 1000000000 } },
+      subs: [{ name: 'a', userId: 2 }, { name: 'b', userId: 3 }]
+    })
+    expect(Object.keys(lines)).toEqual(['commentFee'])
+    expect(lines.commentFee.term).toBe('+ 0.001 XMR')
+    expect(lines.commentFee.label).toBe('comment fee')
+    expect(piconerosToXmr(BigInt(lines.commentFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+  })
+
+  test('a comment past quota in a mixed (1 owned + 1 non-owned) turf thread shows the flat comment fee', () => {
+    const lines = postCommentBaseLineItems({
+      comment: true,
+      me: { id: 1, privates: { freeCommentsLeft: 0, commentFeePiconeros: 1000000000 } },
+      subs: [{ name: 'mine', userId: 1 }, { name: 'yours', userId: 2 }]
+    })
+    expect(Object.keys(lines)).toEqual(['commentFee'])
+    expect(lines.commentFee.term).toBe('+ 0.001 XMR')
+    expect(lines.commentFee.label).toBe('comment fee')
+  })
+
   test('bios stay free regardless of subs', () => {
     const lines = postCommentBaseLineItems({
       bio: true,
