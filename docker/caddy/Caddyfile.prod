@@ -38,3 +38,11 @@ stasher.news {
 		}
 	}
 }
+
+# Image rendering host. Client-rendered image URLs carry an imgproxy path prefix
+# (NEXT_PUBLIC_IMGPROXY_URL); stored paths are root-relative, so they map 1:1
+# onto this host. Cert is issued via the global Let's Encrypt automation above.
+media.stasher.news {
+	encode zstd gzip
+	reverse_proxy imgproxy:8080
+}
