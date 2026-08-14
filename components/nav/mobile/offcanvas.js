@@ -63,7 +63,7 @@ export default function OffCanvas ({ me, dropNavKey }) {
                   </Dropdown.Item>
                   <Dropdown.Item as={Link} href='/statistics' eventKey='statistics'>Statistics</Dropdown.Item>
                   <Dropdown.Divider />
-                  <Dropdown.Item as={Link} href='/invites' eventKey='invites'>invites</Dropdown.Item>
+                  <Dropdown.Item as={Link} href='/referrals/day' eventKey='referrals'>referrals</Dropdown.Item>
                   <Dropdown.Divider />
                   <div className='d-flex align-items-center'>
                     <Dropdown.Item as={Link} href='/settings' eventKey='settings'>settings</Dropdown.Item>
