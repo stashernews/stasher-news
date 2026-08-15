@@ -78,6 +78,15 @@ let coinUserId
 beforeAll(async () => {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
   coinUserId = rows[0].id
+  // The COIN lifecycle test resolves the tip recipient via
+  // (SELECT id FROM "MoneroAccount" LIMIT 1) — on a fresh CI database no
+  // account exists yet and that subquery returns NULL, failing the insert's
+  // NOT NULL constraint. Seed one for our user (afterAll already deletes
+  // MoneroAccount rows by ownerUserId). Mirrors the FLAME test's own-account
+  // pattern below.
+  await prisma.$executeRaw`
+    INSERT INTO "MoneroAccount" ("ownerUserId", "address", "label", "network")
+    VALUES (${coinUserId}::int, 'test-coin-addr-' || gen_random_uuid()::text, 'author', 'STAGENET'::"Network")`
 })
 
 afterAll(async () => {

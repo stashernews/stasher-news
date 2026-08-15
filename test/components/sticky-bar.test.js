@@ -63,6 +63,15 @@ jest.mock(`${process.cwd()}/components/form`, () => ({
   SubmitButton: 'button',
   CopyButton: 'button'
 }))
+// NavRewards runs a real useQuery; with no ApolloProvider in this node-env
+// harness that throws Apollo invariant 28. With no data the real component
+// renders null anyway (its `if (!total) return null`), so stub it to null —
+// identical data-less output, no client needed. The module's other exports
+// stay REAL (they are the parity surface these tests exercise).
+jest.mock(`${process.cwd()}/components/nav/common`, () => {
+  const actual = jest.requireActual(`${process.cwd()}/components/nav/common`)
+  return { ...actual, NavRewards: () => null }
+})
 // lib/auth pulls in next-auth/jwt -> uuid (ESM-only under jest CJS require);
 // the nav graph only uses its cookie helpers, so mock it at the module boundary
 jest.mock(`${process.cwd()}/lib/auth`, () => ({

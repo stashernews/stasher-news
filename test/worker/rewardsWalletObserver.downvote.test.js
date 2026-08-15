@@ -134,7 +134,10 @@ test('rewardsWalletObserver ignores an unknown payment_id (no ObservedDownvote, 
   await expect(
     runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsDownvoteTx('a7' + 'ef'.repeat(31), 'unknownpid00000000', 1_000_000_000n)] })
   ).resolves.toBeUndefined()
-  expect(await prisma.observedDownvote.count()).toBe(0)
+  // scoped to THIS tx's payment_id: a global count() is broken by parallel
+  // suites' ObservedDownvote fixtures on the shared dev DB (leaked residue
+  // from raced cleanups once failed this test spuriously)
+  expect(await prisma.observedDownvote.count({ where: { paymentId: 'unknownpid00000000' } })).toBe(0)
 })
 
 test('rewardsWalletObserver applies a LOG-scaled weightedDownVotes delta when the downvoter has territory trust', async () => {

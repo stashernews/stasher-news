@@ -257,7 +257,10 @@ describe('topSubs reads live observations', () => {
     // Import the schema's typeDefs and assert revenue is absent from SubOptional.
     // (Kept lightweight: a string check on the printed typeDef source.)
     const { readFileSync } = require('fs')
-    const src = readFileSync('/app/api/typeDefs/sub.js', 'utf8')
+    const path = require('path')
+    // resolve relative to this test file so the suite works on CI (repo at
+    // /home/runner/work/...) and in the dev container (/app) alike
+    const src = readFileSync(path.resolve(__dirname, '../../../api/typeDefs/sub.js'), 'utf8')
     expect(src).not.toMatch(/revenue\s*\(/)
   })
 

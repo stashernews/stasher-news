@@ -9,8 +9,19 @@ const createJestConfig = nextJest({ dir: './' })
 // so it is removed — payIn-type unit tests now run in the default suite.
 // The stagenet E2E suite under `test/integration/` is opt-in via
 // RUN_STAGENET_INTEGRATION=1; by default those files are not even collected.
+// The webhook load test under `test/load/` needs the LIVE compose stack (it
+// POSTs to http://app:3000 and consumes real PENDING tips from the DB) —
+// opt-in via RUN_WEBHOOK_LOAD=1, mirroring the stagenet gate.
 module.exports = createJestConfig({
   testPathIgnorePatterns: process.env.RUN_STAGENET_INTEGRATION === '1'
     ? []
-    : ['<rootDir>/test/integration/']
+    : process.env.RUN_WEBHOOK_LOAD === '1'
+      ? ['<rootDir>/test/integration/']
+      : ['<rootDir>/test/integration/', '<rootDir>/test/load/'],
+  // uuid@14 is ESM-only; next-auth v4 CJS-requires it inside jest's sandbox
+  // (ERR_REQUIRE_ESM). No first-party code imports uuid, so redirect every
+  // require('uuid') to a CJS shim. See test/helpers/uuid-shim.js.
+  moduleNameMapper: {
+    '^uuid$': '<rootDir>/test/helpers/uuid-shim.js'
+  }
 })

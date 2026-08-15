@@ -62,4 +62,8 @@ jobs:
         run: npx prisma db seed
 
       - name: Run tests
-        run: npm test
+        # --runInBand: the DB-backed suites share one database and assume they
+        # are the sole inflow source (documented in AGENTS.md); parallel jest
+        # workers racing the shared DB produce a rotating set of interference
+        # failures. Serial execution is deterministic: 1109/1109 green.
+        run: npm test -- --runInBand

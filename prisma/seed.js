@@ -230,7 +230,27 @@ async function main () {
     }
   })
 
-  addComments([bigCommentPost.id], 200, [stasher.id, anon.id, satoshi.id, greg.id, stan.id], 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.')
+  // awaited: fire-and-forget here raced main()'s finally($disconnect) against the
+  // 200 in-flight comment inserts — prisma's disconnect-retry then produced phantom
+  // unique-(id) violations (nondeterministic seed failures on fresh databases)
+  await addComments([bigCommentPost.id], 200, [stasher.id, anon.id, satoshi.id, greg.id, stan.id], 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.')
+
+  // Migrations seed fixed-id rows (users 27=anon, 616=stasher, ...) with
+  // explicit ids, which does NOT advance the id sequences. On a fresh
+  // database the serial then hands out already-taken ids (first collision:
+  // users id 27) and any serial-assigned insert fails with 23505. Resync
+  // each table's `<table>_id_seq` to MAX(id) so fresh-DB inserts work. (Dev
+  // databases get this implicitly from organic insert traffic over time.)
+  // Identifiers come from the pg_tables catalog (not user input) and are
+  // quoted; tables without the sequence or an id column are skipped.
+  const tables = await prisma.$queryRaw`
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public'`
+  for (const { tablename } of tables) {
+    const safe = tablename.replace(/"/g, '""')
+    await prisma.$executeRawUnsafe(
+      `SELECT setval('"${safe}_id_seq"', (SELECT MAX(id) FROM "${safe}"))`
+    ).catch(() => {}) // no <table>_id_seq or no id column — nothing to resync
+  }
 }
 main()
   .catch(e => {
