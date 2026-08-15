@@ -15,6 +15,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { runRewardsWalletObserverOnce, findRewardsAccount } from '@/worker/rewardsWalletObserver'
+import { sweepFakeRewardsWallets } from '../helpers/sweepRewardsWallets'
 
 const prisma = new PrismaClient()
 
@@ -24,6 +25,7 @@ const created = { users: [], items: [], accounts: [], viewKeys: [], payIns: [], 
 let rewardsWallet
 
 beforeAll(async () => {
+  await sweepFakeRewardsWallets(['5Bare' + 'B'.repeat(91), '5Keyd' + 'C'.repeat(91), REWARDS_ADDR])
   rewardsWallet = await prisma.moneroAccount.create({
     data: { ownerUserId: null, address: REWARDS_ADDR, label: 'platform_rewards', network: 'STAGENET', status: 'ACTIVE' }
   })
@@ -47,6 +49,7 @@ afterAll(async () => {
   for (const id of created.viewKeys) await prisma.moneroViewKey.deleteMany({ where: { id } })
   for (const id of created.accounts) await prisma.moneroAccount.deleteMany({ where: { id } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
+  await sweepFakeRewardsWallets(['5Bare' + 'B'.repeat(91), '5Keyd' + 'C'.repeat(91), REWARDS_ADDR])
   await prisma.$disconnect()
 })
 

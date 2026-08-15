@@ -11,6 +11,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { feePoolLevels, topUpFeePoolIfLow, FEE_POOL_TOPUP_THRESHOLD } from '@/api/monero/feePoolDerive'
+import { sweepFakeRewardsWallets } from '../helpers/sweepRewardsWallets'
 
 const prisma = new PrismaClient()
 
@@ -19,6 +20,7 @@ const REWARDS_ADDR = '5RpnlTopUp' + 'A'.repeat(88) // unique stagenet placeholde
 let walletId
 
 beforeAll(async () => {
+  await sweepFakeRewardsWallets([REWARDS_ADDR])
   const acct = await prisma.moneroAccount.create({
     data: { ownerUserId: null, address: REWARDS_ADDR, label: 'platform_rewards', network: 'STAGENET', status: 'ACTIVE' }
   })
@@ -36,6 +38,7 @@ afterEach(async () => {
 afterAll(async () => {
   await prisma.subaddressIndex.deleteMany({ where: { accountId: walletId } })
   await prisma.moneroAccount.deleteMany({ where: { id: walletId } })
+  await sweepFakeRewardsWallets([REWARDS_ADDR])
   await prisma.$disconnect()
 })
 

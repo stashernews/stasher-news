@@ -18,6 +18,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import resolvers from '@/api/resolvers/monero'
+import { sweepFakeRewardsWallets } from '../../helpers/sweepRewardsWallets'
 
 process.env.VIEWKEY_MASTER_KEY = Buffer.from('a'.repeat(32)).toString('base64')
 process.env.MONERO_NETWORK = 'stagenet'
@@ -53,8 +54,12 @@ async function cleanupTracked () {
 }
 
 afterEach(cleanupTracked)
+beforeAll(async () => {
+  await sweepFakeRewardsWallets([REWARDS_ADDR])
+})
 afterAll(async () => {
   await cleanupTracked()
+  await sweepFakeRewardsWallets([REWARDS_ADDR])
   await prisma.$disconnect()
 })
 

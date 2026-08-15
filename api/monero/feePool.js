@@ -46,8 +46,12 @@ const FEE_TYPE_TO_MAJOR = {
 /** Resolve the platform_rewards wallet id for the active network. */
 export async function getRewardsWalletId (models = prisma) {
   const network = (process.env.MONERO_NETWORK || 'stagenet').toUpperCase()
+  // orderBy id asc pins resolution when >1 platform_rewards row exists (test
+  // residue on shared dev DBs) — same deterministic first-registered-wins
+  // convention as initiateTipCore's rewards-wallet lookup in api/resolvers/monero.js.
   const account = await models.moneroAccount.findFirst({
-    where: { label: 'platform_rewards', network }
+    where: { label: 'platform_rewards', network },
+    orderBy: { id: 'asc' }
   })
   if (!account) throw new Error('getRewardsWalletId: platform_rewards wallet not registered')
   return account.id

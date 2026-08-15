@@ -9,6 +9,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { reserveFeeSubaddress, getRewardsWalletId, REWARDS_POSTING_MAJOR, REWARDS_TERRITORY_MAJOR } from '@/api/monero/feePool'
+import { sweepFakeRewardsWallets } from '../../helpers/sweepRewardsWallets'
 
 process.env.MONERO_NETWORK = 'stagenet'
 
@@ -38,8 +39,24 @@ async function seedPool ({ major, count, startMinor = 1 }) {
 }
 
 beforeAll(async () => {
+  await sweepFakeRewardsWallets([REWARDS_ADDR])
+
+  // getRewardsWalletId resolves the platform_rewards wallet via a bare
+  // findFirst (lowest id in practice). The dev DB may already hold the real
+  // registered wallet (or another suite's row), so insert this suite's row
+  // with an id far below any existing account — mirroring monero.test.js's
+  // createRewardsWallet trick — for deterministic resolution. The -1000
+  // offset keeps us clear of monero.test.js's transient lowest-1 rows when
+  // both suites run in parallel jest workers.
+  const lowest = await prisma.moneroAccount.findFirst({ orderBy: { id: 'asc' } })
   const acct = await prisma.moneroAccount.create({
-    data: { label: 'platform_rewards', address: REWARDS_ADDR, network: 'STAGENET', status: 'ACTIVE' }
+    data: {
+      id: lowest ? lowest.id - 1000 : undefined,
+      label: 'platform_rewards',
+      address: REWARDS_ADDR,
+      network: 'STAGENET',
+      status: 'ACTIVE'
+    }
   })
   rewardsWalletId = acct.id
 })
@@ -54,6 +71,7 @@ afterEach(async () => {
 afterAll(async () => {
   await prisma.subaddressIndex.deleteMany({ where: { accountId: rewardsWalletId } })
   await prisma.moneroAccount.delete({ where: { id: rewardsWalletId } })
+  await sweepFakeRewardsWallets([REWARDS_ADDR])
   await prisma.$disconnect()
 })
 

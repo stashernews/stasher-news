@@ -16,6 +16,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import pay from '@/api/payIn/index'
+import { sweepFakeRewardsWallets } from '../helpers/sweepRewardsWallets'
 
 // `pay()` and `./lib/is` both import the `api/payIn/types` barrel, which pulls
 // `itemCreate`/`itemUpdate` -> `lib/lexical/server/mentions` -> the ESM-only
@@ -65,6 +66,9 @@ const created = {
 let result
 
 beforeAll(async () => {
+  // sweep our deterministic leaked placeholder (makeAddress seq 1 — the only
+  // seq that ever becomes an account row) from crashed prior runs
+  await sweepFakeRewardsWallets(['5' + '1111' + 'A'.repeat(90)])
   // 1. Test user (unique name so re-runs never collide on users.name_unique).
   const user = await prisma.user.create({ data: { name: 'payInEngineUser' + Date.now() } })
   created.user = user.id
@@ -158,6 +162,7 @@ afterAll(async () => {
   if (created.seededSubaddressId) {
     await prisma.subaddressIndex.deleteMany({ where: { id: created.seededSubaddressId } })
   }
+  await sweepFakeRewardsWallets(['5' + '1111' + 'A'.repeat(90)])
   if (created.rewardsAccountCreated) {
     await prisma.moneroAccount.deleteMany({ where: { id: created.rewardsAccountId } })
   }
