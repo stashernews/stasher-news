@@ -71,8 +71,16 @@ async function main () {
     }
   })
 
-  const ad = await prisma.user.findUnique({
-    where: { name: 'ad' }
+  // 'ad' is the ads bot account. Unlike anon there is no migration seeding
+  // it — the dev DB has it from legacy data, but a fresh CI database does
+  // not, and the ad-post create below null-derefs without it. Upsert keeps
+  // re-seeding a dev DB a no-op while making fresh-DB seeding self-contained.
+  const ad = await prisma.user.upsert({
+    where: { name: 'ad' },
+    update: {},
+    create: {
+      name: 'ad'
+    }
   })
 
   await prisma.item.create({

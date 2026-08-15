@@ -15,6 +15,16 @@ jobs:
       - name: Production build
         run: NODE_ENV=production npm run build
         env:
-          # minimal env so next.config.js EB/CDN branches don't crash CI
           NEXT_PUBLIC_URL: https://stasher.news
           SELF_URL: http://localhost:3000
+          # The pages-router build EXECUTES page modules during page-data
+          # collection (no getStaticProps exists, so nothing queries — but
+          # module-level clients still CONSTRUCT). Two singletons parse env
+          # at import time and throw on undefined values, so the build needs
+          # parseable dummies (they are never connected to):
+          #   lib/create-prisma.js   -> new URL(process.env.DATABASE_URL)
+          #   api/search/index.js    -> OpenSearch client node option
+          # (.env.production intentionally omits both; the VPS supplies real
+          # values via .env.local.)
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          OPENSEARCH_URL: http://localhost:9200
