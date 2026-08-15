@@ -78,7 +78,8 @@ jest.mock(`${process.cwd()}/lib/auth`, () => ({
   cookieOptions: () => ({ path: '/', maxAge: 2592000, httpOnly: false }),
   MULTI_AUTH_ANON: 'anonymous',
   MULTI_AUTH_POINTER: 'multi_auth.user-id',
-  MULTI_AUTH_LIST: 'multi_auth'
+  MULTI_AUTH_LIST: 'multi_auth',
+  parseMultiAuthListCookie: () => []
 }))
 // next/jest maps every .svg to a single shared fileMock module, so one generic
 // stub covers all svg imports (per-icon mock ids would collapse into the last

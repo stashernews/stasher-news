@@ -33,27 +33,40 @@ export default (req, res) => {
   cookies.push(cookie.serialize(MULTI_AUTH_JWT(userId), '', clearOptions))
 
   // update multi_auth cookie and check if there are more accounts available
-  const oldMultiAuth = req.cookies[MULTI_AUTH_LIST] ? b64Decode(req.cookies[MULTI_AUTH_LIST]) : undefined
+  let oldMultiAuth
+  try {
+    oldMultiAuth = req.cookies[MULTI_AUTH_LIST] ? b64Decode(req.cookies[MULTI_AUTH_LIST]) : undefined
+  } catch (err) {
+    // corrupt list cookie: treat as no next account — cleanup path clears it
+    oldMultiAuth = undefined
+  }
+  // valid JSON but not an account list — same corruption class
+  oldMultiAuth = Array.isArray(oldMultiAuth) ? oldMultiAuth : undefined
   const newMultiAuth = oldMultiAuth?.filter(({ id }) => id !== Number(userId))
   if (!oldMultiAuth || newMultiAuth?.length === 0) {
     // no next account available. cleanup: remove multi_auth + pointer cookie
     cookies.push(cookie.serialize(MULTI_AUTH_LIST, '', { ...clearOptions, httpOnly: false }))
     cookies.push(cookie.serialize(MULTI_AUTH_POINTER, '', { ...clearOptions, httpOnly: false }))
     res.setHeader('Set-Cookie', cookies)
-    res.status(204).end()
-    return
+    return res.status(204).end()
   }
   cookies.push(cookie.serialize(MULTI_AUTH_LIST, b64Encode(newMultiAuth), { ...cookieOptions, httpOnly: false }))
 
   const newUserId = newMultiAuth[0].id
   const newUserJWT = req.cookies[MULTI_AUTH_JWT(newUserId)]
+  // only overwrite the session when the pointed account's JWT actually
+  // exists — cookie.serialize(undefined) would write the literal 'undefined',
+  // which the server can never decrypt (500s on every session-resolving page)
+  const sessionCookies = newUserJWT
+    ? [cookie.serialize(SESSION_COOKIE, newUserJWT, cookieOptions)]
+    : []
   res.setHeader('Set-Cookie', [
     ...cookies,
     cookie.serialize(MULTI_AUTH_POINTER, newUserId, { ...cookieOptions, httpOnly: false }),
-    cookie.serialize(SESSION_COOKIE, newUserJWT, cookieOptions)
+    ...sessionCookies
   ])
 
-  res.status(302).end()
+  return res.status(302).end()
 }
 
 const b64Encode = obj => Buffer.from(JSON.stringify(obj)).toString('base64')

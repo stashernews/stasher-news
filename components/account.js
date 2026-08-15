@@ -5,10 +5,8 @@ import { UserListRow } from '@/components/user-list'
 import useCookie from '@/components/use-cookie'
 import Link from 'next/link'
 import AddIcon from '@/svgs/add-fill.svg'
-import { cookieOptions, MULTI_AUTH_LIST, MULTI_AUTH_POINTER } from '@/lib/auth'
+import { cookieOptions, MULTI_AUTH_LIST, MULTI_AUTH_POINTER, parseMultiAuthListCookie } from '@/lib/auth'
 import { useBranding } from '@/components/territory-branding'
-
-const b64Decode = str => Buffer.from(str, 'base64').toString('utf-8')
 
 export const nextAccount = async () => {
   const { status } = await fetch('/api/next-account', { method: 'POST', credentials: 'include' })
@@ -96,7 +94,7 @@ export const useIsLurker = () => {
 
 export const useAccounts = () => {
   const [listCookie] = useCookie(MULTI_AUTH_LIST)
-  return listCookie ? JSON.parse(b64Decode(listCookie)) : []
+  return parseMultiAuthListCookie(listCookie)
 }
 
 // parked-account chooser for the /login page: lists resumable accounts so a

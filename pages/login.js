@@ -7,7 +7,7 @@ import Login from '@/components/login'
 import { isExternal } from '@/lib/url'
 import { formatHost, parseSafeHost } from '@/lib/safe-url'
 import { COPY } from '@/lib/rebrand-copy'
-import { MULTI_AUTH_ANON, MULTI_AUTH_LIST, MULTI_AUTH_POINTER } from '@/lib/auth'
+import { multiAuthMiddleware, MULTI_AUTH_ANON, MULTI_AUTH_LIST, MULTI_AUTH_POINTER } from '@/lib/auth'
 import { getDomainBranding } from '@/lib/domains'
 
 export async function getServerSideProps ({ req, res, query: { callbackUrl, multiAuth = false, domain = null, error = null } }) {
@@ -20,7 +20,13 @@ export async function getServerSideProps ({ req, res, query: { callbackUrl, mult
     ? { subName: branding.subName, title: branding.title }
     : null
 
-  let session = await getServerSession(req, res, getAuthOptions(req))
+  // resolve the session the same way every other SSR page does (ssrApollo
+  // applies multiAuthMiddleware before getServerSession). Reading the raw
+  // session here lets /login|/signup disagree with auth-required pages when
+  // multi-auth cookies are stale, which redirect-loops them (e.g. the
+  // /signup <-> /referrals/day ping-pong)
+  const sessionReq = await multiAuthMiddleware(req, res)
+  let session = await getServerSession(sessionReq, res, getAuthOptions(sessionReq))
 
   // required to prevent infinite redirect loops if we switch to anon
   // but are on a page that would redirect us to /signup.
