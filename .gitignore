@@ -57,6 +57,7 @@ public/*-development.js
 .cache_ggshield
 docker-compose.*.yml
 !docker-compose.prod.yml
+!docker-compose.volumes.yml
 *.sql
 *.sql.gz
 !/prisma/migrations/*/*.sql

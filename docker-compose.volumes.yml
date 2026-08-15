@@ -1,0 +1,39 @@
+# Volume-wipe guard (compose fragment). Include in ANY deploy, dev or prod:
+#   docker compose -f docker-compose.yml -f docker-compose.volumes.yml [ -f docker-compose.prod.yml ] up -d
+#
+# Re-declares every stateful volume as external so `docker compose down --volumes`
+# (and volume prunes) can NEVER destroy data — compose refuses to remove
+# external volumes. The `name:` values are the real project-prefixed volume
+# names (project is `stashernews` per the name: field in docker-compose.yml);
+# they already exist on the VPS and this dev machine, so `up` treats them as
+# pre-existing. caddy_data/caddy_config stay unguarded deliberately (TLS certs
+# are re-issuable by Let's Encrypt).
+#
+# Dev-mode hotswap note: the base docker-compose.yml alone runs dev watch
+# commands and has NO wipe guard — always include this fragment on the VPS,
+# even while iterating in dev mode.
+volumes:
+  db:
+    name: stashernews_db
+    external: true
+  aws:
+    name: stashernews_aws
+    external: true
+  monerod:
+    name: stashernews_monerod
+    external: true
+  monerolws:
+    name: stashernews_monerolws
+    external: true
+  lws-keys:
+    name: stashernews_lws-keys
+    external: true
+  backups:
+    name: stashernews_backups
+    external: true
+  masterkey_backups:
+    name: stashernews_masterkey_backups
+    external: true
+  wal_archive:
+    name: stashernews_wal_archive
+    external: true

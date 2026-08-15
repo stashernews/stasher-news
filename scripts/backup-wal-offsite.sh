@@ -35,7 +35,11 @@ if [ "$needs_base" -eq 1 ]; then
   fi
 fi
 
-# Ship everything in the archive dir (rclone sync is idempotent on identical content)
-rclone sync "$WAL_ARCHIVE_DIR" "$RCLONE_REMOTE" --transfers 4 --checkers 8
+# Ship everything in the archive dir. `copy`, not `sync`: the B2 bucket has
+# Object Lock (14-day retention), and sync's remote deletions fail on locked
+# files. WAL segments are never deleted locally, and the daily base backup
+# replaces base/ in place — copy uploads the new version, the bucket's
+# lifecycle rule (90d) handles all retention.
+rclone copy "$WAL_ARCHIVE_DIR" "$RCLONE_REMOTE" --transfers 4 --checkers 8
 
 echo "$(date -u +%FT%TZ) wal offsite sync complete"
