@@ -109,16 +109,17 @@ function getCallbacks (req, res) {
         // if referrer exists, set on user
         // isNewUser doesn't work for nostr auth because we create the user before nextauth can
         // this means users can update their referrer if they don't have one, which is fine
-        if (req.cookies.sn_referrer && user?.id) {
-          const referrerData = await getReferrerData(req.cookies.sn_referrer, req.cookies.sn_referee_landing)
+        if (req.cookies.st_referrer && user?.id) {
+          const referrerData = await getReferrerData(req.cookies.st_referrer, req.cookies.st_referee_landing)
           if (referrerData?.referrerId && referrerData.referrerId !== parseInt(user?.id)) {
             // if user doesn't have a referrer, record it in the db
             const { count } = await prisma.user.updateMany({ where: { id: user.id, referrerId: null }, data: { referrerId: referrerData.referrerId } })
             if (count > 0) {
-              // if user has an associated landing, record it in the db
-              if (referrerData.type && referrerData.typeId) {
-                await prisma.oneDayReferral.create({ data: { ...referrerData, refereeId: user.id, landing: true } })
-              }
+              // record the landing; plain /r/<name> links have no content landing,
+              // so attribute the explicit referrer (REFERRAL, mirroring ssrApollo)
+              const type = referrerData.type || 'REFERRAL'
+              const typeId = referrerData.typeId || String(referrerData.referrerId)
+              await prisma.oneDayReferral.create({ data: { ...referrerData, type, typeId, refereeId: user.id, landing: true } })
               notifyReferral(referrerData.referrerId)
             }
           }
