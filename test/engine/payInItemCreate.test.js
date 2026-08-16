@@ -270,17 +270,17 @@ test('getInitial returns a x10 anon posting-fee URI for anonymous posts', async 
   expect(result.moneroSubaddressMajor).toBe(1)
 })
 
-// --- A-05: 10x spam-fee escalation (item_spam) is applied server-side ---
-test('getInitial escalates the posting fee x10 for a second root post within 10m', async () => {
+// --- A-05: 1.5x spam-fee escalation (item_spam) is applied server-side ---
+test('getInitial escalates the posting fee x1.5 for a second root post within 10m', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
   await createRootPost(userId) // 1 prior root post by this user -> item_spam(NULL, userId, '10m') = 1
   const result = await getInitial(prisma, {}, { me: { id: userId } })
   expect(result.moneroUri).toMatch(/^monero:/)
-  expect(result.moneroUri).toContain('tx_amount=0.01') // 0.001 x 10^1
+  expect(result.moneroUri).toContain('tx_amount=0.0015') // 0.001 x 1.5^1
 })
 
-test('getInitial escalates the comment fee x10 for a repeat reply within 10m', async () => {
+test('getInitial escalates the comment fee x1.5 for a repeat reply within 10m', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
   await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 15 WHERE id = ${userId}::int` // past quota
@@ -299,7 +299,7 @@ test('getInitial escalates the comment fee x10 for a repeat reply within 10m', a
   created.items.push(replyId)
   const result = await getInitial(prisma, { parentId: String(parentId) }, { me: { id: userId } })
   expect(result.moneroUri).toMatch(/^monero:/)
-  expect(result.moneroUri).toContain('tx_amount=0.01') // 0.001 x 10^1
+  expect(result.moneroUri).toContain('tx_amount=0.0015') // 0.001 x 1.5^1
 })
 
 // --- A-07: uploads over 10MB are charged on new posts ---

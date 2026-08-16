@@ -134,11 +134,11 @@ No. Turf founders earn no share of the fees generated in their turf. A share of 
 
 ### Why do I sometimes see higher fees?
 
-Fees are the same across all turfs, but they increase by 10x for repetitive posts and self-reply comments to prevent spam.
+Fees are the same across all turfs, but they increase by 1.5x for repetitive posts and self-reply comments to prevent spam.
 
-As an example, if it costs 0.001 XMR for a stasher to make a post, it will cost 0.01 XMR if they make a second post within 10 minutes of their first post. If they post a third time within 10 minutes of their first one, it will cost 0.1 XMR.
+As an example, if it costs 0.001 XMR for a stasher to make a post, it will cost 0.0015 XMR if they make a second post within 10 minutes of their first post. If they post a third time within 10 minutes of their first one, it will cost 0.0023 XMR.
 
-This 10x fee escalation continues until 10 minutes have elapsed, and will reset to the base fee when the stasher goes 10 minutes or more without posting or replying to themselves in a comment thread.
+This 1.5x fee escalation continues until 10 minutes have elapsed, and will reset to the base fee when the stasher goes 10 minutes or more without posting or replying to themselves in a comment thread.
 
 ### Are media uploads free?
 

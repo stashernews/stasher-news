@@ -5,7 +5,7 @@ import Info from './info'
 import styles from './fee-button.module.css'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
-import { ANON_COMMENT_FEE_MULTIPLIER, ANON_POST_FEE_MULTIPLIER, DEFAULT_POSTING_FEE_PICONEROS, FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
+import { ANON_COMMENT_FEE_MULTIPLIER, ANON_POST_FEE_MULTIPLIER, DEFAULT_POSTING_FEE_PICONEROS, FAST_POLL_INTERVAL_MS, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, SSR } from '@/lib/constants'
 import { piconerosToXmr } from '@/lib/format'
 import { useMe } from './me'
 import AnonIcon from '@/svgs/spy-fill.svg'
@@ -64,7 +64,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
         term: `+ ${piconerosToXmr(commentFee)}`,
         label: 'comment fee',
         // base line so the itemRepetition multiplier (op '*') scales it
-        // server-side too: 0.001 x 10^n (sortHelper runs _ first, then * and /)
+        // server-side too: 0.001 x 1.5^n (sortHelper runs _ first, then * and /)
         op: '_',
         modifier: () => Number(commentFee / 1000n),
         allowFreebies: false,
@@ -147,7 +147,7 @@ export function postCommentUseRemoteLineItems ({ parentId, subs = [] } = {}) {
 
     useEffect(() => {
       const repetition = data?.itemRepetition
-      // only show the x10^n line when a fee actually applies: a comment past the
+      // only show the x1.5^n line when a fee actually applies: a comment past the
       // freebie quota, or a low-rep post. Freebie comments (base 1) and free posts
       // must never be multiplied.
       const feeApplies = multiplier > 0 && (parentId
@@ -156,10 +156,13 @@ export function postCommentUseRemoteLineItems ({ parentId, subs = [] } = {}) {
       if (!repetition || !feeApplies) return setLine({})
       setLine({
         itemRepetition: {
-          term: <>x 10<sup>{repetition}</sup></>,
+          term: <>x 1.5<sup>{repetition}</sup></>,
           label: <>{repetition} {parentId ? 'repeat or self replies' : 'posts'} in 10m</>,
           op: '*',
-          modifier: (cost) => cost * Math.pow(10, repetition)
+          modifier: (cost) => cost * Math.pow(
+            Number(ITEM_SPAM_FEE_ESCALATION_NUMERATOR) / Number(ITEM_SPAM_FEE_ESCALATION_DENOMINATOR),
+            repetition
+          )
         }
       })
     }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.postingFeeRequired, multiplier])
