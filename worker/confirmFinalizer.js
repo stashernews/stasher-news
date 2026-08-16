@@ -1,10 +1,9 @@
 import { Prisma } from '@prisma/client'
 import { daemonClient } from '@/api/monero/daemonClient'
 import { lwsClient } from '@/api/monero/lwsClient'
+import { findRewardsAccount } from './rewardsWalletObserver'
 import { driveBountyFunding } from '@/api/monero/bountyFunding'
-import { BOSS_RETRY, CONFIRM_POLL_INTERVAL_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constants'
-import { alert } from '@/lib/alert'
-import { logError } from '@/lib/logger'
+import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { createReorgDetector } from '@/lib/reorgDetector'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 
@@ -44,13 +43,16 @@ import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 // It also backfills a NULL height (0-conf detection with all later callbacks
 // missed) by resolving the tx height from lws. See backfillNullBountyHeights.
 //
-// This module exports THREE things (mirrors worker/moneroIndexer.js):
+// This module exports FOUR things (mirrors worker/moneroIndexer.js):
 //   - runConfirmFinalizerOnce: the testable per-run core (no pg-boss). Takes
 //     injectable daemonClient + lwsClient so tests never touch the network.
 //   - backfillNullBountyHeights: the lws height-resolution helper for NULL-height
 //     DETECTED bounties (exported for unit testing).
-//   - confirmFinalizer: the pg-boss handler. Calls the core then self-requeues
-//     with startAfter = CONFIRM_POLL_INTERVAL_MS.
+//   - backfillNullObservationHeights: the lws height-resolution helper for
+//     NULL-height poll-detected DETECTED ObservedDownvote/FeeObservation rows
+//     (exported for unit testing).
+//   - confirmFinalizer: the pg-boss handler. Runs the core once; recurrence
+//     is cron-owned (pgboss.schedule row confirmFinalizer, every 60s).
 
 // Bounded batch so the job stays latency-bounded even if a large backlog of
 // DETECTED tips accrues (e.g. a long lws outage followed by catch-up). 500 is
@@ -70,6 +72,20 @@ const detectReorg = createReorgDetector()
 export async function runConfirmFinalizerOnce ({ models, daemonClient: client = daemonClient, detectReorg: detect = detectReorg, lwsClient: lws = lwsClient } = {}) {
   const chainHeight = await client.getHeight()
   detect(chainHeight)
+
+  // PASS 0 (backfill): resolve NULL heights for poll-detected DETECTED rows so
+  // the maturity passes below can see them (they filter height NOT NULL).
+  const nullHeightDownvotes = await models.observedDownvote.findMany({
+    where: { state: 'DETECTED', height: null },
+    take: SCAN_BATCH_SIZE
+  })
+  const nullHeightFees = await models.feeObservation.findMany({
+    where: { state: 'DETECTED', height: null },
+    take: SCAN_BATCH_SIZE
+  })
+  if (nullHeightDownvotes.length || nullHeightFees.length) {
+    await backfillNullObservationHeights({ models, lws, downvotes: nullHeightDownvotes, fees: nullHeightFees })
+  }
 
   // Mempool tips (height == null) carry no block height to confirm against, so
   // they are excluded here — they become eligible the moment lws reports them
@@ -245,22 +261,56 @@ export async function backfillNullBountyHeights ({ models, lws, bounties }) {
   }
 }
 
-// pg-boss handler. Runs one scan then self-requeues. The requeue uses the
-// codebase's plain boss.send(name, data, { startAfter }) convention (see
-// worker/moneroIndexer.js, worker/search.js). The initial seed in
-// worker/index.js carries a singletonKey guard so restarts cannot spawn
-// duplicate loops; the requeue deliberately omits it (mirrors moneroIndexer).
-export async function confirmFinalizer ({ boss, models }) {
-  // Run first, requeue only on success: a requeue sent from a FAILED run
-  // forks the chain (pg-boss retries this same job, whose success sends
-  // another requeue). On a run error just rethrow — the retry re-executes
-  // the whole handler, which re-sends on eventual success.
-  await runConfirmFinalizerOnce({ models })
+// Resolve NULL heights for poll-detected DETECTED rows (ObservedDownvote,
+// FeeObservation). The rewardsWalletObserver records these rows the moment lws
+// first reports a tx; if that report was a mempool-shaped row (height omitted —
+// structurally possible per the lwsClient parser), the maturity passes skip the
+// row forever (height: { not: null }) and nothing else backfills it. One
+// get_address_txs scan of the platform rewards account resolves every stranded
+// row on it, matched by txHash. Still-mempool txs (height null on lws too) are
+// left untouched and retry next run. Mirrors backfillNullBountyHeights.
+export async function backfillNullObservationHeights ({ models, lws, downvotes, fees }) {
+  if (!downvotes.length && !fees.length) return
+  const account = await findRewardsAccount(models)
+  // Unscannable account (view key wiped / INACTIVE) can't be queried — lws
+  // walletLogin would throw and abort the whole run. Skip; retry next run.
+  if (!account || !account.viewKey) return
+  let resp
   try {
-    await boss.send('confirmFinalizer', {}, { ...BOSS_RETRY, startAfter: CONFIRM_POLL_INTERVAL_MS / 1000 })
-  } catch (e) {
-    logError('confirmFinalizer requeue send failed', e)
-    alert('critical', 'confirmFinalizer requeue failed', String(e), { dedupeKey: 'confirmFinalizer-requeue' })
-    throw e // rethrow so pg-boss retries THIS run and the chain survives
+    resp = await lws.getAddressTxs(account, 0, null)
+  } catch (err) {
+    console.warn(`confirmFinalizer: lws observation height resolve failed for account ${account.id}: ${err && err.message}`)
+    return
   }
+  const byHash = new Map()
+  for (const tx of (resp.transactions || [])) {
+    if (tx.hash) byHash.set(String(tx.hash).toLowerCase(), tx)
+  }
+  for (const dv of downvotes) {
+    const tx = byHash.get(String(dv.txHash).toLowerCase())
+    if (tx && tx.height != null) {
+      await models.observedDownvote.update({
+        where: { id: dv.id },
+        data: { height: tx.height, confirmations: tx.confirmations ?? 0 }
+      })
+    }
+  }
+  for (const fee of fees) {
+    const tx = byHash.get(String(fee.txHash).toLowerCase())
+    if (tx && tx.height != null) {
+      await models.feeObservation.update({
+        where: { id: fee.id },
+        data: { height: tx.height, confirmations: tx.confirmations ?? 0 }
+      })
+    }
+  }
+}
+
+// pg-boss handler. Runs one scan per invocation; recurrence is cron-owned
+// (pgboss.schedule row confirmFinalizer, every 60s) — no self-requeue. The
+// one-shot seed in worker/index.js only covers an empty queue at boot.
+export async function confirmFinalizer ({ models }) {
+  // Recurrence is cron-owned (pgboss.schedule row confirmFinalizer); no
+  // self-requeue.
+  await runConfirmFinalizerOnce({ models })
 }

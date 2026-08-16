@@ -38,7 +38,8 @@ function makeModels ({ item = ITEM, config = CONFIG } = {}) {
 describe('downZap.getInitial', () => {
   test('returns piconeros 0n and a monero: URI carrying a 106-char integrated address', async () => {
     const models = makeModels()
-    const result = await getInitial(models, { id: POST_ID, piconeros: 1000000000n }, { me: ME })
+    const monero = { addWebhook: jest.fn().mockResolvedValue({ event_id: 'evt-1' }) }
+    const result = await getInitial(models, { id: POST_ID, piconeros: 1000000000n }, { me: ME, monero })
 
     expect(result.payInType).toBe('DOWNVOTE')
     expect(result.piconeros).toBe(0n)
@@ -52,7 +53,8 @@ describe('downZap.getInitial', () => {
   test('records a DownvotePidMap row with postId, userId, and a future expiresAt', async () => {
     const models = makeModels()
     const before = Date.now()
-    await getInitial(models, { id: POST_ID, piconeros: 1000000000n }, { me: ME })
+    const monero = { addWebhook: jest.fn().mockResolvedValue({ event_id: 'evt-1' }) }
+    await getInitial(models, { id: POST_ID, piconeros: 1000000000n }, { me: ME, monero })
     const after = Date.now()
 
     expect(models._created).toHaveLength(1)

@@ -46,6 +46,24 @@ function mockModels (overrides = {}) {
       update: jest.fn().mockResolvedValue({}),
       ...overrides.observedBounty
     },
+    // Downvote branch models: dv:-namespace pids fall through tip+bounty.
+    // Default to "no matching map" so existing tests stay 200 no-ops.
+    downvotePidMap: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      ...overrides.downvotePidMap
+    },
+    observedDownvote: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({}),
+      ...overrides.observedDownvote
+    },
+    // The downvote 0-conf path fetches the item via tx.item.findUnique with the
+    // models object doubling as the tx (see the downvote tests' $transaction
+    // stub); default to null = "no item, skip the penalty".
+    item: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      ...overrides.item
+    },
     $transaction: jest.fn(async (fn) => fn({
       observedTip: { update: txUpdate },
       user: { update: userUpdate },
@@ -62,7 +80,12 @@ function mockModels (overrides = {}) {
       platformFeeConfig: { findUnique: overrides.txConfigFind || jest.fn().mockResolvedValue({ bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }) },
       $executeRaw: execRaw,
       $queryRaw: queryRaw
-    }))
+    })),
+    // Top-level raw seams for the downvote branch's non-transactional claims
+    // (pid-map consume, CONFIRMED flip); share the tx mocks so call-count
+    // assertions stay uniform.
+    $executeRaw: execRaw,
+    $queryRaw: queryRaw
   }
 }
 
@@ -550,6 +573,116 @@ test('DETECTED->CONFIRMED does not credit the author when the conditional claim 
   expect(execRaw).toHaveBeenCalled()
   expect(userUpdate).not.toHaveBeenCalled() // race loser MUST NOT increment
   expect(res.status).toHaveBeenLastCalledWith(200)
+})
+
+// ---- downvote branch (dv: namespace via DownvotePidMap) ----
+
+const dvMap = { paymentId: 'bb82f32561ab78d1', postId: 572, userId: 860, webhookEventId: 'evt-1', consumedAt: null, expiresAt: new Date(Date.now() + 3600e3) }
+
+function dvBody (over = {}) {
+  return {
+    payment_id: 'bb82f32561ab78d1',
+    confirmations: 0,
+    tx_info: { tx_hash: 'd7553c1400000000000000000000000000000000000000000000000000000000', amount: '1000000000', ...over.txInfo },
+    ...over.extra
+  }
+}
+
+test('0-conf callback claims the live pid map, records DETECTED with NULL height, applies the penalty, consumes the map', async () => {
+  const models = mockModels({
+    downvotePidMap: { findUnique: jest.fn().mockResolvedValue(dvMap) },
+    observedDownvote: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
+    item: { findUnique: jest.fn().mockResolvedValue({ id: 572, parentId: null }) }
+  })
+  models.$executeRaw = jest.fn().mockResolvedValue(1) // pid-map claim wins
+  models.$transaction = jest.fn(async (fn) => fn(models))
+  models.$queryRaw = jest.fn().mockResolvedValue([{ id: 1n }]) // fresh ObservedDownvote insert
+  const monero = mockMonero()
+  const res = mockRes()
+
+  await handleWebhook({ body: dvBody(), headers: {} }, res, models, monero)
+
+  // The claim is a tagged-template $executeRaw (strings + values args), so
+  // assert on the recorded SQL via the harness's sqlOf pattern (the brief's
+  // "assert via the mock below if the harness records SQL differently").
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const sqls = models.$executeRaw.mock.calls.map(sqlOf)
+  expect(sqls.some(sql => sql.includes('UPDATE "DownvotePidMap"') && sql.includes('"consumedAt" IS NULL') && sql.includes('"expiresAt" > NOW()'))).toBe(true) // atomic live-map claim UPDATE
+  expect(models.observedDownvote.update).not.toHaveBeenCalled() // no height to backfill at 0-conf
+  expect(monero.deleteWebhook).not.toHaveBeenCalled()
+  expect(res.status).toHaveBeenCalledWith(200)
+})
+
+test('expired or consumed pid map is a 200 no-op (claim UPDATE matched 0 rows)', async () => {
+  const models = mockModels({
+    downvotePidMap: { findUnique: jest.fn().mockResolvedValue({ ...dvMap, consumedAt: new Date() }) },
+    observedDownvote: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() }
+  })
+  models.$executeRaw = jest.fn().mockResolvedValue(0) // claim loses
+  const res = mockRes()
+
+  await handleWebhook({ body: dvBody(), headers: {} }, res, models, mockMonero())
+
+  expect(models.$queryRaw).not.toHaveBeenCalled() // no insert, no penalty
+  expect(res.status).toHaveBeenCalledWith(200)
+})
+
+test('N-conf callback on an existing DETECTED row backfills height WITHOUT pid-map liveness (item-2808 lesson)', async () => {
+  const consumedMap = { ...dvMap, consumedAt: new Date() } // map already consumed — must not gate
+  const models = mockModels({
+    downvotePidMap: { findUnique: jest.fn().mockResolvedValue(consumedMap) },
+    observedDownvote: { findFirst: jest.fn().mockResolvedValue({ id: 1n, state: 'DETECTED', height: null }), update: jest.fn() }
+  })
+  models.$executeRaw = jest.fn()
+  const res = mockRes()
+
+  await handleWebhook({ body: dvBody({ txInfo: { block: 2186635 }, extra: { confirmations: 3 } }) }, res, models, mockMonero())
+
+  expect(models.observedDownvote.update).toHaveBeenCalledWith(expect.objectContaining({
+    data: expect.objectContaining({ height: 2186635, confirmations: 3 })
+  }))
+  expect(models.$executeRaw).not.toHaveBeenCalledWith(expect.anything()) // no CONFIRMED flip below threshold, no claim
+})
+
+test('N>=REQUIRED callback flips DETECTED -> CONFIRMED and deletes the webhook', async () => {
+  const models = mockModels({
+    downvotePidMap: { findUnique: jest.fn().mockResolvedValue(dvMap) },
+    observedDownvote: { findFirst: jest.fn().mockResolvedValue({ id: 1n, state: 'DETECTED', height: 2186635 }), update: jest.fn() }
+  })
+  models.$executeRaw = jest.fn().mockResolvedValue(1) // CONFIRMED claim wins
+  const monero = mockMonero()
+  const res = mockRes()
+
+  await handleWebhook({ body: dvBody({ extra: { confirmations: 10 } }) }, res, models, monero)
+
+  expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-1')
+  expect(res.status).toHaveBeenCalledWith(200)
+})
+
+test('0-conf race vs poll-insert: pid-map claim wins but the ObservedDownvote insert loses (conflict no-op)', async () => {
+  // Spec-mandated race case: the webhook's pid-map claim UPDATE wins (rowCount 1)
+  // while the observer poll already inserted the ObservedDownvote row, so the
+  // ON CONFLICT ("txHash","paymentId") DO NOTHING insert returns no row. The tx
+  // must return BEFORE the item fetch — no penalty side effects, no error, 200.
+  const models = mockModels({
+    downvotePidMap: { findUnique: jest.fn().mockResolvedValue(dvMap) },
+    observedDownvote: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
+    item: { findUnique: jest.fn().mockResolvedValue({ id: 572, parentId: null }) }
+  })
+  models.$executeRaw = jest.fn().mockResolvedValue(1) // pid-map claim WINS
+  models.$transaction = jest.fn(async (fn) => fn(models))
+  models.$queryRaw = jest.fn().mockResolvedValue([]) // insert lost the race: no RETURNING row
+  const monero = mockMonero()
+  const res = mockRes()
+
+  await handleWebhook({ body: dvBody(), headers: {} }, res, models, monero)
+
+  // The tx bailed before the item fetch: no penalty path ran (the models object
+  // doubles as the tx here, so tx.item.findUnique === models.item.findUnique).
+  expect(models.item.findUnique).not.toHaveBeenCalled()
+  expect(models.observedDownvote.update).not.toHaveBeenCalled()
+  expect(monero.deleteWebhook).not.toHaveBeenCalled()
+  expect(res.status).toHaveBeenCalledWith(200)
 })
 
 // --- auth-denial tests (Task 3 / C4) ---

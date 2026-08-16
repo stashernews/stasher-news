@@ -3,13 +3,9 @@ import {
   REWARDS_POSTING_MAJOR,
   FEE_MAJORS
 } from '@/api/monero/feePool'
-import { reverseMapPaymentId } from '@/api/monero/downvote'
+import { reverseMapPaymentId, applyDownvotePenalty } from '@/api/monero/downvote'
 import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
-import { BOSS_RETRY, MONERO_POLL_INTERVAL_MS } from '@/lib/constants'
-import { alert } from '@/lib/alert'
-import { logError } from '@/lib/logger'
 import { createReorgDetector } from '@/lib/reorgDetector'
-import { Prisma } from '@prisma/client'
 
 // rewardsWalletObserver — observes posting/territory fees AND downvote payments paid to
 // the platform rewards wallet (Phase 3 Task 5 + Phase 4 Task 4 / spec §3.3, §5.6,
@@ -34,7 +30,8 @@ import { Prisma } from '@prisma/client'
 //   - runRewardsWalletObserverOnce: the testable per-poll core (no pg-boss). Accepts a
 //     `txs` override so tests never touch the network.
 //   - rewardsWalletObserver: the pg-boss handler. Fetches txs via lwsClient, runs the
-//     core, advances the cursor, and self-requeues.
+//     core, and advances the cursor; recurrence is cron-owned (pgboss.schedule
+//     row rewardsWalletObserver).
 
 // One poll. `txs` is normally fetched from lws by the handler; tests pass it
 // directly. Returns nothing; effects are the FeeObservation/ObservedDownvote rows +
@@ -185,57 +182,6 @@ async function attributeTipByPaymentId (models, tx) {
   return rows[0].id
 }
 
-// Apply the LOG-scaled ranking penalty to the downvoted item and its ancestors.
-// Mirrors the legacy downZap.js onPaid SQL, ported from millisats to piconeros:
-// the ItemUserAgg.downvotePiconeros cumulative is cast ::BIGINT (not the legacy
-// ::INTEGER) so piconeros-scale amounts never overflow INT4. The LOG ratio gives
-// diminishing marginal weight: each additional piconero penalises less than the
-// last (standard SN ranking curve). weightedDownVotes uses the downvoter's
-// territory trust so a trusted curator's downvote counts more.
-async function applyDownvotePenalty (models, item, userId, piconeros) {
-  const itemId = item.id
-  const isComment = item.parentId != null
-  const trustCol = isComment ? Prisma.sql`"zapCommentTrust"` : Prisma.sql`"zapPostTrust"`
-  const subTrustCol = isComment ? Prisma.sql`"subZapCommentTrust"` : Prisma.sql`"subZapPostTrust"`
-
-  await models.$executeRaw`
-    WITH territory AS (
-      SELECT COALESCE(r."subNames"[1], i."subNames"[1], 'meta')::CITEXT as "subName"
-      FROM "Item" i
-      LEFT JOIN "Item" r ON r.id = i."rootId"
-      WHERE i.id = ${itemId}::INTEGER
-    ), zapper AS (
-      SELECT
-        COALESCE(${trustCol}, 0) as "zapTrust",
-        COALESCE(${subTrustCol}, 0) as "subZapTrust"
-      FROM territory
-      LEFT JOIN "UserSubTrust" ust ON ust."subName" = territory."subName"
-        AND ust."userId" = ${userId}::INTEGER
-    ), zap AS (
-      INSERT INTO "ItemUserAgg" ("userId", "itemId", "downvotePiconeros")
-      VALUES (${userId}::INTEGER, ${itemId}::INTEGER, ${piconeros}::BIGINT)
-      ON CONFLICT ("itemId", "userId") DO UPDATE
-      SET "downvotePiconeros" = "ItemUserAgg"."downvotePiconeros" + ${piconeros}::BIGINT, updated_at = now()
-      RETURNING LOG("downvotePiconeros"::FLOAT / GREATEST("downvotePiconeros" - ${piconeros}, 1)::FLOAT) AS log_sats
-    ), item_downzapped AS (
-      UPDATE "Item"
-      SET "weightedDownVotes" = "weightedDownVotes" + zapper."zapTrust" * zap.log_sats,
-          "subWeightedDownVotes" = "subWeightedDownVotes" + zapper."subZapTrust" * zap.log_sats,
-          "downPiconeros" = "downPiconeros" + ${piconeros}::BIGINT
-      FROM zap, zapper
-      WHERE "Item".id = ${itemId}::INTEGER
-      RETURNING "Item".*
-    )
-    UPDATE "Item"
-    SET "commentDownPiconeros" = "commentDownPiconeros" + ${piconeros}::BIGINT
-    FROM (
-      SELECT "Item".id FROM "Item", item_downzapped
-      WHERE "Item".path @> item_downzapped.path AND "Item".id <> item_downzapped.id
-      ORDER BY "Item".id
-    ) AS ancestors
-    WHERE "Item".id = ancestors.id`
-}
-
 function feeTypeFor (major, payInType) {
   if (major === REWARDS_POSTING_MAJOR) return 'POSTING'
   if (payInType === 'DONATE') return 'DONATE'
@@ -291,7 +237,8 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
 }
 
 // pg-boss handler. Fetches incremental txs for the rewards wallet, runs the
-// attribution core, advances the cursor, and self-requeues. The cursor uses the
+// attribution core, and advances the cursor. Recurrence is cron-owned
+// (pgboss.schedule row rewardsWalletObserver). The cursor uses the
 // same (lastTxId) forward dimension as moneroIndexer; full reorg reconciliation
 // for fees is deferred (a reorged fee re-appears in a later poll and the
 // idempotent FeeObservation insert handles it; confirmFinalizer gates finality).
@@ -303,9 +250,10 @@ const detectReorg = createReorgDetector()
 // Select the platform rewards account for polling. Deterministic AND
 // viewKey-gated: test suites (boost payIn, the observer suites themselves)
 // seed viewKey-less platform_rewards rows against the live DB; a bare
-// findFirst can pick one, viewKeyFor throws, and the job dies (failed,
-// retrylimit 0) with NO self-requeue — freezing ALL fee attribution until a
-// worker restart (observed live 2026-08-10: item 2755 stuck PENDING_FEE).
+// findFirst can pick one, viewKeyFor throws, and the job run dies failed (in
+// the old self-requeue era this froze ALL fee attribution until a worker
+// restart — observed live 2026-08-10: item 2755 stuck PENDING_FEE; under
+// cron-owned recurrence every tick would just fail the same way).
 // The viewKey filter excludes test rows outright; orderBy id asc matches the
 // repo's lookup convention (walletless plan Task 2).
 export async function findRewardsAccount (models) {
@@ -320,51 +268,35 @@ export async function findRewardsAccount (models) {
   })
 }
 
-export async function rewardsWalletObserver ({ boss, models, detectReorg: detect = detectReorg }) {
-  let runErr = null
-  try {
-    const account = await findRewardsAccount(models)
-    if (account) {
-      const resp = await lwsClient.getAddressTxs(account, account.lastTxId, account.lastBlockHash)
-      if (resp && typeof resp.blockchain_height === 'number') detect(resp.blockchain_height)
-      const txs = (resp && resp.transactions) || []
-      // bootstrapping filter: skip confirmed txs already behind the cursor. null
-      // lastTxId = nothing seen yet, so process the whole returned history (this
-      // is what lets a brand-new account's FIRST lws tx, which has id 0, through).
-      const fresh = txs.filter(t => t.height == null || typeof t.id !== 'number' || account.lastTxId == null || BigInt(t.id) > account.lastTxId)
-      await runRewardsWalletObserverOnce({ models, account, txs: fresh })
+export async function rewardsWalletObserver ({ models, detectReorg: detect = detectReorg }) {
+  // Recurrence is cron-owned (pgboss.schedule row rewardsWalletObserver); no
+  // self-requeue. A failed run is retried per the schedule options and the
+  // next cron tick re-creates the run either way.
+  const account = await findRewardsAccount(models)
+  if (account) {
+    const resp = await lwsClient.getAddressTxs(account, account.lastTxId, account.lastBlockHash)
+    if (resp && typeof resp.blockchain_height === 'number') detect(resp.blockchain_height)
+    const txs = (resp && resp.transactions) || []
+    // bootstrapping filter: skip confirmed txs already behind the cursor. null
+    // lastTxId = nothing seen yet, so process the whole returned history (this
+    // is what lets a brand-new account's FIRST lws tx, which has id 0, through).
+    const fresh = txs.filter(t => t.height == null || typeof t.id !== 'number' || account.lastTxId == null || BigInt(t.id) > account.lastTxId)
+    await runRewardsWalletObserverOnce({ models, account, txs: fresh })
 
-      let maxId = 0
-      for (const t of txs) {
-        if (typeof t.id === 'number' && t.id > maxId) maxId = t.id
-      }
-      if (txs.length > 0) {
-        await models.moneroAccount.update({ where: { id: account.id }, data: { lastTxId: BigInt(maxId) } })
-      }
+    let maxId = 0
+    for (const t of txs) {
+      if (typeof t.id === 'number' && t.id > maxId) maxId = t.id
     }
-    // Auto top-up: extend the fee subaddress pool when AVAILABLE dips below the
-    // threshold (default 100). Runs on every poll; the check is a cheap count and
-    // derivation only fires when a major is low. Errors are logged, never fatal.
-    try {
-      await topUpFeePoolIfLow(models, { account })
-    } catch (err) {
-      console.error('fee-pool auto top-up failed:', err?.message || err)
-    }
-  } catch (runError) {
-    runErr = runError
-  }
-  // Requeue only on success: a requeue sent from a FAILED run forks the
-  // chain (pg-boss retries this same job, whose success sends another
-  // requeue). On a run error just rethrow below — the retry re-executes the
-  // whole handler, which re-sends on eventual success.
-  if (!runErr) {
-    try {
-      await boss.send('rewardsWalletObserver', {}, { ...BOSS_RETRY, startAfter: MONERO_POLL_INTERVAL_MS / 1000 })
-    } catch (e) {
-      logError('rewardsWalletObserver requeue send failed', e)
-      alert('critical', 'rewardsWalletObserver requeue failed', String(e), { dedupeKey: 'rewardsWalletObserver-requeue' })
-      throw e // rethrow so pg-boss retries THIS run and the chain survives
+    if (txs.length > 0) {
+      await models.moneroAccount.update({ where: { id: account.id }, data: { lastTxId: BigInt(maxId) } })
     }
   }
-  if (runErr) throw runErr
+  // Auto top-up: extend the fee subaddress pool when AVAILABLE dips below the
+  // threshold (default 100). Runs on every poll; the check is a cheap count and
+  // derivation only fires when a major is low. Errors are logged, never fatal.
+  try {
+    await topUpFeePoolIfLow(models, { account })
+  } catch (err) {
+    console.error('fee-pool auto top-up failed:', err?.message || err)
+  }
 }

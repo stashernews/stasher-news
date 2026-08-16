@@ -1554,12 +1554,13 @@ model RewardPayout {
 
 // Downvote payment_id reverse map (created at URI-generation time).
 model DownvotePidMap {
-  paymentId  String    @id
-  postId     Int
-  nonce      Int
-  userId     Int
-  expiresAt  DateTime
-  consumedAt DateTime?
+  paymentId      String    @id
+  postId         Int
+  nonce          Int
+  userId         Int
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  webhookEventId String?
 }
 
 // Fee configuration (platform-wide singleton row, id=1).

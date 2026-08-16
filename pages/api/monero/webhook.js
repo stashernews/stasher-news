@@ -5,6 +5,7 @@ import { notifyNewStreak } from '@/lib/webPush'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { moneroWebhooksReceivedTotal } from '@/lib/metrics'
 import { driveBountyFunding } from '@/api/monero/bountyFunding'
+import { applyDownvotePenalty } from '@/api/monero/downvote'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { safeEqual } from '@/lib/domains/auth'
 
@@ -163,9 +164,12 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   // idempotency is handled by the CONFIRMED state guard (no-op) + the
   // FeeObservation ON CONFLICT, not by the pid map.
   const bounty = await models.observedBounty.findFirst({ where: { paymentId } })
-  if (!bounty || bounty.state === 'CONFIRMED') return res.status(200).end()
+  // A missing bounty row falls through to the downvote branch below (dv:
+  // pids are never ObservedBounty rows); only an already-CONFIRMED bounty
+  // short-circuits here.
+  if (bounty?.state === 'CONFIRMED') return res.status(200).end()
 
-  if (bounty.state === 'PENDING') {
+  if (bounty?.state === 'PENDING') {
     // Only a LIVE pid map can claim a PENDING bounty (double-funding protection).
     const pidMap = await models.bountyPidMap.findFirst({
       where: { paymentId, consumedAt: null, expiresAt: { gt: new Date() } }
@@ -192,7 +196,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     return res.status(200).end()
   }
 
-  if (bounty.state === 'DETECTED' && confirmations >= REQUIRED_CONFIRMATIONS) {
+  if (bounty?.state === 'DETECTED' && confirmations >= REQUIRED_CONFIRMATIONS) {
     await models.$transaction(async (tx) => {
       await driveBountyFunding(tx, bounty, { txHash, height, confirmations, piconeros: BigInt(amount || '0') })
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
@@ -206,7 +210,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     return res.status(200).end()
   }
 
-  if (bounty.state === 'DETECTED') {
+  if (bounty?.state === 'DETECTED') {
     const data = { confirmations }
     if (height != null) data.height = height
     if (txHash) data.txHash = txHash
@@ -215,6 +219,77 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
       data
     })
   }
+
+  // Downvote branch: dv:-namespace payment ids reverse-map through the
+  // DownvotePidMap (downvotes pay the rewards PRIMARY address + payment id —
+  // the same shape as a wallet-less tip). Unknown ids (no map, or a tip/bounty
+  // matched above) are a 200 no-op, mirroring the bounty fall-through.
+  const dvMap = await models.downvotePidMap.findUnique({ where: { paymentId } })
+  if (!dvMap) return res.status(200).end()
+
+  // Post-DETECTED flows are keyed on the ObservedDownvote row, NEVER on
+  // pid-map liveness (the item-2808 lesson: the poll backstop may have
+  // consumed the map, and gating the N-conf path on it strands the funding).
+  const dv = await models.observedDownvote.findFirst({ where: { paymentId } })
+  if (dv) {
+    if (dv.state === 'CONFIRMED') return res.status(200).end()
+
+    if (dv.state === 'DETECTED' && confirmations >= REQUIRED_CONFIRMATIONS) {
+      // Atomic conditional claim: race-safe vs confirmFinalizer's flip — a
+      // loser (either side) sees rowCount 0 and is a no-op.
+      const claimed = await models.$executeRaw`
+        UPDATE "ObservedDownvote"
+        SET state = 'CONFIRMED', confirmations = ${confirmations}, "confirmedAt" = NOW()
+        WHERE id = ${dv.id} AND state = 'DETECTED'`
+      if (claimed > 0 && dvMap.webhookEventId) {
+        try {
+          await monero.deleteWebhook(dvMap.webhookEventId)
+        } catch (err) {
+          console.warn(`webhook: lws deleteWebhook failed (best-effort): ${err && err.message}`)
+        }
+      }
+      return res.status(200).end()
+    }
+
+    if (dv.state === 'DETECTED') {
+      const data = { confirmations }
+      if (height != null) data.height = height
+      await models.observedDownvote.update({ where: { id: dv.id }, data })
+    }
+    return res.status(200).end()
+  }
+
+  // 0-conf detection (mempool — height NULL on the callback). Only a LIVE
+  // (unconsumed, unexpired) pid map may claim; the atomic conditional consume
+  // makes retried callbacks and a raced poll attribution no-ops.
+  const claimedMap = await models.$executeRaw`
+    UPDATE "DownvotePidMap"
+    SET "consumedAt" = NOW()
+    WHERE "paymentId" = ${paymentId} AND "consumedAt" IS NULL AND "expiresAt" > NOW()`
+  if (claimedMap === 0) return res.status(200).end()
+
+  const piconeros = BigInt(amount || '0')
+  await models.$transaction(async (tx) => {
+    // Idempotent vs the observer poll backstop: the unique (txHash, paymentId)
+    // constraint + RETURNING mean the penalty fires exactly once regardless of
+    // which side wins the race.
+    const rows = await tx.$queryRaw`
+      INSERT INTO "ObservedDownvote" ("txHash","postId","downvoterId","paymentId","piconeros","height","state","detectedAt")
+      VALUES (${txHash}, ${dvMap.postId}, ${dvMap.userId}::INT, ${paymentId}, ${piconeros}, ${height ?? null}, 'DETECTED'::"ObservedState", NOW())
+      ON CONFLICT ("txHash","paymentId") DO NOTHING
+      RETURNING id`
+    if (!rows || rows.length === 0) return
+    const item = await tx.item.findUnique({ where: { id: dvMap.postId } })
+    if (item) {
+      try {
+        await applyDownvotePenalty(tx, item, dvMap.userId, piconeros)
+      } catch (err) {
+        // Don't fail the callback on a ranking-CTE failure; the ObservedDownvote
+        // row already records the downvote (same posture as the observer).
+        console.error(`webhook: downvote penalty failed for post ${dvMap.postId}:`, err?.message || err)
+      }
+    }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
   return res.status(200).end()
 }

@@ -20,7 +20,7 @@
 //   docker exec sn-prisma npx jest test/worker/confirmFinalizer.test.js
 
 import { PrismaClient } from '@prisma/client'
-import { runConfirmFinalizerOnce, backfillNullBountyHeights } from '@/worker/confirmFinalizer'
+import { runConfirmFinalizerOnce, backfillNullBountyHeights, backfillNullObservationHeights } from '@/worker/confirmFinalizer'
 import { bountyFeePiconeros } from '@/api/monero/bounties'
 
 const prisma = new PrismaClient()
@@ -451,5 +451,53 @@ describe('backfillNullBountyHeights', () => {
     const lws = { getAddressTxs: async () => ({ transactions: [{ payment_id: 'other', height: 999 }], blockchain_height: 9999 }) }
     await backfillNullBountyHeights({ models, lws, bounties: [bounty] })
     expect(models.observedBounty.update).not.toHaveBeenCalled()
+  })
+})
+
+// backfillNullObservationHeights: mocked-models unit tests for the NULL-height
+// backfill of poll-detected DETECTED rows (ObservedDownvote, FeeObservation).
+// NOTE: the plan's snippets mocked moneroAccount.findMany (mirroring
+// backfillNullBountyHeights), but this backfill resolves the account via
+// findRewardsAccount, which queries moneroAccount.findFirst — the mocks here
+// match the actual interface. Everything else is verbatim from the plan.
+describe('backfillNullObservationHeights', () => {
+  test('backfills NULL heights for DETECTED downvotes and fees from the lws rewards scan, keyed by txHash', async () => {
+    const downvote = { id: 1n, txHash: 'aaa', postId: 572, state: 'DETECTED', height: null }
+    const fee = { id: 2n, txHash: 'bbb', feeType: 'POSTING', state: 'DETECTED', height: null }
+    const account = { id: 2047, label: 'platform_rewards', status: 'ACTIVE', viewKey: { ciphertext: 'x' } }
+    const models = {
+      moneroAccount: { findFirst: jest.fn().mockResolvedValue(account) },
+      observedDownvote: { update: jest.fn().mockResolvedValue({}) },
+      feeObservation: { update: jest.fn().mockResolvedValue({}) }
+    }
+    const lws = {
+      getAddressTxs: jest.fn().mockResolvedValue({
+        transactions: [
+          { hash: 'aaa', height: 2186635, confirmations: 12, payment_id: 'bb82f32561ab78d1' },
+          { hash: 'bbb', height: null }, // still mempool on lws — must stay NULL
+          { hash: 'ccc', height: 2186640 } // unrelated tx — no row to update
+        ]
+      })
+    }
+
+    await backfillNullObservationHeights({ models, lws, downvotes: [downvote], fees: [fee] })
+
+    expect(models.observedDownvote.update).toHaveBeenCalledWith({
+      where: { id: 1n },
+      data: { height: 2186635, confirmations: 12 }
+    })
+    expect(models.feeObservation.update).not.toHaveBeenCalled() // bbb still mempool
+  })
+
+  test('skips unscannable accounts (no view key) without throwing', async () => {
+    const models = {
+      moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 2047, status: 'ACTIVE', viewKey: null }) },
+      observedDownvote: { update: jest.fn() },
+      feeObservation: { update: jest.fn() }
+    }
+    const lws = { getAddressTxs: jest.fn() }
+
+    await expect(backfillNullObservationHeights({ models, lws, downvotes: [{ id: 1n, txHash: 'aaa' }], fees: [] })).resolves.toBeUndefined()
+    expect(lws.getAddressTxs).not.toHaveBeenCalled()
   })
 })

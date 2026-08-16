@@ -1,15 +1,14 @@
 import { lwsClient } from '@/api/monero/lwsClient'
 import { daemonClient } from '@/api/monero/daemonClient'
-import { BOSS_RETRY } from '@/lib/constants'
 import { alert } from '@/lib/alert'
 import { setHealthStatus } from '@/lib/healthStatus'
-import { logError, logWarn } from '@/lib/logger'
+import { logWarn } from '@/lib/logger'
 import { moneroLwsUp, moneroMonerodUp, moneroMonerodHeight } from '@/lib/metrics'
 
 // healthProbe (Task D4) — periodic lws + monerod health probe.
 //
-// A self-requeuing pg-boss job (every HEALTH_PROBE_INTERVAL_SECONDS, default 60s)
-// that probes the two services INDEPENDENTLY — lws via the admin /list_accounts
+// A cron-owned pg-boss job (pgboss.schedule row healthProbe, every 60s) that
+// probes the two services INDEPENDENTLY — lws via the admin /list_accounts
 // endpoint and monerod directly via JSON-RPC get_info (api/monero/daemonClient,
 // the same proven path confirmFinalizer and bounties use) — publishes the
 // snapshot to lib/healthStatus (consumed by /api/health and the D7 gauges), and
@@ -28,7 +27,6 @@ import { moneroLwsUp, moneroMonerodUp, moneroMonerodHeight } from '@/lib/metrics
 // we alert. The state is process-lifetime (the module loads once per worker) and
 // is rebaselined whenever monerod returns from an outage.
 
-const PROBE_INTERVAL_SECONDS = Number(process.env.HEALTH_PROBE_INTERVAL_SECONDS) || 60
 const STALL_THRESHOLD_MS = Number(process.env.MONEROD_STALL_THRESHOLD_MS) || 10 * 60 * 1000
 
 let lastHeight = null
@@ -106,17 +104,7 @@ export async function runHealthProbeOnce ({
   return { lwsOk, monerodOk, height, stalled }
 }
 
-export async function healthProbe ({ boss }) {
-  // Run first, requeue only on success: a requeue sent from a FAILED run
-  // forks the chain (pg-boss retries this same job, whose success sends
-  // another requeue). On a run error just rethrow — the retry re-executes
-  // the whole handler, which re-sends on eventual success.
+export async function healthProbe () {
+  // Recurrence is cron-owned (pgboss.schedule row healthProbe); no self-requeue.
   await runHealthProbeOnce()
-  try {
-    await boss.send('healthProbe', {}, { ...BOSS_RETRY, startAfter: PROBE_INTERVAL_SECONDS })
-  } catch (e) {
-    logError('healthProbe requeue send failed', e)
-    alert('critical', 'healthProbe requeue failed', String(e), { dedupeKey: 'healthProbe-requeue' })
-    throw e // rethrow so pg-boss retries THIS run and the chain survives
-  }
 }

@@ -1,16 +1,16 @@
 import { Prisma } from '@prisma/client'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { applyTipDetected } from '@/api/monero/ranking'
-import { BOSS_RETRY, RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
+import { RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
 import { alert } from '@/lib/alert'
-import { logError } from '@/lib/logger'
 import { moneroPendingTips } from '@/lib/metrics'
 
 // reconcilePendingTips — recover tips stranded in PENDING by a missed 0-conf webhook.
 //
 // A tip is PENDING from initiateTip until the lws 0-conf callback flips it DETECTED. If
 // that callback is lost (app downtime, network), confirmFinalizer will NEVER mature it
-// (it only scans DETECTED rows). This job, every RECONCILE_INTERVAL, finds PENDING tips
+// (it only scans DETECTED rows). This job, every 2 min (cron-owned —
+// pgboss.schedule row reconcilePendingTips, */2 * * * *), finds PENDING tips
 // older than RECONCILE_PENDING_AGE_MS, re-scans the author account via lws
 // get_address_txs, and if the payment_id is on chain, performs the same PENDING->DETECTED
 // transition the webhook receiver would have (atomic claim + applyTipDetected). Tips that
@@ -25,8 +25,6 @@ import { moneroPendingTips } from '@/lib/metrics'
 // get_address_txs returns the full history when sinceBlockHash is null, so this re-scan is
 // exhaustive for the account (the job is infrequent + state-filtered to PENDING, so the
 // cost is bounded by the number of accounts with stranded tips, not all accounts).
-
-const RECONCILE_INTERVAL_SECONDS = 2 * 60 // every 2 min
 
 const STUCK_ALERT_THRESHOLD = Number(process.env.RECONCILE_STUCK_ALERT_THRESHOLD) || 10
 
@@ -109,20 +107,11 @@ export async function runReconcilePendingTipsOnce ({
   return { recovered, expired }
 }
 
-export async function reconcilePendingTips ({ boss, models }) {
-  // Run first, requeue only on success: a requeue sent from a FAILED run
-  // forks the chain (pg-boss retries this same job, whose success sends
-  // another requeue). On a run error just rethrow — the retry re-executes
-  // the whole handler, which re-sends on eventual success.
+export async function reconcilePendingTips ({ models }) {
+  // Recurrence is cron-owned (pgboss.schedule row reconcilePendingTips); no
+  // self-requeue.
   const out = await runReconcilePendingTipsOnce({ models })
   if (out.recovered || out.expired) {
     console.log(`reconcilePendingTips: recovered ${out.recovered}, expired ${out.expired}`)
-  }
-  try {
-    await boss.send('reconcilePendingTips', {}, { ...BOSS_RETRY, startAfter: RECONCILE_INTERVAL_SECONDS })
-  } catch (e) {
-    logError('reconcilePendingTips requeue send failed', e)
-    alert('critical', 'reconcilePendingTips requeue failed', String(e), { dedupeKey: 'reconcilePendingTips-requeue' })
-    throw e // rethrow so pg-boss retries THIS run and the chain survives
   }
 }

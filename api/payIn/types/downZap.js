@@ -1,9 +1,10 @@
 import { randomInt } from 'node:crypto'
-import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
+import { PAID_ACTION_PAYMENT_METHODS, REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { GqlInputError } from '@/lib/error'
 import { getItemResult } from '../lib/item'
 import { makeDownvoteAddress } from '@/api/monero/downvote'
 import { buildMoneroUri } from '@/api/monero/uri'
+import { lwsClient } from '@/api/monero/lwsClient'
 
 // StasherNews rewards-funded downvote (spec §3.3).
 //
@@ -29,7 +30,7 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-export async function getInitial (models, { id, piconeros }, { me }) {
+export async function getInitial (models, { id, piconeros }, { me, monero = lwsClient }) {
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
 
@@ -48,6 +49,19 @@ export async function getInitial (models, { id, piconeros }, { me }) {
   const nonce = randomInt(0, 0x7fffffff)
   const { integratedAddress, paymentId } = makeDownvoteAddress(parseInt(id), nonce)
 
+  // Register the lws tx-confirmation webhook BEFORE the pid-map row (spec,
+  // Error handling): a webhook matching no pid map is a 200 no-op, but a pid
+  // map without a webhook silently degrades to the slower poll backstop.
+  // Identical to the wallet-less tip registration (api/resolvers/monero.js).
+  const webhook = await monero.addWebhook({
+    type: 'tx-confirmation',
+    url: process.env.LWS_WEBHOOK_URL,
+    address: process.env.PLATFORM_REWARDS_ADDRESS,
+    paymentId,
+    token: process.env.LWS_WEBHOOK_TOKEN || '',
+    confirmations: REQUIRED_CONFIRMATIONS
+  })
+
   // Recorded outside the PayIn transaction (mirrors how itemCreate reserves a
   // fee subaddress in getInitial): an orphaned row on a later PayIn failure is
   // harmless — it expires in 24h, never consumed.
@@ -57,7 +71,9 @@ export async function getInitial (models, { id, piconeros }, { me }) {
       postId: parseInt(id),
       nonce,
       userId: me.id,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      consumedAt: null,
+      webhookEventId: webhook.event_id || null
     }
   })
 

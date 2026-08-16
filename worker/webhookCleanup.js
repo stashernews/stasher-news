@@ -1,6 +1,4 @@
 import { lwsClient } from '@/api/monero/lwsClient'
-import { alert } from '@/lib/alert'
-import { logError } from '@/lib/logger'
 
 // webhookCleanup — sweep orphaned lws tx-confirmation webhooks (Phase 5).
 //
@@ -15,8 +13,19 @@ import { logError } from '@/lib/logger'
 // State-driven (not listWebhooks-driven): we know exactly which event ids we registered and
 // when they're done, so we drive cleanup from our own table rather than parsing lws's
 // webhook_list response shape.
-
-const CLEANUP_INTERVAL_SECONDS = 60 * 60 // hourly
+//
+// Downvote webhooks are swept off the DownvotePidMap, not an Observed* table: the event id
+// is registered at downvote ISSUANCE (Task 3), before any ObservedDownvote row exists (the
+// row is only created at 0-conf detection). The id leaks permanently on lws in three paths:
+//   (1) a never-paid downvote — the map expires after 24h but the webhook stays registered;
+//   (2) the receiver's best-effort deleteWebhook at CONFIRMED fails;
+//   (3) confirmFinalizer flips DETECTED -> CONFIRMED and never deletes the webhook at all.
+// A map is sweepable when its expiresAt is in the past (covers (1), no observation ever) OR
+// its paymentId has a CONFIRMED ObservedDownvote (covers (2)+(3), regardless of map age).
+// Live pending downvotes (unexpired + not CONFIRMED) are never touched. The sweep nulls
+// webhookEventId on success (idempotent: re-runs skip nulled rows) but KEEPS the id on a
+// deleteWebhook failure so the next hourly run retries — and never deletes the map row
+// itself, since the observer-poll backstop may still reference it.
 
 export async function runWebhookCleanupOnce ({ models, monero = lwsClient }) {
   const tips = await models.observedTip.findMany({
@@ -40,21 +49,47 @@ export async function runWebhookCleanupOnce ({ models, monero = lwsClient }) {
     })
     cleaned += 1
   }
+
+  // Downvote pid-map sweep (see the comment block above for the leak paths).
+  const dvMaps = await models.downvotePidMap.findMany({
+    where: { webhookEventId: { not: null } }
+  })
+  let confirmedDvPids = new Set()
+  if (dvMaps.length > 0) {
+    const confirmed = await models.observedDownvote.findMany({
+      where: { paymentId: { in: dvMaps.map(m => m.paymentId) }, state: 'CONFIRMED' },
+      select: { paymentId: true }
+    })
+    confirmedDvPids = new Set(confirmed.map(o => o.paymentId))
+  }
+  const now = new Date()
+  for (const map of dvMaps) {
+    // Defensive re-check mirroring the tip sweep: skip a row that lost its
+    // webhookEventId between query and processing so we never call
+    // deleteWebhook(null).
+    if (!map.webhookEventId) continue
+    const expired = map.expiresAt < now
+    if (!expired && !confirmedDvPids.has(map.paymentId)) continue
+    try {
+      await monero.deleteWebhook(map.webhookEventId)
+    } catch (err) {
+      // Best-effort but RETRYABLE (unlike tips): keep the id so the next hourly
+      // run re-attempts the lws delete. The map row itself is never deleted.
+      console.warn(`webhookCleanup: downvote deleteWebhook(${map.webhookEventId}) failed (will retry next run): ${err && err.message}`)
+      continue
+    }
+    await models.downvotePidMap.update({
+      where: { paymentId: map.paymentId },
+      data: { webhookEventId: null }
+    })
+    cleaned += 1
+  }
   return { cleaned }
 }
 
-export async function webhookCleanup ({ boss, models }) {
-  // Run first, requeue only on success: a requeue sent from a FAILED run
-  // forks the chain (pg-boss retries this same job, whose success sends
-  // another requeue). On a run error just rethrow — the retry re-executes
-  // the whole handler, which re-sends on eventual success.
+export async function webhookCleanup ({ models }) {
+  // Recurrence is cron-owned (pgboss.schedule row webhookCleanup); no
+  // self-requeue.
   const out = await runWebhookCleanupOnce({ models })
   if (out.cleaned) console.log(`webhookCleanup: removed ${out.cleaned} stale webhook(s)`)
-  try {
-    await boss.send('webhookCleanup', {}, { startAfter: CLEANUP_INTERVAL_SECONDS })
-  } catch (e) {
-    logError('webhookCleanup requeue send failed', e)
-    alert('critical', 'webhookCleanup requeue failed', String(e), { dedupeKey: 'webhookCleanup-requeue' })
-    throw e // rethrow so pg-boss retries THIS run and the chain survives
-  }
 }

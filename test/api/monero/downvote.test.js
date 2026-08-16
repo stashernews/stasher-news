@@ -1,6 +1,7 @@
 /* eslint-env jest */
 import { makeDownvoteAddress, reverseMapPaymentId } from '@/api/monero/downvote'
 import { generateDownvotePaymentId, generateTipPaymentId } from '@/api/monero/paymentId'
+import { getInitial } from '@/api/payIn/types/downZap'
 
 // Stagenet primary address reused from integratedAddress.test.js so generated
 // integrated addresses share its shape (106 chars, stagenet-integrated prefix).
@@ -77,4 +78,44 @@ test('reverseMapPaymentId returns null for an unknown paymentId', async () => {
   }
   const row = await reverseMapPaymentId('0000000000000000', models)
   expect(row).toBeNull()
+})
+
+// Group C — getInitial webhook registration (Task 3)
+
+describe('downZap getInitial webhook registration', () => {
+  const baseModels = (overrides = {}) => ({
+    platformFeeConfig: {
+      findUnique: jest.fn().mockResolvedValue({ id: 1, downvoteMinPiconeros: 1000000000n })
+    },
+    item: { findUnique: jest.fn().mockResolvedValue({ id: 572, parentId: null }) },
+    downvotePidMap: { create: jest.fn().mockResolvedValue({}) },
+    ...overrides
+  })
+
+  it('registers a tx-confirmation webhook on the rewards primary address and stores the event id on the pid map', async () => {
+    const monero = { addWebhook: jest.fn().mockResolvedValue({ event_id: 'evt-1' }) }
+    const models = baseModels()
+
+    const out = await getInitial(models, { id: '572', piconeros: '2000000000' }, { me: { id: 860 }, monero })
+
+    expect(monero.addWebhook).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'tx-confirmation',
+      address: process.env.PLATFORM_REWARDS_ADDRESS,
+      paymentId: out.paymentId,
+      confirmations: 10
+    }))
+    expect(models.downvotePidMap.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ webhookEventId: 'evt-1', postId: 572, userId: 860, consumedAt: null })
+    }))
+  })
+
+  it('creates no pid map row when webhook registration fails', async () => {
+    const monero = { addWebhook: jest.fn().mockRejectedValue(new Error('lws down')) }
+    const models = baseModels()
+
+    await expect(
+      getInitial(models, { id: '572', piconeros: '2000000000' }, { me: { id: 860 }, monero })
+    ).rejects.toThrow('lws down')
+    expect(models.downvotePidMap.create).not.toHaveBeenCalled()
+  })
 })
