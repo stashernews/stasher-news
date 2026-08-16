@@ -25,7 +25,7 @@ export function SubscriptionLayout ({ subType, children }) {
           size='sm'
           className='w-auto'
           noForm
-          items={['stackers', 'territories']}
+          items={[{ label: 'stashers', value: 'stackers' }, 'territories']}
           value={subType}
           onChange={(_, e) => router.push(`/settings/subscriptions/${e.target.value}`)}
         />

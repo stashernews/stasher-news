@@ -272,7 +272,7 @@ export default function TerritoryForm ({ sub }) {
                   <div className='d-flex align-items-center'>mark as nsfw
                     <Info>
                       <ol>
-                        <li>Let stackers know that your turf may contain explicit content</li>
+                        <li>Let stashers know that your turf may contain explicit content</li>
                         <li>Your turf will get a <Badge bg='secondary'>nsfw</Badge> badge</li>
                       </ol>
                     </Info>

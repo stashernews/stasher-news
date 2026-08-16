@@ -92,7 +92,7 @@ async function work () {
   function jobWrapper (fn) {
     return async function (job) {
       writeWorkerHeartbeat()
-      logInfo(`running ${job.name} with args`, job.data)
+      logInfo(`running ${job.name}`)
       if (job.retrycount > 0) {
         logInfo(`  ... retry #${job.retrycount}/${job.retrylimit}`)
       }

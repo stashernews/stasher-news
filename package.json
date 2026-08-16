@@ -5,7 +5,7 @@
   "description": "Stasher News — digital cash content curation",
   "repository": {
     "type": "git",
-    "url": "https://github.com/stackernews/stacker.news.git"
+    "url": "https://github.com/stashernews/stasher-news.git"
   },
   "scripts": {
     "audit:blast-radius": "node scripts/audit-blast-radius.js",
@@ -15,8 +15,8 @@
     "start": "NODE_OPTIONS='--trace-warnings --max-old-space-size=4096 --max-semi-space-size=128' next start -p $PORT --keepAliveTimeout 120000",
     "lint": "standard",
     "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
-    "worker": "tsx --tsconfig jsconfig.json --trace-warnings worker/index.js",
-    "worker:dev": "tsx --tsconfig jsconfig.json --trace-warnings --watch worker/index.js"
+    "worker": "NODE_OPTIONS='--max-old-space-size=2048' tsx --tsconfig jsconfig.json --trace-warnings worker/index.js",
+    "worker:dev": "NODE_OPTIONS='--max-old-space-size=2048' tsx --tsconfig jsconfig.json --trace-warnings --watch worker/index.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -125,7 +125,6 @@
     "twitter-api-v2": "^1.22.0",
     "unist-util-visit": "^5.0.0",
     "unzipper": "^0.12.3",
-    "url-unshort": "^6.1.0",
     "urlpattern-polyfill": "^10.1.0",
     "web-push": "^3.6.7",
     "webpack": "^5.95.0",

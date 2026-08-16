@@ -150,13 +150,13 @@ export default function Footer ({ links = true }) {
             </div>
           </>}
         <small className='d-flex justify-content-center align-items-center text-muted flex-wrap'>
-          <a className={`${styles.contrastLink} d-flex align-items-center`} href='https://github.com/stackernews/stacker.news' target='_blank' rel='noreferrer'>
-            upstream <Github width={20} height={20} className='mx-1' />
+          <a className={`${styles.contrastLink} d-flex align-items-center`} href='https://github.com/stashernews/stasher-news' target='_blank' rel='noreferrer'>
+            source <Github width={20} height={20} className='mx-1' />
           </a>
         </small>
         {version &&
           <div className={styles.version}>
-            running <a className='text-reset' href={`https://github.com/stackernews/stacker.news/commit/${version}`} target='_blank' rel='noreferrer'>{version}</a>
+            running <a className='text-reset' href={`https://github.com/stashernews/stasher-news/commit/${version}`} target='_blank' rel='noreferrer'>{version}</a>
           </div>}
       </Container>
     </footer>

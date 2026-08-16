@@ -16,7 +16,7 @@ import {
   DEFAULT_COMMENTS_PICONEROS_FILTER,
   HOMEPAGE_POSTS_PICONEROS_FILTER
 } from '@/lib/constants'
-import uu from 'url-unshort'
+import { unshorten } from '@/lib/unshorten'
 import { actSchema, bountySchema, commentSchema, discussionSchema, jobSchema, linkSchema, pollSchema, validateSchema } from '@/lib/validate'
 import { string } from '@/lib/yup'
 import { defaultCommentSort, isJob, deleteItemByAuthor } from '@/lib/item'
@@ -600,7 +600,7 @@ export default {
       } catch { }
 
       try {
-        const unshorted = await uu().expand(url)
+        const unshorted = await unshorten(url)
         if (unshorted) {
           res.unshorted = unshorted
         }
@@ -668,7 +668,8 @@ export default {
             activeOrMine(me),
             '"Item"."created_at" > $2'
           )}
-          ORDER BY "Item"."created_at" ASC`
+          ORDER BY "Item"."created_at" ASC
+          LIMIT 50`
       }, Number(itemId), after)
 
       return { comments }
@@ -677,6 +678,7 @@ export default {
 
   Mutation: {
     bookmarkItem: async (parent, { id }, { me, models }) => {
+      if (!me) throw new GqlAuthenticationError()
       const data = { itemId: Number(id), userId: me.id }
       const old = await models.bookmark.findUnique({ where: { userId_itemId: data } })
       if (old) {
@@ -769,6 +771,7 @@ export default {
       return { id, pinId }
     },
     subscribeItem: async (parent, { id }, { me, models }) => {
+      if (!me) throw new GqlAuthenticationError()
       const data = { itemId: Number(id), userId: me.id }
       const old = await models.threadSubscription.findUnique({ where: { userId_itemId: data } })
       if (old) {

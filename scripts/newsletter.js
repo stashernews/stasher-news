@@ -284,7 +284,7 @@ Fellow fugitives,
 Keyan
 A guy who works on Stasher News
 
-[Watch](https://www.youtube.com/@stackernews/live) or [Listen to](https://www.fountain.fm/show/Mg1AWuvkeZSFhsJZ3BW2) or [Read in print](https://www.plebpoet.com/zines.html) SN's top stories every week.
+[Watch](https://www.youtube.com/@stashernews/live) or [Listen to](https://www.fountain.fm/show/Mg1AWuvkeZSFhsJZ3BW2) or [Read in print](https://www.plebpoet.com/zines.html) SN's top stories every week.
 
 Get this newsletter sent to your email inbox by signing up [here](https://mail.stasher.news/subscription/form).`)
 }

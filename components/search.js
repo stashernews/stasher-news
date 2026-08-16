@@ -68,7 +68,7 @@ export default function Search ({ sub }) {
   const what = router.pathname.startsWith('/stashers') ? 'stackers' : queryWhat || 'all'
   const sort = querySort || 'relevance'
   const when = queryWhen || 'forever'
-  const whatItemOptions = useMemo(() => (['all', 'posts', 'comments', me ? 'bookmarks' : undefined, 'stackers'].filter(item => !!item)), [me])
+  const whatItemOptions = useMemo(() => (['all', 'posts', 'comments', me ? 'bookmarks' : undefined, { label: 'stashers', value: 'stackers' }].filter(item => !!item)), [me])
 
   return (
     <>

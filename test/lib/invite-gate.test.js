@@ -44,6 +44,19 @@ test('issueGateToken is deterministic and verifyGateToken accepts the matching t
   expect(verifyGateToken(token)).toBe(true)
 })
 
+it('throws in production when NEXTAUTH_SECRET is unset instead of using an empty key', () => {
+  const prevNodeEnv = process.env.NODE_ENV
+  const prevSecret = process.env.NEXTAUTH_SECRET
+  process.env.NODE_ENV = 'production'
+  process.env.NEXTAUTH_SECRET = ''
+  try {
+    expect(() => issueGateToken('some-code')).toThrow(/NEXTAUTH_SECRET/)
+  } finally {
+    process.env.NODE_ENV = prevNodeEnv
+    process.env.NEXTAUTH_SECRET = prevSecret
+  }
+})
+
 test('buildGateCookieHeader returns a valid cookie header when enabled, null when disabled', () => {
   const header = buildGateCookieHeader()
   expect(header).toBe(`sn_gate=${issueGateToken('alpha')}`)

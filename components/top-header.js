@@ -59,7 +59,7 @@ export default function TopHeader ({ sub, cat }) {
               name='what'
               size='sm'
               overrideValue={what}
-              items={router?.query?.sub ? ['posts', 'comments'] : ['posts', 'comments', 'stackers', 'cowboys', 'territories']}
+              items={router?.query?.sub ? ['posts', 'comments'] : ['posts', 'comments', { label: 'stashers', value: 'stackers' }, 'cowboys', 'territories']}
             />
             {cat !== 'cowboys' &&
               <>

@@ -3,6 +3,7 @@ import { isJob } from '@/lib/item'
 import { decodeProxyUrl } from '@/lib/url'
 import { imgProxyEnabled, createImgproxyPath } from '@/lib/imgproxy'
 import { snFetch } from '@/lib/fetch'
+import { logInfo, logWarn } from '@/lib/logger'
 
 if (!imgProxyEnabled) {
   console.warn('IMGPROXY_* env vars not set, imgproxy calls are no-ops now')
@@ -39,7 +40,7 @@ function matchUrl (matchers, url) {
   try {
     return matchers.some(matcher => matcher(new URL(url)))
   } catch (err) {
-    console.log(url, err)
+    logWarn({ url, error: err?.message }, 'imgproxy url check failed')
     return false
   }
 }
@@ -57,14 +58,14 @@ export async function imgproxy ({ data: { id, forceFetch = false }, models }) {
     imgproxyUrls = { ...imgproxyUrls, ...(await createImgproxyUrls(id, item.url, { models, forceFetch })) }
   }
 
-  console.log('[imgproxy] updating item', id, 'with urls', imgproxyUrls)
+  logInfo({ itemId: id }, 'imgproxy: updating item urls')
 
   await models.item.update({ where: { id }, data: { imgproxyUrls } })
 }
 
 export const createImgproxyUrls = async (id, text, { models, forceFetch }) => {
   const urls = extractUrls(text)
-  console.log('[imgproxy] id:', id, '-- extracted urls:', urls)
+  logInfo({ itemId: id }, 'imgproxy: extracted urls')
   // resolutions that we target:
   //   - nHD:  640x 360
   //   - qHD:  960x 540
@@ -81,28 +82,22 @@ export const createImgproxyUrls = async (id, text, { models, forceFetch }) => {
     if (!url) continue
     let fetchUrl = url
     if (process.env.MEDIA_URL_DOCKER) {
-      console.log('[imgproxy] id:', id, '-- replacing media url:', url)
       fetchUrl = url.replace(process.env.NEXT_PUBLIC_MEDIA_URL, process.env.MEDIA_URL_DOCKER)
-      console.log('[imgproxy] id:', id, '-- with:', fetchUrl)
     }
 
-    console.log('[imgproxy] id:', id, '-- processing url:', url)
     if (url.startsWith(IMGPROXY_URL)) {
-      console.log('[imgproxy] id:', id, '-- proxy url, decoding original url:', url)
       // backwards compatibility: we used to replace image urls with imgproxy urls
       url = decodeProxyUrl(url)
-      console.log('[imgproxy] id:', id, '-- original url:', url)
     }
     if (!(await isMediaURL(fetchUrl, { forceFetch }))) {
-      console.log('[imgproxy] id:', id, '-- not image url:', url)
       continue
     }
     imgproxyUrls[url] = {}
     try {
       imgproxyUrls[url] = await getMetadata(fetchUrl)
-      console.log('[imgproxy] id:', id, '-- dimensions:', imgproxyUrls[url])
+      logInfo({ itemId: id }, 'imgproxy: dimensions fetched')
     } catch (err) {
-      console.log('[imgproxy] id:', id, '-- error getting dimensions (possibly not running imgproxy pro)', err)
+      logWarn({ itemId: id, error: err?.message }, 'imgproxy: error getting dimensions')
     }
     for (const res of resolutions) {
       const [w, h] = res.split('x')
@@ -136,17 +131,15 @@ const isMediaURL = async (url, { forceFetch }) => {
 
   // primary: media check service
   try {
-    console.log('[imgproxy] media check service url:', `${MEDIA_CHECK_URL}/${encodeURIComponent(url)}`)
     const res = await fetch(`${MEDIA_CHECK_URL}/${encodeURIComponent(url)}`)
     if (res.ok) {
       const data = await res.json()
       isMedia = data.isImage || data.isVideo
       cache.set(url, isMedia)
-      console.log('[imgproxy] media check service response:', data)
       return isMedia
     }
   } catch (err) {
-    console.log('[imgproxy] media check service failed, falling back to direct fetch:', url, err)
+    logWarn({ url, error: err?.message }, 'imgproxy: media check failed, falling back to direct fetch')
   }
 
   // fallback: first run HEAD with small timeout
@@ -156,7 +149,7 @@ const isMediaURL = async (url, { forceFetch }) => {
     const type = (res.headers.get('content-type') ?? '').toLowerCase()
     isMedia = type.startsWith('image/') || type.startsWith('video/')
   } catch (err) {
-    console.log(url, err)
+    logWarn({ url, error: err?.message }, 'imgproxy fetch failed')
   }
 
   // For HEAD requests, positives are most likely true positives.
@@ -173,7 +166,7 @@ const isMediaURL = async (url, { forceFetch }) => {
     res.body?.destroy?.() // we only needed the header; release the socket
     isMedia = type.startsWith('image/') || type.startsWith('video/')
   } catch (err) {
-    console.log(url, err)
+    logWarn({ url, error: err?.message }, 'imgproxy fetch failed')
   }
 
   cache.set(url, isMedia)

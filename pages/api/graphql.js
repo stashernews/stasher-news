@@ -10,7 +10,7 @@ import { multiAuthMiddleware } from '@/lib/auth'
 import { depthLimit } from '@graphile/depth-limit'
 import { COMMENT_DEPTH_LIMIT } from '@/lib/constants'
 import { ApolloServerPluginLandingPageDisabled } from '@apollo/server/plugin/disabled'
-import PgBoss from 'pg-boss'
+import { logWarn, logError } from '@/lib/logger'
 import { lexicalStateLoader } from '@/lib/lexical/server/loader'
 import { createUserLoader, createSubLoader } from '@/api/loaders'
 import { lwsClient } from '@/api/monero/lwsClient'
@@ -25,7 +25,8 @@ function clientIp (req) {
 const apolloServer = new ApolloServer({
   typeDefs,
   resolvers,
-  introspection: true,
+  introspection: process.env.GRAPHQL_INTROSPECTION === 'true' ||
+    (process.env.NODE_ENV !== 'production' && process.env.GRAPHQL_INTROSPECTION !== 'false'),
   validationRules: [depthLimit({
     revealDetails: true,
     maxListDepth: COMMENT_DEPTH_LIMIT,
@@ -46,18 +47,19 @@ const apolloServer = new ApolloServer({
               const start = process.hrtime.bigint()
               return (error, result) => {
                 const end = process.hrtime.bigint()
-                const ms = (end - start) / 1000000n
+                const ms = Number((end - start) / 1000000n)
+                const fields = { path: `${info.parentType.name}.${info.fieldName}`, ms }
                 if (process.env.GRAPHQL_SLOW_LOGS_MS && ms > process.env.GRAPHQL_SLOW_LOGS_MS) {
-                  console.log(`Field ${info.parentType.name}.${info.fieldName} took ${ms}ms`)
+                  logWarn(fields, 'slow GraphQL field')
                 }
                 if (error) {
-                  console.log(`Field ${info.parentType.name}.${info.fieldName} failed with ${error}`)
+                  logWarn({ ...fields, error: error.message }, 'GraphQL field error')
                 }
               }
             },
             async executionDidEnd (err) {
               if (err) {
-                console.error('hey bud', err)
+                logError({ error: err.message }, 'GraphQL execution error')
               }
             }
           }
@@ -66,8 +68,6 @@ const apolloServer = new ApolloServer({
     }
   }, ApolloServerPluginLandingPageDisabled()]
 })
-
-const boss = new PgBoss(process.env.DATABASE_URL)
 
 const apolloHandler = startServerAndCreateNextHandler(apolloServer, {
   context: async (req, res) => {
@@ -97,7 +97,6 @@ const apolloHandler = startServerAndCreateNextHandler(apolloServer, {
       headers: req.headers,
       me,
       search,
-      boss,
       userLoader,
       subLoader,
       monero: lwsClient,

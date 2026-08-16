@@ -70,7 +70,7 @@ function TerritoryTransferForm ({ sub, onClose }) {
       <h2 className='text-center'>transfer turf</h2>
       <div className='d-flex align-items-center mb-2'>
         <InputUserSuggest
-          label='stacker'
+          label='stasher'
           name='userName'
           prepend={<InputGroup.Text>@</InputGroup.Text>}
           showValid

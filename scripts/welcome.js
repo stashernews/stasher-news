@@ -183,7 +183,7 @@ function welcomePostNr (welcomePost) {
 
 function printAmount ({ welcomePost, bios }) {
   const nr = welcomePostNr(welcomePost)
-  console.log(`${bios.length} new stackers have found their way to Stasher News since [#${nr}](${util.itemLink(welcomePost.id)})!\n`)
+  console.log(`${bios.length} new stashers have found their way to Stasher News since [#${nr}](${util.itemLink(welcomePost.id)})!\n`)
 }
 
 function printTopTenderfoots ({ bios }) {
@@ -204,7 +204,7 @@ function printTopTenderfoots ({ bios }) {
 }
 
 function printQuestions () {
-  console.log('Questions for the new stackers:\n')
+  console.log('Questions for the new stashers:\n')
   console.log('1. How did you find out about SN?')
   console.log('2. How difficult was it to get started? Any feedback?')
   console.log('3. How much experience do you have with lightning?')
@@ -215,7 +215,7 @@ function printQuestions () {
 }
 
 async function printAllStackers ({ bios }) {
-  console.log('All new stackers:\n')
+  console.log('All new stashers:\n')
   console.log('| nym | bio (stacking since) | items | XMR/credits stashed | received ratio |')
   console.log('| --- | -------------------- | ----- | ---------------- | ------------ |')
 

@@ -18,6 +18,7 @@ import { lexicalStateLoader } from '@/lib/lexical/server/loader'
 import { createUserLoader, createSubLoader } from '@/api/loaders'
 import { getDomainBranding, SN_MAIN_DOMAIN } from '@/lib/domains'
 import { lwsClient } from './monero/lwsClient'
+import { logWarn, logError } from '@/lib/logger'
 
 export default async function getSSRApolloClient ({ req, res, me = null }) {
   // switch session cookie before getting session on SSR
@@ -212,14 +213,23 @@ export function getGetServerSideProps (
           variables: vars
         }))
       } catch (e) {
-        console.error(e)
+        error = e
       }
 
-      if (error || !data || (notFound && notFound(data, vars, me))) {
-        error && console.error(error)
+      if (error) {
+        // backend/transient error: the page EXISTS — degrade to null data instead of
+        // lying with a 404. Verified null-safe: pages/~/index.js:21 (serves / via the
+        // next.config.js:192 rewrite and /~:sub) and pages/items/[id]/index.js:20 render
+        // <PageLoading /> when ssrData is null, then the client-side query hydrates them.
+        logError({ route: req.url, error: error?.message }, 'SSR query failed')
+        data = null
+      } else if (!data || (notFound && notFound(data, vars, me))) {
+        // genuinely not found (or caller-defined notFound): keep the 404 redirect
+        if (!data) logWarn({ route: req.url }, 'SSR query returned no data')
         res.writeHead(302, {
           Location: '/404'
         }).end()
+        return
       }
 
       props = {

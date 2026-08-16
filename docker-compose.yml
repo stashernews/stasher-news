@@ -47,7 +47,7 @@ services:
     expose:
       - "5432"
     ports:
-      - "5431:5432"
+      - "127.0.0.1:5431:5432"
     env_file: *env_file
     volumes:
       - db:/var/lib/postgresql/data
@@ -327,7 +327,7 @@ services:
     volumes:
       - monerod:/root/.bitmonero
     ports:
-      - "${MONEROD_RPC_PORT:-38081}:${MONEROD_RPC_PORT:-38081}"
+      - "127.0.0.1:${MONEROD_RPC_PORT:-38081}:${MONEROD_RPC_PORT:-38081}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${MONEROD_RPC_PORT:-38081}/get_height || exit 1"]
       interval: 30s

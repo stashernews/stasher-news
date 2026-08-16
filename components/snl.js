@@ -33,7 +33,7 @@ export default function Snl ({ ignorePreference }) {
         }}
         dismissible
       >
-        <a href='https://www.youtube.com/@stackernews/live'>
+        <a href='https://www.youtube.com/@stashernews/live'>
           <YouTube width={24} height={24} className='me-2 fill-info' />{COPY.liveStreamLine}
         </a>
       </Alert>

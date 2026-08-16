@@ -717,12 +717,12 @@ export default {
       const muted = await isMuted({ models, muterId: me?.id, mutedId: id })
       if (existing) {
         if (muted && !existing.postsSubscribedAt) {
-          throw new GqlInputError("you can't subscribe to a stacker that you've muted")
+          throw new GqlInputError("you can't subscribe to a stasher that you've muted")
         }
         await models.userSubscription.update({ where: { followerId_followeeId: lookupData }, data: { postsSubscribedAt: existing.postsSubscribedAt ? null : new Date() } })
       } else {
         if (muted) {
-          throw new GqlInputError("you can't subscribe to a stacker that you've muted")
+          throw new GqlInputError("you can't subscribe to a stasher that you've muted")
         }
         await models.userSubscription.create({ data: { ...lookupData, postsSubscribedAt: new Date() } })
       }
@@ -734,12 +734,12 @@ export default {
       const muted = await isMuted({ models, muterId: me?.id, mutedId: id })
       if (existing) {
         if (muted && !existing.commentsSubscribedAt) {
-          throw new GqlInputError("you can't subscribe to a stacker that you've muted")
+          throw new GqlInputError("you can't subscribe to a stasher that you've muted")
         }
         await models.userSubscription.update({ where: { followerId_followeeId: lookupData }, data: { commentsSubscribedAt: existing.commentsSubscribedAt ? null : new Date() } })
       } else {
         if (muted) {
-          throw new GqlInputError("you can't subscribe to a stacker that you've muted")
+          throw new GqlInputError("you can't subscribe to a stasher that you've muted")
         }
         await models.userSubscription.create({ data: { ...lookupData, commentsSubscribedAt: new Date() } })
       }
@@ -762,7 +762,7 @@ export default {
           }
         })
         if (subscription?.postsSubscribedAt || subscription?.commentsSubscribedAt) {
-          throw new GqlInputError("you can't mute a stacker to whom you've subscribed")
+          throw new GqlInputError("you can't mute a stasher to whom you've subscribed")
         }
         await models.mute.create({ data: { ...lookupData } })
       }

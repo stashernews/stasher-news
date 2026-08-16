@@ -110,7 +110,7 @@ export default function TerritoryHeader ({ sub }) {
           <TerritoryDetails sub={sub}>
             <div className='d-flex my-2 justify-content-end'>
               {sub.name}
-              <Share path={`${prefix}/`} title={`~${sub.name} stacker news turf`} className='mx-1' />
+              <Share path={`${prefix}/`} title={`~${sub.name} stasher news turf`} className='mx-1' />
               {me &&
                 <>
                   {(isMine

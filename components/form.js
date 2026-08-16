@@ -953,11 +953,14 @@ export function Select ({ label, items, info, groupClassName, onChange, noForm, 
         >
           {items.map(item => {
             if (item && typeof item === 'object') {
-              return (
-                <optgroup key={item.label} label={item.label}>
-                  {item.items.map(item => <option key={item}>{item}</option>)}
-                </optgroup>
-              )
+              if ('items' in item) {
+                return (
+                  <optgroup key={item.label} label={item.label}>
+                    {item.items.map(item => <option key={item}>{item}</option>)}
+                  </optgroup>
+                )
+              }
+              return <option key={item.value} value={item.value}>{item.label}</option>
             } else {
               return <option key={item}>{item}</option>
             }
