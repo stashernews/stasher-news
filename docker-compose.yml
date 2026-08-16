@@ -183,7 +183,7 @@ services:
       MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:3000,https://stasher.news
     ports:
       # keeps the historical dev upload URL host/port (NEXT_PUBLIC_MEDIA_URL)
-      - "4566:9000"
+      - "127.0.0.1:4566:9000"
       # admin console, loopback only
       - "127.0.0.1:9001:9001"
     volumes:

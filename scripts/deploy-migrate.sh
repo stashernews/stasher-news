@@ -18,6 +18,13 @@ echo "==> taking pre-migration snapshot: $SNAPSHOT"
 pg_dump --no-owner --clean --if-exists "$DATABASE_URL" | gzip > "$SNAPSHOT"
 echo "==> snapshot written ($(du -h "$SNAPSHOT" | cut -f1))"
 
+# regenerate the client before migrating: schema-only migrations don't change
+# package-lock.json, so a cached/skipped npm ci leaves a stale client while
+# migrate deploy still applies the new column — first query then fails with
+# PrismaClientValidationError (observed 2026-08-16). Idempotent, needs no DB.
+echo "==> regenerating prisma client"
+npx prisma generate
+
 echo "==> running prisma migrate deploy"
 if ! npx prisma migrate deploy; then
   echo "!!! migration failed. DB may be in a partially-migrated state." >&2
