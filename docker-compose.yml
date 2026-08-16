@@ -153,7 +153,7 @@ services:
       <<: *healthcheck
       test: [ "CMD", "imgproxy", "health" ]
     restart: unless-stopped
-    env_file: *env_file
+    env_file: *env_file_app
     ports:
       - "3001:8080"
     expose:
