@@ -162,6 +162,14 @@ Comment outcomes are unchanged in structure: free while the tiered freebie quota
 (5/month low-rep, 15/month established), then the flat comment fee applies (also
 `PENDING_FEE` via a rewards-wallet subaddress).
 
+**Visibility:** a `PENDING_FEE` item is filtered out of every read surface by
+`activeOrMine(me)` — feeds, item detail, profiles, `newComments`, AND the thread
+comment queries (`comment-tree.js`). Its "went live" effects (ancestor counter
+denormalization + `Reply` rows via `denormalizeComment`, and the creation
+notifications via `runItemLiveSideEffects`) fire at the fee flip in
+`worker/rewardsWalletObserver.js` (`flipPendingToLive`), not at creation —
+immediately-live items fire them at `onPaid`/`onPaidSideEffects` as before.
+
 **Counters:** `User.freePostCount` / `freePostResetAt` track the monthly post quota. The
 `incrementFreePostCount` hook (in `api/payIn/lib/freebie.js`) runs in ITEM_CREATE `onPaid`
 and bumps the counter atomically (optimistic-concurrency guarded: no-op for comments, bios,

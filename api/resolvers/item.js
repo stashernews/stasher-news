@@ -1127,7 +1127,7 @@ export default {
         }
       }
 
-      return await resolveItemComments(item, sort || defaultCommentSort(item.pinId, item.bioId, item.createdAt), cursor, { ...ctx, itemQueryWithMeta, payInJoinFilter, select: SELECT })
+      return await resolveItemComments(item, sort || defaultCommentSort(item.pinId, item.bioId, item.createdAt), cursor, { ...ctx, itemQueryWithMeta, payInJoinFilter, activeOrMine, select: SELECT })
     },
     freedFreebie: async (item) => {
       return item.weightedVotes - item.weightedDownVotes > 0

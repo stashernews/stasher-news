@@ -179,8 +179,11 @@ export async function indexAllItems ({ models, boss }) {
   try {
     while (true) {
       console.log(`indexAllItems: fetching batch (after id ${lastId})`)
+      // PENDING_FEE items are invisible everywhere else (activeOrMine); the
+      // incremental indexItem path filters them via the GraphQL resolver — the
+      // bulk reindex must filter them here too or unpaid replies surface in search.
       const items = await models.item.findMany({
-        where: { id: { gt: lastId } },
+        where: { id: { gt: lastId }, feeStatus: { not: 'PENDING_FEE' } },
         orderBy: { id: 'asc' },
         take: BATCH_SIZE,
         select: {

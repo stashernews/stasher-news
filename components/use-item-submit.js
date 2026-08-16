@@ -88,10 +88,10 @@ export default function useItemSubmit (mutation,
 
       toastUpsertSuccessMessages(toaster, data, Object.keys(data)[0], values.text)
 
-      // StasherNews: a low-rep ITEM_CREATE returns a monero: URI for the posting
-      // fee and the post is PENDING_FEE until the rewardsWalletObserver observes it
-      // on-chain — surface the payment instead of redirecting to the feed.
-      // Comments never carry a moneroUri (they are exempt from the fee gate).
+      // StasherNews: an ITEM_CREATE beyond the free quota (posts AND replies)
+      // returns a monero: URI for the fee and is PENDING_FEE until the
+      // rewardsWalletObserver observes it on-chain — surface the payment instead
+      // of redirecting to the feed.
       //
       // The submit succeeded (the item exists, PENDING_FEE), so reset the form —
       // otherwise a dismissed modal leaves the post page with the same content,

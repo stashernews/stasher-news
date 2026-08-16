@@ -41,6 +41,8 @@ afterEach(async () => {
 afterAll(async () => {
   await prisma.feeObservation.deleteMany({ where: { payInId: { in: created.payIns } } })
   for (const name of created.subs) await prisma.sub.deleteMany({ where: { name } })
+  await prisma.reply.deleteMany({ where: { itemId: { in: created.items } } })
+  await prisma.reply.deleteMany({ where: { ancestorId: { in: created.items } } })
   for (const id of created.items) {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
     await prisma.item.deleteMany({ where: { id } })
@@ -83,6 +85,36 @@ async function seedPendingFeePost (minor, moneroUri = null) {
   await prisma.itemPayIn.create({ data: { itemId: item.id, payInId: payIn.id } })
   created.items.push(item.id)
   return { item, payIn, major: 1, minor }
+}
+
+// Seed a PENDING_FEE COMMENT (reply) + its PayIn watching a rewards-wallet
+// comment-fee subaddress (major 1, minor). Mirrors what itemCreate.onBegin
+// produces for a reply beyond the monthly freebie quota.
+async function seedPendingFeeComment (minor, moneroUri = null) {
+  const userId = await createUser()
+  const root = await prisma.item.create({
+    data: { userId, title: 'reply-thread root', status: 'ACTIVE' }
+  })
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(root.id)}::ltree WHERE id = ${root.id}::int`
+  const payIn = await prisma.payIn.create({
+    data: {
+      userId,
+      payInType: 'ITEM_CREATE',
+      payInState: 'PAID',
+      piconeros: 0n,
+      moneroUri,
+      moneroSubaddressMajor: 1,
+      moneroSubaddressMinor: minor
+    }
+  })
+  created.payIns.push(payIn.id)
+  const comment = await prisma.item.create({
+    data: { userId, parentId: root.id, rootId: root.id, text: 'pending-fee reply', status: 'ACTIVE', feeStatus: 'PENDING_FEE', feePayInId: payIn.id }
+  })
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(root.id) + '.' + String(comment.id)}::ltree WHERE id = ${comment.id}::int`
+  await prisma.itemPayIn.create({ data: { itemId: comment.id, payInId: payIn.id } })
+  created.items.push(root.id, comment.id)
+  return { root, comment, payIn, major: 1, minor }
 }
 
 // Seed a Sub PENDING_FEE + its PayIn watching a rewards-wallet territory-fee
@@ -390,11 +422,89 @@ test('a top-up to the same subaddress accumulates and flips the item live at the
   expect(live.netInvestment).toBe(1_000_000_000n)
 })
 
+test('a fee-paid reply denormalizes its ancestors + Reply rows exactly once at the flip', async () => {
+  const { root, comment, major, minor } = await seedPendingFeeComment(121, FEE_URI('0.001'))
+  const tx = lwsFeeTx('r1' + 'ab'.repeat(31), '1000000000', major, minor)
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
+
+  const live = await prisma.item.findUnique({ where: { id: comment.id } })
+  expect(live.feeStatus).toBe('FEE_PAID')
+
+  const rootAfter = await prisma.item.findUnique({ where: { id: root.id } })
+  expect(rootAfter.ncomments).toBe(1)
+  expect(rootAfter.nDirectComments).toBe(1)
+  const replies = await prisma.$queryRaw`SELECT * FROM "Reply" WHERE "itemId" = ${comment.id}::int`
+  expect(replies).toHaveLength(1)
+  expect(replies[0].ancestorId).toBe(root.id)
+
+  // re-poll of the same tx: the FeeObservation insert conflicts, but the
+  // amount gate + flip re-run idempotently — the WHERE "feeStatus" =
+  // 'PENDING_FEE' guard updates 0 rows, so no double denormalization
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
+  const rootAgain = await prisma.item.findUnique({ where: { id: root.id } })
+  expect(rootAgain.ncomments).toBe(1)
+})
+
+test('an over-payment top-up after the flip does not double-denormalize', async () => {
+  const { root, major, minor } = await seedPendingFeeComment(123, FEE_URI('0.001'))
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('r3' + 'ab'.repeat(31), '1000000000', major, minor)] })
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('r4' + 'ab'.repeat(31), '500000000', major, minor)] })
+  const rootAfter = await prisma.item.findUnique({ where: { id: root.id } })
+  expect(rootAfter.ncomments).toBe(1)
+})
+
+test('an underpaid reply stays PENDING_FEE and does not denormalize', async () => {
+  const { root, major, minor } = await seedPendingFeeComment(122, FEE_URI('0.001'))
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('r2' + 'ab'.repeat(31), '400000000', major, minor)] })
+  const rootAfter = await prisma.item.findUnique({ where: { id: root.id } })
+  expect(rootAfter.ncomments).toBe(0)
+  expect(rootAfter.nDirectComments).toBe(0)
+})
+
 test('a single full payment still flips immediately (no behavior change for honest payers)', async () => {
   const { item, major, minor } = await seedPendingFeePost(113, FEE_URI('0.001'))
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f4' + 'ab'.repeat(31), '1000000000', major, minor)] })
   const live = await prisma.item.findUnique({ where: { id: item.id } })
   expect(live.feeStatus).toBe('FEE_PAID')
+})
+
+// Stranded-flip regression guard: a re-poll whose FeeObservation INSERT conflicts
+// (the observation row committed on a prior poll, but flipPendingToLive's
+// transaction failed/rolled back, leaving the item PENDING_FEE) must still flip
+// the item — NOT short-circuit on the empty conflict rows.
+test('a re-poll of an already-observed tx self-heals a stranded PENDING_FEE flip', async () => {
+  const { item, payIn, major, minor } = await seedPendingFeePost(131, FEE_URI('0.001'))
+  const txHash = 'selfheal-' + Date.now() + '-' + item.id
+
+  // Simulate the stranded state: the observation row committed on a prior poll
+  // (autocommit INSERT) but the flip transaction failed afterwards. Mirror the
+  // columns/values the observer writes in attributeFeeBySubaddress.
+  await prisma.feeObservation.create({
+    data: {
+      txHash,
+      payInId: payIn.id,
+      feeType: 'POSTING',
+      postId: item.id,
+      recipientMajor: major,
+      recipientMinor: minor,
+      piconeros: 1_000_000_000n,
+      height: 1234,
+      state: 'DETECTED'
+    }
+  })
+
+  // Re-poll of the SAME tx: ON CONFLICT DO NOTHING inserts nothing, but the
+  // stranded item must still flip live (self-healing, not short-circuited).
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx(txHash, '1000000000', major, minor)] })
+
+  const live = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(live.feeStatus).toBe('FEE_PAID')
+  expect(live.feeInvestmentPiconeros).toBe(1_000_000_000n)
+  expect(live.netInvestment).toBe(1_000_000_000n)
+
+  // the conflict inserted no duplicate observation row
+  const count = await prisma.feeObservation.count({ where: { payInId: payIn.id } })
+  expect(count).toBe(1)
 })
 
 test('an underpaid TERRITORY fee does not flip billingStatus to PAID', async () => {

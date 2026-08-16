@@ -45,3 +45,22 @@ describe('newComments live-poll limit', () => {
     expect(captured.query).toMatch(/ORDER BY "Item"\."created_at" ASC\s+LIMIT 50/)
   })
 })
+
+describe('Item.comments threads the REAL activeOrMine into the comment-tree query', () => {
+  const gatedItem = { id: 1, ncomments: 5, nDirectComments: 1, pinId: null, bioId: null, createdAt: new Date() }
+
+  it('renders the PENDING_FEE clause for anonymous viewers', async () => {
+    const { models, captured } = captureModels()
+    await resolvers.Item.comments(gatedItem, { sort: 'top', cursor: null }, { models })
+    expect(captured.query).toContain('COALESCE("Item"."feeStatus", \'FEE_NOT_REQUIRED\') <> \'PENDING_FEE\'')
+  })
+
+  it('renders the author override for logged-in viewers', async () => {
+    const { models, captured } = captureModels()
+    await resolvers.Item.comments(
+      gatedItem,
+      { sort: 'top', cursor: null },
+      { models, me: { id: 860 }, userLoader: { load: async () => ({ commentsPiconerosFilter: null }) } })
+    expect(captured.query).toContain('"Item"."userId" = 860')
+  })
+})

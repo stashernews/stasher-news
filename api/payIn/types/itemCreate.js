@@ -1,5 +1,5 @@
 import { ANON_COMMENT_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ANON_POST_FEE_MULTIPLIER, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
-import { notifyItemMention, notifyItemParents, notifyMention, notifyTerritorySubscribers, notifyUserSubscribers, notifyThreadSubscribers } from '@/lib/webPush'
+import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
 import { getItemMentions, getMentions, performBotBehavior, getSubs, countNonOwnedSubs } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
 import { GqlInputError } from '@/lib/error'
@@ -10,7 +10,6 @@ import { canPostFree, postingFeePiconeros, commentsFreeLeft, postsFreeLeft } fro
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { uploadFees } from '@/api/resolvers/upload'
-import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import * as MEDIA_UPLOAD from './mediaUpload'
 
 export const anonable = true
@@ -437,35 +436,11 @@ export async function onPaid (tx, payInId) {
     INSERT INTO pgboss.job (id, name, data, retrylimit, retrybackoff, startafter)
     VALUES (gen_random_uuid(), 'imgproxy', jsonb_build_object('id', ${item.id}::INTEGER), 21, true, now() + interval '5 seconds')`
 
-  if (item.parentId) {
-    // denormalize ncomments, lastCommentAt, commentCost for ancestors, and insert into reply table
-    // NOTE: ancestors are ORDER BY id for consistent lock ordering to prevent deadlocks
-    await tx.$executeRaw`
-      WITH comment AS (
-        SELECT "Item".*
-        FROM "Item"
-        JOIN users ON "Item"."userId" = users.id
-        WHERE "Item".id = ${item.id}::INTEGER
-      ), ancestors AS (
-        SELECT "Item".*
-        FROM "Item", comment
-        WHERE "Item".path @> comment.path AND "Item".id <> comment.id
-        ORDER BY "Item".id
-      ), updated_ancestors AS (
-        UPDATE "Item"
-        SET ncomments = "Item".ncomments + 1,
-          "lastCommentAt" = GREATEST("Item"."lastCommentAt", comment.created_at),
-          "nDirectComments" = "Item"."nDirectComments" +
-            CASE WHEN comment."parentId" = "Item".id THEN 1 ELSE 0 END,
-          "commentCost" = "Item"."commentCost" + comment.cost
-        FROM comment, ancestors
-        WHERE "Item".id = ancestors.id
-        RETURNING "Item".*
-      )
-      INSERT INTO "Reply" (created_at, updated_at, "ancestorId", "ancestorUserId", "itemId", "userId", level)
-        SELECT comment.created_at, comment.updated_at, ancestors.id, ancestors."userId",
-          comment.id, comment."userId", nlevel(comment.path) - nlevel(ancestors.path)
-        FROM ancestors, comment`
+  // denormalize the comment into its ancestors + Reply rows. A PENDING_FEE
+  // comment is not live yet — its denormalization (and notifications) happen
+  // when rewardsWalletObserver flips it FEE_PAID (flipPendingToLive).
+  if (item.parentId && item.feeStatus !== 'PENDING_FEE') {
+    await denormalizeComment(tx, item)
   }
 }
 
@@ -483,34 +458,14 @@ export async function onPaidSideEffects (models, payInId) {
     }
   })
 
-  // StasherNews: a PENDING_FEE post is not live yet (invisible until the
-  // rewardsWalletObserver observes its posting fee and flips feeStatus to FEE_PAID), so
-  // suppress all creation notifications here. They will fire once the post goes live.
+  // StasherNews: a PENDING_FEE item is not live yet (invisible until the
+  // rewardsWalletObserver observes its fee and flips feeStatus to FEE_PAID), so
+  // suppress all creation side effects here. They fire at the flip instead.
   if (item.feeStatus === 'PENDING_FEE') {
     return
   }
 
-  // Verified-badge graduation check (age-crossing path): an active user posting
-  // or commenting past day 7 may have crossed the gate since their last tip.
-  try {
-    await maybeGrantVerifiedBadge(models, item.userId)
-  } catch (err) {
-    console.error('verified badge check failed (itemCreate):', err)
-  }
-
-  if (item.parentId) {
-    notifyItemParents({ item, models }).catch(console.error)
-    notifyThreadSubscribers({ models, item }).catch(console.error)
-  }
-  for (const { userId } of item.mentions) {
-    notifyMention({ models, item, userId }).catch(console.error)
-  }
-  for (const { refereeItem } of item.itemReferrers) {
-    notifyItemMention({ models, referrerItem: item, refereeItem }).catch(console.error)
-  }
-
-  notifyUserSubscribers({ models, item }).catch(console.error)
-  notifyTerritorySubscribers({ models, item }).catch(console.error)
+  await runItemLiveSideEffects(models, item)
 }
 
 export async function describe (models, payInId) {

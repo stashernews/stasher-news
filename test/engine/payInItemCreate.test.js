@@ -695,3 +695,53 @@ describe('onPaid — turf-owner quota skip', () => {
     expect(user.freePostCount ?? 0).toBe(0)
   })
 })
+
+// --- PENDING_FEE comments must NOT denormalize into their ancestors at onPaid ---
+describe('onPaid — comment denormalization timing', () => {
+  async function createCommentFixture (userId, feeStatus) {
+    const rootRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", title, "created_at")
+      VALUES (${userId}::int, ${'denorm root'}, now())
+      RETURNING id::int AS id`
+    const rootId = rootRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId)}::ltree WHERE id = ${rootId}::int`
+    const commentRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", "parentId", "rootId", text, freebie, "feeStatus", "created_at")
+      VALUES (${userId}::int, ${rootId}::int, ${rootId}::int, ${'denorm comment'}, ${feeStatus === 'FEE_NOT_REQUIRED'}, ${feeStatus}::"ItemFeeStatus", now())
+      RETURNING id::int AS id`
+    const commentId = commentRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId) + '.' + String(commentId)}::ltree WHERE id = ${commentId}::int`
+    created.items.push(rootId, commentId)
+    const payIn = await prisma.payIn.create({
+      data: { userId, payInType: 'ITEM_CREATE', payInState: 'PAID', piconeros: 0n }
+    })
+    created.payIns.push(payIn.id)
+    await prisma.itemPayIn.create({ data: { itemId: commentId, payInId: payIn.id } })
+    return { rootId, commentId, payInId: payIn.id }
+  }
+
+  async function replyCount (itemId) {
+    const rows = await prisma.$queryRaw`SELECT count(*)::int AS n FROM "Reply" WHERE "itemId" = ${itemId}::int`
+    return rows[0].n
+  }
+
+  test('a FEE_NOT_REQUIRED comment denormalizes ancestors + Reply rows at onPaid', async () => {
+    const userId = await createUser()
+    const { rootId, commentId, payInId } = await createCommentFixture(userId, 'FEE_NOT_REQUIRED')
+    await prisma.$transaction(async tx => { await onPaid(tx, payInId) })
+    const root = await prisma.item.findUnique({ where: { id: rootId } })
+    expect(root.ncomments).toBe(1)
+    expect(root.nDirectComments).toBe(1)
+    expect(await replyCount(commentId)).toBe(1)
+  })
+
+  test('a PENDING_FEE comment does NOT denormalize at onPaid (that happens at the fee flip)', async () => {
+    const userId = await createUser()
+    const { rootId, commentId, payInId } = await createCommentFixture(userId, 'PENDING_FEE')
+    await prisma.$transaction(async tx => { await onPaid(tx, payInId) })
+    const root = await prisma.item.findUnique({ where: { id: rootId } })
+    expect(root.ncomments).toBe(0)
+    expect(root.nDirectComments).toBe(0)
+    expect(await replyCount(commentId)).toBe(0)
+  })
+})

@@ -7,6 +7,7 @@ import { reverseMapPaymentId, applyDownvotePenalty } from '@/api/monero/downvote
 import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
 import { createReorgDetector } from '@/lib/reorgDetector'
 import { moneroUriAmountPiconeros } from '@/lib/format'
+import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
 
 // rewardsWalletObserver — observes posting/territory fees AND downvote payments paid to
 // the platform rewards wallet (Phase 3 Task 5 + Phase 4 Task 4 / spec §3.3, §5.6,
@@ -79,18 +80,22 @@ async function attributeFeeBySubaddress (models, tx) {
   const feeType = feeTypeFor(major, payIn.payInType)
 
   // Idempotent insert keyed by @@unique([txHash, recipientMajor, recipientMinor]).
-  // ON CONFLICT DO NOTHING means a re-poll of the same tx is a no-op. RETURNING
-  // gives us the row only on the fresh insert (null on conflict) so the flip runs
-  // exactly once. postId/subName are denormalized from the PayIn's ItemPayIn /
-  // SubPayIn links for the rewards ledger and the statistics/analytics reads.
+  // ON CONFLICT DO NOTHING means a re-poll of the same tx inserts nothing;
+  // RETURNING gives us the row only on the fresh insert. postId/subName are
+  // denormalized from the PayIn's ItemPayIn / SubPayIn links for the rewards
+  // ledger and the statistics/analytics reads. The flip below runs on BOTH
+  // paths: a re-poll of an item whose flip transaction previously failed is
+  // how the stranded PENDING_FEE item self-heals.
   const rows = await models.$queryRaw`
     INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","donationRewardsPct","height","state","detectedAt")
     VALUES (${tx.hash}, ${payIn.id}, ${feeType}::"FeeType", ${payIn.itemPayIn?.itemId ?? null}, ${payIn.subPayIn?.subName ?? null}, ${major}, ${minor}, ${tx.piconeros}, ${payIn.donationRewardsPct ?? null}, ${tx.height ?? null}, 'DETECTED'::"ObservedState", NOW())
     ON CONFLICT ("txHash","recipientMajor","recipientMinor") DO NOTHING
     RETURNING id`
-  if (!rows || rows.length === 0) return null
+  const fresh = rows && rows.length > 0
 
-  if (feeType === 'BOOST') {
+  // Boost bump fires on a fresh attribution only — a re-poll (conflict) must not
+  // re-apply the ranking bump.
+  if (fresh && feeType === 'BOOST') {
     try {
       await applyBoostDetected(models, payIn, tx.piconeros)
     } catch (err) {
@@ -105,6 +110,12 @@ async function attributeFeeBySubaddress (models, tx) {
   // monero: URI quoted (top-ups land as additional FeeObservation rows).
   // A PayIn without a parseable URI is a legacy/ungated fee — keep the old
   // any-payment-flips behavior for it.
+  // Runs on BOTH fresh and conflict paths: a re-poll whose observation committed
+  // but whose flip transaction failed (timeout/lock contention) is stranded
+  // PENDING_FEE, and the flip here is what self-heals it. flipPendingToLive is
+  // idempotent (WHERE "feeStatus" = 'PENDING_FEE'), so a re-poll of a healthy
+  // paid item is a no-op. On a conflict re-poll of an underpaid tx the same
+  // console.warn fires again — simplest consistent behavior, and harmless.
   const expected = payIn.moneroUri ? moneroUriAmountPiconeros(payIn.moneroUri) : null
   const agg = await models.feeObservation.aggregate({
     _sum: { piconeros: true },
@@ -116,7 +127,10 @@ async function attributeFeeBySubaddress (models, tx) {
   } else {
     console.warn(`rewardsWalletObserver: fee payIn ${payIn.id} underpaid — received ${cumulative} of ${expected} piconeros; awaiting top-up`)
   }
-  return rows[0].id
+  // Fresh attribution -> the new observation id (callers use it as a truthy
+  // short-circuit); re-poll -> null, so attributeOutput falls through to the
+  // payment_id branches (a fee subaddress carries no payment_id, so no-op).
+  return fresh ? rows[0].id : null
 }
 
 // Apply the boost ranking bump (A-14): increment the item's persistent boost
@@ -214,16 +228,41 @@ function feeTypeFor (major, payInType) {
 // means a second call (or a fee already paid by another path) is a no-op.
 export async function flipPendingToLive (models, payIn, feePiconeros) {
   if (payIn.payInType === 'ITEM_CREATE') {
-    // Credit the observed posting fee as the post's non-tip investment so the
-    // restored item_net_investment trigger produces netInvestment >= 0.001 XMR
-    // (the new posts-filter default). Idempotent: the WHERE PENDING_FEE guard
-    // makes re-polls a no-op. The fee NEVER touches Item.piconeros (tip total)
+    // The item goes live atomically with its comment denormalizations (ancestor
+    // counters + Reply rows): a PENDING_FEE comment skipped those at onPaid, so
+    // they run here, exactly once — guarded by the WHERE feeStatus = 'PENDING_FEE'
+    // flip (re-polls and post-flip top-ups update 0 rows and skip the block).
+    // The observed fee is credited as the item's non-tip investment so the
+    // item_net_investment trigger produces netInvestment >= 0.001 XMR (the new
+    // posts-filter default). The fee NEVER touches Item.piconeros (tip total)
     // or boost (ranking), so tip display and ranktop/ranklit are unaffected.
-    await models.$executeRaw`
-      UPDATE "Item"
-      SET "feeStatus" = 'FEE_PAID',
-          "feeInvestmentPiconeros" = GREATEST("feeInvestmentPiconeros", ${feePiconeros}::bigint)
-      WHERE "feePayInId" = ${payIn.id} AND "feeStatus" = 'PENDING_FEE'`
+    const flipped = await models.$transaction(async tx => {
+      const rows = await tx.$queryRaw`
+        UPDATE "Item"
+        SET "feeStatus" = 'FEE_PAID',
+            "feeInvestmentPiconeros" = GREATEST("feeInvestmentPiconeros", ${feePiconeros}::bigint)
+        WHERE "feePayInId" = ${payIn.id} AND "feeStatus" = 'PENDING_FEE'
+        RETURNING id`
+      if (!rows || rows.length === 0) return null
+      // One fetch, with the includes runItemLiveSideEffects needs. Safe to reuse
+      // the in-tx row post-commit: the flip only changes feeStatus /
+      // feeInvestmentPiconeros, none of the notification-relevant fields.
+      const item = await tx.item.findFirst({
+        where: { id: rows[0].id },
+        include: {
+          mentions: true,
+          itemReferrers: { include: { refereeItem: true } },
+          user: true
+        }
+      })
+      await denormalizeComment(tx, item)
+      return item
+    })
+    if (flipped) {
+      // creation side effects (notifications, verified-badge check) fire once,
+      // after the flip commits — onPaidSideEffects suppressed them at creation
+      await runItemLiveSideEffects(models, flipped)
+    }
   } else if (['DONATE', 'TIP_UNWALLETED', 'BOOST'].includes(payIn.payInType)) {
     // no gated record to flip — the FeeObservation itself is the effect
   } else if (['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE'].includes(payIn.payInType)) {
@@ -239,8 +278,8 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
   // payIn (the benefactor carries the subaddress and the fee), so both shapes
   // are matched. Runs for ANY observed fee (ITEM_CREATE / ITEM_UPDATE /
   // TERRITORY_* / DONATE / ...); it is a no-op when the payIn covers no uploads.
-  // Fires exactly once per observation: re-polls of the same tx are stopped by
-  // the ON CONFLICT DO NOTHING guard upstream, before this point is reached.
+  // Idempotent (SET paid = true), so re-polls that now reach this point on the
+  // conflict path are harmless.
   if (payIn?.id != null) {
     await models.$executeRaw`
       UPDATE "Upload"
