@@ -16,8 +16,8 @@ volumes:
   db:
     name: stashernews_db
     external: true
-  aws:
-    name: stashernews_aws
+  minio:
+    name: stashernews_minio
     external: true
   monerod:
     name: stashernews_monerod

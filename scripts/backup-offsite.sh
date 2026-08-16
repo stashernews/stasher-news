@@ -14,14 +14,16 @@
 # rclone remotes required (configure once via `rclone config`; see the ops
 # handoff / AGENTS.md):
 #   b2-stasher — Backblaze B2, application key scoped to stashernews-backups
-#   localstack — S3-compatible remote for the `aws` container
-#                (endpoint http://localhost:4566, path style, dummy creds)
+#   minio      — S3-compatible remote for the `minio` container
+#                (endpoint http://localhost:4566, path style, the machine's
+#                AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY pair — the same
+#                creds minio interpolates as MINIO_ROOT_*)
 #
 # Legs:
 #   1. GPG-encrypted DB dumps        $BACKUPS_DIR    -> backups/
 #   2. GPG-encrypted master-key escrow $MASTERKEY_DIR -> masterkey/
 #   3. SOPS-encrypted secrets.env    $SECRETS_FILE   -> secrets/
-#   4. user-uploaded media           localstack:$MEDIA_BUCKET -> media/
+#   4. user-uploaded media           minio:$MEDIA_BUCKET -> media/
 #
 # WAL archiving stays on its own hourly job (scripts/backup-wal-offsite.sh).
 #
@@ -30,7 +32,7 @@
 set -uo pipefail
 
 B2_REMOTE="${B2_REMOTE:-b2-stasher}"
-MEDIA_REMOTE="${MEDIA_REMOTE:-localstack}"
+MEDIA_REMOTE="${MEDIA_REMOTE:-minio}"
 MEDIA_BUCKET="${MEDIA_BUCKET:-uploads}"
 BACKUPS_DIR="${BACKUPS_DIR:-/var/lib/docker/volumes/stashernews_backups/_data}"
 MASTERKEY_DIR="${MASTERKEY_DIR:-/var/lib/docker/volumes/stashernews_masterkey_backups/_data}"
