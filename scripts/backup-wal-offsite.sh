@@ -11,7 +11,9 @@ set -eu
 WAL_ARCHIVE_DIR="${WAL_ARCHIVE_DIR:-/var/lib/stashernews/wal-archive}"
 RCLONE_REMOTE="${RCLONE_REMOTE:?RCLONE_REMOTE must be set, e.g. 'b2:stashernews-wal'}"
 BASE_BACKUP_HOURS="${BASE_BACKUP_HOURS:-24}"  # take a fresh base backup daily
-POSTGRES_USER="${POSTGRES_USER:-stasher}"
+POSTGRES_USER="${POSTGRES_USER:-sn}"
+DB_CONTAINER="${DB_CONTAINER:-db}"
+DB_WAL_DIR="${DB_WAL_DIR:-/wal-archive}"  # db container mount of the wal_archive volume
 
 mkdir -p "$WAL_ARCHIVE_DIR"
 
@@ -28,7 +30,7 @@ fi
 if [ "$needs_base" -eq 1 ]; then
   echo "$(date -u +%FT%TZ) taking base backup"
   rm -rf "$WAL_ARCHIVE_DIR/base"
-  if pg_basebackup -D "$WAL_ARCHIVE_DIR/base" -Ft -z -P -U "$POSTGRES_USER"; then
+  if docker exec "$DB_CONTAINER" pg_basebackup -D "$DB_WAL_DIR/base" -Ft -z -P -U "$POSTGRES_USER"; then
     date -u +%FT%TZ > "$BASE_FLAG"
   else
     echo "$(date -u +%FT%TZ) WARNING: base backup failed; will retry next run" >&2

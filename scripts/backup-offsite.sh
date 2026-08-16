@@ -31,7 +31,7 @@ set -uo pipefail
 
 B2_REMOTE="${B2_REMOTE:-b2-stasher}"
 MEDIA_REMOTE="${MEDIA_REMOTE:-localstack}"
-MEDIA_BUCKET="${MEDIA_BUCKET:-snuploads}"
+MEDIA_BUCKET="${MEDIA_BUCKET:-uploads}"
 BACKUPS_DIR="${BACKUPS_DIR:-/var/lib/docker/volumes/stashernews_backups/_data}"
 MASTERKEY_DIR="${MASTERKEY_DIR:-/var/lib/docker/volumes/stashernews_masterkey_backups/_data}"
 SECRETS_FILE="${SECRETS_FILE:-/etc/stashernews/secrets.env}"
