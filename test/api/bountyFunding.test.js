@@ -16,7 +16,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { initiateBountyFundingCore } from '@/api/resolvers/bounty'
-import { driveBountyFunding } from '@/pages/api/monero/webhook'
+import { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros, handleWebhook } from '@/pages/api/monero/webhook'
 import { updateItem } from '@/api/resolvers/item'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { bountyFeePiconeros } from '@/api/monero/bounties'
@@ -45,10 +45,10 @@ const prisma = new PrismaClient()
 const ESCROW_ADDR = '5' + '1'.repeat(94)
 const PAYER_ADDR = '5' + '2'.repeat(94)
 
-// Deterministic fee config: min 0.01 XMR / 1%. The CONFIRMED-branch test funds
-// 0.11 XMR on a 1 XMR declared bounty, where the min fee (0.01 XMR) dominates —
-// the floor regime gives exact, readable math (declared 1e12 → fee 1e10 →
-// bounty = 1.1e11 − 1e10 = 1e11).
+// Deterministic fee config: min 0.01 XMR / 1%. The CONFIRMED-branch test pays
+// the full 1.01 XMR quote on a 1 XMR declared bounty, where the min fee
+// (0.01 XMR) dominates — the floor regime gives exact, readable math
+// (declared 1e12 → fee 1e10 → bounty = 1.01e12 − 1e10 = 1e12).
 const FEE_CONFIG = { bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }
 
 const created = { users: [], items: [], accounts: [], pids: [], bounties: [] }
@@ -203,11 +203,11 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
   created.bounties.push(bounty.id)
 
-  // The payer actually sent a different amount than the expected bounty:
-  // 0.11 XMR total. The fee is booked from the DECLARED bounty (1e12), where
-  // the min fee (0.01 XMR) dominates — the floor regime gives exact, readable
-  // math (declared 1e12 → fee 1e10 → bounty = 1.1e11 − 1e10 = 1e11).
-  const observed = 110_000_000_000n
+  // The payer sent the full quoted total: 1.01 XMR (declared 1 + min fee
+  // 0.01). The fee is booked from the DECLARED bounty (1e12), where the min
+  // fee (0.01 XMR) dominates — the floor regime gives exact, readable math
+  // (declared 1e12 → fee 1e10 → bounty = 1.01e12 − 1e10 = 1e12).
+  const observed = 1_010_000_000_000n
   const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, FEE_CONFIG)
   expect(feePiconeros).toBe(10_000_000_000n)
   const txHash = 'ab'.repeat(32)
@@ -223,7 +223,7 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   expect(afterBounty.confirmedAt).toBeInstanceOf(Date)
 
   // The item flips to FUNDED with the observed amount NET of the platform fee
-  // (bountyPiconeros = observed − fee = 1e11, not the raw 1.1e11) so the signer
+  // (bountyPiconeros = observed − fee = 1e12, not the raw 1.01e12) so the signer
   // can zero the escrow exactly at disposition.
   const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
   expect(afterItem.bountyStatus).toBe('FUNDED')
@@ -344,13 +344,18 @@ test('re-entry after DETECTED (pid map consumed, payment in flight) returns the 
 
   // The live pid map is gone, but the payment is still in flight — re-entry
   // must hand back the SAME address/payment id instead of minting a second URI
-  // (paying twice would overfund the escrow for one bounty).
+  // (paying twice would overfund the escrow for one bounty). The URI now
+  // quotes the REMAINDER of the partial payment (1.01 quote − 0.011 received
+  // = 0.999) so a top-up completes the funding, and the result reports
+  // received/expected for the client hint.
   const second = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
 
   expect(second.paymentId).toBe(first.paymentId)
   expect(second.integratedAddress).toBe(first.integratedAddress)
-  expect(second.uri).toBe(first.uri)
+  expect(second.uri).toContain('tx_amount=0.999')
   expect(second.feePiconeros).toBe(first.feePiconeros)
+  expect(second.receivedPiconeros).toBe(observed)
+  expect(second.expectedPiconeros).toBe(1_010_000_000_000n)
 
   // No second webhook registration, no second pid map or ObservedBounty row.
   expect(monero.addWebhook).toHaveBeenCalledTimes(1)
@@ -504,4 +509,136 @@ test('rejects changing the bounty amount on a PENDING_FUNDING bounty (funding qu
   const after = await prisma.item.findUnique({ where: { id: item.id } })
   expect(after.bountyPiconeros).toBe(10_000_000_000n)
   expect(after.bountyStatus).toBe('PENDING_FUNDING')
+})
+
+test('driveBountyFunding holds an underfunded bounty at DETECTED, books no fee, and returns false', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+
+  const out = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } })
+  const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
+  created.bounties.push(bounty.id)
+
+  // received 0.5 XMR of the 1.01 XMR quote (declared 1 + fee 0.01)
+  const shortObserved = 500_000_000_000n
+  await prisma.$executeRaw`
+    UPDATE "ObservedBounty"
+    SET state = 'DETECTED', "txHash" = ${'ab'.repeat(32)}, height = ${100}, piconeros = ${shortObserved}
+    WHERE id = ${bounty.id}`
+  await prisma.bountyPidMap.update({ where: { paymentId: out.paymentId }, data: { consumedAt: new Date() } })
+
+  let funded
+  await prisma.$transaction(async (tx) => {
+    funded = await driveBountyFunding(tx, bounty, { txHash: 'ab'.repeat(32), height: 100, confirmations: 10, piconeros: shortObserved })
+  })
+
+  expect(funded).toBe(false)
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('PENDING_FUNDING')
+  const afterBounty = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(afterBounty.state).toBe('DETECTED')
+  const feeRows = await prisma.feeObservation.findMany({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })
+  expect(feeRows).toHaveLength(0)
+})
+
+test('receipts accumulate: a top-up crosses the quote and funds with the cumulative total, booking exactly one fee', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+
+  const out = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } })
+  const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
+  created.bounties.push(bounty.id)
+
+  // two partial payments: 0.6 XMR then 0.41 XMR — cumulative 1.01 = the quote
+  let cumulative
+  await prisma.$transaction(async (tx) => {
+    cumulative = await recordBountyReceipt(tx, bounty, { txHash: 'cd'.repeat(32), piconeros: 600_000_000_000n, height: 100 })
+    cumulative = await recordBountyReceipt(tx, bounty, { txHash: 'ce'.repeat(32), piconeros: 410_000_000_000n, height: 101 })
+    // retried callback for the FIRST tx is a no-op (idempotent by txHash)
+    cumulative = await recordBountyReceipt(tx, bounty, { txHash: 'cd'.repeat(32), piconeros: 600_000_000_000n, height: 100 })
+  })
+  expect(cumulative).toBe(1_010_000_000_000n)
+  expect(await bountyExpectedPiconeros(prisma, bounty)).toBe(1_010_000_000_000n)
+
+  await prisma.bountyPidMap.update({ where: { paymentId: out.paymentId }, data: { consumedAt: new Date() } })
+  let funded
+  await prisma.$transaction(async (tx) => {
+    funded = await driveBountyFunding(tx, bounty, { txHash: 'ce'.repeat(32), height: 101, confirmations: 10, piconeros: cumulative })
+  })
+
+  expect(funded).toBe(true)
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('FUNDED')
+  expect(afterItem.bountyPiconeros).toBe(1_010_000_000_000n - 10_000_000_000n)
+  const feeRows = await prisma.feeObservation.findMany({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })
+  expect(feeRows).toHaveLength(1)
+})
+
+function fire (body) {
+  const res = { status: jest.fn().mockReturnThis(), end: jest.fn() }
+  return handleWebhook({ headers: {}, body }, res, prisma, { deleteWebhook: jest.fn() }).then(() => res)
+}
+
+test('webhook accumulates bounty receipts across partial payments and funds on the crossing N-conf callback', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+
+  const out = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } })
+  const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
+  created.bounties.push(bounty.id)
+
+  // first partial payment lands (0-conf)
+  await fire({ payment_id: out.paymentId, confirmations: 0, tx_info: { tx_hash: 'dd'.repeat(32), block: 100, amount: '600000000000' } })
+  let row = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(row.state).toBe('DETECTED')
+  expect(row.piconeros).toBe(600_000_000_000n)
+
+  // second partial payment (0-conf) — cumulative crosses the 1.01 quote
+  await fire({ payment_id: out.paymentId, confirmations: 0, tx_info: { tx_hash: 'de'.repeat(32), block: 101, amount: '410000000000' } })
+  row = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(row.piconeros).toBe(1_010_000_000_000n)
+
+  // an N-conf callback retry on the FIRST tx is handled idempotently: by now
+  // both 0-conf receipts exist and the cumulative total (1.01) already crosses
+  // the quote, so the funding fires on this or the callback below — the
+  // assertions are order-agnostic
+  await fire({ payment_id: out.paymentId, confirmations: 10, tx_info: { tx_hash: 'dd'.repeat(32), block: 100, amount: '600000000000' } })
+  // the crossing tx's own N-conf callback (a no-op replay if funded above)
+  await fire({ payment_id: out.paymentId, confirmations: 10, tx_info: { tx_hash: 'de'.repeat(32), block: 101, amount: '410000000000' } })
+
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('FUNDED')
+  expect(afterItem.bountyPiconeros).toBe(1_000_000_000_000n)
+  const receipts = await prisma.observedBountyReceipt.findMany({ where: { bountyId: bounty.id } })
+  expect(receipts).toHaveLength(2)
+})
+
+test('re-entry after a PARTIAL payment quotes the REMAINDER and reports received/expected', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+  const monero = makeMockLws()
+
+  const first = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
+  await fire({ payment_id: first.paymentId, confirmations: 0, tx_info: { tx_hash: 'ee'.repeat(32), block: 100, amount: '600000000000' } })
+
+  const second = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
+
+  // same payment id/address (in-flight resume), but the URI now quotes the
+  // remainder: 1.01 expected - 0.6 received = 0.41 XMR
+  expect(second.paymentId).toBe(first.paymentId)
+  expect(second.uri).toContain('tx_amount=0.41')
+  expect(second.receivedPiconeros).toBe(600_000_000_000n)
+  expect(second.expectedPiconeros).toBe(1_010_000_000_000n)
 })

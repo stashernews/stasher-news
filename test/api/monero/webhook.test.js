@@ -68,6 +68,13 @@ function mockModels (overrides = {}) {
       observedTip: { update: txUpdate },
       user: { update: userUpdate },
       observedBounty: { update: overrides.txBountyUpdate || jest.fn().mockResolvedValue({}) },
+      // Receipt fold (underpayment support): recordBountyReceipt sums
+      // ObservedBountyReceipt rows on the tx. Default _sum null -> cumulative
+      // 0n (underfunded, funding held); the funding-path tests override
+      // txReceiptAggregate with a sum that crosses the expected total.
+      observedBountyReceipt: {
+        aggregate: overrides.txReceiptAggregate || jest.fn().mockResolvedValue({ _sum: { piconeros: null } })
+      },
       bountyPidMap: { update: overrides.txPidMapUpdate || jest.fn().mockResolvedValue({}) },
       item: {
         update: overrides.txItemUpdate || jest.fn().mockResolvedValue({}),
@@ -412,6 +419,10 @@ test('bounty branch: a DETECTED bounty at REQUIRED_CONFIRMATIONS runs the fundin
     // consulted for DETECTED callbacks — driveBountyFunding must run regardless.
     bountyPidMap: { findFirst: jest.fn().mockResolvedValue(null) },
     observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
+    // Receipts already sum to the callback amount (1.1e11) — the cumulative
+    // total crosses the expected declared+fee (1e11 + 1e10), so the funding
+    // gate opens.
+    txReceiptAggregate: jest.fn().mockResolvedValue({ _sum: { piconeros: 110_000_000_000n } }),
     txBountyUpdate,
     txItemUpdate,
     queryRaw
@@ -456,6 +467,9 @@ test('bounty branch: the N-conf CONFIRMED callback still funds when the BountyPi
     // Consumed map -> the live-guarded lookup matches nothing.
     bountyPidMap: { findFirst: jest.fn().mockResolvedValue(null) },
     observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
+    // Receipts sum to the callback amount — the cumulative total crosses the
+    // expected declared+fee, so the gate opens despite the consumed map.
+    txReceiptAggregate: jest.fn().mockResolvedValue({ _sum: { piconeros: 110_000_000_000n } }),
     txBountyUpdate,
     txItemUpdate,
     queryRaw

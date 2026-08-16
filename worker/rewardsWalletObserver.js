@@ -6,6 +6,7 @@ import {
 import { reverseMapPaymentId, applyDownvotePenalty } from '@/api/monero/downvote'
 import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
 import { createReorgDetector } from '@/lib/reorgDetector'
+import { moneroUriAmountPiconeros } from '@/lib/format'
 
 // rewardsWalletObserver — observes posting/territory fees AND downvote payments paid to
 // the platform rewards wallet (Phase 3 Task 5 + Phase 4 Task 4 / spec §3.3, §5.6,
@@ -99,7 +100,22 @@ async function attributeFeeBySubaddress (models, tx) {
     }
   }
 
-  await flipPendingToLive(models, payIn, tx.piconeros)
+  // Amount gate (underpayment support): the gated Item/Sub only goes live once
+  // the CUMULATIVE observed piconeros for this payIn cover the amount its
+  // monero: URI quoted (top-ups land as additional FeeObservation rows).
+  // A PayIn without a parseable URI is a legacy/ungated fee — keep the old
+  // any-payment-flips behavior for it.
+  const expected = payIn.moneroUri ? moneroUriAmountPiconeros(payIn.moneroUri) : null
+  const agg = await models.feeObservation.aggregate({
+    _sum: { piconeros: true },
+    where: { payInId: payIn.id }
+  })
+  const cumulative = agg._sum.piconeros ?? 0n
+  if (expected === null || cumulative >= expected) {
+    await flipPendingToLive(models, payIn, cumulative)
+  } else {
+    console.warn(`rewardsWalletObserver: fee payIn ${payIn.id} underpaid — received ${cumulative} of ${expected} piconeros; awaiting top-up`)
+  }
   return rows[0].id
 }
 

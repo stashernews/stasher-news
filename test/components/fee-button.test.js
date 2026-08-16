@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { postCommentBaseLineItems } from '@/components/fee-button'
+import { postCommentBaseLineItems, legacySatsToPiconeros } from '@/components/fee-button'
 import { piconerosToXmr } from '@/lib/format'
 
 // components/fee-button imports ./form, which pulls in the lexical editor whose
@@ -173,5 +173,21 @@ describe('postCommentBaseLineItems — turf owners (subs)', () => {
     })
     expect(lines.baseCost).toBeTruthy()
     expect(lines.baseCost.allowFreebies).toBe(true)
+  })
+})
+
+describe('legacySatsToPiconeros — fractional escalation totals never crash BigInt', () => {
+  test('integer totals convert exactly (0.001 XMR fee)', () => {
+    expect(legacySatsToPiconeros(1_000_000)).toBe(1_000_000_000n)
+  })
+
+  test('the exact crash value from the live report (17085937.5) rounds instead of throwing', () => {
+    // 0.001 XMR base escalated x1.5^7: 1e6 * 1.5^7 = 17085937.5 legacy sats
+    expect(() => legacySatsToPiconeros(17085937.5)).not.toThrow()
+    expect(legacySatsToPiconeros(17085937.5)).toBe(17_085_938_000n)
+  })
+
+  test('negative-safe: null-ish totals return 0n rather than NaN BigInt', () => {
+    expect(legacySatsToPiconeros(0)).toBe(0n)
   })
 })

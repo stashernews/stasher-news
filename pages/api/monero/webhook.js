@@ -4,7 +4,8 @@ import { lwsClient } from '@/api/monero/lwsClient'
 import { notifyNewStreak } from '@/lib/webPush'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { moneroWebhooksReceivedTotal } from '@/lib/metrics'
-import { driveBountyFunding } from '@/api/monero/bountyFunding'
+import { alert } from '@/lib/alert'
+import { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros } from '@/api/monero/bountyFunding'
 import { applyDownvotePenalty } from '@/api/monero/downvote'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { safeEqual } from '@/lib/domains/auth'
@@ -191,16 +192,26 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
           where: { paymentId },
           data: { consumedAt: new Date() }
         })
+        // first funding receipt: seeds the cumulative total (idempotent)
+        await recordBountyReceipt(tx, bounty, { txHash, piconeros, height })
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     return res.status(200).end()
   }
 
   if (bounty?.state === 'DETECTED' && confirmations >= REQUIRED_CONFIRMATIONS) {
+    let funded = false
     await models.$transaction(async (tx) => {
-      await driveBountyFunding(tx, bounty, { txHash, height, confirmations, piconeros: BigInt(amount || '0') })
+      const cumulative = await recordBountyReceipt(tx, bounty, { txHash, piconeros: BigInt(amount || '0'), height })
+      const expected = await bountyExpectedPiconeros(tx, bounty)
+      if (cumulative >= expected) {
+        funded = await driveBountyFunding(tx, bounty, { txHash, height, confirmations, piconeros: cumulative })
+      } else {
+        // short: keep DETECTED (top-up-able), just advance confirmations
+        await tx.observedBounty.update({ where: { id: bounty.id }, data: { confirmations } })
+      }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-    if (bounty.webhookEventId) {
+    if (funded && bounty.webhookEventId) {
       try {
         await monero.deleteWebhook(bounty.webhookEventId)
       } catch (err) {
@@ -211,6 +222,10 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   }
 
   if (bounty?.state === 'DETECTED') {
+    await models.$transaction(async (tx) => {
+      await recordBountyReceipt(tx, bounty, { txHash, piconeros: BigInt(amount || '0'), height })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch(err =>
+      console.warn(`webhook: bounty receipt record failed (best-effort): ${err && err.message}`))
     const data = { confirmations }
     if (height != null) data.height = height
     if (txHash) data.txHash = txHash
@@ -218,6 +233,21 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
       where: { id: bounty.id },
       data
     })
+  }
+
+  // A payment landed on an ABANDONED bounty's pid after the 7-day window: the
+  // escrow holds it but the funding is dead. Record the receipt (ledger
+  // visibility) and page the operators — manual reconciliation required.
+  if (bounty?.state === 'EXPIRED') {
+    const piconeros = BigInt(amount || '0')
+    await models.$transaction(async (tx) => {
+      await recordBountyReceipt(tx, bounty, { txHash, piconeros, height })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch(err =>
+      console.warn(`webhook: abandoned-bounty receipt record failed (best-effort): ${err && err.message}`))
+    alert('critical', 'payment arrived after bounty abandonment',
+      `bounty item ${bounty.postId}: ${piconeros} piconeros arrived after the underfunded bounty was abandoned; manual reconciliation required`,
+      { dedupeKey: `bounty-late-payment-${bounty.postId}` })
+    return res.status(200).end()
   }
 
   // Downvote branch: dv:-namespace payment ids reverse-map through the
@@ -294,10 +324,11 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   return res.status(200).end()
 }
 
-// driveBountyFunding lives in api/monero/bountyFunding.js (shared with the
-// confirmFinalizer backstop). Re-exported here so existing callers/tests that
-// import from the webhook module keep working.
-export { driveBountyFunding } from '@/api/monero/bountyFunding'
+// driveBountyFunding/recordBountyReceipt/bountyExpectedPiconeros live in
+// api/monero/bountyFunding.js (shared with the confirmFinalizer backstop).
+// Re-exported here so existing callers/tests that import from the webhook
+// module keep working.
+export { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros } from '@/api/monero/bountyFunding'
 
 export default function handler (req, res) {
   if (req.method !== 'POST') {

@@ -956,6 +956,18 @@ export default {
       })
       return payIn
     },
+    // Cumulative on-chain piconeros observed for this item's posting-fee
+    // PayIn (each top-up tx is its own FeeObservation row). 0n when no fee
+    // PayIn exists (free posts) — drives the client's underpayment hint.
+    feeReceivedPiconeros: async (item, args, { models }) => {
+      if (!item.feePayInId) return 0n
+      if (typeof item.feeReceivedPiconeros !== 'undefined') return item.feeReceivedPiconeros
+      const agg = await models.feeObservation.aggregate({
+        _sum: { piconeros: true },
+        where: { payInId: item.feePayInId }
+      })
+      return agg._sum.piconeros ?? 0n
+    },
     piconeros: async (item, args, { models, me }) => {
       if (me?.id === item.userId) {
         return item.piconeros

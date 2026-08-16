@@ -18,6 +18,8 @@ export default gql`
     integratedAddress: String!
     paymentId: String!
     feePiconeros: BigInt!
+    receivedPiconeros: BigInt!
+    expectedPiconeros: BigInt!
   }
 
   extend type Item {

@@ -62,7 +62,7 @@ async function createUser () {
 // Seed an Item PENDING_FEE + its PayIn watching a rewards-wallet posting-fee
 // subaddress (major 1, minor). Mirrors what itemCreate.onBegin produces
 // (including the ItemPayIn link the indexer denormalizes onto the observation).
-async function seedPendingFeePost (minor) {
+async function seedPendingFeePost (minor, moneroUri = null) {
   const userId = await createUser()
   const payIn = await prisma.payIn.create({
     data: {
@@ -70,6 +70,7 @@ async function seedPendingFeePost (minor) {
       payInType: 'ITEM_CREATE',
       payInState: 'PAID',
       piconeros: 0n,
+      moneroUri,
       moneroSubaddressMajor: 1,
       moneroSubaddressMinor: minor
     }
@@ -95,6 +96,38 @@ async function seedPendingFeeSub (minor) {
       payInType: 'TERRITORY_BILLING',
       payInState: 'PAID',
       piconeros: 0n,
+      moneroSubaddressMajor: 2,
+      moneroSubaddressMinor: minor
+    }
+  })
+  created.payIns.push(payIn.id)
+  await prisma.sub.create({
+    data: {
+      name: subName,
+      userId,
+      rankingType: 'WOT',
+      billingType: 'ONCE',
+      billingCost: 1000000000,
+      billingStatus: 'PENDING_FEE',
+      billingPayInId: payIn.id
+    }
+  })
+  created.subs.push(subName)
+  await prisma.subPayIn.create({ data: { subName, payInId: payIn.id } })
+  return { subName, payIn, major: 2, minor }
+}
+
+// seedPendingFeeSub with a monero: URI on the PayIn — the amount gate's input.
+async function seedPendingFeeSubWithUri (minor, moneroUri = null) {
+  const userId = await createUser()
+  const subName = `turf-fee-${minor}`
+  const payIn = await prisma.payIn.create({
+    data: {
+      userId,
+      payInType: 'TERRITORY_BILLING',
+      payInState: 'PAID',
+      piconeros: 0n,
+      moneroUri,
       moneroSubaddressMajor: 2,
       moneroSubaddressMinor: minor
     }
@@ -321,4 +354,52 @@ test('a DONATE payIn with donationRewardsPct copies the split onto the FeeObserv
   expect(obs.feeType).toBe('DONATE')
   expect(obs.donationRewardsPct).toBe(40)
   expect(obs.piconeros).toBe(2_000_000_000n)
+})
+
+// A 0.001 XMR expected posting fee paid 40% up front: the FeeObservation is
+// recorded but the Item must STAY PENDING_FEE until the cumulative received
+// covers the URI's tx_amount.
+const FEE_URI = (xmr) => `monero:5${'F'.repeat(94)}?tx_amount=${xmr}`
+
+test('an underpaid posting fee records its FeeObservation but does NOT flip the item live', async () => {
+  const { item, payIn, major, minor } = await seedPendingFeePost(111, FEE_URI('0.001'))
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f1' + 'ab'.repeat(31), '400000000', major, minor)] })
+
+  const obs = await prisma.feeObservation.findFirst({ where: { payInId: payIn.id } })
+  expect(obs).toBeTruthy()
+  expect(obs.state).toBe('DETECTED')
+  expect(obs.piconeros).toBe(400_000_000n)
+
+  const stillPending = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(stillPending.feeStatus).toBe('PENDING_FEE')
+  expect(stillPending.feeInvestmentPiconeros).toBe(0n)
+})
+
+test('a top-up to the same subaddress accumulates and flips the item live at the full fee', async () => {
+  const { item, payIn, major, minor } = await seedPendingFeePost(112, FEE_URI('0.001'))
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f2' + 'ab'.repeat(31), '400000000', major, minor)] })
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f3' + 'ab'.repeat(31), '600000000', major, minor)] })
+
+  // TWO observation rows for one payIn — possible only after Task 2's unique drop
+  const rows = await prisma.feeObservation.findMany({ where: { payInId: payIn.id } })
+  expect(rows).toHaveLength(2)
+
+  const live = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(live.feeStatus).toBe('FEE_PAID')
+  expect(live.feeInvestmentPiconeros).toBe(1_000_000_000n)
+  expect(live.netInvestment).toBe(1_000_000_000n)
+})
+
+test('a single full payment still flips immediately (no behavior change for honest payers)', async () => {
+  const { item, major, minor } = await seedPendingFeePost(113, FEE_URI('0.001'))
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f4' + 'ab'.repeat(31), '1000000000', major, minor)] })
+  const live = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(live.feeStatus).toBe('FEE_PAID')
+})
+
+test('an underpaid TERRITORY fee does not flip billingStatus to PAID', async () => {
+  const { subName, major, minor } = await seedPendingFeeSubWithUri(202, FEE_URI('1'))
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f5' + 'ab'.repeat(31), '500000000000', major, minor)] })
+  const sub = await prisma.sub.findUnique({ where: { name: subName } })
+  expect(sub.billingStatus).toBe('PENDING_FEE')
 })

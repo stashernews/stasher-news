@@ -4,7 +4,7 @@ import { useQuery } from '@apollo/client/react'
 import { useEffect } from 'react'
 import { useMe } from './me'
 import { useAnimation } from './animation'
-import { moneroUriAmountPiconeros, piconerosToXmr } from '@/lib/format'
+import { moneroUriAmountPiconeros, piconerosToXmr, underpayHint } from '@/lib/format'
 import { postingFeeModalPhase } from '@/lib/pay-in'
 import MoneroPaymentView from './monero-payment-view'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
@@ -13,7 +13,7 @@ const POSTING_FEE_POLL_MS = 10_000
 
 const ITEM_FEE_STATUS = `
   query ItemFeeStatus($id: ID!) {
-    item(id: $id) { id feeStatus }
+    item(id: $id) { id feeStatus feeReceivedPiconeros }
   }
 `
 
@@ -30,6 +30,9 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
   })
 
   const phase = postingFeeModalPhase(data?.item?.feeStatus)
+
+  const received = BigInt(data?.item?.feeReceivedPiconeros ?? 0)
+  const hint = phase !== 'paid' ? underpayHint(received, feePiconeros) : null
 
   // strike the lightning once the posting fee is detected on-chain
   useEffect(() => {
@@ -59,6 +62,10 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
       heading='Pay the posting fee'
       description={`Scan to send ${piconerosToXmr(feePiconeros)} to the platform rewards wallet. Your post goes live once the fee is detected on-chain.`}
     >
+      {hint &&
+        <p className='text-warning text-center mt-3'>
+          <small>{hint}</small>
+        </p>}
       <p className='text-muted text-center mt-3'>
         <small>
           Posting fees deter spam and fund curator rewards.

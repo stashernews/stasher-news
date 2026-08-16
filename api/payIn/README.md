@@ -155,6 +155,8 @@ the user's monthly free-post quota (`freePostCount` / `freePostResetAt`):
 3. **Established + quota exhausted → `PENDING_FEE`.** Same as low-rep: the 6th+ post in the
    month reserves a fee subaddress and goes `PENDING_FEE`. (Previously established users
    could post for free with no monthly cap.)
+4. **Underpayment:** the fee URI's `tx_amount` is the gate — `FEE_PAID` flips only when cumulative
+   observed piconeros cover it; partial payers top up the same subaddress (see the webhook spec addendum).
 
 Comment outcomes are unchanged in structure: free while the tiered freebie quota remains
 (5/month low-rep, 15/month established), then the flat comment fee applies (also

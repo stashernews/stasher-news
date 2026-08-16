@@ -20,22 +20,48 @@
 
 import { PrismaClient } from '@prisma/client'
 import { runBountiesOnce } from '@/worker/bounties'
+import { BOUNTY_UNDERPAY_ABANDON_DAYS } from '@/lib/constants'
 
 const prisma = new PrismaClient()
 
 const ADDR = '5' + '3'.repeat(94) // 95-char Monero address placeholder
 
 // Tracks every row created across tests so afterAll can tear them down in
-// FK-safe order: BountyPayment -> Item -> users.
-const created = { users: [], items: [], payments: [] }
+// FK-safe order: BountyPayment -> FeeObservation -> ObservedBounty ->
+// MoneroAccount -> Item -> users.
+const created = { users: [], items: [], payments: [], accounts: [], bounties: [], fees: [] }
+
+// Pin the fee config deterministically (min 0.01 XMR / 1% — same regime as
+// test/api/bountyFunding.test.js, so the underfunded fixture math is exact:
+// declared 1e12 -> fee 1e10 -> expected 1.01e12); restore the prior values
+// in afterAll.
+const FEE_CONFIG = { bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }
+let configSnapshot = null
+async function ensureFeeConfig () {
+  const before = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  if (!before) throw new Error('PlatformFeeConfig(id=1) missing — run migrations/seed first')
+  configSnapshot = { bountyFeeMinPiconeros: before.bountyFeeMinPiconeros, bountyFeePct: before.bountyFeePct }
+  await prisma.platformFeeConfig.update({
+    where: { id: 1 },
+    data: FEE_CONFIG
+  })
+}
 
 afterAll(async () => {
   await prisma.bountyPayment.deleteMany({ where: { id: { in: created.payments } } })
+  await prisma.feeObservation.deleteMany({ where: { id: { in: created.fees } } })
+  await prisma.observedBounty.deleteMany({ where: { id: { in: created.bounties } } })
+  await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
   for (const id of created.items) {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
     await prisma.item.deleteMany({ where: { id } })
   }
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
+  // Restore the live dev config row the suite pinned deterministically.
+  if (configSnapshot) {
+    await prisma.platformFeeConfig.update({ where: { id: 1 }, data: configSnapshot })
+    configSnapshot = null
+  }
   await prisma.$disconnect()
 })
 
@@ -168,4 +194,91 @@ test('a SENT payout stays SENT below REQUIRED_CONFIRMATIONS (9 confs)', async ()
   expect(after.state).toBe('SENT')
   expect(after.confirmations).toBe(0)
   expect(after.confirmedAt).toBeNull()
+})
+
+const ESCROW_ADDR = '5' + '4'.repeat(94)
+
+async function seedEscrowAccount () {
+  const acct = await prisma.moneroAccount.create({
+    data: { ownerUserId: null, address: ESCROW_ADDR + String(itemSeq), label: 'bounty_escrow', network: 'STAGENET', status: 'ACTIVE' }
+  })
+  created.accounts.push(acct.id)
+  return acct
+}
+
+// A partially-funded DETECTED bounty: declared 1e12 (fee would be pinned by
+// config below to 1e10, expected 1.01e12) but only 6e11 ever arrived, detected
+// ABANDON_DAYS ago.
+async function seedUnderfundedBounty (userId, { received = 600_000_000_000n, ageDays = BOUNTY_UNDERPAY_ABANDON_DAYS + 1 } = {}) {
+  const escrow = await seedEscrowAccount()
+  itemSeq += 1
+  const item = await prisma.item.create({
+    data: {
+      userId,
+      title: 'underfunded fixture ' + itemSeq,
+      status: 'ACTIVE',
+      bountyPiconeros: 1_000_000_000_000n,
+      bountyStatus: 'PENDING_FUNDING'
+    }
+  })
+  created.items.push(item.id)
+  const bounty = await prisma.observedBounty.create({
+    data: {
+      txHash: 'uf-' + item.id,
+      postId: item.id,
+      payerId: userId,
+      recipientAccountId: escrow.id,
+      paymentId: 'bn' + item.id,
+      piconeros: received,
+      height: 100,
+      state: 'DETECTED',
+      detectedAt: new Date(Date.now() - ageDays * 24 * 60 * 60 * 1000)
+    }
+  })
+  created.bounties.push(bounty.id)
+  return { item, bounty }
+}
+
+test('underfunded DETECTED bounties are abandoned after 7 days: EXPIRED, bountyPiconeros=received, zero-fee row', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const { item } = await seedUnderfundedBounty(userId)
+
+  await runBountiesOnce({ models: prisma, sendBountyPayments: jest.fn().mockResolvedValue({ sent: 0, failed: 0, skipped: 0 }), getHeight: async () => 1_000_000 })
+
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('EXPIRED')
+  expect(afterItem.bountyPiconeros).toBe(600_000_000_000n)
+
+  const bounty = await prisma.observedBounty.findFirst({ where: { postId: item.id } })
+  expect(bounty.state).toBe('EXPIRED')
+
+  // the zero-fee row makes bookedBountyFeePiconeros read 0n at disposition:
+  // reclaim pays exactly what was received (fee-waived refund)
+  const fee = await prisma.feeObservation.findFirst({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })
+  expect(fee).toBeTruthy()
+  expect(fee.piconeros).toBe(0n)
+  if (fee) created.fees.push(fee.id)
+})
+
+test('a fresh underfunded bounty (inside the window) is NOT abandoned', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const { item } = await seedUnderfundedBounty(userId, { ageDays: 1 })
+
+  await runBountiesOnce({ models: prisma, sendBountyPayments: jest.fn().mockResolvedValue({ sent: 0, failed: 0, skipped: 0 }), getHeight: async () => 1_000_000 })
+
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('PENDING_FUNDING')
+})
+
+test('a fully-received DETECTED bounty past the window is NOT abandoned (awaiting confirm)', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const { item } = await seedUnderfundedBounty(userId, { received: 1_010_000_000_000n })
+
+  await runBountiesOnce({ models: prisma, sendBountyPayments: jest.fn().mockResolvedValue({ sent: 0, failed: 0, skipped: 0 }), getHeight: async () => 1_000_000 })
+
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('PENDING_FUNDING')
 })

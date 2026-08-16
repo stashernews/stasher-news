@@ -5,7 +5,7 @@ import Button from 'react-bootstrap/Button'
 import MoneroPaymentView from './monero-payment-view'
 import PaymentSuccessView from './payment-success-view'
 import { useRouter } from 'next/router'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToXmr, underpayHint } from '@/lib/format'
 import { bountyFundingDescription } from '@/lib/bounty'
 import { FUND_BOUNTY_MUTATION } from '@/fragments/payIn'
 
@@ -33,6 +33,8 @@ export default function BountyFundingView ({ postId, amountPiconeros, onClose })
   const [fund] = useMutation(FUND_BOUNTY_MUTATION)
   const [uri, setUri] = useState(null)
   const [feePiconeros, setFeePiconeros] = useState(null)
+  const [receivedPiconeros, setReceivedPiconeros] = useState(null)
+  const [expectedPiconeros, setExpectedPiconeros] = useState(null)
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [funded, setFunded] = useState(false)
@@ -53,6 +55,8 @@ export default function BountyFundingView ({ postId, amountPiconeros, onClose })
       }
       setUri(funding.uri)
       setFeePiconeros(funding.feePiconeros)
+      setReceivedPiconeros(BigInt(funding.receivedPiconeros ?? 0))
+      setExpectedPiconeros(BigInt(funding.expectedPiconeros ?? 0))
     } catch (error) {
       setError(error.message || 'failed to fund bounty')
     } finally {
@@ -127,6 +131,10 @@ export default function BountyFundingView ({ postId, amountPiconeros, onClose })
         heading='Fund this bounty'
         description={bountyFundingDescription(amountPiconeros, feePiconeros)}
       >
+        {receivedPiconeros != null && expectedPiconeros != null && underpayHint(receivedPiconeros, expectedPiconeros) &&
+          <p className='text-warning text-center mt-3'>
+            <small>{underpayHint(receivedPiconeros, expectedPiconeros)}</small>
+          </p>}
         <p className='text-muted text-center mt-3'>
           <small>
             fee: {piconerosToXmr(BigInt(feePiconeros))} — the bounty pays out in full on award; the fee funds operations.

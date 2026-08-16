@@ -311,6 +311,8 @@ export const FUND_BOUNTY_MUTATION = gql`
       integratedAddress
       paymentId
       feePiconeros
+      receivedPiconeros
+      expectedPiconeros
     }
   }`
 

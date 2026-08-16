@@ -31,9 +31,16 @@ const ADDR = '5' + '3'.repeat(94) // 95-char Monero address placeholder
 // FK-safe order: ObservedTip/ObservedDownvote -> Item -> MoneroAccount -> users.
 const created = { users: [], items: [], accounts: [], tips: [], downvotes: [], bounties: [] }
 
+// Pin the fee config deterministically for the height-set-short reconcile
+// fixture (same regime as test/worker/bounties.test.js, so the quote math is
+// exact: declared 1e12 -> fee 1e10 -> expected 1.01e12); restore in afterAll.
+const FEE_CONFIG = { bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }
+let feeConfigSnapshot = null
+
 afterAll(async () => {
   await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } })
   await prisma.observedDownvote.deleteMany({ where: { id: { in: created.downvotes } } })
+  // ObservedBountyReceipt rows cascade on ObservedBounty delete (FK onDelete: Cascade).
   await prisma.observedBounty.deleteMany({ where: { id: { in: created.bounties } } })
   await prisma.feeObservation.deleteMany({ where: { postId: { in: created.items }, feeType: 'BOUNTY_FEE' } })
   for (const id of created.items) {
@@ -45,6 +52,11 @@ afterAll(async () => {
   // ObservedTip must go before MoneroAccount (FK: recipientAccountId -> account.id, RESTRICT)
   for (const id of created.accounts) await prisma.moneroAccount.deleteMany({ where: { id } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
+  // Restore the live dev config row if a test pinned it deterministically.
+  if (feeConfigSnapshot) {
+    await prisma.platformFeeConfig.update({ where: { id: 1 }, data: feeConfigSnapshot })
+    feeConfigSnapshot = null
+  }
   await prisma.$disconnect()
 })
 
@@ -285,8 +297,9 @@ async function seedBounty ({ postId, piconeros, height, recipientAccountId }) {
 
 // A bounty post with a DECLARED bounty amount — real fundings always carry one
 // (the raw createRoot default of 0 would book a zero fee under the
-// declared-amount fee rule). The fixtures declare the same amount they observe,
-// so the fee math stays exact and readable.
+// declared-amount fee rule). The funding-path fixtures pay the full declared +
+// fee quote (the confirmation gate holds anything short), so the fee math
+// stays exact and readable.
 async function createBountyRoot (userId, title, bountyPiconeros) {
   const postId = await createRoot(userId, title)
   await prisma.item.update({
@@ -301,7 +314,12 @@ test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs d
   const authorId = await createUser(); created.users.push(authorId)
   const postId = await createBountyRoot(authorId, 'bounty-confirm-target', 5_000_000_000n)
   const account = await seedAccount()
-  const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: 700, recipientAccountId: account.id })
+  // The confirmation gate requires cumulative received >= declared + fee, so
+  // the fixture pays the FULL quote (5e9 declared + fee; fee on the declared
+  // 5e9 is cap-bound at 1e9 with the dev config's 0.01 floor).
+  const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const feePiconeros = bountyFeePiconeros(5_000_000_000n, config)
+  const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n + feePiconeros, height: 700, recipientAccountId: account.id })
 
   await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(709), lwsClient: emptyLws() })
 
@@ -313,12 +331,10 @@ test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs d
   // The finalizer is the BACKSTOP for a missed webhook CONFIRMED callback, so it
   // must run the same ledger effects as driveBountyFunding — not just flip the
   // row. Item -> FUNDED with bountyPiconeros = observed − fee (fee booked from
-  // the DECLARED bounty; declared = observed here, so 5e9 → fee 1e9).
-  const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
-  const feePiconeros = bountyFeePiconeros(5_000_000_000n, config)
+  // the DECLARED bounty; observed = declared + fee here, so 6e9 → 5e9 booked).
   const item = await prisma.item.findUnique({ where: { id: postId } })
   expect(item.bountyStatus).toBe('FUNDED')
-  expect(item.bountyPiconeros).toBe(5_000_000_000n - feePiconeros)
+  expect(item.bountyPiconeros).toBe(5_000_000_000n)
   expect(item.bountyConfirmedAt).toBeInstanceOf(Date)
   const fee = await prisma.feeObservation.findFirst({ where: { postId, feeType: 'BOUNTY_FEE' } })
   expect(fee).toMatchObject({ piconeros: feePiconeros, state: 'CONFIRMED', height: 700 })
@@ -346,16 +362,20 @@ test('a NULL-height DETECTED bounty (webhook CONFIRMED callback missed at 0-conf
   // The 0-conf webhook consumed the pid map and set height = NULL (mempool tx).
   // After the gate bug, every later callback was a 200 no-op, so no callback ever
   // backfilled height. The finalizer must resolve the tx height from lws (which
-  // watches the escrow account), backfill the row, then fund it.
+  // watches the escrow account), record the receipt (cumulative received), then
+  // fund it once the total covers declared + fee.
   const authorId = await createUser(); created.users.push(authorId)
   const postId = await createBountyRoot(authorId, 'bounty-null-height', 5_000_000_000n)
   const account = await seedAccountWithViewKey()
   const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n, height: null, recipientAccountId: account.id })
+  const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const feePiconeros = bountyFeePiconeros(5_000_000_000n, config)
 
-  // Mock lws reports the funding tx (matched by payment_id) now at height 700.
+  // Mock lws reports the funding tx (matched by payment_id) now at height 700,
+  // paying the full declared + fee quote.
   const lws = {
     getAddressTxs: jest.fn().mockResolvedValue({
-      transactions: [{ payment_id: bounty.paymentId, height: 700, piconeros: 5_000_000_000n }],
+      transactions: [{ payment_id: bounty.paymentId, hash: 'e2'.repeat(32), height: 700, piconeros: 5_000_000_000n + feePiconeros }],
       blockchain_height: 709
     })
   }
@@ -398,6 +418,82 @@ test('a NULL-height DETECTED bounty whose tx is still in mempool (lws reports he
   expect(after.height).toBeNull()
   const item = await prisma.item.findUnique({ where: { id: postId } })
   expect(item.bountyStatus).toBe('UNFUNDED')
+})
+
+// Underpayment support: a funding paid in TWO txs whose webhook callbacks were
+// all lost. The lws scan reports both txs carrying the bounty's payment id, so
+// EVERY matching tx becomes a receipt (idempotent by txHash) and
+// ObservedBounty.piconeros folds to the cumulative sum — recovering top-ups a
+// single-tx resolver would have missed.
+test('backfillNullBountyHeights records EVERY matching lws tx as a receipt: top-ups accumulate and height backfills to the max', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createBountyRoot(authorId, 'bounty-receipt-backfill', 1_000_000_000_000n)
+  const account = await seedAccountWithViewKey()
+  const bounty = await seedBounty({ postId, piconeros: 0n, height: null, recipientAccountId: account.id })
+
+  // Two partial payments (0.6 + 0.41 on a 1.0-declared bounty): cumulative
+  // 1.01 = declared + fee, at heights 100 and 101.
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [
+        { payment_id: bounty.paymentId, hash: 'ba'.repeat(31) + '1', height: 100, piconeros: 600_000_000_000n },
+        { payment_id: bounty.paymentId, hash: 'ba'.repeat(31) + '2', height: 101, piconeros: 410_000_000_000n }
+      ],
+      blockchain_height: 150
+    })
+  }
+  await backfillNullBountyHeights({ models: prisma, lws, bounties: [bounty] })
+
+  const receipts = await prisma.observedBountyReceipt.findMany({ where: { bountyId: bounty.id } })
+  expect(receipts).toHaveLength(2)
+  const after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(after.piconeros).toBe(1_010_000_000_000n)
+  expect(after.height).toBe(101)
+})
+
+// Fix-wave regression: a HEIGHT-SET but still-short DETECTED bounty. The first
+// payment's 1-conf callback set the height (100), but the top-up's callbacks
+// were ALL lost — and nothing else records it (the observer watches only the
+// rewards wallet; reconcilePendingTips is tips-only). The reconcile pass must
+// fold receipts for short DETECTED bounties REGARDLESS of height, or the gate
+// never opens and the 7-day sweep abandons with refund < actually sent,
+// silently (the payment predates the abandonment, so no alert fires either).
+test('a HEIGHT-set short DETECTED bounty is reconciled too: both txs folded, height to max, idempotent', async () => {
+  const before = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  feeConfigSnapshot = { bountyFeeMinPiconeros: before.bountyFeeMinPiconeros, bountyFeePct: before.bountyFeePct }
+  await prisma.platformFeeConfig.update({ where: { id: 1 }, data: FEE_CONFIG })
+
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createBountyRoot(authorId, 'bounty-height-set-short', 1_000_000_000_000n)
+  const account = await seedAccountWithViewKey()
+  // 0.6 of the 1.01 quote received so far; height 100 came from the first
+  // payment's own callback. lws still reports BOTH txs (0.6 at 100, 0.41 at 101).
+  const bounty = await seedBounty({ postId, piconeros: 600_000_000_000n, height: 100, recipientAccountId: account.id })
+
+  const lws = () => ({
+    getAddressTxs: async () => ({
+      transactions: [
+        { payment_id: bounty.paymentId, hash: 'hs'.repeat(31) + '1', height: 100, piconeros: 600_000_000_000n },
+        { payment_id: bounty.paymentId, hash: 'hs'.repeat(31) + '2', height: 101, piconeros: 410_000_000_000n }
+      ],
+      blockchain_height: 150
+    })
+  })
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(150), lwsClient: lws() })
+
+  let receipts = await prisma.observedBountyReceipt.findMany({ where: { bountyId: bounty.id } })
+  expect(receipts).toHaveLength(2)
+  let after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(after.piconeros).toBe(1_010_000_000_000n)
+  expect(after.height).toBe(101)
+
+  // idempotent: a second pass records no duplicate rows and does not throw
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(150), lwsClient: lws() })
+  receipts = await prisma.observedBountyReceipt.findMany({ where: { bountyId: bounty.id } })
+  expect(receipts).toHaveLength(2)
+  after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(after.piconeros).toBe(1_010_000_000_000n)
+  expect(after.height).toBe(101)
 })
 
 test('invokes the reorg detector with the current chain height (Task D5 wiring)', async () => {

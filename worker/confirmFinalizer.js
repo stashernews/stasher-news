@@ -2,7 +2,8 @@ import { Prisma } from '@prisma/client'
 import { daemonClient } from '@/api/monero/daemonClient'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { findRewardsAccount } from './rewardsWalletObserver'
-import { driveBountyFunding } from '@/api/monero/bountyFunding'
+import { driveBountyFunding, recordBountyReceipt } from '@/api/monero/bountyFunding'
+import { bountyFeePiconeros } from '@/api/monero/bounties'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { createReorgDetector } from '@/lib/reorgDetector'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
@@ -40,14 +41,16 @@ import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 // item 2808) must not stay provisional. The finalizer runs driveBountyFunding —
 // the SAME ledger effects as the webhook CONFIRMED path (Item -> FUNDED,
 // BOUNTY_FEE booked) — so the funding completes even when no callback ever fired.
-// It also backfills a NULL height (0-conf detection with all later callbacks
-// missed) by resolving the tx height from lws. See backfillNullBountyHeights.
+// It also reconciles lws receipts for still-short DETECTED bounties (and
+// backfills a NULL height from lws when every callback was missed). See
+// backfillNullBountyHeights.
 //
 // This module exports FOUR things (mirrors worker/moneroIndexer.js):
 //   - runConfirmFinalizerOnce: the testable per-run core (no pg-boss). Takes
 //     injectable daemonClient + lwsClient so tests never touch the network.
-//   - backfillNullBountyHeights: the lws height-resolution helper for NULL-height
-//     DETECTED bounties (exported for unit testing).
+//   - backfillNullBountyHeights: the lws reconcile helper for still-short
+//     DETECTED bounties (receipt folding + NULL-height resolution; exported
+//     for unit testing).
 //   - backfillNullObservationHeights: the lws height-resolution helper for
 //     NULL-height poll-detected DETECTED ObservedDownvote/FeeObservation rows
 //     (exported for unit testing).
@@ -177,20 +180,31 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
   // callback (including the N-conf CONFIRMED one that runs driveBountyFunding)
   // was a 200 no-op, and height was never backfilled (NULL at 0-conf). Two
   // passes close both gaps so the funding cannot stay provisional:
-  //   PASS 1 (backfill): resolve a NULL height from lws (which watches the
-  //     escrow account) so the funding pass can see the tx.
+  //   PASS 1 (reconcile): fold lws receipts for every still-short DETECTED
+  //     bounty REGARDLESS of height (plus every NULL-height one, for the
+  //     height backfill) so a top-up whose callbacks were all lost still
+  //     opens the gate.
   //   PASS 2 (fund): run driveBountyFunding for mature DETECTED bounties — the
   //     SAME ledger effects as the webhook CONFIRMED path (Item -> FUNDED,
   //     BOUNTY_FEE booked), not just a row flip. Idempotent vs a late webhook
   //     replay (CONFIRMED state guard + FeeObservation ON CONFLICT) and vs the
   //     webhook itself (Serializable isolation serializes any overlap; a loser
   //     aborts and retries next run).
-  const nullHeightBounties = await models.observedBounty.findMany({
-    where: { state: 'DETECTED', height: null },
+  const detectedBounties = await models.observedBounty.findMany({
+    where: { state: 'DETECTED' },
+    include: { post: { select: { bountyPiconeros: true } } },
     take: SCAN_BATCH_SIZE
   })
-  if (nullHeightBounties.length) {
-    await backfillNullBountyHeights({ models, lws, bounties: nullHeightBounties })
+  if (detectedBounties.length) {
+    // Skip fully-covered height-set bounties to bound the lws work — they only
+    // await the funding pass below. Shortness is computed the same way the
+    // 7-day sweep computes it (fee on the DECLARED amount, one config read).
+    const bountyConfig = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+    const reconcileBounties = detectedBounties.filter(b =>
+      b.height == null || b.piconeros < b.post.bountyPiconeros + bountyFeePiconeros(b.post.bountyPiconeros, bountyConfig))
+    if (reconcileBounties.length) {
+      await backfillNullBountyHeights({ models, lws, bounties: reconcileBounties })
+    }
   }
 
   const bounties = await models.observedBounty.findMany({
@@ -210,15 +224,20 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
   return confirmed
 }
 
-// Resolve NULL heights for DETECTED bounties whose N-conf webhook CONFIRMED
-// callback was missed (a 0-conf detection records height = NULL; if every later
-// callback was a 200 no-op, no callback ever set it). lws watches the bounty
-// escrow account and reports each incoming tx's block height, so a single
-// get_address_txs scan per account recovers every stranded bounty on it.
-// Mirrors the reconcilePendingTips lws-resolution pattern. Only the height is
-// backfilled here; the funding decision runs in runConfirmFinalizerOnce's funding
-// pass (which re-fetches height-not-null rows), so a still-mempool tx (height
-// null on lws too) is left untouched and retries next run.
+// Fold lws receipts and resolve NULL heights for the still-short DETECTED
+// bounties the caller passes (every NULL-height one plus every height-set one
+// not yet fully covered). A top-up whose webhook callbacks were ALL lost is
+// recorded by nothing else — the observer watches only the rewards wallet and
+// reconcilePendingTips is tips-only — so EVERY matching lws tx becomes a
+// receipt (idempotent by txHash) and ObservedBounty.piconeros folds to the
+// cumulative sum. lws watches the bounty escrow account and reports each
+// incoming tx's block height, so a single get_address_txs scan per account
+// recovers every stranded bounty on it. Mirrors the reconcilePendingTips
+// lws-resolution pattern. The height column is only backfilled here when NULL
+// (set to the max matched tx height); the funding decision runs in
+// runConfirmFinalizerOnce's funding pass (which re-fetches height-not-null
+// rows), so a still-mempool tx (height null on lws too) is left untouched and
+// retries next run.
 export async function backfillNullBountyHeights ({ models, lws, bounties }) {
   if (!bounties.length) return
   // Group by escrow account for one lws scan per account.
@@ -245,16 +264,25 @@ export async function backfillNullBountyHeights ({ models, lws, bounties }) {
     }
     const byPid = new Map()
     for (const tx of (resp.transactions || [])) {
-      if (tx.payment_id) byPid.set(String(tx.payment_id).toLowerCase(), tx)
+      if (!tx.payment_id) continue
+      const pid = String(tx.payment_id).toLowerCase()
+      if (!byPid.has(pid)) byPid.set(pid, [])
+      byPid.get(pid).push(tx)
     }
     for (const bounty of byAccount.get(account.id) || []) {
-      const tx = byPid.get(String(bounty.paymentId).toLowerCase())
+      const txs = byPid.get(String(bounty.paymentId).toLowerCase()) || []
+      let maxHeight = bounty.height
+      for (const tx of txs) {
+        if (tx.height == null) continue
+        await recordBountyReceipt(models, bounty, { txHash: tx.hash, piconeros: tx.piconeros, height: tx.height })
+        if (maxHeight == null || tx.height > maxHeight) maxHeight = tx.height
+      }
       // Only backfill once lws has a block height; a still-mempool tx (height
       // null) stays NULL and retries next run.
-      if (tx && tx.height != null) {
+      if (maxHeight != null && bounty.height == null) {
         await models.observedBounty.update({
           where: { id: bounty.id },
-          data: { height: tx.height, confirmations: tx.confirmations ?? 0 }
+          data: { height: maxHeight }
         })
       }
     }

@@ -159,6 +159,7 @@ export default gql`
     rel: String
     apiKey: Boolean
     feeStatus: ItemFeeStatus!
+    feeReceivedPiconeros: BigInt!
     cost: Int!
     payIn: PayIn
     meCommentsViewedAt: Date

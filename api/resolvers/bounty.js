@@ -71,14 +71,21 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
   // Only when neither a live pid map nor a DETECTED observation exists (truly
   // stale: 24h pid expiry with no payment) does the branch fall through to the
   // fresh-initiation path below; the item stays PENDING_FUNDING either way.
-  const buildFundingInfo = (paymentId) => {
+  // Quotes the funding URI. When a partial payment is already in flight
+  // (receivedPiconeros > 0), quote only the REMAINDER so a top-up completes
+  // the funding instead of overfunding the escrow. Also reports
+  // received/expected so the client can render the underpayment hint.
+  const buildFundingInfo = (paymentId, receivedPiconeros = 0n) => {
     const { integratedAddress } = makeIntegratedAddress(escrow.address, paymentId)
     const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
+    const expectedPiconeros = item.bountyPiconeros + feePiconeros
+    const remaining = expectedPiconeros - receivedPiconeros
+    const amount = remaining > 0n ? remaining : expectedPiconeros
     const uri = buildMoneroUri(
-      [{ address: integratedAddress, amount: item.bountyPiconeros + feePiconeros }],
+      [{ address: integratedAddress, amount }],
       { description: `bounty on "${item.title ?? ''}" via StasherNews`, paymentId }
     )
-    return { integratedAddress, paymentId, uri, feePiconeros }
+    return { integratedAddress, paymentId, uri, feePiconeros, receivedPiconeros, expectedPiconeros }
   }
   if (item.bountyStatus === 'PENDING_FUNDING') {
     const live = await models.bountyPidMap.findFirst({
@@ -90,7 +97,7 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
       where: { postId: id, payerId: me.id, state: 'DETECTED' },
       orderBy: { id: 'desc' }
     })
-    if (inflight) return buildFundingInfo(inflight.paymentId)
+    if (inflight) return buildFundingInfo(inflight.paymentId, inflight.piconeros)
   }
 
   const nonce = Date.now()

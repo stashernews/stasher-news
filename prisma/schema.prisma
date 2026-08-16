@@ -1140,8 +1140,9 @@ model PayIn {
   observedTipId  BigInt?
   observedDownvoteId BigInt?
   // StasherNews fee linkage (§6.2): the rewards-wallet fee subaddress this PayIn
-  // watches. The detected FeeObservation is reached via the `feeObservation`
-  // back-relation (1:1, FK on FeeObservation.payInId) rather than a redundant scalar.
+  // watches. The detected FeeObservations are reached via the `feeObservations`
+  // back-relation (1:N — one row per partial-payment tx under the cumulative
+  // fee gate, FK on FeeObservation.payInId) rather than a redundant scalar.
   moneroSubaddressMajor Int?
   moneroSubaddressMinor Int?
   // StasherNews donation split (fee-allocation v2): the payer's chosen rewards
@@ -1163,7 +1164,7 @@ model PayIn {
   // FeeObservation.payIn). The FKs live on the other side; these are the read sides.
   feeItem       Item?          @relation("ItemFeePayIn")
   feeSub        Sub?           @relation("SubBillingPayIn")
-  feeObservation FeeObservation?
+  feeObservations FeeObservation[]
 
   @@index([userId])
   @@index([createdAt])
@@ -1412,6 +1413,7 @@ model ObservedBounty {
 
   post             Item          @relation(fields: [postId], references: [id])
   recipientAccount MoneroAccount @relation(fields: [recipientAccountId], references: [id])
+  receipts         ObservedBountyReceipt[]
 
   @@unique([txHash, paymentId])
   @@index([postId])
@@ -1426,6 +1428,25 @@ model BountyPidMap {
   userId     Int
   expiresAt  DateTime
   consumedAt DateTime?
+}
+
+// One received on-chain funding payment for a bounty (A-13 underpayment
+// support). A bounty is paid in as few or as many txs as the payer used;
+// ObservedBounty.piconeros is the CUMULATIVE sum of its receipts, and the
+// funding only confirms once that sum covers declared bounty + fee.
+// (bountyId, txHash) unique makes retried webhook callbacks idempotent.
+model ObservedBountyReceipt {
+  id         BigInt   @id @default(autoincrement())
+  bountyId   BigInt
+  txHash     String
+  piconeros  BigInt
+  height     Int?
+  detectedAt DateTime @default(now())
+
+  bounty ObservedBounty @relation(fields: [bountyId], references: [id], onDelete: Cascade)
+
+  @@unique([bountyId, txHash])
+  @@index([bountyId])
 }
 
 // A bounty payout from the escrow wallet: award (winner), reclaim (author, after
@@ -1488,7 +1509,7 @@ enum BountyPayoutKind {
 model FeeObservation {
   id             BigInt        @id @default(autoincrement())
   txHash         String
-  payInId        Int?          @unique
+  payInId        Int?
   feeType        FeeType
   postId         Int?
   subName        String?       @db.Citext

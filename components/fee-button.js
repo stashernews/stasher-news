@@ -292,19 +292,28 @@ function FreebieDialog ({ freeCommentsLeft, freePostsLeft }) {
   )
 }
 
+// The fee total is accumulated in legacy-sat units (1 sat = 1000 piconeros)
+// and the x1.5^n spam escalation makes it fractional (e.g. 1e6 * 1.5^7 =
+// 17085937.5). The server rounds the actual fee to whole piconeros
+// (escalatedFeePiconeros); round the display the same way instead of letting
+// BigInt(fractional) throw.
+export function legacySatsToPiconeros (total) {
+  return BigInt(Math.round(total || 0)) * 1000n
+}
+
 export default function FeeButton ({ ChildButton = SubmitButton, variant, text, disabled }) {
   const { me } = useMe()
   const { lines, total, disabled: ctxDisabled, free, freeCommentsLeft, freePostsLeft } = useFeeButton()
   const feeText = free
     ? 'free'
     : total > 1
-      ? piconerosToXmr(BigInt(total) * 1000n)
+      ? piconerosToXmr(legacySatsToPiconeros(total))
       : undefined
   disabled ||= ctxDisabled
 
   return (
     <div className={styles.feeButton}>
-      <ActionTooltip overlayText={!free && total === 1 ? piconerosToXmr(BigInt(1) * 1000n) : feeText}>
+      <ActionTooltip overlayText={!free && total === 1 ? piconerosToXmr(1000n) : feeText}>
         <ChildButton
           variant={variant} disabled={disabled}
           appendText={feeText}
@@ -332,7 +341,7 @@ function Receipt ({ lines, total }) {
       </tbody>
       <tfoot>
         <tr>
-          <td className='fw-bold'>{piconerosToXmr(BigInt(total) * 1000n)}</td>
+          <td className='fw-bold'>{piconerosToXmr(legacySatsToPiconeros(total))}</td>
           <td align='right' className='font-weight-light'>total fee</td>
         </tr>
       </tfoot>
