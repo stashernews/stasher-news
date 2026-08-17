@@ -108,6 +108,10 @@ describe('paySub re-entry reuse', () => {
     // billingPayInId untouched so the observer gate still flips THIS payIn
     const afterSub = await prisma.sub.findUnique({ where: { id: sub.id } })
     expect(afterSub.billingPayInId).toBe(payIn.id)
+    // the stored full-fee URI is NEVER rewritten — re-entry re-quotes only in the
+    // response; the observer gate keeps comparing cumulative received against it
+    const afterPayIn = await prisma.payIn.findUnique({ where: { id: payIn.id } })
+    expect(afterPayIn.moneroUri).toBe(FEE_URI('0.001'))
   })
 
   test('a fresh PENDING_FEE turf (status ACTIVE) can re-pay — returns a URI, not the bare sub', async () => {
