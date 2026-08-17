@@ -116,6 +116,10 @@ function trustGivenGraph (graph, seeds = GLOBAL_SEEDS) {
     result = math.add(math.multiply(1 - SEED_WEIGHT, result), math.multiply(SEED_WEIGHT, vTrust))
   }
   result = math.squeeze(result)
+  // squeeze collapses a 1x1 matrix to a bare number (no .size()/forEach);
+  // wrap it back so single-node graphs (GLOBAL_SEEDS-only territories with no
+  // tip edges) keep flowing through sqapply/reduceVectors instead of crashing
+  if (typeof result === 'number') result = math.matrix([result])
 
   console.timeLog('trust', 'transforming result')
 
@@ -181,10 +185,10 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
         FROM "ObservedTip" tips
         JOIN "Item" ON "Item".id = tips."postId" AND NOT "Item".bio AND "Item"."userId" <> tips."tipperId"
           AND ${postTrust
-            ? Prisma.sql`"Item"."parentId" IS NULL AND "Item"."subName" = ${subName}::TEXT`
+            ? Prisma.sql`"Item"."parentId" IS NULL AND COALESCE("Item"."subNames"[1], 'meta') = ${subName}::CITEXT`
             : Prisma.sql`
               "Item"."parentId" IS NOT NULL
-              JOIN "Item" root ON "Item"."rootId" = root.id AND root."subName" = ${subName}::TEXT`
+              JOIN "Item" root ON "Item"."rootId" = root.id AND COALESCE(root."subNames"[1], "Item"."subNames"[1], 'meta') = ${subName}::CITEXT`
           }
           AND "Item".created_at > NOW() - INTERVAL '1 year'
         JOIN users ON tips."tipperId" = users.id AND users.id <> ${USER_ID.anon}
@@ -200,10 +204,10 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
         FROM "ObservedDownvote" burns
         JOIN "Item" ON "Item".id = burns."postId" AND NOT "Item".bio AND "Item"."userId" <> burns."downvoterId"
           AND ${postTrust
-            ? Prisma.sql`"Item"."parentId" IS NULL AND "Item"."subName" = ${subName}::TEXT`
+            ? Prisma.sql`"Item"."parentId" IS NULL AND COALESCE("Item"."subNames"[1], 'meta') = ${subName}::CITEXT`
             : Prisma.sql`
               "Item"."parentId" IS NOT NULL
-              JOIN "Item" root ON "Item"."rootId" = root.id AND root."subName" = ${subName}::TEXT`
+              JOIN "Item" root ON "Item"."rootId" = root.id AND COALESCE(root."subNames"[1], "Item"."subNames"[1], 'meta') = ${subName}::CITEXT`
           }
           AND "Item".created_at > NOW() - INTERVAL '1 year'
         JOIN users ON burns."downvoterId" = users.id AND users.id <> ${USER_ID.anon}

@@ -46,6 +46,7 @@ function makeAddress () {
 
 const created = { users: [], items: [], accounts: [], tips: [], subs: [] }
 const territoryName = `trust-turf-${process.pid}-${Date.now()}`
+const seedTerritoryName = `trust-seed-turf-${process.pid}-${Date.now()}`
 
 let founderId
 let authorId
@@ -59,10 +60,24 @@ async function createUser () {
 }
 
 async function mkPost () {
+  // Production items get their subNames array maintained by the item_subnames
+  // trigger from ItemSub rows (api/payIn/types/itemCreate.js writes the subs
+  // relation, never the column); the legacy scalar Item.subName is never
+  // written by this fork. The fixture mirrors the production path — ItemSub
+  // row in, trigger-maintained subNames array out.
   const item = await prisma.item.create({
-    data: { userId: authorId, title: 'trust graph post', subName: territoryName, status: 'ACTIVE' }
+    data: { userId: authorId, title: 'trust graph post', subs: { create: [{ subName: territoryName }] }, status: 'ACTIVE' }
   })
   await prisma.$executeRaw`UPDATE "Item" SET path = ${String(item.id)}::ltree WHERE id = ${item.id}::int`
+  created.items.push(item.id)
+  return item.id
+}
+
+async function mkComment (rootId) {
+  const item = await prisma.item.create({
+    data: { userId: authorId, text: 'trust graph comment', parentId: rootId, rootId, subs: { create: [{ subName: territoryName }] }, status: 'ACTIVE' }
+  })
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId) + '.' + item.id}::ltree WHERE id = ${item.id}::int`
   created.items.push(item.id)
   return item.id
 }
@@ -104,6 +119,19 @@ async function seedCrissCross ({ curatorId, curatorAmount, firstMinor, recipient
   await seedTip({ postId: postB, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + (firstMinor + 3) * 60000), recipientAccountId })
 }
 
+// Comment-graph mirror of seedCrissCross: territory resolves via the ROOT
+// item's subNames (COALESCE(root, item, 'meta') in the graph query), so comment
+// tips must land on comments whose root post is in the territory.
+async function seedCommentCrissCross ({ curatorId, curatorAmount, firstMinor, recipientAccountId, base }) {
+  const root = await mkPost()
+  const commentA = await mkComment(root)
+  const commentB = await mkComment(root)
+  await seedTip({ postId: commentA, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + firstMinor * 60000), recipientAccountId })
+  await seedTip({ postId: commentA, tipperId: SEED_USER, piconeros: AMOUNT_SEED, confirmedAt: new Date(base + (firstMinor + 1) * 60000), recipientAccountId })
+  await seedTip({ postId: commentB, tipperId: SEED_USER, piconeros: AMOUNT_SEED, confirmedAt: new Date(base + (firstMinor + 2) * 60000), recipientAccountId })
+  await seedTip({ postId: commentB, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + (firstMinor + 3) * 60000), recipientAccountId })
+}
+
 beforeAll(async () => {
   // Territory founder is a per-territory trust seed for the SUB walks
   // (seeds = GLOBAL_SEEDS ∪ {founderId}); it does not need to tip for the global
@@ -126,6 +154,22 @@ beforeAll(async () => {
   })
   created.subs.push(territoryName)
 
+  // Seed-user-owned territory: GLOBAL_SEEDS is a single user (616), so a
+  // zero-activity territory owned by that user yields 1-node graphs — the
+  // mathjs squeeze crash path (Bug 2).
+  await prisma.sub.create({
+    data: {
+      name: seedTerritoryName,
+      userId: SEED_USER,
+      rankingType: 'WOT',
+      billingType: 'ONCE',
+      billingCost: 1_000_000_000,
+      status: 'ACTIVE',
+      billingStatus: 'PAID'
+    }
+  })
+  created.subs.push(seedTerritoryName)
+
   // Author receiving account (ObservedTip.recipientAccountId FK). Every tipped post
   // is authored by `authorId`, distinct from every tipper (including the seed user).
   const recipient = await prisma.moneroAccount.create({
@@ -141,6 +185,8 @@ beforeAll(async () => {
   // giving the normalization a non-zero spread.
   await seedCrissCross({ curatorId: aId, curatorAmount: AMOUNT_A, firstMinor: 0, recipientAccountId: recipient.id, base })
   await seedCrissCross({ curatorId: cId, curatorAmount: AMOUNT_C, firstMinor: 4, recipientAccountId: recipient.id, base })
+  await seedCommentCrissCross({ curatorId: aId, curatorAmount: AMOUNT_A, firstMinor: 8, recipientAccountId: recipient.id, base })
+  await seedCommentCrissCross({ curatorId: cId, curatorAmount: AMOUNT_C, firstMinor: 12, recipientAccountId: recipient.id, base })
 
   await trust({ models: prisma })
 })
@@ -152,6 +198,7 @@ afterAll(async () => {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
     await prisma.item.deleteMany({ where: { id } })
   }
+  await prisma.userSubTrust.deleteMany({ where: { subName: seedTerritoryName } })
   await prisma.sub.deleteMany({ where: { name: { in: created.subs } } })
   await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
@@ -179,6 +226,27 @@ test('derives non-zero zapPostTrust for a confirmed-tip curator from the observa
   const row = await prisma.userSubTrust.findUnique({ where: { userId_subName: { userId: aId, subName: territoryName } } })
   expect(row).toBeTruthy()
   expect(row.zapPostTrust).toBeGreaterThan(0)
+})
+
+test('stores fallback trust rows for a seed-owned zero-activity territory (1x1 squeeze guard)', async () => {
+  // GLOBAL_SEEDS is a single user (616). A territory owned by that user with no
+  // qualifying tips yields 1-node graphs; pre-fix math.squeeze collapsed the
+  // 1x1 result to a bare number and sqapply crashed (vec.size is not a
+  // function), so the per-territory catch skipped even the initialTrust
+  // fallback and NO UserSubTrust rows were stored for the territory.
+  const rows = await prisma.userSubTrust.findMany({ where: { subName: seedTerritoryName } })
+  expect(rows.length).toBeGreaterThan(0)
+  expect(rows.map(r => r.userId)).toContain(SEED_USER)
+})
+
+test('derives non-zero zapCommentTrust for a confirmed-tip comment curator', async () => {
+  // Comments resolve territory via the ROOT item's subNames array — the scalar
+  // Item.subName is never written by this fork, so the pre-fix comment graph
+  // matched zero items and zapCommentTrust could only come from the seed-only
+  // fallback (which stores no curator rows).
+  const row = await prisma.userSubTrust.findUnique({ where: { userId_subName: { userId: aId, subName: territoryName } } })
+  expect(row).toBeTruthy()
+  expect(row.zapCommentTrust).toBeGreaterThan(0)
 })
 
 test('does not carry trust for a non-tipping author (sanity)', async () => {
