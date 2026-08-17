@@ -36,6 +36,28 @@ const exclude = [
   u => u.host === 'github.com'
 ]
 
+// self-hosted uploads (MinIO, or the public media origin) are trusted media by
+// construction: the upload pipeline only accepts image/video types. Carve them
+// out of the heuristics — in prod the MEDIA_URL_DOCKER rewrite makes the fetch
+// URL http:// (killed by the https-only exclude) and, without a rewrite, the
+// public upload URL lives on the stasher.news host (killed by the host
+// exclude). Path-aware: only URLs under the media URL's pathname count, so the
+// site itself is not trusted. Env is read at call time for deterministic tests.
+const isInternalUploadUrl = (url) => {
+  try {
+    const parsed = new URL(url)
+    for (const candidate of [process.env.MEDIA_URL_DOCKER, process.env.NEXT_PUBLIC_MEDIA_URL]) {
+      if (!candidate) continue
+      const mediaUrl = new URL(candidate)
+      if (parsed.origin !== mediaUrl.origin) continue
+      if (parsed.pathname === mediaUrl.pathname) return true
+      const prefix = mediaUrl.pathname.endsWith('/') ? mediaUrl.pathname : `${mediaUrl.pathname}/`
+      if (parsed.pathname.startsWith(prefix)) return true
+    }
+  } catch {}
+  return false
+}
+
 function matchUrl (matchers, url) {
   try {
     return matchers.some(matcher => matcher(new URL(url)))
@@ -119,6 +141,11 @@ const getMetadata = async (url) => {
 
 const isMediaURL = async (url, { forceFetch }) => {
   if (cache.has(url)) return cache.get(url)
+
+  if (isInternalUploadUrl(url)) {
+    cache.set(url, true)
+    return true
+  }
 
   if (!forceFetch && matchUrl(imageUrlMatchers, url)) {
     return true

@@ -27,9 +27,14 @@ async function main () {
           id: cursor
         },
         where: {
-          imgproxyUrls: {
-            equals: Prisma.AnyNull
-          }
+          // items whose imgproxyUrls is NULL (never processed) or {} (processed
+          // while self-hosted uploads failed the media gate — the prod-mode bug
+          // fixed in worker/imgproxy.js). Empty is idempotent: re-extracting a
+          // post with no URLs writes {} again.
+          OR: [
+            { imgproxyUrls: { equals: Prisma.AnyNull } },
+            { imgproxyUrls: { equals: {} } }
+          ]
         },
         orderBy: {
           id: 'asc'
