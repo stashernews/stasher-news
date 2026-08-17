@@ -66,6 +66,10 @@ export default gql`
     domain: Domain
     branding: SubBranding
 
+    # owner only — pending-fee modal hint
+    feeReceivedPiconeros: BigInt
+    billingFeePiconeros: BigInt
+
     optional: SubOptional!
   }
 

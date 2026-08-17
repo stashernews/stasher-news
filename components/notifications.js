@@ -299,10 +299,10 @@ function RevenueNotification ({ n }) {
       <BountyIcon className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
-          you stashed {piconerosToXmr(BigInt(n.earnedPiconeros))} in territory revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
+          you stashed {piconerosToXmr(BigInt(n.earnedPiconeros))} in turf revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
         </NoteHeader>
         <div style={{ lineHeight: '140%' }}>
-          As the founder of territory <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 70% of the post, comment, boost, and tip fees. The other 30% go to <Link href='/rewards'>rewards</Link>.
+          As the founder of turf <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 70% of the post, comment, boost, and tip fees. The other 30% go to <Link href='/rewards'>rewards</Link>.
         </div>
       </div>
     </div>
@@ -522,7 +522,7 @@ function Referral ({ n }) {
       referralSource = (Number(me?.id) === Number(n.source.user?.id) ? 'of your' : 'you shared this') + ' ' + (n.source.title ? 'post' : 'comment')
       break
     case 'Sub':
-      referralSource = (Number(me?.id) === Number(n.source.userId) ? 'of your' : 'you shared the') + ' ~' + n.source.name + ' territory'
+      referralSource = (Number(me?.id) === Number(n.source.userId) ? 'of your' : 'you shared the') + ' ~' + n.source.name + ' turf'
       break
     case 'User':
       referralSource = (me?.name === n.source.name ? 'of your profile' : `you shared ${n.source.name}'s profile`)
@@ -638,7 +638,7 @@ function TerritoryPost ({ n }) {
   return (
     <>
       <NoteHeader color='info'>
-        new post in ~{n.item.subs?.length === 1 ? n.item.subs[0].name : 'a territory you follow'}
+        new post in ~{n.item.subs?.length === 1 ? n.item.subs[0].name : 'a turf you follow'}
       </NoteHeader>
       <div>
         <Item item={n.item} itemClassName='pt-0' />

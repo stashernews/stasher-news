@@ -4,10 +4,12 @@ import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
 import { notifyTerritoryTransfer } from '@/lib/webPush'
 import pay from '../payIn'
 import { GqlAuthenticationError, GqlInputError, GqlAuthorizationError } from '@/lib/error'
+import { moneroUriAmountPiconeros } from '@/lib/format'
 import { uploadIdsFromText } from './upload'
 import { Prisma } from '@prisma/client'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { DOMAIN_BETA_IDS, ACTIVE_SUBS_PRIORITY } from '@/lib/constants'
+import { territoryReentryFunding, territoryFeePiconeros } from '@/api/monero/territoryFee'
 
 export async function getSub (parent, { name }, { models, me }) {
   if (!name) return null
@@ -277,8 +279,26 @@ export default {
         throw new GqlInputError('you do not own this sub')
       }
 
-      if (sub.status === 'ACTIVE') {
+      // An ACTIVE turf with nothing pending returns the sub itself (no payIn).
+      // A PENDING_FEE turf (fresh create or underpaid renewal) falls through to
+      // the payment path below — the old bare ACTIVE early-return swallowed the
+      // re-pay for fresh creates (status defaults ACTIVE even while PENDING_FEE).
+      if (sub.status === 'ACTIVE' && sub.billingStatus !== 'PENDING_FEE') {
         return sub
+      }
+
+      // Re-entry: a PENDING_FEE turf with a billing PayIn gets the SAME subaddress
+      // back with a remainder-quoted URI — no new PayIn, no new subaddress, no
+      // re-point of billingPayInId. Top-ups to the original address now complete
+      // the fee instead of stranding partials on an orphaned subaddress.
+      const reentry = await territoryReentryFunding(models, sub)
+      if (reentry) {
+        return {
+          ...reentry.payIn,
+          moneroUri: reentry.moneroUri,
+          receivedPiconeros: reentry.receivedPiconeros,
+          expectedPiconeros: reentry.expectedPiconeros
+        }
       }
 
       return await pay('TERRITORY_BILLING', { name }, { me, models, sendProtocolId })
@@ -464,6 +484,27 @@ export default {
     branding: async (sub, args, { me, models }) => {
       if (!canAccessDomainSettings({ sub, me })) return null
       return await models.subBranding.findUnique({ where: { subName: sub.name } })
+    },
+    // StasherNews owner-gated turf fee fields (pending-fee modal hint). Null for
+    // non-owners; received is the FeeObservation sum for the billing PayIn, expected
+    // is the FULL fee quoted in the billing PayIn's stored URI (config fallback for
+    // a legacy URI-less row).
+    feeReceivedPiconeros: async (sub, args, { me, models }) => {
+      if (!me || Number(sub.userId) !== Number(me.id)) return null
+      if (!sub.billingPayInId) return 0n
+      const agg = await models.feeObservation.aggregate({
+        _sum: { piconeros: true },
+        where: { payInId: sub.billingPayInId }
+      })
+      return agg._sum.piconeros ?? 0n
+    },
+    billingFeePiconeros: async (sub, args, { me, models }) => {
+      if (!me || Number(sub.userId) !== Number(me.id)) return null
+      if (!sub.billingPayInId) return null
+      const payIn = await models.payIn.findUnique({ where: { id: sub.billingPayInId } })
+      if (!payIn) return null
+      const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+      return moneroUriAmountPiconeros(payIn.moneroUri) ?? territoryFeePiconeros(sub.billingType, config)
     }
   }
 }

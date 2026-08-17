@@ -411,5 +411,7 @@ export const SUB_PAY = gql`
   mutation paySub($name: String!, $sendProtocolId: Int) {
     paySub(name: $name, sendProtocolId: $sendProtocolId) {
       ...PayInFields
+      receivedPiconeros
+      expectedPiconeros
     }
   }`

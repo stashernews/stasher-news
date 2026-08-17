@@ -4,6 +4,9 @@
 //
 // §6.2: monthly 0.02 XMR (2e10 piconeros), yearly 0.2 XMR (2e11), once 1 XMR (1e12).
 
+import { buildMoneroUri } from '@/api/monero/uri'
+import { moneroUriAddress, moneroUriAmountPiconeros } from '@/lib/format'
+
 const TERRITORY_FEE = {
   MONTHLY: (c) => c.territoryMonthlyPiconeros,
   YEARLY: (c) => c.territoryYearlyPiconeros,
@@ -37,4 +40,35 @@ export async function territoryFeePrivatesFor (models, viewerId) {
     territoryOncePiconeros: config.territoryOncePiconeros,
     commentFeePiconeros: config.postingFeeFloorPiconeros
   }
+}
+
+// Re-entry funding info for a PENDING_FEE turf: reuses the billing PayIn's
+// reserved subaddress (recovered from its stored monero URI) and quotes only the
+// REMAINDER, so a top-up completes the fee instead of stranding the prior partials
+// on an orphaned subaddress (the fresh-mint path would reserve a NEW subaddress
+// and re-point billingPayInId — exactly what strands them). Returns null when
+// there is nothing to reuse; the caller falls through to the fresh mint. The
+// stored URI is NEVER rewritten — the observer gate (attributeFeeBySubaddress)
+// reads the FULL fee from it, so cumulative received keeps comparing against the
+// full amount.
+export async function territoryReentryFunding (models, sub) {
+  if (sub.billingStatus !== 'PENDING_FEE' || !sub.billingPayInId) return null
+  const payIn = await models.payIn.findUnique({ where: { id: sub.billingPayInId } })
+  if (!payIn) return null
+  const address = moneroUriAddress(payIn.moneroUri)
+  if (!address) return null
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const expected = moneroUriAmountPiconeros(payIn.moneroUri) ?? territoryFeePiconeros(sub.billingType, config)
+  const agg = await models.feeObservation.aggregate({
+    _sum: { piconeros: true },
+    where: { payInId: payIn.id }
+  })
+  const received = agg._sum.piconeros ?? 0n
+  const remaining = expected - received
+  const amount = remaining > 0n ? remaining : expected
+  const moneroUri = buildMoneroUri(
+    [{ address, amount }],
+    { description: `StasherNews territory ${sub.name} top-up (${sub.billingType})` }
+  )
+  return { payIn, moneroUri, feePiconeros: expected, receivedPiconeros: received, expectedPiconeros: expected }
 }

@@ -2,7 +2,7 @@ import { useRouter } from 'next/router'
 import { useEffect } from 'react'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
-import { moneroUriAmountPiconeros, piconerosToXmr } from '@/lib/format'
+import { moneroUriAmountPiconeros, piconerosToXmr, underpayHint } from '@/lib/format'
 import MoneroPaymentView from './monero-payment-view'
 import PaymentSuccessView from './payment-success-view'
 import { useAnimation } from './animation'
@@ -14,11 +14,13 @@ const SUB_BILLING_STATUS = gql`
     sub(name: $name) {
       name
       billingStatus
+      feeReceivedPiconeros
+      billingFeePiconeros
     }
   }
 `
 
-export default function TerritoryPendingFeeModal ({ moneroUri, subName, onClose }) {
+export default function TerritoryPendingFeeModal ({ moneroUri, subName, onClose, receivedPiconeros: initialReceived, expectedPiconeros: initialExpected }) {
   const router = useRouter()
   const animate = useAnimation()
   const feePiconeros = moneroUriAmountPiconeros(moneroUri) ?? 0n
@@ -32,6 +34,15 @@ export default function TerritoryPendingFeeModal ({ moneroUri, subName, onClose 
 
   const paid = billingStatus === 'PAID'
 
+  // Short-pay hint: polled Sub fields are authoritative once they land; the paySub
+  // response seeds the first render (the first poll is in flight). underpayHint
+  // returns null when nothing received, fully covered, or inputs aren't BigInt.
+  const polledReceived = data?.sub?.feeReceivedPiconeros
+  const polledExpected = data?.sub?.billingFeePiconeros
+  const received = polledReceived != null ? BigInt(polledReceived) : initialReceived != null ? BigInt(initialReceived) : 0n
+  const expected = polledExpected != null ? BigInt(polledExpected) : initialExpected != null ? BigInt(initialExpected) : 0n
+  const hint = !paid ? underpayHint(received, expected) : null
+
   // navigate to the live territory once the fee is observed
   useEffect(() => {
     if (!paid) return
@@ -44,7 +55,7 @@ export default function TerritoryPendingFeeModal ({ moneroUri, subName, onClose 
   if (paid) {
     return (
       <PaymentSuccessView
-        title='Payment detected — your territory is live!'
+        title='Payment detected — your turf is live!'
         note='Redirecting…'
       />
     )
@@ -54,12 +65,16 @@ export default function TerritoryPendingFeeModal ({ moneroUri, subName, onClose 
     <MoneroPaymentView
       moneroUri={moneroUri}
       amountPiconeros={feePiconeros}
-      heading='Pay the territory fee'
-      description={`Scan to send ${piconerosToXmr(feePiconeros)} to the platform rewards wallet. Your territory goes live once the fee is detected on-chain.`}
+      heading='Pay the turf fee'
+      description={`Scan to send ${piconerosToXmr(feePiconeros)} to the platform rewards wallet. Your turf goes live once the fee is detected on-chain.`}
     >
+      {hint &&
+        <p className='text-warning text-center mt-3'>
+          <small>{hint}</small>
+        </p>}
       <p className='text-muted text-center mt-3'>
         <small>
-          Your territory stays hidden until the fee lands — detection takes about one block.
+          Your turf stays hidden until the fee lands — detection takes about one block.
         </small>
       </p>
     </MoneroPaymentView>

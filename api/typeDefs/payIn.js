@@ -131,6 +131,12 @@ type PayIn {
   # born PAID (piconeros=0n; the FeeObservation carries the real amount), so
   # payInState alone can't tell the client the fee/donation landed.
   feeObserved: Boolean
+
+  # Territory re-entry (paySub on a PENDING_FEE turf): received/expected totals for
+  # the current billing PayIn so the client can render the underpayment hint. Null
+  # on every other payIn.
+  receivedPiconeros: BigInt
+  expectedPiconeros: BigInt
 }
 
 type PayerPrivates {

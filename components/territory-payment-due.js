@@ -56,7 +56,7 @@ export default function TerritoryPaymentDue ({ sub }) {
         ? (
           <>
             <Alert.Heading>
-              Your ~{sub.name} territory has been archived!
+              Your ~{sub.name} turf has been archived!
             </Alert.Heading>
             <div>
               Make a payment to reactivate it.
@@ -65,10 +65,10 @@ export default function TerritoryPaymentDue ({ sub }) {
         : (
           <>
             <Alert.Heading>
-              Your ~{sub.name} territory payment is due!
+              Your ~{sub.name} turf payment is due!
             </Alert.Heading>
             <div>
-              Your territory will be archived in <LongCountdown date={dueDate} />otherwise.
+              Your turf will be archived in <LongCountdown date={dueDate} />otherwise.
             </div>
           </>
           )}
@@ -115,11 +115,17 @@ function PendingFeeRepay ({ sub }) {
       const response = data?.paySub
       if (response?.moneroUri) {
         showModal(onClose => (
-          <TerritoryPendingFeeModal moneroUri={response.moneroUri} subName={sub.name} onClose={onClose} />
+          <TerritoryPendingFeeModal
+            moneroUri={response.moneroUri}
+            subName={sub.name}
+            receivedPiconeros={response.receivedPiconeros}
+            expectedPiconeros={response.expectedPiconeros}
+            onClose={onClose}
+          />
         ))
       }
     } catch (e) {
-      console.error('failed to pay territory fee', e)
+      console.error('failed to pay turf fee', e)
     } finally {
       setSubmitting(false)
     }
@@ -127,11 +133,11 @@ function PendingFeeRepay ({ sub }) {
 
   return (
     <Alert key='warning' variant='warning'>
-      <Alert.Heading>Your ~{sub.name} territory fee is pending payment.</Alert.Heading>
-      <div>The territory is live once the Monero fee is detected on-chain.</div>
+      <Alert.Heading>Your ~{sub.name} turf fee is pending payment.</Alert.Heading>
+      <div>The turf is live once the Monero fee is detected on-chain.</div>
       <div className='d-flex justify-content-end mt-2'>
         <Button variant='success' disabled={submitting} onClick={onPay}>
-          {submitting ? 'generating…' : 'pay territory fee'}
+          {submitting ? 'generating…' : 'pay turf fee'}
         </Button>
       </div>
     </Alert>

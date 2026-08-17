@@ -157,6 +157,14 @@ the user's monthly free-post quota (`freePostCount` / `freePostResetAt`):
    could post for free with no monthly cap.)
 4. **Underpayment:** the fee URI's `tx_amount` is the gate — `FEE_PAID` flips only when cumulative
    observed piconeros cover it; partial payers top up the same subaddress (see the webhook spec addendum).
+5. **Turf fee re-entry:** a PENDING_FEE turf can be topped up to the SAME reserved
+   subaddress via `paySub` — the billing PayIn's stored URI is never rewritten, so
+   the observer gate keeps comparing cumulative received against the FULL fee; the
+   re-entry response quotes only the remainder, and the pending-fee modal renders a
+   live "short by X XMR" hint (`Sub.feeReceivedPiconeros` / `Sub.billingFeePiconeros`).
+   A turf whose fee never completes LAPSES after `TERRITORY_GRACE_DAYS`; partial
+   payments stay on the platform rewards wallet (no in-app refund — the app never
+   holds the rewards spend key).
 
 Comment outcomes are unchanged in structure: free while the tiered freebie quota remains
 (5/month low-rep, 15/month established), then the flat comment fee applies (also
