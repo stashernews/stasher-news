@@ -33,6 +33,7 @@ export const COMMENT_FIELDS = gql`
       id
       payInState
       payInType
+      moneroUri
       payInStateChangedAt
       payerPrivates {
         payInFailureReason
@@ -68,6 +69,8 @@ export const COMMENT_FIELDS = gql`
     rel
     apiKey
     cost
+    feeStatus
+    feeReceivedPiconeros
   }
 `
 
@@ -92,6 +95,7 @@ export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
       id
       payInState
       payInType
+      moneroUri
       payInStateChangedAt
       payerPrivates {
         payInFailureReason
@@ -125,6 +129,8 @@ export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
     rel
     apiKey
     cost
+    feeStatus
+    feeReceivedPiconeros
   }
 `
 

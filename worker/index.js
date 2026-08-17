@@ -36,6 +36,7 @@ import { rewardsDistributor } from './rewardsDistributor'
 import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
+import { abandonFeeItems } from './abandonFeeItems'
 import { healthProbe } from './healthProbe'
 import { dbBackup } from './dbBackup'
 import { writeWorkerHeartbeat } from './heartbeat'
@@ -212,6 +213,11 @@ async function work () {
   if (await boss.getQueueSize('webhookCleanup') === 0) {
     await boss.send('webhookCleanup', {}, { ...BOSS_RETRY, startAfter: CLEANUP_INTERVAL_SECONDS / 4 }) // first sweep after 15min
   }
+
+  // abandonFeeItems: soft-deletes never-paid PENDING_FEE items past
+  // FEE_ITEM_ABANDON_DAYS (1 day). Recurrence is cron-owned (pgboss.schedule
+  // row abandonFeeItems, hourly) — no self-requeue.
+  await boss.work('abandonFeeItems', { includeMetadata: true }, jobWrapper(abandonFeeItems))
 
   // rewardsWalletObserver: polls the platform rewards wallet for posting/territory
   // fee outputs (subaddress attribution) and downvote payments (payment_id

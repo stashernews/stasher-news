@@ -170,6 +170,13 @@ notifications via `runItemLiveSideEffects`) fire at the fee flip in
 `worker/rewardsWalletObserver.js` (`flipPendingToLive`), not at creation —
 immediately-live items fire them at `onPaid`/`onPaidSideEffects` as before.
 
+**Abandonment:** a `PENDING_FEE` item whose fee is never observed is soft-deleted
+by the cron-owned `abandonFeeItems` worker (`FEE_ITEM_ABANDON_DAYS` = 1 day from
+`Item.created_at`); its fee PayIn is deleted (the subaddress pool is
+ASSIGN-never-freed, so no reuse/misattribution — a late payment to the abandoned
+subaddress finds no pending PayIn and is ignored). The author's thread view shows
+the abandoned comment as deleted.
+
 **Counters:** `User.freePostCount` / `freePostResetAt` track the monthly post quota. The
 `incrementFreePostCount` hook (in `api/payIn/lib/freebie.js`) runs in ITEM_CREATE `onPaid`
 and bumps the counter atomically (optimistic-concurrency guarded: no-op for comments, bios,

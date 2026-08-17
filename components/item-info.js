@@ -9,7 +9,7 @@ import { isPendingFeeItem, shouldShowItemPaidAt } from '@/lib/pay-in'
 import PostingFeeModal from './posting-fee-modal'
 import BountyFundingView from './bounty-funding-view'
 import { AwardBountyDropdownItem } from './bounty-actions'
-import { numWithUnits, piconerosToXmr } from '@/lib/format'
+import { numWithUnits, piconerosToXmr, moneroUriAmountPiconeros, underpayHint } from '@/lib/format'
 import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
 import { timeSince } from '@/lib/time'
@@ -190,9 +190,13 @@ export default function ItemInfo ({
           </SubPopover>
         )
       })}
-      {item.feeStatus === 'PENDING_FEE' &&
+      {item.feeStatus === 'PENDING_FEE' && !item.deletedAt &&
         <span>
           {' '}<Badge className={styles.newComment} bg={null}>pending payment</Badge>
+          {item.payIn?.moneroUri &&
+            <span className='ms-1 text-warning' style={{ fontSize: '0.85rem' }}>
+              {underpayHint(BigInt(item.feeReceivedPiconeros ?? 0), moneroUriAmountPiconeros(item.payIn.moneroUri))}
+            </span>}
         </span>}
       {Number(item.bountyPiconeros) > 0 &&
         <span>
@@ -215,13 +219,13 @@ export default function ItemInfo ({
           {' '}<Badge className={styles.newComment} bg={null}>-{piconerosToXmr(BigInt(item.downPiconeros || 0))}</Badge>
         </span>}
       {extraBadges}
-      {full && isPendingFeeItem(item) && item.payIn?.moneroUri &&
+      {isPendingFeeItem(item) && item.payIn?.moneroUri &&
         <>{' '}
           <Button
             size='sm' variant='outline-danger'
             onClick={() => showModal((onClose) => <PostingFeeModal moneroUri={item.payIn.moneroUri} itemId={item.id} />)}
           >
-            pay the posting fee
+            pay the {item.parentId ? 'comment' : 'posting'} fee
           </Button>
         </>}
       {full && item.mine && Number(item.bountyPiconeros) > 0 && ['UNFUNDED', 'PENDING_FUNDING'].includes(item.bountyStatus) &&
