@@ -1,6 +1,6 @@
 import { S3Client, DeleteObjectsCommand } from '@aws-sdk/client-s3'
 import { createPresignedPost as s3CreatePresignedPost } from '@aws-sdk/s3-presigned-post'
-import { MEDIA_URL } from '@/lib/constants'
+import { PUBLIC_MEDIA_URL } from '@/lib/constants'
 
 const bucketRegion = 'us-east-1'
 const Bucket = process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET
@@ -30,7 +30,10 @@ function getS3Client (endpoint) {
 
   const client = new S3Client({
     region: bucketRegion,
-    forcePathStyle: process.env.NODE_ENV === 'development',
+    // Path-style whenever a custom endpoint is used: MinIO has no bucket
+    // subdomains, so virtual-host style (http://uploads.minio:9000/...) is
+    // unresolvable. Real AWS S3 (no endpoint) uses virtual-host style.
+    forcePathStyle: Boolean(s3Endpoint),
     ...(s3Endpoint && { endpoint: s3Endpoint })
   })
   s3ClientCache.set(cacheKey, client)
@@ -38,15 +41,20 @@ function getS3Client (endpoint) {
   return client
 }
 
+// An explicit local S3-compatible store (MEDIA_URL_DOCKER, container-reachable)
+// wins in ANY mode — that is what keeps prod-mode/stagenet pointed at MinIO
+// instead of real AWS S3. Development falls back to the public media URL;
+// production with neither stays undefined = real AWS S3 (mainnet, unchanged).
+function resolveS3Endpoint (devFallback) {
+  return process.env.MEDIA_URL_DOCKER ||
+    (process.env.NODE_ENV === 'development' ? devFallback : undefined)
+}
+
 export async function createPresignedPost ({ key, type, size }) {
-  // for local development, we use the NEXT_PUBLIC_MEDIA_URL which
-  // is reachable from the host machine
-  const endpoint = process.env.NODE_ENV === 'development'
-    ? process.env.NEXT_PUBLIC_MEDIA_URL
-    : undefined
+  const endpoint = resolveS3Endpoint(process.env.NEXT_PUBLIC_MEDIA_URL)
   const client = getS3Client(endpoint)
 
-  return s3CreatePresignedPost(client, {
+  const post = await s3CreatePresignedPost(client, {
     Bucket,
     Key: key,
     Expires: 300,
@@ -58,14 +66,25 @@ export async function createPresignedPost ({ key, type, size }) {
     ],
     Fields: { key }
   })
+
+  // Presigned POST signatures are host-agnostic (they cover the policy and
+  // fields, not the URL), so the browser can POST to the PUBLIC origin even
+  // though we signed against the container endpoint. With no endpoint (real
+  // AWS) the SDK's URL is already correct — leave it untouched.
+  if (endpoint) {
+    const url = new URL(post.url)
+    const publicUrl = new URL(PUBLIC_MEDIA_URL)
+    url.protocol = publicUrl.protocol
+    url.hostname = publicUrl.hostname
+    url.port = publicUrl.port
+    return { ...post, url: url.toString() }
+  }
+
+  return post
 }
 
 export async function deleteObjects (keys) {
-  // for local development, we use the MEDIA_URL which
-  // is reachable from the container network
-  const endpoint = process.env.NODE_ENV === 'development'
-    ? MEDIA_URL
-    : undefined
+  const endpoint = resolveS3Endpoint(PUBLIC_MEDIA_URL)
   const client = getS3Client(endpoint)
 
   // max 1000 keys per request
