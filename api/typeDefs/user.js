@@ -190,6 +190,7 @@ export default gql`
     stashAmountHidden: Boolean!
     streak: Int
     hasWallet: Boolean
+    hasAttachedWallet: Boolean
     tippedRecently: Boolean
     maxStreak: Int
     isContributor: Boolean

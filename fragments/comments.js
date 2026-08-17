@@ -6,6 +6,7 @@ const STREAK_FIELDS = gql`
     optional {
       streak
       hasWallet
+      hasAttachedWallet
       tippedRecently
     }
   }

@@ -980,6 +980,20 @@ export default {
       if (!u) return false
       return canPostFree(u, config)
     },
+    // Plain "has a wallet attached" signal for the bounty-award flow: the
+    // winner only needs to HAVE a wallet (server payBounty re-checks and
+    // errors if it changed between render and submit). Deliberately NOT gated
+    // on canPostFree — a young or low-stacked winner with a wallet must be
+    // awardable. Mirrors hasWallet's hideBadges visibility rule and runs the
+    // same single moneroAccount lookup.
+    hasAttachedWallet: async (user, args, { models, me }) => {
+      if (user.hideBadges && (!me || me.id !== user.id)) {
+        return false
+      }
+
+      const account = await models.moneroAccount.findFirst({ where: { ownerUserId: user.id } })
+      return Boolean(account)
+    },
     tippedRecently: async (user, args, { models, me }) => {
       if (user.hideBadges && (!me || me.id !== user.id)) {
         return false
