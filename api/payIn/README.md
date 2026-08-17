@@ -165,6 +165,13 @@ the user's monthly free-post quota (`freePostCount` / `freePostResetAt`):
    A turf whose fee never completes LAPSES after `TERRITORY_GRACE_DAYS`; partial
    payments stay on the platform rewards wallet (no in-app refund — the app never
    holds the rewards spend key).
+6. **Turf visibility:** a turf whose fee is pending (`billingStatus=PENDING_FEE`) is
+   hidden from everyone except its owner while its billing PayIn is a
+   `TERRITORY_CREATE`/`TERRITORY_UNARCHIVE` (never publicly seen) — the sub read
+   surfaces (`activeSubs`, `subSuggestions`, `topSubs`/`userSubs`/`mySubscribedSubs`,
+   the `/~name` page) exclude it and posting into it is rejected. Renewals
+   (`TERRITORY_BILLING`) and updates (`TERRITORY_UPDATE`) are existing turfs
+   mid-grace and stay visible. The owner always sees their own pending turf to pay.
 
 Comment outcomes are unchanged in structure: free while the tiered freebie quota remains
 (5/month low-rep, 15/month established), then the flat comment fee applies (also

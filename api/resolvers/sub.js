@@ -10,17 +10,25 @@ import { Prisma } from '@prisma/client'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { DOMAIN_BETA_IDS, ACTIVE_SUBS_PRIORITY } from '@/lib/constants'
 import { territoryReentryFunding, territoryFeePiconeros } from '@/api/monero/territoryFee'
+import { NEVER_SEEN_FEE_PAY_IN_TYPES, isHiddenFromViewer } from '@/lib/territoryVisibility'
 
 export async function getSub (parent, { name }, { models, me }) {
   if (!name) return null
 
-  return await models.sub.findUnique({
+  const sub = await models.sub.findUnique({
     where: {
       name
     },
-    ...(me
-      ? {
-          include: {
+    // never-seen PENDING_FEE gate: the billing PayIn's type discriminates
+    // a fresh create/unarchive (hidden) from a renewal (visible mid-grace)
+    include: {
+      billingPayIn: {
+        select: {
+          payInType: true
+        }
+      },
+      ...(me
+        ? {
             MuteSub: {
               where: {
                 userId: Number(me?.id)
@@ -32,9 +40,15 @@ export async function getSub (parent, { name }, { models, me }) {
               }
             }
           }
-        }
-      : {})
+        : {})
+    }
   })
+
+  // never-seen PENDING_FEE turf: null for anon/strangers -> SSR notFound 404s
+  // the /~name page; the owner gets it (they must be able to reach it to pay)
+  if (isHiddenFromViewer(sub, me)) return null
+
+  return sub
 }
 
 export async function topSubs (parent, { query, cursor, when, from, to, limit, by = 'stacked' }, { models, me }) {
@@ -129,12 +143,13 @@ export async function topSubs (parent, { query, cursor, when, from, to, limit, b
 export default {
   Query: {
     sub: getSub,
-    subSuggestions: async (parent, { q, limit }, { models }) => {
+    subSuggestions: async (parent, { q, limit }, { models, me }) => {
       let subs = []
       subs = await models.$queryRaw`
           SELECT name
           FROM "Sub"
-          WHERE status IN ('ACTIVE', 'GRACE')
+          LEFT JOIN "PayIn" bp ON bp.id = "Sub"."billingPayInId"
+          WHERE status IN ('ACTIVE', 'GRACE') AND ${subVisibilityClause(me)}
           ${q ? Prisma.sql`AND SIMILARITY(name, ${q}) > 0.1` : Prisma.empty}
           ${q ? Prisma.sql`ORDER BY SIMILARITY(name, ${q}) DESC` : Prisma.sql`ORDER BY name ASC`}
           LIMIT ${limit}`
@@ -146,11 +161,22 @@ export default {
         return []
       }
 
-      return await models.sub.findMany({
+      const subs = await models.sub.findMany({
         where: {
           name: { in: subNames }
+        },
+        include: {
+          billingPayIn: {
+            select: {
+              payInType: true
+            }
+          }
         }
       })
+
+      // never-seen PENDING_FEE gate: hide from anon/strangers; the owner override
+      // keeps their own pending turf reachable by name (mirrors getSub)
+      return subs.filter(sub => !isHiddenFromViewer(sub, me))
     },
     activeSubs: async (parent, args, { models, me, userLoader }) => {
       if (me) {
@@ -160,9 +186,10 @@ export default {
         return sortActiveSubs(await models.$queryRaw`
           SELECT "Sub".*, "Sub".created_at as "createdAt", COALESCE("Sub"."postTypes", '{}') AS "postTypes", ss."userId" IS NOT NULL as "meSubscription", COALESCE(json_agg("MuteSub".*) FILTER (WHERE "MuteSub"."userId" IS NOT NULL), '[]') AS "MuteSub"
           FROM "Sub"
+          LEFT JOIN "PayIn" bp ON bp.id = "Sub"."billingPayInId"
           LEFT JOIN "SubSubscription" ss ON "Sub".name = ss."subName" AND ss."userId" = ${me.id}::INTEGER
           LEFT JOIN "MuteSub" ON "Sub".name = "MuteSub"."subName" AND "MuteSub"."userId" = ${me.id}::INTEGER
-          WHERE status <> 'STOPPED' AND "Sub".name NOT LIKE '\\_p4downvote\\_%' ${showNsfw ? Prisma.empty : Prisma.sql`AND ("Sub"."nsfw" = FALSE OR "Sub"."userId" = ${me.id}::INTEGER)`}
+          WHERE status <> 'STOPPED' AND "Sub".name NOT LIKE '\\_p4downvote\\_%' AND ${subVisibilityClause(me)} ${showNsfw ? Prisma.empty : Prisma.sql`AND ("Sub"."nsfw" = FALSE OR "Sub"."userId" = ${me.id}::INTEGER)`}
           GROUP BY "Sub".name, ss."userId", "MuteSub"."userId"
           ORDER BY "Sub".name ASC
         `)
@@ -178,7 +205,12 @@ export default {
             not: {
               startsWith: '_p4downvote_'
             }
-          }
+          },
+          OR: [
+            { billingStatus: { not: 'PENDING_FEE' } },
+            { billingPayInId: null },
+            { billingPayIn: { isNot: { payInType: { in: NEVER_SEEN_FEE_PAY_IN_TYPES } } } }
+          ]
         },
         orderBy: {
           name: 'asc'
@@ -201,8 +233,10 @@ export default {
       const query = Prisma.sql`
         SELECT "Sub".name, "Sub".id
         FROM "Sub"
+        LEFT JOIN "PayIn" bp ON bp.id = "Sub"."billingPayInId"
         WHERE "Sub".status <> 'STOPPED'
         AND "Sub".name NOT LIKE '\\_p4downvote\\_%'
+        AND ${subVisibilityClause(me)}
         GROUP BY "Sub".name
       `
 
@@ -216,8 +250,10 @@ export default {
       const query = Prisma.sql`
         SELECT "Sub".name, "Sub".id
         FROM "Sub"
+        LEFT JOIN "PayIn" bp ON bp.id = "Sub"."billingPayInId"
         JOIN users ON users.id = "Sub"."userId" AND users.name = ${name}
         WHERE "Sub".status <> 'STOPPED'
+        AND ${subVisibilityClause(me)}
         GROUP BY "Sub".name
       `
 
@@ -232,8 +268,10 @@ export default {
         SELECT "Sub".name, "Sub".id
         FROM "SubSubscription"
         JOIN "Sub" ON "SubSubscription"."subName" = "Sub".name
+        LEFT JOIN "PayIn" bp ON bp.id = "Sub"."billingPayInId"
         WHERE "SubSubscription"."userId" = ${me.id}
         AND "Sub".status <> 'STOPPED'
+        AND ${subVisibilityClause(me)}
         GROUP BY "Sub".name
       `
 
@@ -523,6 +561,18 @@ function sortActiveSubs (subs) {
   const priority = new Map(ACTIVE_SUBS_PRIORITY.map((name, i) => [name, i]))
   return [...subs].sort((a, b) =>
     (priority.get(a.name) ?? Infinity) - (priority.get(b.name) ?? Infinity))
+}
+
+// Never-seen PENDING_FEE turf visibility clause (spec 2026-08-17-turf-visibility-gate-design.md).
+// AND-ed onto the existing status-based WHERE. Requires a `LEFT JOIN "PayIn" bp
+// ON bp.id = "Sub"."billingPayInId"` in the query. Visible iff not a never-seen
+// PENDING_FEE turf (renewal/update payIns and legacy no-payIn rows pass), or the
+// viewer is its owner.
+function subVisibilityClause (me) {
+  return Prisma.sql`("Sub"."billingStatus" <> 'PENDING_FEE'
+    OR "Sub"."billingPayInId" IS NULL
+    OR bp."payInType"::text NOT IN (${Prisma.join(NEVER_SEEN_FEE_PAY_IN_TYPES)})
+    ${me ? Prisma.sql`OR "Sub"."userId" = ${me.id}` : Prisma.empty})`
 }
 
 async function createSub (parent, { sendProtocolId, ...data }, { me, models }) {
