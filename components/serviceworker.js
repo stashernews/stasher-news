@@ -4,6 +4,7 @@ import { gql } from '@apollo/client'
 import { useMutation } from '@apollo/client/react'
 import { requestPersistentStorage } from './use-indexeddb'
 import { CLEAR_NOTIFICATIONS, DELETE_SUBSCRIPTION, STORE_SUBSCRIPTION } from '@/lib/sw-messages'
+import { getPushConfigError } from '@/lib/vapid-config'
 
 const applicationServerKey = process.env.NEXT_PUBLIC_VAPID_PUBKEY
 
@@ -74,6 +75,8 @@ export const ServiceWorkerProvider = ({ children }) => {
   }, [registration])
 
   const subscribeToPushNotifications = async () => {
+    const configError = getPushConfigError()
+    if (configError) throw new Error(configError)
     // serviceWorker.controller is null on forced refreshes
     // see https://w3c.github.io/ServiceWorker/#navigator-service-worker-controller
     if (!navigator.serviceWorker.controller) {
@@ -151,13 +154,16 @@ export const ServiceWorkerProvider = ({ children }) => {
       })
   }, [])
 
+  const pushConfigured = useMemo(() => !getPushConfigError(), [])
+
   const contextValue = useMemo(() => ({
     registration,
     support,
     permission,
+    pushConfigured,
     requestNotificationPermission,
     togglePushSubscription
-  }), [registration, support, permission, requestNotificationPermission, togglePushSubscription])
+  }), [registration, support, permission, pushConfigured, requestNotificationPermission, togglePushSubscription])
 
   return (
     <ServiceWorkerContext.Provider value={contextValue}>

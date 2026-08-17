@@ -675,12 +675,12 @@ export function NotificationAlert () {
   const sw = useServiceWorker()
 
   useEffect(() => {
-    const isSupported = sw.support.serviceWorker && sw.support.pushManager && sw.support.notification
+    const isSupported = sw.support.serviceWorker && sw.support.pushManager && sw.support.notification && sw.pushConfigured
     if (isSupported) {
       const isDefaultPermission = sw.permission.notification === 'default'
       setShowAlert(isDefaultPermission && !!sw.registration && !window.localStorage.getItem('hideNotifyPrompt'))
       sw.registration?.pushManager?.getSubscription()?.then(subscription => setHasSubscription(!!subscription))?.catch(console.error)
-      setSupported(!!sw.registration)
+      setSupported(!!sw.registration && sw.pushConfigured)
     }
   }, [sw])
 

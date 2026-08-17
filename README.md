@@ -336,7 +336,9 @@ GITHUB_SECRET=<Client secret>
 
 ## Enabling web push notifications
 
-To enable Web Push locally, you will need to set the `VAPID_*` env vars. `VAPID_MAILTO` needs to be an email address using the `mailto:` scheme. For `NEXT_PUBLIC_VAPID_PUBKEY` and `VAPID_PRIVKEY`, you can run `npx web-push generate-vapid-keys`.
+To enable Web Push, set the `VAPID_*` env vars in gitignored `.env.local` (never in tracked env files). `VAPID_MAILTO` needs to be an email address using the `mailto:` scheme. For `NEXT_PUBLIC_VAPID_PUBKEY` and `VAPID_PRIVKEY`, you can run `npx web-push generate-vapid-keys`.
+
+`NEXT_PUBLIC_VAPID_PUBKEY` is inlined into the client at build time — after adding or changing it on the VPS you must rebuild (`NODE_ENV=production npm run build`) before `docker compose ... up -d`. Without all three vars the site runs fine but push is disabled: no push UI is shown and the server logs `webPush not configured, skipping notification`.
 
 <br>
 
