@@ -122,13 +122,7 @@ export default {
             f."confirmedAt",
             f."confirmedAt",
             f.piconeros,
-            CASE f."feeType"
-              WHEN 'POSTING' THEN 'ITEM_CREATE'::"PayInType"
-              WHEN 'TERRITORY_BILLING' THEN 'TERRITORY_BILLING'::"PayInType"
-              WHEN 'TERRITORY_CREATE' THEN 'TERRITORY_CREATE'::"PayInType"
-              WHEN 'TERRITORY_UNARCHIVE' THEN 'TERRITORY_UNARCHIVE'::"PayInType"
-              WHEN 'TERRITORY_UPDATE' THEN 'TERRITORY_UPDATE'::"PayInType"
-            END,
+            p."payInType",
             'PAID'::"PayInState",
             f."confirmedAt",
             ${userId}::int,

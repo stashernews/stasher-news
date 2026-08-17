@@ -232,4 +232,25 @@ describe('Query.statistics', () => {
     expect(turfFee.subPayIn?.subName).toBe('monero')
     expect(turfFee.item).toBeNull()
   })
+
+  test('boost-fee rows map to BOOST (regression: no feeType may yield a null payInType)', async () => {
+    const me = await createUser()
+    const post = await createPost(me)
+    const now = new Date()
+    const payIn = await prisma.payIn.create({ data: { userId: me, piconeros: 0n, payInType: 'BOOST', payInState: 'PAID' } })
+    created.payIns.push(payIn.id)
+    const fee = await prisma.feeObservation.create({
+      data: { txHash: 'hh'.repeat(32), payInId: payIn.id, feeType: 'BOOST', postId: post.id, recipientMajor: 1, recipientMinor: 1, piconeros: 1000000000n, state: 'CONFIRMED', confirmedAt: now }
+    })
+    created.fees.push(fee.id)
+
+    const { payIns } = await resolvers.Query.statistics(null, {}, { models: prisma, me: { id: me } })
+
+    expect(payIns).toHaveLength(1)
+    const boostRow = payIns[0]
+    expect(boostRow.payInType).toBe('BOOST')
+    expect(boostRow.isSend).toBe(true)
+    expect(boostRow.piconeros).toBe(1000000000n)
+    expect(boostRow.item.id).toBe(post.id)
+  })
 })
