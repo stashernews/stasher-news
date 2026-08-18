@@ -47,6 +47,13 @@ function makeAddress () {
 const created = { users: [], items: [], accounts: [], tips: [], subs: [] }
 const territoryName = `trust-turf-${process.pid}-${Date.now()}`
 const seedTerritoryName = `trust-seed-turf-${process.pid}-${Date.now()}`
+// Fresh turf pair used ONLY by multi-turf fixtures: cross-posted items live in
+// BOTH, so membership matching must derive trust for aId in BOTH. Pre-fix,
+// subNames[1] (first element, unordered array_agg) equals at most one of them,
+// so at least one of the two assertions per test fails — the red state is
+// deterministic regardless of array order.
+const multiTurfA = `trust-multi-a-${process.pid}-${Date.now()}`
+const multiTurfB = `trust-multi-b-${process.pid}-${Date.now()}`
 
 let founderId
 let authorId
@@ -120,8 +127,9 @@ async function seedCrissCross ({ curatorId, curatorAmount, firstMinor, recipient
 }
 
 // Comment-graph mirror of seedCrissCross: territory resolves via the ROOT
-// item's subNames (COALESCE(root, item, 'meta') in the graph query), so comment
-// tips must land on comments whose root post is in the territory.
+// item's subNames (membership: COALESCE(root.subNames, item.subNames) in the
+// graph query), so comment tips must land on comments whose root post is in
+// the territory.
 async function seedCommentCrissCross ({ curatorId, curatorAmount, firstMinor, recipientAccountId, base }) {
   const root = await mkPost()
   const commentA = await mkComment(root)
@@ -130,6 +138,47 @@ async function seedCommentCrissCross ({ curatorId, curatorAmount, firstMinor, re
   await seedTip({ postId: commentA, tipperId: SEED_USER, piconeros: AMOUNT_SEED, confirmedAt: new Date(base + (firstMinor + 1) * 60000), recipientAccountId })
   await seedTip({ postId: commentB, tipperId: SEED_USER, piconeros: AMOUNT_SEED, confirmedAt: new Date(base + (firstMinor + 2) * 60000), recipientAccountId })
   await seedTip({ postId: commentB, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + (firstMinor + 3) * 60000), recipientAccountId })
+}
+
+// Multi-turf mirrors: same production path as mkPost/mkComment but the ItemSub
+// create list has TWO entries, so the trigger-maintained subNames array holds
+// both turfs — the cross-post shape whose trust attribution this suite guards.
+async function mkMultiTurfPost () {
+  const item = await prisma.item.create({
+    data: { userId: authorId, title: 'multi turf post', subs: { create: [{ subName: multiTurfA }, { subName: multiTurfB }] }, status: 'ACTIVE' }
+  })
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(item.id)}::ltree WHERE id = ${item.id}::int`
+  created.items.push(item.id)
+  return item.id
+}
+
+async function mkMultiTurfComment (rootId) {
+  const item = await prisma.item.create({
+    data: { userId: authorId, text: 'multi turf comment', parentId: rootId, rootId, subs: { create: [{ subName: multiTurfA }, { subName: multiTurfB }] }, status: 'ACTIVE' }
+  })
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId) + '.' + item.id}::ltree WHERE id = ${item.id}::int`
+  created.items.push(item.id)
+  return item.id
+}
+
+// Multi-turf criss-cross: posts AND a comment thread whose items all live in
+// BOTH multiTurfA and multiTurfB, tipped criss-cross by the curator and the
+// global seed. Mirrors seedCrissCross/seedCommentCrissCross shapes.
+async function seedMultiTurfCrissCross ({ curatorId, curatorAmount, firstMinor, recipientAccountId, base }) {
+  const postA = await mkMultiTurfPost()
+  const postB = await mkMultiTurfPost()
+  await seedTip({ postId: postA, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + firstMinor * 60000), recipientAccountId })
+  await seedTip({ postId: postA, tipperId: SEED_USER, piconeros: AMOUNT_SEED, confirmedAt: new Date(base + (firstMinor + 1) * 60000), recipientAccountId })
+  await seedTip({ postId: postB, tipperId: SEED_USER, piconeros: AMOUNT_SEED, confirmedAt: new Date(base + (firstMinor + 2) * 60000), recipientAccountId })
+  await seedTip({ postId: postB, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + (firstMinor + 3) * 60000), recipientAccountId })
+
+  const root = await mkMultiTurfPost()
+  const commentA = await mkMultiTurfComment(root)
+  const commentB = await mkMultiTurfComment(root)
+  await seedTip({ postId: commentA, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + (firstMinor + 4) * 60000), recipientAccountId })
+  await seedTip({ postId: commentA, tipperId: SEED_USER, piconeros: AMOUNT_SEED, confirmedAt: new Date(base + (firstMinor + 5) * 60000), recipientAccountId })
+  await seedTip({ postId: commentB, tipperId: SEED_USER, piconeros: AMOUNT_SEED, confirmedAt: new Date(base + (firstMinor + 6) * 60000), recipientAccountId })
+  await seedTip({ postId: commentB, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + (firstMinor + 7) * 60000), recipientAccountId })
 }
 
 beforeAll(async () => {
@@ -170,6 +219,23 @@ beforeAll(async () => {
   })
   created.subs.push(seedTerritoryName)
 
+  // Multi-turf pair for membership-matching fixtures (owner irrelevant to the
+  // global-walk assertions; founderId mirrors territoryName).
+  for (const name of [multiTurfA, multiTurfB]) {
+    await prisma.sub.create({
+      data: {
+        name,
+        userId: founderId,
+        rankingType: 'WOT',
+        billingType: 'ONCE',
+        billingCost: 1_000_000_000,
+        status: 'ACTIVE',
+        billingStatus: 'PAID'
+      }
+    })
+    created.subs.push(name)
+  }
+
   // Author receiving account (ObservedTip.recipientAccountId FK). Every tipped post
   // is authored by `authorId`, distinct from every tipper (including the seed user).
   const recipient = await prisma.moneroAccount.create({
@@ -188,6 +254,14 @@ beforeAll(async () => {
   await seedCommentCrissCross({ curatorId: aId, curatorAmount: AMOUNT_A, firstMinor: 8, recipientAccountId: recipient.id, base })
   await seedCommentCrissCross({ curatorId: cId, curatorAmount: AMOUNT_C, firstMinor: 12, recipientAccountId: recipient.id, base })
 
+  // TWO curators with DIFFERENT amounts — required: with a single curator the
+  // multi-turf graphs would have exactly one non-seed non-zero node, std=0,
+  // and trustGivenGraph's normalization zeroes it (the reason territoryName's
+  // fixture seeds both AMOUNT_A and AMOUNT_C). Mirroring both curators gives
+  // each multi-turf graph the same non-zero-spread shape as territoryName's.
+  await seedMultiTurfCrissCross({ curatorId: aId, curatorAmount: AMOUNT_A, firstMinor: 16, recipientAccountId: recipient.id, base })
+  await seedMultiTurfCrissCross({ curatorId: cId, curatorAmount: AMOUNT_C, firstMinor: 24, recipientAccountId: recipient.id, base })
+
   await trust({ models: prisma })
 })
 
@@ -199,6 +273,7 @@ afterAll(async () => {
     await prisma.item.deleteMany({ where: { id } })
   }
   await prisma.userSubTrust.deleteMany({ where: { subName: seedTerritoryName } })
+  await prisma.userSubTrust.deleteMany({ where: { subName: { in: [multiTurfA, multiTurfB] } } })
   await prisma.sub.deleteMany({ where: { name: { in: created.subs } } })
   await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
@@ -253,4 +328,31 @@ test('does not carry trust for a non-tipping author (sanity)', async () => {
   // authorId authored the posts but never tipped — no observation edge, no trust.
   const row = await prisma.userSubTrust.findUnique({ where: { userId_subName: { userId: authorId, subName: territoryName } } })
   expect(row).toBeNull()
+})
+
+test('derives non-zero zapPostTrust in EVERY turf a cross-posted post belongs to', async () => {
+  // Pre-fix, the graph matched COALESCE(subNames[1], 'meta') = subName — first
+  // element of an unordered array_agg — so the multi-turf criss-cross tips
+  // reached at most ONE of the two turfs and the other had no aId edge.
+  // Post-fix (subNames @> ARRAY[subName]) both turfs' post graphs contain the
+  // seed->aId edge, so aId accrues zapPostTrust in both. Asserting on BOTH
+  // makes the pre-fix failure deterministic regardless of array order.
+  const rowA = await prisma.userSubTrust.findUnique({ where: { userId_subName: { userId: aId, subName: multiTurfA } } })
+  const rowB = await prisma.userSubTrust.findUnique({ where: { userId_subName: { userId: aId, subName: multiTurfB } } })
+  expect(rowA).toBeTruthy()
+  expect(rowA.zapPostTrust).toBeGreaterThan(0)
+  expect(rowB).toBeTruthy()
+  expect(rowB.zapPostTrust).toBeGreaterThan(0)
+})
+
+test('derives non-zero zapCommentTrust in EVERY turf the comment thread belongs to', async () => {
+  // Comment territory resolves via the ROOT item's subNames — same membership
+  // requirement as posts. The multi-turf root lives in both turfs, so tipped
+  // comments on it must count toward zapCommentTrust in both.
+  const rowA = await prisma.userSubTrust.findUnique({ where: { userId_subName: { userId: aId, subName: multiTurfA } } })
+  const rowB = await prisma.userSubTrust.findUnique({ where: { userId_subName: { userId: aId, subName: multiTurfB } } })
+  expect(rowA).toBeTruthy()
+  expect(rowA.zapCommentTrust).toBeGreaterThan(0)
+  expect(rowB).toBeTruthy()
+  expect(rowB.zapCommentTrust).toBeGreaterThan(0)
 })

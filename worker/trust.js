@@ -170,6 +170,28 @@ function trustGivenGraph (graph, seeds = GLOBAL_SEEDS) {
 */
 // I'm going to want to send subName to this function
 // and whether it's for comments or posts
+// Territory match for the graph queries: an item belongs to a turf when the
+// turf is ANY member of its subNames array (membership, mirroring the feeds'
+// "subNames" @> ARRAY[...] filters and api/payIn/lib/item.js's ANY() join) —
+// cross-posted items contribute their tip/burn edges to EVERY turf they live
+// in. Legacy turf-less items (NULL/empty subNames — the posting path requires
+// >= 1 turf) attribute to ~meta, a real seeded ACTIVE territory, preserving
+// the old COALESCE(subNames[1], 'meta') fallback. cardinality(NULL) is NULL,
+// hence the COALESCE(..., 0). GIN-indexable via Item_subNames_idx.
+// The comment branch MUST emit its JOIN "Item" root BEFORE the predicate —
+// the predicate reads root."subNames", so the alias is only in scope after
+// the join appears (mirrors the original inline structure).
+function subMatchClause (subName, postTrust) {
+  return postTrust
+    ? Prisma.sql`(
+        "Item"."subNames" @> ARRAY[${subName}]::CITEXT[]
+        OR (COALESCE(cardinality("Item"."subNames"), 0) = 0 AND ${subName}::CITEXT = 'meta')
+      )`
+    : Prisma.sql`JOIN "Item" root ON "Item"."rootId" = root.id AND (
+        COALESCE(root."subNames", "Item"."subNames") @> ARRAY[${subName}]::CITEXT[]
+        OR (COALESCE(cardinality(root."subNames"), cardinality("Item"."subNames"), 0) = 0 AND ${subName}::CITEXT = 'meta')
+      )`
+}
 async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS) {
   return await models.$queryRaw`
     SELECT id, json_agg(json_build_object(
@@ -185,10 +207,10 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
         FROM "ObservedTip" tips
         JOIN "Item" ON "Item".id = tips."postId" AND NOT "Item".bio AND "Item"."userId" <> tips."tipperId"
           AND ${postTrust
-            ? Prisma.sql`"Item"."parentId" IS NULL AND COALESCE("Item"."subNames"[1], 'meta') = ${subName}::CITEXT`
+            ? Prisma.sql`"Item"."parentId" IS NULL AND ${subMatchClause(subName, true)}`
             : Prisma.sql`
               "Item"."parentId" IS NOT NULL
-              JOIN "Item" root ON "Item"."rootId" = root.id AND COALESCE(root."subNames"[1], "Item"."subNames"[1], 'meta') = ${subName}::CITEXT`
+              ${subMatchClause(subName, false)}`
           }
           AND "Item".created_at > NOW() - INTERVAL '1 year'
         JOIN users ON tips."tipperId" = users.id AND users.id <> ${USER_ID.anon}
@@ -204,10 +226,10 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
         FROM "ObservedDownvote" burns
         JOIN "Item" ON "Item".id = burns."postId" AND NOT "Item".bio AND "Item"."userId" <> burns."downvoterId"
           AND ${postTrust
-            ? Prisma.sql`"Item"."parentId" IS NULL AND COALESCE("Item"."subNames"[1], 'meta') = ${subName}::CITEXT`
+            ? Prisma.sql`"Item"."parentId" IS NULL AND ${subMatchClause(subName, true)}`
             : Prisma.sql`
               "Item"."parentId" IS NOT NULL
-              JOIN "Item" root ON "Item"."rootId" = root.id AND COALESCE(root."subNames"[1], "Item"."subNames"[1], 'meta') = ${subName}::CITEXT`
+              ${subMatchClause(subName, false)}`
           }
           AND "Item".created_at > NOW() - INTERVAL '1 year'
         JOIN users ON burns."downvoterId" = users.id AND users.id <> ${USER_ID.anon}
