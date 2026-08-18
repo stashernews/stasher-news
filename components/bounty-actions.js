@@ -61,20 +61,16 @@ function BountyConfirmBody ({ title, description, amountPiconeros, confirmText, 
 }
 
 // "award bounty" action in the ... menu on a descendant comment of a FUNDED
-// bounty, visible to the bounty author. Enabled when the comment author has an
-// attached wallet (UserOptional.hasAttachedWallet — a plain wallet-exists
-// check). Deliberately NOT gated on UserOptional.hasWallet (which also requires
-// the canPostFree reputation bar), so a winner who is simply young or
-// low-stacked is still awardable. The server re-checks the wallet and errors
-// if it changed between render and submit.
+// bounty, visible to the bounty author. Always enabled: wallet presence is
+// enforced by the server inside payBounty ('the winner must attach a wallet to
+// receive the bounty') and any rejection is surfaced as a danger toast by
+// useBountyAction — no per-commenter pre-check (or wallet field on the comment
+// fragment) is needed, so awarding costs zero extra lookups while browsing.
 export function AwardBountyDropdownItem ({ item, root }) {
   const showModal = useShowModal()
-  const hasAttachedWallet = item.user?.optional?.hasAttachedWallet
 
   return (
     <Dropdown.Item
-      disabled={!hasAttachedWallet}
-      title={!hasAttachedWallet ? `${item.user?.name ?? 'this user'} has no wallet attached` : undefined}
       onClick={() => showModal(onClose => <AwardBountyModal item={item} root={root} onClose={onClose} />)}
     >
       award bounty

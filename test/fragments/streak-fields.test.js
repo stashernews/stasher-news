@@ -50,18 +50,4 @@ describe('fragment name invariant', () => {
     }
     expect(conflicts).toEqual([])
   })
-
-  test('comment fragments still request hasAttachedWallet', () => {
-    const commentDocs = [
-      'comments.COMMENT_FIELDS',
-      'comments.COMMENT_FIELDS_NO_CHILD_COMMENTS',
-      'comments.COMMENTS_ITEM_EXT_FIELDS'
-    ]
-    for (const [name, doc] of docs()) {
-      if (!commentDocs.includes(name)) continue
-      const has = doc.definitions.some(d =>
-        d.kind === 'FragmentDefinition' && JSON.stringify(d.selectionSet).includes('hasAttachedWallet'))
-      expect(has).toBe(true)
-    }
-  })
 })

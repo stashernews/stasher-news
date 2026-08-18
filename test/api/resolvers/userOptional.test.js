@@ -158,49 +158,6 @@ test('hasWallet fetches missing createdAt/stackedPiconeros for feed authors and 
   expect(models.user.findUnique).toHaveBeenCalledTimes(1)
 })
 
-test('hasAttachedWallet is true when a MoneroAccount exists (no reputation gate)', async () => {
-  const models = {
-    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) }
-  }
-  const rec = await UserOptional.hasAttachedWallet(mkUser(), {}, { models })
-  expect(rec).toBe(true)
-  expect(models.moneroAccount.findFirst).toHaveBeenCalledWith({ where: { ownerUserId: 1 } })
-})
-
-test('hasAttachedWallet is false when no MoneroAccount exists', async () => {
-  const models = {
-    moneroAccount: { findFirst: jest.fn().mockResolvedValue(null) }
-  }
-  const rec = await UserOptional.hasAttachedWallet(mkUser({ id: 10 }), {}, { models })
-  expect(rec).toBe(false)
-  expect(models.moneroAccount.findFirst).toHaveBeenCalledWith({ where: { ownerUserId: 10 } })
-})
-
-test('hasAttachedWallet is true for a wallet-attached user below the reputation gate (the live beta regression)', async () => {
-  const models = {
-    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) }
-  }
-  // Winner AilliA on 2026-08-17: 0.001 XMR stacked, created ~0 days ago —
-  // canPostFree=false, so hasWallet=false, but the wallet IS attached.
-  const rec = await UserOptional.hasAttachedWallet(
-    mkUser({ stackedPiconeros: 1_000_000_000n, createdAt: new Date() }),
-    {}, { models })
-  expect(rec).toBe(true)
-})
-
-test('hasAttachedWallet ignores hideBadges: a wallet-attached user with badges hidden is still detected for other viewers', async () => {
-  const models = { moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) } }
-  const rec = await UserOptional.hasAttachedWallet(mkUser({ hideBadges: true }), {}, { models, me: { id: 2 } })
-  expect(rec).toBe(true)
-  expect(models.moneroAccount.findFirst).toHaveBeenCalledWith({ where: { ownerUserId: 1 } })
-})
-
-test('hasAttachedWallet returns false when no MoneroAccount exists regardless of hideBadges', async () => {
-  const models = { moneroAccount: { findFirst: jest.fn().mockResolvedValue(null) } }
-  const rec = await UserOptional.hasAttachedWallet(mkUser({ hideBadges: true }), {}, { models, me: { id: 2 } })
-  expect(rec).toBe(false)
-})
-
 test('tippedRecently returns false for other viewers when hideBadges is on (never queries the DB)', async () => {
   const models = {
     $queryRaw: jest.fn()
