@@ -1,4 +1,5 @@
-const { PrismaClient, Prisma } = require('@prisma/client')
+import { PrismaClient, Prisma } from '@prisma/client'
+import { createImgproxyUrls } from '@/worker/imgproxy'
 
 const prisma = new PrismaClient()
 
@@ -16,7 +17,6 @@ if (!imgProxyEnabled) {
 const MAX_QUEUE = 1000
 
 async function main () {
-  const { createImgproxyUrls } = await import('../worker/imgproxy.js')
   let cursor = 1
   try {
     while (true) {
