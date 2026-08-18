@@ -1,17 +1,8 @@
 import { gql } from '@apollo/client'
 import { COMMENTS, COMMENTS_ITEM_EXT_FIELDS } from './comments'
 import { ITEM_FIELDS, ITEM_FULL_FIELDS } from './items'
+import { STREAK_FIELDS } from './streak-fields'
 import { SUB_FULL_FIELDS } from './subs'
-
-export const STREAK_FIELDS = gql`
-  fragment StreakFields on User {
-    optional {
-      streak
-      hasWallet
-      tippedRecently
-    }
-  }
-`
 
 export const ME = gql`
 ${STREAK_FIELDS}

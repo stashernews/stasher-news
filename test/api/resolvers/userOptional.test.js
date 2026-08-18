@@ -188,17 +188,17 @@ test('hasAttachedWallet is true for a wallet-attached user below the reputation 
   expect(rec).toBe(true)
 })
 
-test('hasAttachedWallet returns false for other viewers when hideBadges is on (never queries the DB)', async () => {
-  const models = { moneroAccount: { findFirst: jest.fn() } }
+test('hasAttachedWallet ignores hideBadges: a wallet-attached user with badges hidden is still detected for other viewers', async () => {
+  const models = { moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) } }
   const rec = await UserOptional.hasAttachedWallet(mkUser({ hideBadges: true }), {}, { models, me: { id: 2 } })
-  expect(rec).toBe(false)
-  expect(models.moneroAccount.findFirst).not.toHaveBeenCalled()
+  expect(rec).toBe(true)
+  expect(models.moneroAccount.findFirst).toHaveBeenCalledWith({ where: { ownerUserId: 1 } })
 })
 
-test('hasAttachedWallet still resolves for the owner when hideBadges is on', async () => {
-  const models = { moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) } }
-  const rec = await UserOptional.hasAttachedWallet(mkUser({ hideBadges: true }), {}, { models, me: { id: 1 } })
-  expect(rec).toBe(true)
+test('hasAttachedWallet returns false when no MoneroAccount exists regardless of hideBadges', async () => {
+  const models = { moneroAccount: { findFirst: jest.fn().mockResolvedValue(null) } }
+  const rec = await UserOptional.hasAttachedWallet(mkUser({ hideBadges: true }), {}, { models, me: { id: 2 } })
+  expect(rec).toBe(false)
 })
 
 test('tippedRecently returns false for other viewers when hideBadges is on (never queries the DB)', async () => {

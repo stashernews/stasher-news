@@ -1,19 +1,20 @@
 import { gql } from '@apollo/client'
+import { STREAK_FIELDS } from './streak-fields'
 
-// we can't import from users because of circular dependency
-const STREAK_FIELDS = gql`
-  fragment StreakFields on User {
+// Bounty-award wallet signal, kept OUT of the shared StreakFields (which must
+// stay identical everywhere) and requested only on comment surfaces via this
+// uniquely-named fragment — see fragments/streak-fields.js for why.
+const COMMENT_WALLET_FIELDS = gql`
+  fragment CommentWalletFields on User {
     optional {
-      streak
-      hasWallet
       hasAttachedWallet
-      tippedRecently
     }
   }
 `
 
 export const COMMENT_FIELDS = gql`
   ${STREAK_FIELDS}
+  ${COMMENT_WALLET_FIELDS}
   fragment CommentFields on Item {
     id
     position
@@ -29,6 +30,7 @@ export const COMMENT_FIELDS = gql`
       name
       meMute
       ...StreakFields
+      ...CommentWalletFields
     }
     payIn {
       id
@@ -77,6 +79,7 @@ export const COMMENT_FIELDS = gql`
 
 export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
   ${STREAK_FIELDS}
+  ${COMMENT_WALLET_FIELDS}
   fragment CommentFieldsNoChildComments on Item {
     id
     position
@@ -91,6 +94,7 @@ export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
       name
       meMute
       ...StreakFields
+      ...CommentWalletFields
     }
     payIn {
       id
@@ -137,6 +141,7 @@ export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
 
 export const COMMENTS_ITEM_EXT_FIELDS = gql`
   ${STREAK_FIELDS}
+  ${COMMENT_WALLET_FIELDS}
   fragment CommentItemExtFields on Item {
     text
     lexicalState
@@ -160,6 +165,7 @@ export const COMMENTS_ITEM_EXT_FIELDS = gql`
         name
         id
         ...StreakFields
+        ...CommentWalletFields
       }
     }
   }`
