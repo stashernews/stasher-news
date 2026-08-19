@@ -1463,6 +1463,7 @@ model BountyPayment {
   kind          BountyPayoutKind   @default(AWARD)
   txHash        String?
   feeTxHash     String?
+  feePendingAt  DateTime?
   height        Int?
   confirmations Int                @default(0)
   state         BountyPayoutState  @default(QUEUED)

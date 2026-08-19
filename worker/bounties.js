@@ -1,5 +1,5 @@
 import { daemonClient } from '@/api/monero/daemonClient'
-import { sendBountyPayments as defaultSendBountyPayments, bountyFeePiconeros } from '@/api/monero/bounties'
+import { sendBountyPayments as defaultSendBountyPayments, bountyFeePiconeros, getBountyEscrowTxHeight } from '@/api/monero/bounties'
 import { REQUIRED_CONFIRMATIONS, BOUNTY_UNDERPAY_ABANDON_DAYS } from '@/lib/constants'
 import { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
@@ -10,11 +10,13 @@ import { alert } from '@/lib/alert'
 //      flip to EXPIRED (author can then reclaim or roll over).
 //   2. SEND: QUEUED BountyPayments are sent by the escrow signer
 //      (relay-before-persist; FAILED rows are resumable by a later run only via
-//      a re-queue — FAILED funds stay in escrow).
-//   3. MATURITY: SENT payouts with a height flip to CONFIRMED at
-//      REQUIRED_CONFIRMATIONS (daemon height fetched once per run).
+//      a re-queue — FAILED funds stay in escrow). SENT payouts with a deferred
+//      fee (feePendingAt set) are re-offered to the signer for fee settlement.
+//   3. MATURITY: SENT payouts flip to CONFIRMED at REQUIRED_CONFIRMATIONS
+//      (daemon height fetched once per run). A payout whose height was unknown
+//      at relay time (NULL) has it backfilled from lws by tx hash.
 
-export async function runBountiesOnce ({ models, sendBountyPayments = defaultSendBountyPayments, getHeight = () => daemonClient.getHeight() } = {}) {
+export async function runBountiesOnce ({ models, sendBountyPayments = defaultSendBountyPayments, getHeight = () => daemonClient.getHeight(), getTxHeight = (txHash) => getBountyEscrowTxHeight(txHash, { models }) } = {}) {
   // 1. Expire
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   const expiryMs = Number(config?.bountyExpiryDays ?? 30) * 24 * 60 * 60 * 1000
@@ -82,22 +84,40 @@ export async function runBountiesOnce ({ models, sendBountyPayments = defaultSen
       { dedupeKey: `bounty-abandoned-${bounty.postId}` })
   }
 
-  // 2. Send queued payouts
+  // 2. Send queued payouts + retry deferred fees. A fee deferred on a prior
+  // tick (payout change output locked until the payout tx confirms) is
+  // retried here once the unlocked balance covers it; feeTxHash stays NULL
+  // until the fee actually relays, so it can never double-send. Retried for
+  // SENT and CONFIRMED payouts alike — the change can unlock after the payout
+  // matures, so stopping at CONFIRMED would strand the fee in escrow forever.
   const queued = await models.bountyPayment.findMany({ where: { state: 'QUEUED' } })
-  if (queued.length > 0) {
-    const result = await sendBountyPayments(queued, { models })
+  const pendingFees = await models.bountyPayment.findMany({ where: { feePendingAt: { not: null } } })
+  const payouts = [...queued, ...pendingFees]
+  if (payouts.length > 0) {
+    const result = await sendBountyPayments(payouts, { models })
     logInfo(result, 'bounties: payout dispatch complete')
   }
 
   // 3. Mature sent payouts
   let chainHeight
   try { chainHeight = await getHeight() } catch { return }
-  const sent = await models.bountyPayment.findMany({ where: { state: 'SENT', height: { not: null } } })
+  const sent = await models.bountyPayment.findMany({ where: { state: 'SENT' } })
   for (const payout of sent) {
-    if (chainHeight - payout.height + 1 >= REQUIRED_CONFIRMATIONS) {
+    let height = payout.height
+    if (height == null) {
+      // A payout whose height was unknown at relay time (the tx was not yet
+      // mined in the ~1s relay window) can never mature via its stored height.
+      // Backfill it from lws by tx hash; if the tx is still unmined,
+      // retry on a later tick.
+      if (!payout.txHash) continue
+      try { height = await getTxHeight(payout.txHash) } catch { continue }
+      if (height == null) continue
+      await models.bountyPayment.update({ where: { id: payout.id }, data: { height } })
+    }
+    if (chainHeight - height + 1 >= REQUIRED_CONFIRMATIONS) {
       await models.bountyPayment.update({
         where: { id: payout.id },
-        data: { state: 'CONFIRMED', confirmations: chainHeight - payout.height + 1, confirmedAt: new Date() }
+        data: { state: 'CONFIRMED', confirmations: chainHeight - height + 1, confirmedAt: new Date() }
       })
     }
   }

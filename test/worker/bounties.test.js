@@ -94,17 +94,19 @@ async function createBountyPost (userId, { confirmedAt = new Date() } = {}) {
 // A BountyPayment directly seeded (bypassing payBounty) so the test exercises
 // ONLY the worker's SEND/MATURITY flips. txHash below derives from the unique
 // payout id, so rows are always distinct.
-async function seedPayout (itemId, winnerUserId, { state, height } = {}) {
+async function seedPayout (itemId, winnerUserId, { state, height, txHash = null, feePiconeros = 0n, feePendingAt = null } = {}) {
   const payout = await prisma.bountyPayment.create({
     data: {
       itemId,
       winnerUserId,
       piconeros: 5_000_000_000n,
-      feePiconeros: 0n,
+      feePiconeros,
       recipientAddress: ADDR,
       kind: 'AWARD',
       state,
-      height
+      height,
+      txHash,
+      feePendingAt
     }
   })
   created.payments.push(payout.id)
@@ -174,7 +176,7 @@ test('a SENT payout with a height matures to CONFIRMED at REQUIRED_CONFIRMATIONS
   const item = await createBountyPost(authorId)
   const payout = await seedPayout(item.id, winnerId, { state: 'SENT', height: 200 })
 
-  await runBountiesOnce({ models: prisma, sendBountyPayments: makeSendStub(), getHeight: async () => 209 })
+  await runBountiesOnce({ models: prisma, sendBountyPayments: makeSendStub(), getHeight: async () => 209, getTxHeight: async () => 200 })
 
   const after = await prisma.bountyPayment.findUnique({ where: { id: payout.id } })
   expect(after.state).toBe('CONFIRMED')
@@ -188,11 +190,69 @@ test('a SENT payout stays SENT below REQUIRED_CONFIRMATIONS (9 confs)', async ()
   const item = await createBountyPost(authorId)
   const payout = await seedPayout(item.id, winnerId, { state: 'SENT', height: 200 })
 
-  await runBountiesOnce({ models: prisma, sendBountyPayments: makeSendStub(), getHeight: async () => 208 })
+  await runBountiesOnce({ models: prisma, sendBountyPayments: makeSendStub(), getHeight: async () => 208, getTxHeight: async () => 200 })
 
   const after = await prisma.bountyPayment.findUnique({ where: { id: payout.id } })
   expect(after.state).toBe('SENT')
   expect(after.confirmations).toBe(0)
+  expect(after.confirmedAt).toBeNull()
+})
+
+test('a SENT payout with NULL height matures to CONFIRMED once its tx height is backfilled from lws', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  const item = await createBountyPost(authorId)
+  const payout = await seedPayout(item.id, winnerId, { state: 'SENT', height: null, txHash: 'btest-nullheight' })
+
+  await runBountiesOnce({
+    models: prisma,
+    sendBountyPayments: jest.fn().mockResolvedValue({ sent: 0, failed: 0, skipped: 0 }),
+    getHeight: async () => 209,
+    getTxHeight: async () => 200
+  })
+
+  const after = await prisma.bountyPayment.findUnique({ where: { id: payout.id } })
+  expect(after.state).toBe('CONFIRMED')
+  expect(after.height).toBe(200)
+  expect(after.confirmations).toBe(10)
+  expect(after.confirmedAt).toBeInstanceOf(Date)
+})
+
+test('a SENT payout with NULL height stays SENT while its tx is unmined (height not yet backfilled)', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  const item = await createBountyPost(authorId)
+  const payout = await seedPayout(item.id, winnerId, { state: 'SENT', height: null, txHash: 'btest-unmined' })
+
+  await runBountiesOnce({
+    models: prisma,
+    sendBountyPayments: jest.fn().mockResolvedValue({ sent: 0, failed: 0, skipped: 0 }),
+    getHeight: async () => 209,
+    getTxHeight: async () => null
+  })
+
+  const after = await prisma.bountyPayment.findUnique({ where: { id: payout.id } })
+  expect(after.state).toBe('SENT')
+  expect(after.height).toBeNull()
+  expect(after.confirmedAt).toBeNull()
+})
+
+test('a SENT payout with NULL height stays SENT below REQUIRED_CONFIRMATIONS after backfill (9 confs)', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  const item = await createBountyPost(authorId)
+  const payout = await seedPayout(item.id, winnerId, { state: 'SENT', height: null, txHash: 'btest-9conf' })
+
+  await runBountiesOnce({
+    models: prisma,
+    sendBountyPayments: jest.fn().mockResolvedValue({ sent: 0, failed: 0, skipped: 0 }),
+    getHeight: async () => 208,
+    getTxHeight: async () => 200
+  })
+
+  const after = await prisma.bountyPayment.findUnique({ where: { id: payout.id } })
+  expect(after.state).toBe('SENT')
+  expect(after.height).toBe(200) // height persisted even though not yet mature
   expect(after.confirmedAt).toBeNull()
 })
 
@@ -281,4 +341,54 @@ test('a fully-received DETECTED bounty past the window is NOT abandoned (awaitin
 
   const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
   expect(afterItem.bountyStatus).toBe('PENDING_FUNDING')
+})
+
+test('SENT payouts with a deferred fee are offered to the signer for fee settlement', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  const item = await createBountyPost(authorId)
+  const payout = await seedPayout(item.id, winnerId, {
+    state: 'SENT',
+    height: 200,
+    feePiconeros: 10_000_000_000n,
+    feePendingAt: new Date()
+  })
+  const send = jest.fn().mockResolvedValue({ sent: 0, failed: 0, skipped: 0, settled: 1 })
+
+  await runBountiesOnce({
+    models: prisma,
+    sendBountyPayments: send,
+    getHeight: async () => 209,
+    getTxHeight: async () => 200
+  })
+
+  expect(send).toHaveBeenCalledWith(
+    expect.arrayContaining([expect.objectContaining({ id: payout.id, state: 'SENT', feePendingAt: expect.any(Date) })]),
+    { models: prisma }
+  )
+})
+
+test('a CONFIRMED payout with a still-deferred fee is still offered to the signer for fee settlement', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  const item = await createBountyPost(authorId)
+  const payout = await seedPayout(item.id, winnerId, {
+    state: 'CONFIRMED',
+    height: 200,
+    feePiconeros: 10_000_000_000n,
+    feePendingAt: new Date()
+  })
+  const send = jest.fn().mockResolvedValue({ sent: 0, failed: 0, skipped: 0, settled: 1 })
+
+  await runBountiesOnce({
+    models: prisma,
+    sendBountyPayments: send,
+    getHeight: async () => 209,
+    getTxHeight: async () => 200
+  })
+
+  expect(send).toHaveBeenCalledWith(
+    expect.arrayContaining([expect.objectContaining({ id: payout.id, state: 'CONFIRMED', feePendingAt: expect.any(Date) })]),
+    { models: prisma }
+  )
 })
