@@ -83,7 +83,7 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
     const amount = remaining > 0n ? remaining : expectedPiconeros
     const uri = buildMoneroUri(
       [{ address: integratedAddress, amount }],
-      { description: `bounty on "${item.title ?? ''}" via StasherNews`, paymentId }
+      { description: `bounty on "${item.title ?? ''}" via StasherNews` }
     )
     return { integratedAddress, paymentId, uri, feePiconeros, receivedPiconeros, expectedPiconeros }
   }

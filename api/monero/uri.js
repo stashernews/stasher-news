@@ -39,6 +39,11 @@ export const MONERO_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{95,106}$/
  *
  * destinations: [{ address, amount: BigInt(piconeros) }].
  * options: { description?, recipientName?, paymentId? }.
+ *   paymentId is ONLY valid with a plain (95-char) address — combined with an
+ *   integrated (106-char) address the URI is self-contradictory and Feather's
+ *   wallet2 parse_uri rejects it ("Separate payment id given with an integrated
+ *   address"). Integrated-address URIs carry the payment id ONLY embedded in the
+ *   address; buildMoneroUri throws if paymentId is combined with one.
  *
  * Monero wallets deep-link a SINGLE destination only; >1 destination throws
  * (emit one URI per destination instead). This keeps the signature multi-ready
@@ -57,6 +62,9 @@ export function buildMoneroUri (destinations, options = {}) {
   }
   if (typeof amount !== 'bigint') {
     throw new Error('buildMoneroUri: amount must be a BigInt piconeros')
+  }
+  if (options.paymentId && address.length === 106) {
+    throw new Error('buildMoneroUri: tx_payment_id cannot be combined with an integrated (106-char) address — Feather wallet2 parse_uri rejects the URI; the integrated address already embeds the payment id')
   }
   const params = new URLSearchParams()
   params.set('tx_amount', piconerosToXmrDecimal(amount))

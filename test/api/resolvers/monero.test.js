@@ -319,6 +319,9 @@ describe('Mutation.initiateTip', () => {
     // 1e9 piconeros == 0.001 XMR. Emitting raw piconeros here is the load-bearing bug.
     expect(result.uri).toContain('tx_amount=0.001')
     expect(result.uri).not.toMatch(/tx_amount=1000000000/)
+    // Feather compatibility: an integrated-address URI must NOT also carry a
+    // tx_payment_id param (Feather wallet2 parse_uri rejects that combination).
+    expect(result.uri).not.toContain('tx_payment_id')
 
     // lws webhook registered with the author's address + payment ID
     expect(lws.addWebhook).toHaveBeenCalledTimes(1)

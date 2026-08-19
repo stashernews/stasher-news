@@ -44,6 +44,17 @@ test('buildMoneroUri accepts 106-char integrated addresses (payment-ID tips)', (
   expect(uri).toMatch(/^monero:5/)
 })
 
+test('buildMoneroUri rejects paymentId combined with an integrated (106-char) address', () => {
+  // Feather's wallet2 parse_uri hard-fails this combination with
+  // "Separate payment id given with an integrated address". The integrated
+  // address already embeds the payment id, so the URI must never carry both.
+  const integrated = '5DvToCSjUKkHuqNeRouyPcEpGz72iqs6FfudhNMB9SfNGi8G5yX6eKBDAwR6w9nayDRB7tS6x6hNWgzbtSvX7DqgdBUqSGEAz2fAXNJbsp'
+  expect(() => buildMoneroUri(
+    [{ address: integrated, amount: 100_000_000n }],
+    { paymentId: '4f695d197f2a3c54' }
+  )).toThrow(/integrated/)
+})
+
 test('buildMoneroUri rejects multi-destination (wallets cannot deep-link multi-output)', () => {
   expect(() => buildMoneroUri([
     { address: STAGENET_PRIMARY, amount: 1n },

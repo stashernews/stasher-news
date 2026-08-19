@@ -157,7 +157,9 @@ test('initiateBountyFundingCore mints the integrated address, registers the webh
   // (tx_amount is decimal XMR: (1e12 bounty + 1e10 fee) piconeros = 1.01 XMR).
   expect(out.uri).toContain(`monero:${out.integratedAddress}?`)
   expect(out.uri).toContain('tx_amount=1.01')
-  expect(out.uri).toContain(`tx_payment_id=${out.paymentId}`)
+  // The integrated address embeds the payment id; the URI must NOT also carry
+  // tx_payment_id (Feather wallet2 parse_uri rejects that combination).
+  expect(out.uri).not.toContain('tx_payment_id')
   expect(out.paymentId).toMatch(/^[0-9a-f]{16}$/)
   expect(out.feePiconeros).toBe(bountyFeePiconeros(item.bountyPiconeros, FEE_CONFIG))
 

@@ -115,9 +115,12 @@ export async function initiateTipCore ({ postId, amount, models, monero, me, hea
   // Cake Wallet / Monerujo parse tx_amount as DECIMAL XMR (not atomic units), so
   // the URI is built via buildMoneroUri + piconerosToXmrDecimal. Emitting raw
   // piconeros here would make every tip misread 1e12x by the receiving wallet.
+  // No tx_payment_id param: the integrated address already embeds the payment id,
+  // and Feather's wallet2 parse_uri rejects integrated-address URIs that also
+  // carry tx_payment_id ("Separate payment id given with an integrated address").
   const uri = buildMoneroUri(
     [{ address: integratedAddress, amount: piconeros }],
-    { description: `tip on "${post.title ?? ''}" via StasherNews`, paymentId }
+    { description: `tip on "${post.title ?? ''}" via StasherNews` }
   )
 
   return { integratedAddress, paymentId, uri, recipient }
