@@ -85,40 +85,53 @@ async function seedPendingFeeItem ({ receivedPiconeros = 0n } = {}) {
 
 describe('Item.feeTopUpUri', () => {
   test('re-entry after a partial re-quotes only the REMAINDER on the SAME subaddress', async () => {
-    const { item } = await seedPendingFeeItem({ receivedPiconeros: 400_000_000n }) // 0.4 of 1.0
-    const res = await resolver.Item.feeTopUpUri(item, null, { models: prisma })
+    const { userId, item } = await seedPendingFeeItem({ receivedPiconeros: 400_000_000n }) // 0.4 of 1.0
+    const res = await resolver.Item.feeTopUpUri(item, null, { models: prisma, me: { id: userId } })
     expect(moneroUriAddress(res)).toBe(ADDR)
     expect(moneroUriAmountPiconeros(res)).toBe(600_000_000n) // 1.0 - 0.4 remainder
   })
 
   test('nothing received yet -> full fee', async () => {
-    const { item } = await seedPendingFeeItem()
-    const res = await resolver.Item.feeTopUpUri(item, null, { models: prisma })
+    const { userId, item } = await seedPendingFeeItem()
+    const res = await resolver.Item.feeTopUpUri(item, null, { models: prisma, me: { id: userId } })
     expect(moneroUriAmountPiconeros(res)).toBe(1_000_000_000n)
   })
 
   test('a fully-covered payIn re-quotes the full fee (hint would be null)', async () => {
-    const { item } = await seedPendingFeeItem({ receivedPiconeros: 1_000_000_000n })
-    const res = await resolver.Item.feeTopUpUri(item, null, { models: prisma })
+    const { userId, item } = await seedPendingFeeItem({ receivedPiconeros: 1_000_000_000n })
+    const res = await resolver.Item.feeTopUpUri(item, null, { models: prisma, me: { id: userId } })
     expect(moneroUriAmountPiconeros(res)).toBe(1_000_000_000n)
   })
 
   test('null for a non-PENDING_FEE item', async () => {
-    const { item } = await seedPendingFeeItem()
-    const res = await resolver.Item.feeTopUpUri({ ...item, feeStatus: 'FEE_PAID' }, null, { models: prisma })
+    const { userId, item } = await seedPendingFeeItem()
+    const res = await resolver.Item.feeTopUpUri({ ...item, feeStatus: 'FEE_PAID' }, null, { models: prisma, me: { id: userId } })
     expect(res).toBeNull()
   })
 
   test('null when there is no fee PayIn', async () => {
-    const { item } = await seedPendingFeeItem()
-    const res = await resolver.Item.feeTopUpUri({ ...item, feePayInId: null }, null, { models: prisma })
+    const { userId, item } = await seedPendingFeeItem()
+    const res = await resolver.Item.feeTopUpUri({ ...item, feePayInId: null }, null, { models: prisma, me: { id: userId } })
     expect(res).toBeNull()
   })
 
   test('the stored full-fee URI is NEVER rewritten', async () => {
-    const { item, payIn } = await seedPendingFeeItem({ receivedPiconeros: 400_000_000n })
-    await resolver.Item.feeTopUpUri(item, null, { models: prisma })
+    const { userId, item, payIn } = await seedPendingFeeItem({ receivedPiconeros: 400_000_000n })
+    await resolver.Item.feeTopUpUri(item, null, { models: prisma, me: { id: userId } })
     const afterPayIn = await prisma.payIn.findUnique({ where: { id: payIn.id } })
     expect(afterPayIn.moneroUri).toBe(FEE_URI('0.001'))
+  })
+
+  test('null for an anonymous viewer', async () => {
+    const { item } = await seedPendingFeeItem({ receivedPiconeros: 400_000_000n })
+    const res = await resolver.Item.feeTopUpUri(item, null, { models: prisma })
+    expect(res).toBeNull()
+  })
+
+  test('null for a non-owner viewer', async () => {
+    const { item } = await seedPendingFeeItem({ receivedPiconeros: 400_000_000n })
+    const stranger = await createUser()
+    const res = await resolver.Item.feeTopUpUri(item, null, { models: prisma, me: { id: stranger } })
+    expect(res).toBeNull()
   })
 })

@@ -91,7 +91,7 @@ export async function runBountiesOnce ({ models, sendBountyPayments = defaultSen
   // SENT and CONFIRMED payouts alike — the change can unlock after the payout
   // matures, so stopping at CONFIRMED would strand the fee in escrow forever.
   const queued = await models.bountyPayment.findMany({ where: { state: 'QUEUED' } })
-  const pendingFees = await models.bountyPayment.findMany({ where: { feePendingAt: { not: null } } })
+  const pendingFees = await models.bountyPayment.findMany({ where: { feePendingAt: { not: null }, state: { in: ['SENT', 'CONFIRMED'] } } })
   const payouts = [...queued, ...pendingFees]
   if (payouts.length > 0) {
     const result = await sendBountyPayments(payouts, { models })

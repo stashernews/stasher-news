@@ -392,3 +392,24 @@ test('a CONFIRMED payout with a still-deferred fee is still offered to the signe
     { models: prisma }
   )
 })
+
+test('a QUEUED payout with a stale feePendingAt is offered to the signer exactly ONCE (never double-dispatched)', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  const item = await createBountyPost(authorId)
+  // Manual-requeue hazard shape: state QUEUED but feePendingAt still set.
+  const payout = await seedPayout(item.id, winnerId, {
+    state: 'QUEUED',
+    feePendingAt: new Date(),
+    feePiconeros: 10_000_000_000n
+  })
+  const seen = []
+  const send = jest.fn(async (payouts) => {
+    for (const p of payouts) seen.push(p.id)
+    return { sent: 0, failed: 0, skipped: 0, settled: 0 }
+  })
+
+  await runBountiesOnce({ models: prisma, sendBountyPayments: send, getHeight: async () => 209 })
+
+  expect(seen.filter(id => id === payout.id)).toHaveLength(1)
+})

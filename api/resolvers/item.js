@@ -975,7 +975,8 @@ export default {
     // full original fee. Null for non-fee items and before any fee PayIn exists.
     // The stored URI is never rewritten, so the observer gate keeps gating on the
     // full amount.
-    feeTopUpUri: async (item, args, { models }) => {
+    feeTopUpUri: async (item, args, { models, me }) => {
+      if (me?.id !== item.userId) return null
       const funding = await itemFeeReentryFunding(models, item)
       return funding?.moneroUri ?? null
     },
