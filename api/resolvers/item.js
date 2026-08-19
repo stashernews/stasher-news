@@ -10,8 +10,6 @@ import {
   USER_ID, POLL_COST, ADMIN_ITEMS,
   NOFOLLOW_LIMIT, UNKNOWN_LINK_REL, SN_ADMIN_IDS,
   ITEM_EDIT_SECONDS,
-  WALLET_RETRY_BEFORE_MS,
-  WALLET_MAX_RETRIES,
   DEFAULT_POSTS_PICONEROS_FILTER,
   DEFAULT_COMMENTS_PICONEROS_FILTER,
   HOMEPAGE_POSTS_PICONEROS_FILTER
@@ -126,33 +124,24 @@ export async function itemQueryWithMeta ({ me, models, query, orderBy = '' }, ..
           WHERE "Sub"."name" = ANY("Item"."subNames")
         ) "Sub"
       ) "subs" ON true
+      -- StasherNews: the viewer's tips/downvotes on this item come from
+      -- ItemUserAgg (unique on itemId+userId, maintained at DETECTION by
+      -- applyTipDetected/applyDownvotePenalty — the same events that bump
+      -- Item.piconeros), NOT PayIn: tips never create PayIns and DOWNVOTE
+      -- PayIns are born PAID with piconeros=0n. The pending* columns are
+      -- literal 0 because the old PayIn pending FILTERs were always empty in
+      -- the fork (no TIP PayIns; DOWNVOTE/BOOST PayIns are born PAID).
       LEFT JOIN LATERAL (
-        SELECT "itemId",
-          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInType" = 'TIP') AS "meMsats",
+        SELECT
+          a."tipPiconeros" AS "meMsats",
+          0::bigint AS "mePendingMsats",
           NULL::bigint AS "meMcredits",
-          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayIn"."payInType" = 'TIP') AS "mePendingMsats",
           NULL::bigint AS "mePendingMcredits",
-          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInType" = 'DOWNVOTE') AS "meDontLikeMsats",
-          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInType" = 'DOWNVOTE' AND "PayIn"."payInState" <> 'PAID') AS "mePendingDontLikeMsats",
-          sum("PayIn".piconeros) FILTER (WHERE "PayIn"."payInState" <> 'PAID' AND "PayIn"."payInType" = 'BOOST') AS "mePendingBoostMsats"
-        FROM "ItemPayIn"
-        JOIN "PayIn" ON "PayIn".id = "ItemPayIn"."payInId"
-        WHERE "PayIn"."userId" = ${me.id}
-        AND "ItemPayIn"."itemId" = "Item".id
-        AND (
-          "PayIn"."payInState" = 'PAID'
-          -- some kind of pending state
-          OR "PayIn"."payInState" <> 'FAILED'
-          OR (
-            -- going to be retrying
-            "PayIn"."payInState" = 'FAILED'
-            AND "PayIn"."payInFailureReason" <> 'USER_CANCELLED'
-            AND "PayIn"."payInStateChangedAt" > now() - '${WALLET_RETRY_BEFORE_MS} milliseconds'::interval
-            AND "PayIn"."retryCount" < ${WALLET_MAX_RETRIES}::integer
-            AND "PayIn"."successorId" IS NULL
-          )
-        )
-        GROUP BY "ItemPayIn"."itemId"
+          a."downvotePiconeros" AS "meDontLikeMsats",
+          0::bigint AS "mePendingDontLikeMsats",
+          0::bigint AS "mePendingBoostMsats"
+        FROM "ItemUserAgg" a
+        WHERE a."itemId" = "Item".id AND a."userId" = ${me.id}
       ) "MeItemPayIn" ON true
       LEFT JOIN LATERAL (
         SELECT "PayIn".*
@@ -1155,23 +1144,13 @@ export default {
         return BigInt(item.meMsats) + BigInt(item.meMcredits)
       }
 
-      const { _sum: { piconeros } } = await models.payIn.aggregate({
-        _sum: {
-          piconeros: true
-        },
-        where: {
-          itemPayIn: {
-            itemId: Number(item.id)
-          },
-          payInType: 'TIP',
-          userId: me.id,
-          payInState: {
-            not: 'FAILED'
-          }
-        }
+      // StasherNews: tips are ObservedTip-based and never create TIP PayIns;
+      // the viewer's per-item tip total lives in ItemUserAgg (maintained by
+      // applyTipDetected at DETECTED, mirroring the Item.piconeros bump).
+      const agg = await models.itemUserAgg.findUnique({
+        where: { itemId_userId: { itemId: Number(item.id), userId: Number(me.id) } }
       })
-
-      return piconeros ?? 0n
+      return agg?.tipPiconeros ?? 0n
     },
     meCredits: async (item, args, { me, models }) => {
       if (!me) return 0
@@ -1179,23 +1158,8 @@ export default {
         return Number(item.meMcredits ?? 0n)
       }
 
-      const { _sum: { piconeros } } = await models.payIn.aggregate({
-        _sum: {
-          piconeros: true
-        },
-        where: {
-          payInType: 'TIP',
-          userId: me.id,
-          payInState: {
-            not: 'FAILED'
-          },
-          itemPayIn: {
-            itemId: Number(item.id)
-          }
-        }
-      })
-
-      return Number(piconeros ?? 0n)
+      // credits were removed with the custodial strip
+      return 0
     },
     meDontLikePiconeros: async (item, args, { me, models }) => {
       if (!me) return 0n
@@ -1203,23 +1167,13 @@ export default {
         return BigInt(item.meDontLikeMsats ?? 0n)
       }
 
-      const { _sum: { piconeros } } = await models.payIn.aggregate({
-        _sum: {
-          piconeros: true
-        },
-        where: {
-          payInType: 'DOWNVOTE',
-          userId: me.id,
-          payInState: {
-            not: 'FAILED'
-          },
-          itemPayIn: {
-            itemId: Number(item.id)
-          }
-        }
+      // StasherNews: DOWNVOTE PayIns are born PAID with piconeros=0n (the real
+      // amount is in ObservedDownvote), so the viewer's per-item downvote total
+      // lives in ItemUserAgg (maintained by applyDownvotePenalty).
+      const agg = await models.itemUserAgg.findUnique({
+        where: { itemId_userId: { itemId: Number(item.id), userId: Number(me.id) } }
       })
-
-      return piconeros ?? 0n
+      return agg?.downvotePiconeros ?? 0n
     },
     meBookmark: async (item, args, { me, models }) => {
       if (!me) return false

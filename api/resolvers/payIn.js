@@ -76,6 +76,9 @@ export default {
       // Posting/downvote rows carry their postId; TERRITORY_* fees carry subName
       // instead (postId is NULL for territory fees), so the row can link to the
       // turf and payInContext can render the TerritoryDetails.
+      // Tips the viewer SENT (tipperId = viewer) get their own isSend=true row.
+      // Same negative id expression as the receive branch — the Apollo cache key
+      // is ['id', 'isSend'], so a self-tip's two rows never collide.
       const rows = await models.$queryRaw`
         (
           SELECT
@@ -94,6 +97,25 @@ export default {
           JOIN "MoneroAccount" ma ON ma.id = t."recipientAccountId"
           WHERE t.state = 'CONFIRMED'
             AND ma."ownerUserId" = ${userId}
+            AND t."confirmedAt" <= ${decodedCursor.time}
+        )
+        UNION ALL
+        (
+          SELECT
+            (-t.id)::int AS id,
+            t."confirmedAt" AS "createdAt",
+            t."confirmedAt" AS "updatedAt",
+            t.piconeros AS piconeros,
+            'TIP'::"PayInType" AS "payInType",
+            'PAID'::"PayInState" AS "payInState",
+            t."confirmedAt" AS "payInStateChangedAt",
+            ${userId}::int AS "userId",
+            true AS "isSend",
+            t."postId" AS "itemId",
+            NULL::citext AS "subName"
+          FROM "ObservedTip" t
+          WHERE t.state = 'CONFIRMED'
+            AND t."tipperId" = ${userId}
             AND t."confirmedAt" <= ${decodedCursor.time}
         )
         UNION ALL

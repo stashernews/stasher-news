@@ -80,11 +80,12 @@ async function createPost (userId) {
   return item
 }
 
-async function createTip ({ postId, recipientAccountId, piconeros, confirmedAt, state = 'CONFIRMED' }) {
+async function createTip ({ postId, recipientAccountId, piconeros, confirmedAt, state = 'CONFIRMED', tipperId }) {
   const tip = await prisma.observedTip.create({
     data: {
       txHash: Buffer.from(`tip${Math.random()}`).toString('hex').padStart(64, '0'),
       postId,
+      tipperId,
       recipientAccountId,
       paymentId: `pid-${Math.random()}`,
       piconeros,
@@ -252,5 +253,43 @@ describe('Query.statistics', () => {
     expect(boostRow.isSend).toBe(true)
     expect(boostRow.piconeros).toBe(1000000000n)
     expect(boostRow.item.id).toBe(post.id)
+  })
+
+  test('returns confirmed tips I sent as isSend=true TIP rows', async () => {
+    const me = await createUser()
+    const other = await createUser()
+    const otherAcct = await createAccount(other)
+    const otherPost = await createPost(other)
+
+    const now = new Date()
+    await createTip({ postId: otherPost.id, recipientAccountId: otherAcct.id, piconeros: 700000000n, confirmedAt: now, tipperId: me })
+    // DETECTED (unconfirmed) sent tips are excluded — the feed is CONFIRMED-only
+    await createTip({ postId: otherPost.id, recipientAccountId: otherAcct.id, piconeros: 100000000n, confirmedAt: null, state: 'DETECTED', tipperId: me })
+    // tips sent by someone else are invisible to me
+    await createTip({ postId: otherPost.id, recipientAccountId: otherAcct.id, piconeros: 200000000n, confirmedAt: now, tipperId: other })
+
+    const { payIns } = await resolvers.Query.statistics(null, {}, { models: prisma, me: { id: me } })
+
+    const sentTips = payIns.filter(p => p.payInType === 'TIP' && p.isSend)
+    expect(sentTips).toHaveLength(1)
+    expect(sentTips[0].piconeros).toBe(700000000n)
+    expect(sentTips[0].payInState).toBe('PAID')
+    expect(sentTips[0].item.id).toBe(otherPost.id)
+  })
+
+  test('a self-tip appears as BOTH a receive row and a send row', async () => {
+    const me = await createUser()
+    const acct = await createAccount(me)
+    const post = await createPost(me)
+
+    const now = new Date()
+    await createTip({ postId: post.id, recipientAccountId: acct.id, piconeros: 1000000000n, confirmedAt: now, tipperId: me })
+
+    const { payIns } = await resolvers.Query.statistics(null, {}, { models: prisma, me: { id: me } })
+
+    const tipRows = payIns.filter(p => p.payInType === 'TIP')
+    expect(tipRows).toHaveLength(2)
+    expect(tipRows.filter(r => r.isSend)).toHaveLength(1)
+    expect(tipRows.filter(r => !r.isSend)).toHaveLength(1)
   })
 })
