@@ -8,6 +8,8 @@
 // Pure (no Prisma, no lexical) so it is unit-testable in isolation. The payIn
 // ITEM_CREATE flow consumes these helpers and wires the fee subaddress/URI.
 
+import { buildMoneroUri } from '@/api/monero/uri'
+import { moneroUriAddress, moneroUriAmountPiconeros } from '@/lib/format'
 import { FREE_COMMENTS_LOW_REP, FREE_COMMENTS_PER_MONTH, FREE_POSTS_PER_MONTH } from '@/lib/constants'
 
 const DAY_MS = 86_400_000
@@ -125,4 +127,35 @@ export async function postingFeePrivatesFor (models, user, viewerId) {
     postingFeeRequired: true,
     postingFeePiconeros: postingFeePiconeros(config)
   }
+}
+
+// Re-entry funding info for a PENDING_FEE item (post OR comment): reuses the fee
+// PayIn's reserved subaddress (recovered from its stored monero URI) and quotes
+// only the REMAINDER, so a top-up completes the fee instead of re-quoting the
+// full original amount after a partial payment. Returns null when there is
+// nothing to reuse; the caller falls back to the item's stored URI (a fresh
+// submit has nothing received, so the remainder equals the full fee). The
+// stored URI is NEVER rewritten — the observer gate (rewardsWalletObserver)
+// reads the FULL fee from it, so cumulative received keeps comparing against the
+// full amount.
+export async function itemFeeReentryFunding (models, item) {
+  if (item.feeStatus !== 'PENDING_FEE' || !item.feePayInId) return null
+  const payIn = await models.payIn.findUnique({ where: { id: item.feePayInId } })
+  if (!payIn) return null
+  const address = moneroUriAddress(payIn.moneroUri)
+  if (!address) return null
+  const expected = moneroUriAmountPiconeros(payIn.moneroUri)
+  if (expected == null) return null
+  const agg = await models.feeObservation.aggregate({
+    _sum: { piconeros: true },
+    where: { payInId: payIn.id }
+  })
+  const received = agg._sum.piconeros ?? 0n
+  const remaining = expected - received
+  const amount = remaining > 0n ? remaining : expected
+  const moneroUri = buildMoneroUri(
+    [{ address, amount }],
+    { description: `StasherNews ${item.parentId ? 'comment' : 'posting'} fee top-up` }
+  )
+  return { payIn, moneroUri, feePiconeros: expected, receivedPiconeros: received, expectedPiconeros: expected }
 }

@@ -31,6 +31,7 @@ import { shuffleArray } from '@/lib/rand'
 import pay from '../payIn'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { resolveItemComments } from './comment-tree'
+import { itemFeeReentryFunding } from '@/api/monero/postingFee'
 
 export async function getItem (parent, { id }, { me, models }) {
   const [item] = await getItemsById([id], { me, models })
@@ -967,6 +968,16 @@ export default {
         where: { payInId: item.feePayInId }
       })
       return agg._sum.piconeros ?? 0n
+    },
+    // StasherNews top-up URI for a PENDING_FEE item: re-quotes only the REMAINDER
+    // after a partial fee (mirrors territoryReentryFunding), so the pending-fee
+    // modal's QR + copyable amount show what the user still owes instead of the
+    // full original fee. Null for non-fee items and before any fee PayIn exists.
+    // The stored URI is never rewritten, so the observer gate keeps gating on the
+    // full amount.
+    feeTopUpUri: async (item, args, { models }) => {
+      const funding = await itemFeeReentryFunding(models, item)
+      return funding?.moneroUri ?? null
     },
     piconeros: async (item, args, { models, me }) => {
       if (me?.id === item.userId) {

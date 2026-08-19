@@ -157,6 +157,9 @@ the user's monthly free-post quota (`freePostCount` / `freePostResetAt`):
    could post for free with no monthly cap.)
 4. **Underpayment:** the fee URI's `tx_amount` is the gate — `FEE_PAID` flips only when cumulative
    observed piconeros cover it; partial payers top up the same subaddress (see the webhook spec addendum).
+   On re-entry the pending-fee modal re-quotes only the REMAINDER via `Item.feeTopUpUri` (the stored
+   full-fee URI is never rewritten — the observer gate keeps gating on it), so the QR + copyable
+   amount show what the user still owes instead of the full original fee.
 5. **Turf fee re-entry:** a PENDING_FEE turf can be topped up to the SAME reserved
    subaddress via `paySub` — the billing PayIn's stored URI is never rewritten, so
    the observer gate keeps comparing cumulative received against the FULL fee; the

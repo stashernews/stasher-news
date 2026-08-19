@@ -13,14 +13,14 @@ const POSTING_FEE_POLL_MS = 10_000
 
 const ITEM_FEE_STATUS = `
   query ItemFeeStatus($id: ID!) {
-    item(id: $id) { id feeStatus feeReceivedPiconeros }
+    item(id: $id) { id feeStatus feeReceivedPiconeros feeTopUpUri }
   }
 `
 
 export default function PostingFeeModal ({ moneroUri, itemId }) {
   const { me } = useMe()
   const animate = useAnimation()
-  const feePiconeros = moneroUriAmountPiconeros(moneroUri) ??
+  const expectedPiconeros = moneroUriAmountPiconeros(moneroUri) ??
     (me?.privates?.postingFeePiconeros ? BigInt(me.privates.postingFeePiconeros) : 0n)
 
   const { data } = useQuery(gql(ITEM_FEE_STATUS), {
@@ -32,7 +32,16 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
   const phase = postingFeeModalPhase(data?.item?.feeStatus)
 
   const received = BigInt(data?.item?.feeReceivedPiconeros ?? 0)
-  const hint = phase !== 'paid' ? underpayHint(received, feePiconeros) : null
+  const hint = phase !== 'paid' ? underpayHint(received, expectedPiconeros) : null
+
+  // Top-up URI: the server re-quotes only the REMAINDER after a partial fee
+  // (Item.feeTopUpUri, mirrors territoryReentryFunding), so the QR + copyable
+  // amount show what the user still owes instead of the full original fee. The
+  // stored URI is never rewritten, so the observer gate keeps gating on the full
+  // amount. Falls back to the passed URI before the first poll resolves (a
+  // fresh submit has nothing received, so the remainder equals the full fee).
+  const displayUri = data?.item?.feeTopUpUri ?? moneroUri
+  const displayPiconeros = moneroUriAmountPiconeros(displayUri) ?? expectedPiconeros
 
   // strike the lightning once the posting fee is detected on-chain
   useEffect(() => {
@@ -57,10 +66,10 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
 
   return (
     <MoneroPaymentView
-      moneroUri={moneroUri}
-      amountPiconeros={feePiconeros}
+      moneroUri={displayUri}
+      amountPiconeros={displayPiconeros}
       heading='Pay the posting fee'
-      description={`Scan to send ${piconerosToXmr(feePiconeros)} to the platform rewards wallet. Your post goes live once the fee is detected on-chain.`}
+      description={`Scan to send ${piconerosToXmr(displayPiconeros)} to the platform rewards wallet. Your post goes live once the fee is detected on-chain.`}
     >
       {hint &&
         <p className='text-warning text-center mt-3'>

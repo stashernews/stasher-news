@@ -160,6 +160,10 @@ export default gql`
     apiKey: Boolean
     feeStatus: ItemFeeStatus!
     feeReceivedPiconeros: BigInt!
+    # Top-up URI for a PENDING_FEE item: re-quotes only the REMAINDER after a
+    # partial fee (mirrors territoryReentryFunding). Null for non-fee items and
+    # before any fee PayIn exists. The stored full-fee URI is never rewritten.
+    feeTopUpUri: String
     cost: Int!
     payIn: PayIn
     meCommentsViewedAt: Date
