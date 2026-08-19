@@ -15,6 +15,8 @@ import SubPopover from './sub-popover'
 import { piconerosToXmr } from '@/lib/format'
 import { ensureProtocol } from '@/lib/url'
 import { PayInInfo, InfoDropdownItem } from './item-info'
+import PendingFeeBadge from './pending-fee-badge'
+import PayPostingFeeButton from './pay-posting-fee-button'
 import Boost from './boost-button'
 import ActionDropdown from './action-dropdown'
 import DontLikeThisDropdownItem from './dont-link-this'
@@ -98,6 +100,8 @@ export default function ItemJob ({ item, toc, rank, children, ...props }) {
                 </Link>
               </SubPopover>
             ))}
+            <PendingFeeBadge item={item} />
+            <PayPostingFeeButton item={item} />
             {item.status === 'STOPPED' &&
               <>{' '}<Badge bg='info' className={styles.badge}>stopped</Badge></>}
             {item.mine && !item.deletedAt &&

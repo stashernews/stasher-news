@@ -47,6 +47,8 @@ jest.mock(`${process.cwd()}/components/share`, () => ({ __esModule: true, defaul
 jest.mock(`${process.cwd()}/components/badge`, () => ({ __esModule: true, default: () => null }))
 jest.mock(`${process.cwd()}/components/sub-popover`, () => () => null)
 jest.mock(`${process.cwd()}/components/item-info`, () => ({ PayInInfo: () => null, InfoDropdownItem: () => null }))
+jest.mock(`${process.cwd()}/components/pending-fee-badge`, () => () => null)
+jest.mock(`${process.cwd()}/components/pay-posting-fee-button`, () => () => null)
 jest.mock(`${process.cwd()}/components/boost-button`, () => () => null)
 jest.mock(`${process.cwd()}/components/action-dropdown`, () => () => null)
 jest.mock(`${process.cwd()}/components/dont-link-this`, () => ({ DontLikeThisDropdownItem: () => null }))

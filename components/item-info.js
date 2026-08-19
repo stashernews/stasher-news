@@ -5,11 +5,12 @@ import Badge from 'react-bootstrap/Badge'
 import Button from 'react-bootstrap/Button'
 import Dropdown from 'react-bootstrap/Dropdown'
 import Countdown from './countdown'
-import { isPendingFeeItem, shouldShowItemPaidAt } from '@/lib/pay-in'
-import PostingFeeModal from './posting-fee-modal'
+import { shouldShowItemPaidAt } from '@/lib/pay-in'
+import PendingFeeBadge from './pending-fee-badge'
+import PayPostingFeeButton from './pay-posting-fee-button'
 import BountyFundingView from './bounty-funding-view'
 import { AwardBountyDropdownItem } from './bounty-actions'
-import { numWithUnits, piconerosToXmr, moneroUriAmountPiconeros, underpayHint } from '@/lib/format'
+import { numWithUnits, piconerosToXmr } from '@/lib/format'
 import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
 import { timeSince } from '@/lib/time'
@@ -190,14 +191,7 @@ export default function ItemInfo ({
           </SubPopover>
         )
       })}
-      {item.feeStatus === 'PENDING_FEE' && !item.deletedAt &&
-        <span>
-          {' '}<Badge className={styles.newComment} bg={null}>pending payment</Badge>
-          {item.payIn?.moneroUri &&
-            <span className='ms-1 text-warning' style={{ fontSize: '0.85rem' }}>
-              {underpayHint(BigInt(item.feeReceivedPiconeros ?? 0), moneroUriAmountPiconeros(item.payIn.moneroUri))}
-            </span>}
-        </span>}
+      <PendingFeeBadge item={item} />
       {Number(item.bountyPiconeros) > 0 &&
         <span>
           {' '}<Badge className={styles.newComment} bg={null}>bounty {piconerosToXmr(bountyPiconerosOf(item.bountyPiconeros))} · {bountyStatusText}</Badge>
@@ -219,15 +213,7 @@ export default function ItemInfo ({
           {' '}<Badge className={styles.newComment} bg={null}>-{piconerosToXmr(BigInt(item.downPiconeros || 0))}</Badge>
         </span>}
       {extraBadges}
-      {isPendingFeeItem(item) && item.payIn?.moneroUri &&
-        <>{' '}
-          <Button
-            size='sm' variant='outline-danger'
-            onClick={() => showModal((onClose) => <PostingFeeModal moneroUri={item.payIn.moneroUri} itemId={item.id} />)}
-          >
-            pay the {item.parentId ? 'comment' : 'posting'} fee
-          </Button>
-        </>}
+      <PayPostingFeeButton item={item} />
       {full && item.mine && Number(item.bountyPiconeros) > 0 && ['UNFUNDED', 'PENDING_FUNDING'].includes(item.bountyStatus) &&
         <>{' '}
           <Button
