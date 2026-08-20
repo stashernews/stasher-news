@@ -67,13 +67,24 @@ function makeFakeModels (distribution) {
   }
 }
 
-function makeFakeWallet ({ unlocked = 10_000_000_000_000n, throwsOn = false, throwErr = null } = {}) {
+function makeFakeWallet ({ unlocked = 10_000_000_000_000n, unlockedAfterSync, throwsOn = false, throwErr = null } = {}) {
   const calls = []
+  const order = []
+  let balance = unlocked
   let n = 0
   return {
     calls,
-    async getUnlockedBalance () { return unlocked },
+    order,
+    async sync () {
+      order.push('sync')
+      if (unlockedAfterSync !== undefined) balance = unlockedAfterSync
+    },
+    async getUnlockedBalance () {
+      order.push('getUnlockedBalance')
+      return balance
+    },
     async createTx (req) {
+      order.push('createTx')
       calls.push(req)
       if (throwsOn) throw throwErr
       n += 1
@@ -172,6 +183,7 @@ test('is idempotent on a distribution already SWEPT (no createTx call)', async (
   const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
   expect(res).toEqual({ state: 'SWEPT', txHash: 'ab'.repeat(32), swept: 3_000_000_000_000n })
   expect(wallet.calls).toHaveLength(0)
+  expect(wallet.order).toEqual([])
 })
 
 test('returns DISABLED and never calls the wallet when REWARDS_COLD_STORAGE_ADDRESS is unset', async () => {
@@ -224,4 +236,28 @@ test('persists SWEPT (not FAILED) when the first DB update throws but the retry 
     expect.objectContaining({ distributionId: dist.id, txHash: persisted.opsSweepTxHash }),
     expect.stringContaining('CRITICAL')
   )
+})
+
+test('sweeps once the wallet is synced, even when the cached balance was stale', async () => {
+  const dist = makeDistribution({ opsAvailablePiconeros: 5_000_000_000_000n })
+  const models = makeFakeModels(dist)
+  // Cached view stale: 500e6 - floor is negative -> would SKIPPED_LOCKED. The
+  // sync refreshes it to cover the earmark.
+  const wallet = makeFakeWallet({ unlocked: 500_000_000n, unlockedAfterSync: 10_000_000_000_000n })
+
+  const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
+
+  expect(res.state).toBe('SWEPT')
+  expect(wallet.order).toEqual(['sync', 'getUnlockedBalance', 'createTx'])
+})
+
+test('syncs the wallet exactly once before reading the balance when a sweep is attempted', async () => {
+  const dist = makeDistribution({ opsAvailablePiconeros: 5_000_000_000_000n })
+  const models = makeFakeModels(dist)
+  const wallet = makeFakeWallet()
+
+  await sweepOpsEarmark({ distribution: dist, models, wallet })
+
+  expect(wallet.order.filter(m => m === 'sync')).toHaveLength(1)
+  expect(wallet.order.indexOf('sync')).toBeLessThan(wallet.order.indexOf('getUnlockedBalance'))
 })

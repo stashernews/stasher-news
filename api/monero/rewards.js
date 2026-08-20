@@ -114,6 +114,14 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
   if (queued.length === 0) return { sent: 0, failed: 0, skipped: 0 }
 
   const w = wallet || await getRewardsWallet()
+  // The singleton rewards wallet syncs once at open; without a refresh here the
+  // unlocked-balance read below sees the stale cached view, and a stale LOW
+  // balance skips the ENTIRE weekly batch (same root cause as the bounties
+  // fee-retry stall, 2026-08-19/20). sync() is incremental from the wallet's
+  // last processed height, and this only runs in the weekly rewardsDistributor
+  // cron — never a web hot path. A sync error propagates to finalizeDistribution
+  // (FAILED + CRITICAL, resumable next run) exactly like the balance read.
+  await w.sync()
   // Coarse pre-filter: if the whole wallet's unlocked balance can't cover the
   // batch sum, skip it (likely locked funds). Residual exhaustion still
   // surfaces as a balance error from createTx and is treated as a skip.
@@ -216,6 +224,11 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
   }
 
   const w = wallet || await getRewardsWallet()
+  // Same stale-cached-view fix as sendPayouts: refresh before reading the
+  // unlocked balance, or a stale low balance SKIPPED_LOCKEDs the sweep. Runs
+  // sequentially right after sendPayouts in the same run, so this second sync
+  // processes ~0 new blocks.
+  await w.sync()
   const unlocked = BigInt(await w.getUnlockedBalance(0))
   const opsAvailable = BigInt(distribution.opsAvailablePiconeros)
   const target = opsAvailable < unlocked - REWARDS_OPS_SWEEP_MIN_PICONEROS

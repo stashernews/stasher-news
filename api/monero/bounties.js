@@ -7,6 +7,8 @@ import { lwsClient } from '@/api/monero/lwsClient'
 // holds the BOUNTY ESCROW wallet's spend key (separate standalone wallet — never
 // the rewards wallet). Opens an in-memory monero-ts wallet from env, sends each
 // QUEUED BountyPayment, records the tx hash, flips QUEUED -> SENT.
+// Re-syncs the wallet's chain view once per dispatch before reading balances,
+// so outputs that unlock after open are visible without a worker restart.
 //
 // Fund-safety mirrors api/monero/rewards.js: keys from env (never logged),
 // insufficient-unlocked-balance = SKIP (retry next run) not FAILED, FAILED only
@@ -141,6 +143,14 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
     return { sent: 0, failed: 0, skipped: 0, settled: 0 }
   }
   const w = wallet || await getBountyEscrowWallet({ models })
+  // The singleton escrow wallet syncs once at open; without a refresh here the
+  // unlocked-balance read below sees the stale cached view (2026-08-19/20 beta
+  // incident: a deferred fee's change unlocked after open, but every 60s retry
+  // read the stale low balance and skipped until a worker restart). sync() is
+  // incremental from the wallet's last processed height, and this only runs in
+  // the bounties cron worker — never a web hot path. A sync error aborts the
+  // run (cron retries next tick) exactly like the balance read already does.
+  await w.sync()
   let unlocked = BigInt(await w.getUnlockedBalance(0))
   let sent = 0
   let failed = 0

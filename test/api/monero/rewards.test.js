@@ -62,13 +62,24 @@ function makeFakeModels (rows) {
 // getHash() yields a stable 64-hex-char string (the real monero-ts wallet
 // returns a hex string too). throwsOn maps a destination address -> Error to
 // simulate hard failures.
-function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, throwsOn = {} } = {}) {
-  const calls = []
+function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync, throwsOn = {} } = {}) {
+  const calls = [] // createTx requests only (existing assertions depend on this shape)
+  const order = [] // method-call order: 'sync' | 'getUnlockedBalance' | 'createTx'
+  let balance = unlocked
   let n = 0
   return {
     calls,
-    async getUnlockedBalance () { return unlocked },
+    order,
+    async sync () {
+      order.push('sync')
+      if (unlockedAfterSync !== undefined) balance = unlockedAfterSync
+    },
+    async getUnlockedBalance () {
+      order.push('getUnlockedBalance')
+      return balance
+    },
     async createTx (req) {
+      order.push('createTx')
       calls.push(req)
       if (throwsOn[req.destinations?.[0]?.address]) throw throwsOn[req.destinations[0].address]
       n += 1
@@ -178,4 +189,42 @@ test('persists the shared tx hash (SENT) when a DB update throws then retry succ
     expect.stringContaining('CRITICAL')
   )
   expect(logInfo).toHaveBeenCalledWith(expect.objectContaining({ payoutCount: 2, txHash: persisted.txHash }), expect.stringContaining('relayed'))
+})
+
+test('sends the batch once the wallet is synced, even when the cached balance was stale (weekly-critical-path regression)', async () => {
+  const p1 = makePayout({ id: 1, piconeros: 3_000_000_000n })
+  const p2 = makePayout({ id: 2, piconeros: 3_000_000_000n })
+  const models = makeFakeModels([p1, p2])
+  // Cached view stale (funds arrived after open): 5e9 < 6e9 total -> would skip
+  // the whole batch. The sync refreshes it to cover the sum.
+  const wallet = makeFakeWallet({ unlocked: 5_000_000_000n, unlockedAfterSync: 10_000_000_000n })
+
+  const summary = await sendPayouts([p1, p2], { models, wallet })
+
+  expect(summary).toEqual({ sent: 2, failed: 0, skipped: 0 })
+  expect(wallet.order).toEqual(['sync', 'getUnlockedBalance', 'createTx'])
+  expect(models.store.get(p1.id).state).toBe('SENT')
+  expect(models.store.get(p2.id).state).toBe('SENT')
+})
+
+test('syncs the wallet exactly once before reading the balance when there are QUEUED payouts', async () => {
+  const p = makePayout({ id: 1 })
+  const models = makeFakeModels([p])
+  const wallet = makeFakeWallet()
+
+  await sendPayouts([p], { models, wallet })
+
+  expect(wallet.order.filter(m => m === 'sync')).toHaveLength(1)
+  expect(wallet.order.indexOf('sync')).toBeLessThan(wallet.order.indexOf('getUnlockedBalance'))
+})
+
+test('does not touch the wallet when there are no QUEUED payouts', async () => {
+  const alreadySent = makePayout({ id: 1, state: 'SENT', txHash: 'ab'.repeat(32) })
+  const models = makeFakeModels([alreadySent])
+  const wallet = makeFakeWallet()
+
+  const summary = await sendPayouts([alreadySent], { models, wallet })
+
+  expect(summary).toEqual({ sent: 0, failed: 0, skipped: 0 })
+  expect(wallet.order).toEqual([])
 })

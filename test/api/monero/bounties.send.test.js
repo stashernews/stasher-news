@@ -70,13 +70,24 @@ function makeFakeModels (rows) {
   }
 }
 
-function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, throwsOn = {} } = {}) {
-  const calls = []
+function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync, throwsOn = {} } = {}) {
+  const calls = [] // createTx requests only (existing assertions depend on this shape)
+  const order = [] // method-call order: 'sync' | 'getUnlockedBalance' | 'createTx'
+  let balance = unlocked
   let n = 0
   return {
     calls,
-    async getUnlockedBalance () { return unlocked },
+    order,
+    async sync () {
+      order.push('sync')
+      if (unlockedAfterSync !== undefined) balance = unlockedAfterSync
+    },
+    async getUnlockedBalance () {
+      order.push('getUnlockedBalance')
+      return balance
+    },
     async createTx (req) {
+      order.push('createTx')
       calls.push(req)
       if (throwsOn[req.address]) throw throwsOn[req.address]
       n += 1
@@ -218,4 +229,41 @@ test('a fee relayed but unpersisted alerts CRITICAL and stops auto-retry (no dou
     expect.objectContaining({ payoutId: payout.id }),
     expect.stringContaining('CRITICAL')
   )
+})
+
+test('settles a deferred fee whose change unlocked after the wallet was opened (sync refreshes the stale cached balance)', async () => {
+  const payout = makePayout({ state: 'SENT', txHash: 'ab'.repeat(32), feePendingAt: new Date() })
+  const models = makeFakeModels([payout])
+  // Cached view is stale (pre-change-unlock): 1e9 < 10e9 fee. The sync refreshes
+  // it to 21.9e9 (the live probe value from the 2026-08-20 incident) >= fee.
+  const wallet = makeFakeWallet({ unlocked: 1_000_000_000n, unlockedAfterSync: 21_900_000_000n })
+
+  const summary = await sendBountyPayments([payout], { models, wallet })
+
+  expect(summary).toEqual({ sent: 0, failed: 0, skipped: 0, settled: 1 })
+  const row = models.store.get(payout.id)
+  expect(row.feeTxHash).toMatch(/^[0-9a-f]{64}$/)
+  expect(row.feePendingAt).toBeNull()
+  expect(wallet.order).toEqual(['sync', 'getUnlockedBalance', 'createTx'])
+})
+
+test('syncs the wallet exactly once before reading the unlocked balance whenever there is dispatch work', async () => {
+  const payout = makePayout()
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet()
+
+  await sendBountyPayments([payout], { models, wallet })
+
+  expect(wallet.order.filter(m => m === 'sync')).toHaveLength(1)
+  expect(wallet.order.indexOf('sync')).toBeLessThan(wallet.order.indexOf('getUnlockedBalance'))
+})
+
+test('does not touch the wallet when there is nothing queued or pending (no sync in the hot path)', async () => {
+  const models = makeFakeModels([])
+  const wallet = makeFakeWallet()
+
+  const summary = await sendBountyPayments([], { models, wallet })
+
+  expect(summary).toEqual({ sent: 0, failed: 0, skipped: 0, settled: 0 })
+  expect(wallet.order).toEqual([])
 })
