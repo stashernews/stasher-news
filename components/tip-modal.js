@@ -172,24 +172,21 @@ function xmrToPiconerosSafe (amount) {
   try { return xmrToPiconeros(amount) } catch { return 0n }
 }
 
-function tipStatusCopy (state) {
+export function tipStatusCopy (state) {
   switch (state) {
     case 'EXPIRED':
       return 'this tip expired before it was detected — try again'
     case 'REORGED':
       return 'the payment was detected then reorganized — try again'
-    case 'CONFIRMED':
-      return 'status: CONFIRMED'
-    default: {
-      // DETECTED bumps + flips to the success view via onDetected; PENDING/null keeps the waiting copy
-      const label = state ?? 'PENDING'
-      return `status: ${label} — waiting for your payment to be observed on-chain (usually a few minutes)`
-    }
+    default:
+      // DETECTED/CONFIRMED flip to the success view; PENDING/null shows no status line
+      return null
   }
 }
 
 function TipPaymentView ({ uri, paymentId, amount, recipient, onDetected, onClose }) {
   const { state } = useWatchTip({ paymentId, onDetected })
+  const statusCopy = tipStatusCopy(state)
   // Render the success view directly from the polled state (mirrors the posting-fee
   // modal, which derives its paid phase straight from the query data). This does not
   // depend on the onDetected callback reaching the parent, so a detection can never
@@ -212,9 +209,10 @@ function TipPaymentView ({ uri, paymentId, amount, recipient, onDetected, onClos
         ? `Scan to send ${piconerosToXmr(BigInt(amount))} to the rewards pool — the author has no Monero wallet.`
         : `Scan to send ${piconerosToXmr(BigInt(amount))} directly to the author.`}
     >
-      <p className='text-muted text-center mt-2'>
-        <small>{tipStatusCopy(state)}</small>
-      </p>
+      {statusCopy &&
+        <p className='text-muted text-center mt-2'>
+          <small>{statusCopy}</small>
+        </p>}
     </MoneroPaymentView>
   )
 }

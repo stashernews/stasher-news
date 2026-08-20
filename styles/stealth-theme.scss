@@ -160,6 +160,12 @@
     opacity: 1;
     color: var(--bs-danger) !important;
   }
+
+  // downvoted state: full-opacity danger red (beats .text-muted's !important grey)
+  .downvoteArrowActive {
+    opacity: 1;
+    color: var(--bs-danger) !important;
+  }
 }
 
 // ---- payment-success glyph + login wordmark (rebrand) ----

@@ -144,4 +144,33 @@ describe('VoteColumn', () => {
 
     await act(async () => { root.unmount() })
   })
+
+  it('colors the down arrow red when the item is downvoted', async () => {
+    const root = await renderVoteColumn({ item: { id: '1', mine: false, meDontLikePiconeros: '1000000000' } })
+
+    const downvote = container.querySelector('[aria-label="downvote"]')
+    expect(downvote.classList.contains('downvoteArrowActive')).toBe(true)
+    expect(downvote.classList.contains('text-muted')).toBe(false)
+
+    await act(async () => { root.unmount() })
+  })
+
+  it('keeps the down arrow muted when the item is not downvoted', async () => {
+    const root = await renderVoteColumn()
+
+    const downvote = container.querySelector('[aria-label="downvote"]')
+    expect(downvote.classList.contains('downvoteArrowActive')).toBe(false)
+    expect(downvote.classList.contains('text-muted')).toBe(true)
+
+    await act(async () => { root.unmount() })
+  })
+
+  it('hides the down arrow when collapsed', async () => {
+    const root = await renderVoteColumn({ collapsed: true })
+
+    const downvote = container.querySelector('[aria-label="downvote"]')
+    expect(downvote.classList.contains('downvoteCollapsed')).toBe(true)
+
+    await act(async () => { root.unmount() })
+  })
 })

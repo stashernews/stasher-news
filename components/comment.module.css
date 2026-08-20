@@ -21,13 +21,6 @@
     flex-shrink: 0;
 }
 
-.dontLike {
-    fill: #a5a5a5;
-    margin-right: 2px;
-    margin-top: 9px;
-    cursor: pointer;
-}
-
 .text {
     margin-top: .1rem;
     padding-right: 15px;
@@ -52,7 +45,7 @@
     display: none;
 }
 
-.collapsed .upvote, .collapsed .dontLike {
+.collapsed .upvote {
     visibility: hidden;
     height: 0;
 }

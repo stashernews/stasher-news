@@ -87,13 +87,6 @@ a.title:visited {
     flex-shrink: 0;
 }
 
-.dontLike {
-    fill: #a5a5a5;
-    flex-shrink: 0;
-    cursor: pointer;
-    margin-right: 2px;
-}
-
 .case {
     fill: #a5a5a5;
     margin-right: .2rem;

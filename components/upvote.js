@@ -3,7 +3,6 @@ import styles from './upvote.module.css'
 import ActionTooltip from './action-tooltip'
 import TipModal from './tip-modal'
 import { useMe } from './me'
-import getColor from '@/lib/rainbow'
 import { useMemo } from 'react'
 import { piconerosToXmr } from '@/lib/format'
 import { useShowModal } from './modal'
@@ -49,7 +48,7 @@ export default function UpVote ({ item, className, collapsed }) {
 
     return [
       meSats, overlayTextContent,
-      getColor(meSats)]
+      meSats ? 'var(--bs-success)' : '#a5a5a5']
   }, [
     me, item?.mePiconeros, item?.meAnonPiconeros, me?.privates?.tipDefault,
     me?.privates?.tipRandom, me?.privates?.tipRandomMin, me?.privates?.tipRandomMax])

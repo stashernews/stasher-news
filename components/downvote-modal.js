@@ -157,6 +157,7 @@ export default function DownvoteModal ({ item, onClose }) {
 
 function DownvotePaymentView ({ moneroUri, amount, paymentId, onDetected, onClose }) {
   const { state } = useWatchDownvote({ paymentId, onDetected })
+  const statusCopy = downvoteStatusCopy(state)
 
   // Render the success view directly from the polled state (mirrors the posting-fee
   // modal, which derives its paid phase straight from the query data). This does not
@@ -179,25 +180,22 @@ function DownvotePaymentView ({ moneroUri, amount, paymentId, onDetected, onClos
       heading='Pay this downvote'
       description={`Scan to send ${piconerosToXmr(BigInt(amount))} to the rewards pool.`}
     >
-      <p className='text-muted text-center mt-3'>
-        <small>{downvoteStatusCopy(state)}</small>
-      </p>
+      {statusCopy &&
+        <p className='text-muted text-center mt-3'>
+          <small>{statusCopy}</small>
+        </p>}
     </MoneroPaymentView>
   )
 }
 
-function downvoteStatusCopy (state) {
+export function downvoteStatusCopy (state) {
   switch (state) {
     case 'EXPIRED':
       return 'this downvote expired before it was detected — try again'
     case 'REORGED':
       return 'the payment was detected then reorganized — try again'
-    case 'CONFIRMED':
-      return 'status: CONFIRMED'
-    default: {
-      // DETECTED bumps + flips to the success view via onDetected; PENDING/null keeps the waiting copy
-      const label = state ?? 'PENDING'
-      return `status: ${label} — waiting for your payment to be observed on-chain (usually a few minutes)`
-    }
+    default:
+      // DETECTED/CONFIRMED flip to the success view; PENDING/null shows no status line
+      return null
   }
 }

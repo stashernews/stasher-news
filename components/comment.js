@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Reply from './reply'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import UpVote from './upvote'
+import VoteColumn from './vote-column'
 import Eye from '@/svgs/eye-fill.svg'
 import EyeClose from '@/svgs/eye-close-line.svg'
 import { useRouter } from 'next/router'
@@ -20,7 +21,6 @@ import Badge from 'react-bootstrap/Badge'
 import { RootProvider, useRoot } from './root'
 import { useMe } from './me'
 import { useQuoteReply } from './use-quote-reply'
-import { DownZap } from './dont-link-this'
 import { commentSubTreeRootId } from '@/lib/item'
 import Pin from '@/svgs/pushpin-fill.svg'
 import LinkToContext from './link-to-context'
@@ -227,9 +227,7 @@ export default function Comment ({
           ? <Pin width={22} height={22} className={styles.pin} />
           : item.mine
             ? <Boost item={item} className={styles.upvote} />
-            : item.meDontLikePiconeros > item.mePiconeros
-              ? <DownZap width={24} height={24} className={styles.dontLike} item={item} />
-              : <UpVote item={item} className={styles.upvote} collapsed={collapse === 'yep'} />}
+            : <VoteColumn item={item} className={styles.upvote} collapsed={collapse === 'yep'} />}
         <div className={`${itemStyles.hunk} ${styles.hunk}`}>
           <div className='d-flex align-items-center'>
             {item.user?.meMute && !includeParent && collapse === 'yep'

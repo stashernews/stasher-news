@@ -16,7 +16,6 @@ import ItemInfo from './item-info'
 import { CardMedia } from './card-media'
 import { commentsViewedAt } from '@/lib/new-comments'
 import { useRouter } from 'next/router'
-import { DownZap } from './dont-link-this'
 import { timeLeft } from '@/lib/time'
 import classNames from 'classnames'
 import removeMd from 'remove-markdown'
@@ -108,9 +107,7 @@ export default function Item ({
           ? <Pin width={24} height={24} className={styles.pin} />
           : item.mine
             ? <Boost item={item} className={classNames(styles.upvote, item.bio && 'invisible')} />
-            : item.meDontLikePiconeros > item.mePiconeros
-              ? <DownZap width={24} height={24} className={styles.dontLike} item={item} />
-              : <VoteColumn item={item} className={styles.upvote} />}
+            : <VoteColumn item={item} className={styles.upvote} />}
         <div className={styles.hunk}>
           <div className={`${styles.main} flex-wrap`}>
             <Link

@@ -2,13 +2,12 @@ import { useShowModal } from './modal'
 import { useToast } from './toast'
 import BoostModal from './boost-modal'
 import { useMemo } from 'react'
-import getColor from '@/lib/rainbow'
 import BoostIcon from '@/svgs/arrow-up-double-line.svg'
 import styles from './upvote.module.css'
 import classNames from 'classnames'
 export default function Boost ({ item, className, ...props }) {
   const { boost } = item
-  const color = useMemo(() => getColor(boost), [boost])
+  const color = useMemo(() => boost ? 'var(--bs-success)' : '#a5a5a5', [boost])
 
   const style = useMemo(() => ({
     '--hover-fill': 'var(--bs-success)',
