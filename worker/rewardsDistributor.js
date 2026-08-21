@@ -32,6 +32,14 @@ import { moneroDistributionStatus } from '@/lib/metrics'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
+// Scheduling-jitter grace for the weekly idempotency guard. Consecutive runs
+// land L ms after Monday 00:00 UTC (pg-boss pickup latency, observed ~4s);
+// with zero slack, L1 >= L2 puts last week's periodEnd at/inside this week's
+// periodStart and the run silently skips. 1h is ~900x that margin and keeps
+// every same-week re-run (cron + manual `sndev monero distribute`, FAILED
+// re-drives) inside the skip window for 6d23h of the week.
+const IDEMPOTENCY_GRACE_MS = 60 * 60 * 1000
+
 const DISTRIBUTION_STATUS_GAUGE = { PENDING: 0, SENDING: 1, COMPLETE: 2, FAILED: 3 }
 
 // One weekly distribution. The testable core: no pg-boss, no network. Accepts
@@ -74,11 +82,17 @@ async function distribute (models) {
   //     (finds the existing distribution on retry) or errors cleanly. No partial
   //     write is ever visible.
   return await models.$transaction(async (tx) => {
-    // Idempotency: if a distribution already exists whose periodEnd falls inside
-    // (or after) this week's window, a run already happened this week — return it
-    // verbatim instead of double-distributing.
+    // Idempotency: if a distribution already exists whose periodEnd falls
+    // inside (or after) this week's window — minus a scheduling-jitter grace —
+    // a run already happened this week; return it verbatim instead of
+    // double-distributing. The grace absorbs pg-boss pickup latency: weekly
+    // runs fire L1/L2 ms after Monday 00:00 UTC, and comparing with zero
+    // slack made last week's periodEnd (L1) collide with this week's
+    // periodStart (L2) whenever L1 >= L2, silently skipping the run. The
+    // resumability path is preserved: a FAILED distribution re-driven later
+    // the same week is still found here and re-finalized.
     const existing = await tx.rewardDistribution.findFirst({
-      where: { periodEnd: { gte: periodStart } },
+      where: { periodEnd: { gte: new Date(periodStart.getTime() + IDEMPOTENCY_GRACE_MS) } },
       orderBy: { periodEnd: 'desc' },
       include: { payouts: true }
     })

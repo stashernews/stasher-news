@@ -914,3 +914,78 @@ test('a referrer who is ALSO a paid curator gets exactly one FOREVER_REFERRAL Ea
   const total = allEarns.reduce((acc, e) => acc + e.piconeros, 0n)
   expect(total).toBe(dist.distributedPiconeros)
 })
+
+test('a previous weekly run whose periodEnd sits at this run\'s periodStart boundary does not skip (no jitter coin flip)', async () => {
+  // Regression: the guard compared periodEnd >= periodStart with zero slack.
+  // Consecutive weekly runs land L1/L2 ms after Monday 00:00 UTC (pg-boss
+  // pickup latency); when L1 >= L2 the previous run's periodEnd sits ON or
+  // INSIDE this run's periodStart and the weekly run silently skipped. Seed
+  // the exact collision: a "previous run" whose periodEnd is 4s inside this
+  // run's periodStart (previous Monday fired 4s later in its minute than
+  // this run does). It must proceed, not return the boundary row.
+  //
+  // Purge any same-week distribution first (the referral tests above left
+  // one behind — same FK-safe pattern as the line-841 cleanup; afterAll's
+  // deleteMany on already-deleted ids is a harmless no-op).
+  const weekAgo = new Date(Date.now() - 7 * DAY)
+  const current = await prisma.rewardDistribution.findMany({ where: { periodEnd: { gte: weekAgo } } })
+  for (const d of current) {
+    await prisma.earn.deleteMany({ where: { distributionId: d.id } })
+    await prisma.rewardPayout.deleteMany({ where: { distributionId: d.id } })
+    await prisma.rewardDistribution.deleteMany({ where: { id: d.id } })
+  }
+
+  // Previous weekly run: periodEnd 4s AFTER this run's periodStart — the
+  // L1 >= L2 collision that used to skip.
+  const boundary = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 14 * DAY + 4000),
+      periodEnd: new Date(Date.now() - 7 * DAY + 4000),
+      poolPiconeros: 0n,
+      distributedPiconeros: 0n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 0,
+      status: 'COMPLETE'
+    }
+  })
+  created.distributions.push(boundary.id)
+
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, sweepOpsEarmark: async () => ({ state: 'DISABLED' }) })
+  created.distributions.push(dist.id)
+
+  expect(dist.id).not.toBe(boundary.id)
+  const rows = await prisma.rewardDistribution.findMany({ where: { id: { in: [boundary.id, dist.id] } } })
+  expect(rows).toHaveLength(2) // two consecutive weekly runs -> two rows
+})
+
+test('a run later in the same week still skips when a distribution ended mid-week (grace must not enable double-payouts)', async () => {
+  // The complement of the boundary test: a distribution that ran 3 days ago
+  // (periodEnd well inside this week's window) must still short-circuit the
+  // run. Guards against over-correcting the boundary bug in the other
+  // direction (the rejected periodStart-gte fix double-distributed here).
+  // Purge the boundary test's rows first (same FK-safe pattern).
+  const weekAgo = new Date(Date.now() - 7 * DAY)
+  const current = await prisma.rewardDistribution.findMany({ where: { periodEnd: { gte: weekAgo } } })
+  for (const d of current) {
+    await prisma.earn.deleteMany({ where: { distributionId: d.id } })
+    await prisma.rewardPayout.deleteMany({ where: { distributionId: d.id } })
+    await prisma.rewardDistribution.deleteMany({ where: { id: d.id } })
+  }
+
+  const earlierThisWeek = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 10 * DAY),
+      periodEnd: new Date(Date.now() - 3 * DAY),
+      poolPiconeros: 0n,
+      distributedPiconeros: 0n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 0,
+      status: 'COMPLETE'
+    }
+  })
+  created.distributions.push(earlierThisWeek.id)
+
+  const again = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  expect(again.id).toBe(earlierThisWeek.id) // found -> returned verbatim, no new row
+  expect(again.status).toBe('COMPLETE') // finalizeDistribution early-returns on COMPLETE
+})
