@@ -6,14 +6,14 @@
 // consumes this graph to populate UserSubTrust per ACTIVE territory; Task 2 of the
 // merged plan consumes UserSubTrust.zapPostTrust/etc. to weight live tips.
 //
-// The trust algorithm (unchanged upstream stacker.news logic) needs CRISS-CROSS
-// co-voting to emit a trust edge: a single shared item leaves one of before/after
-// NULL (sum() FILTER returns NULL over no matches), so b_total - after is NULL and
-// confidence() is never called. The fixture below therefore criss-crosses each
-// curator with the founder (a per-territory trust seed) across two posts so the
-// seed "follows" the curator on one post and is "followed by" the curator on
-// another — producing a real confidence() edge that propagates seed trust to the
-// curator.
+// A trust edge needs only a ONE-directional follow: sum() FILTER returns NULL
+// over no matching rows, and the NULL aggregates used to zero every
+// one-directional edge in trust_pairs (b_total - after -> NULL -> CASE ELSE 0).
+// Since 2026-08-21 trust_pairs COALESCEs its aggregate terms, so a seed that
+// only ever follows a curator still emits a confidence() edge — pinned by the
+// one-directional fixture/test (oneWayTerritoryName). The criss-cross fixtures
+// below additionally exercise the two-direction shape (both before and after
+// non-NULL).
 //
 // Real DB integration mirroring test/worker/rewardsDistributor.test.js (live migrated
 // database, FK-safe teardown). Run via the app container:
@@ -54,6 +54,12 @@ const seedTerritoryName = `trust-seed-turf-${process.pid}-${Date.now()}`
 // deterministic regardless of array order.
 const multiTurfA = `trust-multi-a-${process.pid}-${Date.now()}`
 const multiTurfB = `trust-multi-b-${process.pid}-${Date.now()}`
+// One-directional territory: the seed FOLLOWS two curators (tips after them on
+// a single shared post each) and is never followed back — every (seed, curator)
+// pair has NULL `after` and every (curator, seed) pair has NULL `before`.
+// Pre-fix, the NULL aggregates zeroed ALL these edges and this territory could
+// only ever store fallback seed rows.
+const oneWayTerritoryName = `trust-oneway-${process.pid}-${Date.now()}`
 
 let founderId
 let authorId
@@ -66,23 +72,23 @@ async function createUser () {
   return rows[0].id
 }
 
-async function mkPost () {
+async function mkPost (subName = territoryName) {
   // Production items get their subNames array maintained by the item_subnames
   // trigger from ItemSub rows (api/payIn/types/itemCreate.js writes the subs
   // relation, never the column); the legacy scalar Item.subName is never
   // written by this fork. The fixture mirrors the production path — ItemSub
   // row in, trigger-maintained subNames array out.
   const item = await prisma.item.create({
-    data: { userId: authorId, title: 'trust graph post', subs: { create: [{ subName: territoryName }] }, status: 'ACTIVE' }
+    data: { userId: authorId, title: 'trust graph post', subs: { create: [{ subName }] }, status: 'ACTIVE' }
   })
   await prisma.$executeRaw`UPDATE "Item" SET path = ${String(item.id)}::ltree WHERE id = ${item.id}::int`
   created.items.push(item.id)
   return item.id
 }
 
-async function mkComment (rootId) {
+async function mkComment (rootId, subName = territoryName) {
   const item = await prisma.item.create({
-    data: { userId: authorId, text: 'trust graph comment', parentId: rootId, rootId, subs: { create: [{ subName: territoryName }] }, status: 'ACTIVE' }
+    data: { userId: authorId, text: 'trust graph comment', parentId: rootId, rootId, subs: { create: [{ subName }] }, status: 'ACTIVE' }
   })
   await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId) + '.' + item.id}::ltree WHERE id = ${item.id}::int`
   created.items.push(item.id)
@@ -181,6 +187,19 @@ async function seedMultiTurfCrissCross ({ curatorId, curatorAmount, firstMinor, 
   await seedTip({ postId: commentB, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + (firstMinor + 7) * 60000), recipientAccountId })
 }
 
+// One-directional follow: on a single shared post the curator tips first and
+// the seed tips after — the seed "follows" the curator, never the reverse.
+// For the (seed, curator) pair: before = min-ratio > 0, after = NULL,
+// disagree = 0, b_total = 1 → post-fix edge = confidence(before, 1).
+// aId: confidence(1, 1, Z) ≈ 0.207. cId: confidence(0.5, 1, Z) ≈ 0.055 —
+// distinct values, so the walk's normalization spreads them (founder stays
+// the zero/min node) and BOTH curators normalize to zapPostTrust > 0.
+async function seedOneWayFollow ({ curatorId, curatorAmount, firstMinor, recipientAccountId, base }) {
+  const post = await mkPost(oneWayTerritoryName)
+  await seedTip({ postId: post, tipperId: curatorId, piconeros: curatorAmount, confirmedAt: new Date(base + firstMinor * 60000), recipientAccountId })
+  await seedTip({ postId: post, tipperId: SEED_USER, piconeros: AMOUNT_SEED, confirmedAt: new Date(base + (firstMinor + 1) * 60000), recipientAccountId })
+}
+
 beforeAll(async () => {
   // Territory founder is a per-territory trust seed for the SUB walks
   // (seeds = GLOBAL_SEEDS ∪ {founderId}); it does not need to tip for the global
@@ -236,6 +255,21 @@ beforeAll(async () => {
     created.subs.push(name)
   }
 
+  // One-directional territory for the NULL-aggregate guard (owner founderId
+  // mirrors territoryName; see oneWayTerritoryName above).
+  await prisma.sub.create({
+    data: {
+      name: oneWayTerritoryName,
+      userId: founderId,
+      rankingType: 'WOT',
+      billingType: 'ONCE',
+      billingCost: 1_000_000_000,
+      status: 'ACTIVE',
+      billingStatus: 'PAID'
+    }
+  })
+  created.subs.push(oneWayTerritoryName)
+
   // Author receiving account (ObservedTip.recipientAccountId FK). Every tipped post
   // is authored by `authorId`, distinct from every tipper (including the seed user).
   const recipient = await prisma.moneroAccount.create({
@@ -262,6 +296,11 @@ beforeAll(async () => {
   await seedMultiTurfCrissCross({ curatorId: aId, curatorAmount: AMOUNT_A, firstMinor: 16, recipientAccountId: recipient.id, base })
   await seedMultiTurfCrissCross({ curatorId: cId, curatorAmount: AMOUNT_C, firstMinor: 24, recipientAccountId: recipient.id, base })
 
+  // One-directional follows: seed tips AFTER each curator on one post, never
+  // before — the NULL-after shape that pre-fix zeroed every edge.
+  await seedOneWayFollow({ curatorId: aId, curatorAmount: AMOUNT_A, firstMinor: 32, recipientAccountId: recipient.id, base })
+  await seedOneWayFollow({ curatorId: cId, curatorAmount: AMOUNT_C, firstMinor: 36, recipientAccountId: recipient.id, base })
+
   await trust({ models: prisma })
 })
 
@@ -274,6 +313,7 @@ afterAll(async () => {
   }
   await prisma.userSubTrust.deleteMany({ where: { subName: seedTerritoryName } })
   await prisma.userSubTrust.deleteMany({ where: { subName: { in: [multiTurfA, multiTurfB] } } })
+  await prisma.userSubTrust.deleteMany({ where: { subName: oneWayTerritoryName } })
   await prisma.sub.deleteMany({ where: { name: { in: created.subs } } })
   await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
@@ -355,4 +395,22 @@ test('derives non-zero zapCommentTrust in EVERY turf the comment thread belongs 
   expect(rowA.zapCommentTrust).toBeGreaterThan(0)
   expect(rowB).toBeTruthy()
   expect(rowB.zapCommentTrust).toBeGreaterThan(0)
+})
+
+test('derives non-zero zapPostTrust from a ONE-DIRECTIONAL seed follow (NULL aggregate guard)', async () => {
+  // sum() FILTER over no matching rows returns NULL, not 0. Pre-fix, the
+  // (seed, curator) pair's NULL `after` made `b_total - after` NULL, the CASE
+  // in trust_pairs fell to ELSE 0, and EVERY one-directional edge was zero —
+  // the walk left all non-seed nodes at 0 and only fallback seed rows were
+  // stored (the live "std 0 ... adding seeds" signature). Post-fix (COALESCE
+  // in trust_pairs), the seed's follow counts as successes: aId's 1-XMR
+  // follow is confidence(1,1,Z) ≈ 0.207 and cId's 2-XMR follow is
+  // confidence(0.5,1,Z) ≈ 0.055 — distinct values so normalization keeps
+  // both > 0 (the non-tipping founder stays the zero/min node).
+  const rowA = await prisma.userSubTrust.findUnique({ where: { userId_subName: { userId: aId, subName: oneWayTerritoryName } } })
+  const rowC = await prisma.userSubTrust.findUnique({ where: { userId_subName: { userId: cId, subName: oneWayTerritoryName } } })
+  expect(rowA).toBeTruthy()
+  expect(rowA.zapPostTrust).toBeGreaterThan(0)
+  expect(rowC).toBeTruthy()
+  expect(rowC.zapPostTrust).toBeGreaterThan(0)
 })

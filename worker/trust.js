@@ -250,8 +250,10 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
       ),
       trust_pairs AS (
         SELECT a_id AS id, b_id AS oid,
-          CASE WHEN before - disagree >= ${MIN_SUCCESS} AND b_total - after > 0 THEN
-            confidence(before - disagree, b_total - after, ${Z_CONFIDENCE})
+          CASE WHEN COALESCE(before, 0) - COALESCE(disagree, 0) >= ${MIN_SUCCESS}
+            AND COALESCE(b_total, 0) - COALESCE(after, 0) > 0 THEN
+            confidence(COALESCE(before, 0) - COALESCE(disagree, 0),
+              COALESCE(b_total, 0) - COALESCE(after, 0), ${Z_CONFIDENCE})
           ELSE 0 END AS trust
         FROM user_pair
         UNION ALL
