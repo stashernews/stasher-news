@@ -33,7 +33,6 @@ import LinkToContext from './link-to-context'
 import { Badge, Button } from 'react-bootstrap'
 import { useToast } from './toast'
 import classNames from 'classnames'
-import CCInfo from './info/cc'
 import { useMe } from './me'
 import { getFailedRetryPayIn, runManualRetry, useRetryPayIn } from './payIn/hooks/use-retry-pay-in'
 import { withActBump } from './item-act'
@@ -540,18 +539,7 @@ function Referral ({ n }) {
 
 function stackedText (item, total) {
   if (total === undefined) total = Number(item.piconeros)
-  let text = ''
-  const credits = Number(item.piconeros) > 0 ? Math.floor(Number(total) * Number(item.credits) / Number(item.piconeros)) : total
-  const sats = Number(total) - credits
-  if (sats > 0) {
-    text += `${piconerosToXmr(BigInt(sats))}`
-    if (credits > 0) text += ' and '
-  }
-  if (credits > 0) {
-    text += `${numWithUnits(credits, { abbreviate: false, unitSingular: 'credit', unitPlural: 'credits' })}`
-  }
-
-  return text
+  return piconerosToXmr(BigInt(total))
 }
 
 function Votification ({ n }) {
@@ -562,7 +550,6 @@ function Votification ({ n }) {
           <span>
             your {n.item.title ? 'post' : 'reply'} stashed {stackedText(n.item)}
           </span>
-          {n.item.credits > 0 && <CCInfo size={16} />}
         </span>
       </NoteHeader>
       <NoteItem item={n.item} />

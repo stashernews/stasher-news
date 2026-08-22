@@ -308,14 +308,13 @@ function FreebieDialog ({ freeCommentsLeft, freePostsLeft }) {
     <>
       <div className='fw-bold'>this one is on us</div>
       <ul className='mt-2'>
-        <li>Free items have limited visibility and can only earn credits.</li>
+        <li>Free items are visible like any other, and earn real XMR tips.</li>
         {freeCommentsLeft !== null && (
           <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left this month.</li>
         )}
         {freePostsLeft !== null && (
           <li>You have {freePostsLeft} free post{freePostsLeft !== 1 ? 's' : ''} left this month.</li>
         )}
-        <li>To get fully visible right away, fund your account with a little XMR.</li>
       </ul>
     </>
   )

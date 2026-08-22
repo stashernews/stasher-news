@@ -49,11 +49,8 @@ function itemTitle (item) {
     unitSingular: 'tipper',
     unitPlural: 'tippers'
   })
-  if (Number(item.piconeros) - Number(item.credits)) {
-    title += ` \\ ${piconerosToXmr(BigInt(Number(item.piconeros) - Number(item.credits)))} stashed`
-  }
-  if (item.credits) {
-    title += ` \\ ${numWithUnits(item.credits, { abbreviate: false, unitSingular: 'credit', unitPlural: 'credits' })} stashed`
+  if (Number(item.piconeros)) {
+    title += ` \\ ${piconerosToXmr(BigInt(Number(item.piconeros)))} stashed`
   }
   if (item.boost) {
     title += ` \\ ${numWithUnits(item.boost, { abbreviate: false, unitSingular: 'boost', unitPlural: 'boost' })}`
@@ -66,11 +63,8 @@ function itemTitle (item) {
   }
   if (item.mePiconeros || item.meDontLikePiconeros || item.meAnonPiconeros) {
     const satSources = []
-    if (item.meAnonPiconeros || (Number(item.mePiconeros || 0) - Number(item.meCredits || 0)) > 0) {
-      satSources.push(`${piconerosToXmr(BigInt(Number(item.mePiconeros || 0) + Number(item.meAnonPiconeros || 0) - Number(item.meCredits || 0)))}`)
-    }
-    if (item.meCredits) {
-      satSources.push(`${numWithUnits(item.meCredits, { abbreviate: false, unitSingular: 'credit', unitPlural: 'credits' })}`)
+    if (item.meAnonPiconeros || Number(item.mePiconeros || 0) > 0) {
+      satSources.push(`${piconerosToXmr(BigInt(Number(item.mePiconeros || 0) + Number(item.meAnonPiconeros || 0)))}`)
     }
     if (item.meDontLikePiconeros) {
       satSources.push(`${piconerosToXmr(BigInt(item.meDontLikePiconeros))}`)
@@ -311,7 +305,7 @@ function ItemDetails ({ item, me }) {
       <div className={styles.detailsLabel}>boost</div>
       <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.boost))}</div>
       <div className={styles.detailsLabel}>stashed</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.piconeros) - Number(item.credits)))} / {item.credits} credits</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.piconeros)))}</div>
       <div className={styles.detailsLabel}>downvotes</div>
       <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.downPiconeros || 0))}</div>
       <div className={styles.detailsLabel}>invested</div>
@@ -322,7 +316,7 @@ function ItemDetails ({ item, me }) {
       <div className={styles.detailsLabel}>boost</div>
       <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentBoost))}</div>
       <div className={styles.detailsLabel}>stashed</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.commentPiconeros) - Number(item.commentCredits)))} / {item.commentCredits} credits</div>
+      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.commentPiconeros)))}</div>
       <div className={styles.detailsLabel}>downvotes</div>
       <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentDownPiconeros || 0))}</div>
       <div className={styles.detailsLabel}>invested</div>
@@ -331,7 +325,7 @@ function ItemDetails ({ item, me }) {
         <>
           <div className={styles.detailsSection}>from me</div>
           <div className={styles.detailsLabel}>tipped</div>
-          <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.mePiconeros) - Number(item.meCredits)))} / {item.meCredits} credits</div>
+          <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.mePiconeros)))}</div>
           <div className={styles.detailsLabel}>downvoted</div>
           <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.meDontLikePiconeros || 0))}</div>
         </>

@@ -152,23 +152,11 @@ function modifyActCache (cache, { payerPrivates }, me) {
         }
         return existingSats
       },
-      credits (existingCredits = 0) {
-        if (act === 'TIP') {
-          return Number(existingCredits) + piconeros
-        }
-        return existingCredits
-      },
       mePiconeros: (existingSats = 0) => {
         if (act === 'TIP' && me) {
           return Number(existingSats) + piconeros
         }
         return existingSats
-      },
-      meCredits: (existingCredits = 0) => {
-        if (act === 'TIP' && me) {
-          return Number(existingCredits) + piconeros
-        }
-        return existingCredits
       },
       meDontLikePiconeros: (existingSats = 0) => {
         if (act === 'DONT_LIKE_THIS') {
@@ -252,13 +240,13 @@ function updateAncestors (cache, { payerPrivates }) {
 }
 
 // act bump: write an item's counters to the ROOT cache (survives navigation under maxMerge).
-// tips settle 100% P2P in monero, so TIP adds credits outright (DONT_LIKE_THIS/BOOST never touch
-// credits). used by this modal (via withActBump) and tip-modal (directly).
+// tips settle 100% P2P in monero, so TIP bumps piconeros/mePiconeros only (the server's
+// applyTipDetected never writes credits). used by this modal (via withActBump) and tip-modal (directly).
 export function bumpActCache (cache, result, me) {
   modifyActCache(cache, { payerPrivates: { result } }, me)
 }
 
-// reverse a bump: TIP's credits are reversed alongside its sats.
+// reverse a bump: TIP's piconeros are reversed alongside the item counters.
 export function revertActBump (cache, result, me) {
   modifyActCache(cache, { payerPrivates: { result: { ...result, piconeros: -result.piconeros } } }, me)
 }
@@ -279,7 +267,7 @@ export async function withActBump (cache, result, me, attempt) {
   }
 }
 
-// the bump already wrote the item's counters (including TIP credits) to the root cache; these
+// the bump already wrote the item's counters to the root cache; these
 // phases only reconcile what the bump couldn't know up front: the reversal (on terminal failure)
 // and the ancestors (on payment).
 export function getActCachePhases (me) {

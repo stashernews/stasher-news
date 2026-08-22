@@ -46,8 +46,6 @@ export function PayInContext ({ payIn }) {
       return <small className='text-muted d-flex justify-content-center w-100'>Withdrawal details unavailable (Monero pending)</small>
     case 'DONATE':
       return <small className='text-muted d-flex justify-content-center w-100'>Praise be, you donated to the rewards pool.</small>
-    case 'BUY_CREDITS':
-      return <small className='text-muted d-flex justify-content-center w-100'>You topped up your credits.</small>
   }
   return <small className='text-muted d-flex justify-content-center w-100'>N/A</small>
 }
