@@ -11,6 +11,7 @@ import { depthLimit } from '@graphile/depth-limit'
 import { COMMENT_DEPTH_LIMIT } from '@/lib/constants'
 import { ApolloServerPluginLandingPageDisabled } from '@apollo/server/plugin/disabled'
 import { logWarn, logError } from '@/lib/logger'
+import { formatGraphqlError } from '@/lib/formatGraphqlError'
 import { lexicalStateLoader } from '@/lib/lexical/server/loader'
 import { createUserLoader, createSubLoader } from '@/api/loaders'
 import { lwsClient } from '@/api/monero/lwsClient'
@@ -38,6 +39,7 @@ const apolloServer = new ApolloServer({
       'Comments.comments': COMMENT_DEPTH_LIMIT
     }
   })],
+  formatError: formatGraphqlError,
   plugins: [{
     requestDidStart (initialRequestContext) {
       return {

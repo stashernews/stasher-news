@@ -17,6 +17,9 @@ const models = (receivedPiconeros) => ({
   payIn: { findUnique: async () => PAY_IN },
   feeObservation: {
     aggregate: async () => ({ _sum: { piconeros: receivedPiconeros } })
+  },
+  observedSubFee: {
+    aggregate: async () => ({ _sum: { piconeros: 0n } })
   }
 })
 

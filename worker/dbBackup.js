@@ -1,9 +1,10 @@
 import { exec as execCb } from 'node:child_process'
 import { promises as fsp, createReadStream } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { alert } from '@/lib/alert'
 
 // dbBackup — nightly encrypted DB backup (Phase 6 Task E1). Spawns
@@ -43,6 +44,33 @@ export async function pruneOldBackups ({ dir, retentionDays, now = Date.now() })
   return pruned
 }
 
+// Base64 SHA-256 of a file, streamed — backups can be large, never buffer them whole.
+export async function sha256File (filePath) {
+  const hash = createHash('sha256')
+  await new Promise((resolve, reject) => {
+    createReadStream(filePath)
+      .on('data', chunk => hash.update(chunk))
+      .on('error', reject)
+      .on('end', resolve)
+  })
+  return hash.digest('base64')
+}
+
+// Post-upload verification: HEAD the object back and compare size + (when the
+// remote reports one) the SHA-256 checksum against the local file. Catches
+// truncation/corruption that a fire-and-forget PutObject would silently accept.
+export async function verifyS3Upload ({ client, bucket, key, filePath }) {
+  const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key, ChecksumMode: 'ENABLED' }))
+  const localStat = await fsp.stat(filePath)
+  if (head.ContentLength !== localStat.size) {
+    return { ok: false, reason: `size mismatch: local ${localStat.size} vs remote ${head.ContentLength}` }
+  }
+  if (head.ChecksumSHA256 && head.ChecksumSHA256 !== await sha256File(filePath)) {
+    return { ok: false, reason: 'sha256 checksum mismatch' }
+  }
+  return { ok: true }
+}
+
 // Build an S3 upload fn only when BACKUP_S3_BUCKET is configured; otherwise
 // undefined (runBackupOnce then skips the upload). Mirrors api/s3 dev handling:
 // forcePathStyle + optional localstack endpoint in development.
@@ -57,8 +85,15 @@ function s3UploadIfConfigured () {
   const prefix = process.env.BACKUP_S3_PREFIX || 'backups/'
   return async (filePath) => {
     const Key = prefix + basename(filePath)
-    await client.send(new PutObjectCommand({ Bucket, Key, Body: createReadStream(filePath) }))
-    console.log(`dbBackup: uploaded ${Key} to s3://${Bucket}`)
+    await client.send(new PutObjectCommand({
+      Bucket, Key, Body: createReadStream(filePath), ChecksumAlgorithm: 'SHA256'
+    }))
+    const verify = await verifyS3Upload({ client, bucket: Bucket, key: Key, filePath })
+    if (!verify.ok) {
+      alert('critical', 'dbBackup upload verification failed', `${Key}: ${verify.reason}`, { dedupeKey: 'dbBackup-verify' })
+      throw new Error(`dbBackup: upload verification failed: ${verify.reason}`)
+    }
+    console.log(`dbBackup: uploaded + verified ${Key} to s3://${Bucket}`)
   }
 }
 

@@ -712,6 +712,9 @@ export default {
       return await authMethods(user, undefined, { models, me })
     },
     subscribeUserPosts: async (parent, { id }, { me, models }) => {
+      if (!me) {
+        throw new GqlAuthenticationError()
+      }
       const lookupData = { followerId: Number(me.id), followeeId: Number(id) }
       const existing = await models.userSubscription.findUnique({ where: { followerId_followeeId: lookupData } })
       const muted = await isMuted({ models, muterId: me?.id, mutedId: id })
@@ -729,6 +732,9 @@ export default {
       return { id }
     },
     subscribeUserComments: async (parent, { id }, { me, models }) => {
+      if (!me) {
+        throw new GqlAuthenticationError()
+      }
       const lookupData = { followerId: Number(me.id), followeeId: Number(id) }
       const existing = await models.userSubscription.findUnique({ where: { followerId_followeeId: lookupData } })
       const muted = await isMuted({ models, muterId: me?.id, mutedId: id })
@@ -746,6 +752,9 @@ export default {
       return { id }
     },
     toggleMute: async (parent, { id }, { me, models }) => {
+      if (!me) {
+        throw new GqlAuthenticationError()
+      }
       const lookupData = { muterId: Number(me.id), mutedId: Number(id) }
       const where = { muterId_mutedId: lookupData }
       const existing = await models.mute.findUnique({ where })

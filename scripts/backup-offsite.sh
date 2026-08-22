@@ -93,6 +93,33 @@ leg "secrets.env -> ${BUCKET}/secrets/" \
 leg "media (${MEDIA_REMOTE}:${MEDIA_BUCKET}) -> ${BUCKET}/media/" \
   rclone copy "${MEDIA_REMOTE}:${MEDIA_BUCKET}" "${B2_REMOTE}:${BUCKET}/media" --transfers 4
 
+# --- webhook notify (same Slack-default shape as lib/alert.js) ----------------
+notify () {
+  local level=$1 title=$2 body=$3
+  echo "!! offsite backup: $title — $body" >&2
+  if [ -n "${ALERT_WEBHOOK_URL:-}" ]; then
+    curl -sf -m 10 -X POST -H 'Content-Type: application/json' \
+      -d "{\"text\":\"[${level}] ${title}\n${body}\"}" \
+      "$ALERT_WEBHOOK_URL" >/dev/null || true
+  fi
+}
+
+# --- verification: bit-integrity of what just landed in B2 --------------------
+# rclone check compares size + hash (B2 supplies hashes) local <-> remote for
+# the backups leg — the small, high-value payload. --one-way: every local file
+# must exist remotely and match. Mismatch means the offsite copy is NOT
+# restorable as-is: page immediately.
+# WARNING: --one-way requires every LOCAL file to exist remotely. Keep
+# BACKUP_RETENTION_DAYS <= 90 (the B2 lifecycle) — if local retention ever
+# exceeds the remote 90-day lifecycle, expired-remote files make this check
+# fail nightly even though nothing is wrong.
+if [ -d "$BACKUPS_DIR" ]; then
+  if ! rclone check "$BACKUPS_DIR" "${B2_REMOTE}:${BUCKET}/backups" --one-way; then
+    notify CRITICAL "offsite backup verification failed" "rclone check mismatch on ${BUCKET}/backups"
+    fail=1
+  fi
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "!! offsite backup: one or more legs FAILED — check output above" >&2
   exit 1

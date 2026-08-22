@@ -31,6 +31,11 @@
 # Optional overrides:
 #   SOURCE_DB / RESTORE_DB / DB_CONTAINER / APP_CONTAINER
 #   KEEP_RESTORE_DB=1  leave the throwaway DB in place for manual inspection
+#
+#   Weekly restore drill (root, VPS — proves the restore path stays green):
+#     0 5 * * 0 /opt/stashernews/scripts/test-restore.sh >> /var/log/test-restore.log 2>&1
+#   Failures POST to ALERT_WEBHOOK_URL when set (same shape as lib/alert.js);
+#   on dev machines (no ALERT_WEBHOOK_URL) it degrades to the stderr message.
 set -euo pipefail
 
 SOURCE_DB="${SOURCE_DB:-stackernews}"
@@ -56,6 +61,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
+notify () {
+  local level=$1 title=$2 body=$3
+  echo "test-restore: $title — $body" >&2
+  if [ -n "${ALERT_WEBHOOK_URL:-}" ]; then
+    curl -sf -m 10 -X POST -H 'Content-Type: application/json' \
+      -d "{\"text\":\"[${level}] ${title}\n${body}\"}" \
+      "$ALERT_WEBHOOK_URL" >/dev/null || true
+  fi
+}
+
 echo "test-restore: resetting throwaway DB '$RESTORE_DB'"
 drop_restore_db
 docker exec -i "$DB_CONTAINER" psql -U sn -d postgres -tAc \
@@ -65,6 +80,7 @@ echo "test-restore: pg_dump '$SOURCE_DB' -> restore into '$RESTORE_DB'"
 restore_log="$(mktemp)"
 if ! docker exec "$DB_CONTAINER" pg_dump -U sn "$SOURCE_DB" 2>"$restore_log" \
      | docker exec -i "$DB_CONTAINER" psql -U sn -d "$RESTORE_DB" -q -v ON_ERROR_STOP=1 >>"$restore_log" 2>&1; then
+  notify CRITICAL "restore drill FAILED" "could not restore dump into ${RESTORE_DB} (see cron log)"
   echo "test-restore: FAIL — could not restore dump into '$RESTORE_DB'" >&2
   cat "$restore_log" >&2
   rm -f "$restore_log"
@@ -89,6 +105,7 @@ if docker exec "$DB_CONTAINER" psql -U sn -d "$RESTORE_DB" -tAc \
   echo "test-restore: PASS — DB restored into '$RESTORE_DB' and every MoneroViewKey row decrypts under VIEWKEY_MASTER_KEY"
 else
   rc=$?
+  notify CRITICAL "restore drill FAILED" "decryptViewKey did not succeed on every row in ${RESTORE_DB}"
   echo "test-restore: FAIL — decryptViewKey did not succeed on every row (see restore-check output above)" >&2
   exit "$rc"
 fi

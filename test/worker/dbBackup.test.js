@@ -1,10 +1,11 @@
 /* eslint-env jest */
 
+import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync, existsSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { pruneOldBackups, runBackupOnce } from '@/worker/dbBackup'
+import { pruneOldBackups, runBackupOnce, sha256File, verifyS3Upload } from '@/worker/dbBackup'
 
 function tmpDir () {
   return mkdtempSync(join(tmpdir(), 'stasher-backup-'))
@@ -72,4 +73,53 @@ test('runBackupOnce skips the S3 upload when no upload fn is provided', async ()
 
   expect(out.file).toBe(produced)
   expect(existsSync(produced)).toBe(true)
+})
+
+// --- Task: S3 upload verification --------------------------------------------
+
+test('sha256File computes the base64 SHA-256 of the file contents', async () => {
+  const dir = tmpDir()
+  const f = join(dir, 'dump.sql.gpg')
+  writeFileSync(f, 'hello stasher')
+  const expected = createHash('sha256').update('hello stasher').digest('base64')
+  await expect(sha256File(f)).resolves.toBe(expected)
+})
+
+function fakeS3Client (head) {
+  return { send: jest.fn(async () => head) }
+}
+
+test('verifyS3Upload ok when size and checksum match', async () => {
+  const dir = tmpDir()
+  const f = touch(dir, 'stackernews-20260821T030000Z.sql.gpg') // contents 'x'
+  const checksum = createHash('sha256').update('x').digest('base64')
+  const size = 1
+  const client = fakeS3Client({ ContentLength: size, ChecksumSHA256: checksum })
+  await expect(verifyS3Upload({ client, bucket: 'b', key: 'k', filePath: f })).resolves.toEqual({ ok: true })
+})
+
+test('verifyS3Upload fails on size mismatch', async () => {
+  const dir = tmpDir()
+  const f = touch(dir, 'stackernews-20260821T030000Z.sql.gpg')
+  const client = fakeS3Client({ ContentLength: 999, ChecksumSHA256: null })
+  const out = await verifyS3Upload({ client, bucket: 'b', key: 'k', filePath: f })
+  expect(out.ok).toBe(false)
+  expect(out.reason).toContain('size mismatch')
+})
+
+test('verifyS3Upload fails on checksum mismatch', async () => {
+  const dir = tmpDir()
+  const f = touch(dir, 'stackernews-20260821T030000Z.sql.gpg') // contents 'x'
+  const wrongChecksum = createHash('sha256').update('tampered').digest('base64')
+  const client = fakeS3Client({ ContentLength: 1, ChecksumSHA256: wrongChecksum })
+  const out = await verifyS3Upload({ client, bucket: 'b', key: 'k', filePath: f })
+  expect(out.ok).toBe(false)
+  expect(out.reason).toContain('checksum mismatch')
+})
+
+test('verifyS3Upload is ok with size-only when the remote reports no checksum', async () => {
+  const dir = tmpDir()
+  const f = touch(dir, 'stackernews-20260821T030000Z.sql.gpg') // contents 'x', size 1
+  const client = fakeS3Client({ ContentLength: 1, ChecksumSHA256: undefined })
+  await expect(verifyS3Upload({ client, bucket: 'b', key: 'k', filePath: f })).resolves.toEqual({ ok: true })
 })

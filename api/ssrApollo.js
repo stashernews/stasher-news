@@ -20,6 +20,10 @@ import { getDomainBranding, SN_MAIN_DOMAIN } from '@/lib/domains'
 import { lwsClient } from './monero/lwsClient'
 import { logWarn, logError } from '@/lib/logger'
 
+// The schema is static (typeDefs + resolvers are module constants) — build it
+// once per process instead of once per SSR request.
+const executableSchema = makeExecutableSchema({ typeDefs, resolvers })
+
 export default async function getSSRApolloClient ({ req, res, me = null }) {
   // switch session cookie before getting session on SSR
   if (req) {
@@ -29,10 +33,7 @@ export default async function getSSRApolloClient ({ req, res, me = null }) {
   const client = new ApolloClient({
     ssrMode: true,
     link: new SchemaLink({
-      schema: makeExecutableSchema({
-        typeDefs,
-        resolvers
-      }),
+      schema: executableSchema,
       context: (() => {
         const viewer = session
           ? session.user
@@ -170,9 +171,13 @@ export function getGetServerSideProps (
 
     const client = await getSSRApolloClient({ req, res })
 
-    // inject custom domain branding if any
-    const host = req.headers.host
-    const branding = host ? await getDomainBranding(host) : null
+    // independent lookups fire immediately and run concurrently; each gets a
+    // no-op catch so a rejection between creation and its await below can never
+    // become an unhandledRejection (which would kill the server process)
+    const brandingPromise = req.headers.host ? getDomainBranding(req.headers.host) : Promise.resolve(null)
+    brandingPromise.catch(() => {})
+    const blockHeightPromise = client.query({ query: BLOCK_HEIGHT, variables: {} })
+    blockHeightPromise.catch(() => {})
 
     let { data: { me } } = await client.query({ query: ME })
 
@@ -184,6 +189,7 @@ export function getGetServerSideProps (
 
     if (authRequired && !me) {
       // if we're on a custom domain, use the domain header instead of the main domain
+      const branding = await brandingPromise
       const origin = branding ? `${SN_MAIN_DOMAIN.protocol}//${req.headers['x-stacker-news-domain']}` : process.env.NEXT_PUBLIC_URL
       let callback = origin + req.url
       // On client-side routing, the callback is a NextJS URL
@@ -197,21 +203,20 @@ export function getGetServerSideProps (
       }
     }
 
-    const { data: { price } } = await client.query({
+    // PRICE needs ME only for the currency pref; the page query needs ME for
+    // the notFound predicate — but they are independent of each other, so both
+    // fire now instead of serializing after BLOCK_HEIGHT
+    const pricePromise = client.query({
       query: PRICE, variables: { fiatCurrency: me?.privates?.fiatCurrency }
     })
-
-    const { data: { blockHeight } } = await client.query({
-      query: BLOCK_HEIGHT, variables: {}
-    })
+    pricePromise.catch(() => {})
+    const pagePromise = query ? client.query({ query, variables: vars }) : null
+    if (pagePromise) pagePromise.catch(() => {})
 
     let error = null; let data = null; let props = {}
-    if (query) {
+    if (pagePromise) {
       try {
-        ({ error, data } = await client.query({
-          query,
-          variables: vars
-        }))
+        ({ error, data } = await pagePromise)
       } catch (e) {
         error = e
       }
@@ -239,6 +244,10 @@ export function getGetServerSideProps (
         }
       }
     }
+
+    const branding = await brandingPromise
+    const { data: { price } } = await pricePromise
+    const { data: { blockHeight } } = await blockHeightPromise
 
     oneDayReferral(req, { me })
 
