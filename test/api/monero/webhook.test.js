@@ -10,6 +10,7 @@
 // passed), so the ranking side-effect path is exercised end-to-end.
 
 import { handleWebhook } from '@/pages/api/monero/webhook'
+import { flipPendingToLive, applyBoostDetected } from '@/worker/rewardsWalletObserver'
 
 // lib/auth pulls in next-auth/jwt -> uuid (ESM-only under jest CJS require); the
 // webhook graph only uses lib/domains/auth's `safeEqual` (pure node:crypto), so
@@ -17,6 +18,16 @@ import { handleWebhook } from '@/pages/api/monero/webhook'
 // secureCookie helper is stubbed. (Same pattern as test/components/sticky-bar.test.js.)
 jest.mock(`${process.cwd()}/lib/auth`, () => ({
   secureCookie: (name) => name
+}))
+
+// The fee: branch (owner-routed turf fees) delegates the gated live-flip and
+// the boost bump to the observer's shared helpers. Mock the module at the
+// boundary (same pattern as lib/auth above) so the gate/bump CALLS are
+// assertable and the observer's heavier module graph (monero-ts via
+// feePoolDerive) never loads under jest.
+jest.mock(`${process.cwd()}/worker/rewardsWalletObserver`, () => ({
+  flipPendingToLive: jest.fn().mockResolvedValue(undefined),
+  applyBoostDetected: jest.fn().mockResolvedValue(undefined)
 }))
 
 function mockModels (overrides = {}) {
@@ -56,6 +67,17 @@ function mockModels (overrides = {}) {
       findFirst: jest.fn().mockResolvedValue(null),
       update: jest.fn().mockResolvedValue({}),
       ...overrides.observedDownvote
+    },
+    // Fee branch models (owner-routed "fee:" pids): reverse-mapped through
+    // PayIn.moneroPaymentId (unique). Default to "no matching payin" so
+    // existing tests fall through to the downvote branch as 200 no-ops.
+    payIn: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      ...overrides.payIn
+    },
+    observedSubFee: {
+      aggregate: jest.fn().mockResolvedValue({ _sum: { piconeros: null } }),
+      ...overrides.observedSubFee
     },
     // The downvote 0-conf path fetches the item via tx.item.findUnique with the
     // models object doubling as the tx (see the downvote tests' $transaction
@@ -697,6 +719,148 @@ test('0-conf race vs poll-insert: pid-map claim wins but the ObservedDownvote in
   expect(models.observedDownvote.update).not.toHaveBeenCalled()
   expect(monero.deleteWebhook).not.toHaveBeenCalled()
   expect(res.status).toHaveBeenCalledWith(200)
+})
+
+// ---- fee: branch (owner-routed turf fees via PayIn.moneroPaymentId) ----
+
+describe('fee: branch (owner-routed turf fees)', () => {
+  const pid = 'aabbccddeeff0011'
+  // URI quotes 0.001 XMR = 1e9 piconeros — the cumulative gate's threshold.
+  const basePayIn = { id: 101, payInType: 'ITEM_CREATE', moneroPaymentId: pid, moneroUri: 'monero:9?tx_amount=0.001', piconeros: 0n }
+
+  // Stateful receipt mock over mockModels: the ObservedSubFee insert is fresh
+  // iff no prior receipt carries the callback's txHash (ON CONFLICT
+  // ("txHash","paymentId") DO NOTHING ... RETURNING id), and the aggregate
+  // re-sums the receipts on every call so top-ups move the cumulative total
+  // (mockResolvedValue would freeze the sum at setup time).
+  function feeModels ({ payIn = basePayIn, receipts = [] } = {}) {
+    const inserted = []
+    const models = mockModels({
+      payIn: {
+        findUnique: jest.fn().mockImplementation(async ({ where }) =>
+          where.moneroPaymentId === pid ? payIn : null)
+      },
+      observedSubFee: {
+        aggregate: jest.fn().mockImplementation(async () => ({
+          _sum: { piconeros: receipts.reduce((sum, r) => sum + (r.piconeros ?? 0n), 0n) }
+        }))
+      },
+      // Tagged-template insert. Bound params in call order:
+      // [txHash, paymentId, payInId, piconeros, height, confirmations].
+      // jest.fn so the recorded SQL strings are assertable (sqlOf idiom) —
+      // guards the physical snake_case column names against 42703 regressions
+      // (the mock would otherwise happily run camelCase SQL).
+      queryRaw: jest.fn(async (strings, ...vals) => {
+        if (!String(strings[0]).includes('ObservedSubFee')) return []
+        const txHash = vals[0]
+        if (receipts.some(r => r.txHash === txHash)) return []
+        const row = { id: receipts.length + 1, txHash, paymentId: pid, piconeros: vals[3] }
+        receipts.push(row)
+        inserted.push(row)
+        return [row]
+      })
+    })
+    return { models, inserted }
+  }
+
+  test('records a DETECTED receipt and flips the item live once cumulative covers the URI amount', async () => {
+    const { models, inserted } = feeModels()
+    const res = mockRes()
+    await handleWebhook({ body: { payment_id: pid, confirmations: 0, tx_info: { tx_hash: 'tx1', amount: '500000000000' } }, headers: {} }, res, models, mockMonero())
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0].txHash).toBe('tx1')
+    // Physical-column regression guard (42703): the tables are snake_case-mapped
+    // (tx_hash/payment_id/pay_in_id/owner_user_id/detected_at), NOT camelCase
+    // like ObservedTip — camelCase identifiers here would throw at runtime
+    // while the mocked $queryRaw happily executed them.
+    const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+    const insertSql = models.$queryRaw.mock.calls.map(sqlOf).find(sql => sql.includes('INSERT INTO "ObservedSubFee"'))
+    expect(insertSql).toBeDefined()
+    expect(insertSql).toContain('tx_hash')
+    expect(insertSql).toContain('payment_id')
+    expect(insertSql).not.toContain('"txHash"')
+    // covered (5e11 observed >= 1e9 quoted): the cumulative gate opens
+    expect(flipPendingToLive).toHaveBeenCalledWith(models, expect.objectContaining({ id: 101 }), 500000000000n)
+    // the boost bump is BOOST-payins-only
+    expect(applyBoostDetected).not.toHaveBeenCalled()
+  })
+
+  test('is a 200 no-op for an unknown payment id', async () => {
+    const { models, inserted } = feeModels({ payIn: null })
+    const res = mockRes()
+    await handleWebhook({ body: { payment_id: 'ffffffffffffffff', tx_info: { tx_hash: 'txX' } }, headers: {} }, res, models, mockMonero())
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(inserted).toHaveLength(0)
+    expect(flipPendingToLive).not.toHaveBeenCalled()
+  })
+
+  test('top-up receipts accumulate toward the gate (second tx inserts a second row)', async () => {
+    const receipts = [{ id: 1, txHash: 'tx1', paymentId: pid, piconeros: 500000000000n }]
+    const { models, inserted } = feeModels({ receipts })
+    const res = mockRes()
+    await handleWebhook({ body: { payment_id: pid, confirmations: 0, tx_info: { tx_hash: 'tx2', amount: '500000000000' } }, headers: {} }, res, models, mockMonero())
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0].txHash).toBe('tx2')
+    // cumulative 1e12 after the top-up: the flip carries the summed total
+    expect(flipPendingToLive).toHaveBeenCalledWith(models, expect.objectContaining({ id: 101 }), 1000000000000n)
+  })
+
+  test('an under-paid fee does NOT flip (gate closed until cumulative covers the URI amount)', async () => {
+    const { models, inserted } = feeModels()
+    const res = mockRes()
+    await handleWebhook({ body: { payment_id: pid, confirmations: 0, tx_info: { tx_hash: 'tx1', amount: '500000000' } }, headers: {} }, res, models, mockMonero())
+    expect(res.status).toHaveBeenCalledWith(200)
+    // the receipt is still recorded (top-up-able) ...
+    expect(inserted).toHaveLength(1)
+    // ... but 5e8 observed < 1e9 quoted keeps the gated item PENDING_FEE
+    expect(flipPendingToLive).not.toHaveBeenCalled()
+  })
+
+  test('N-conf callback matures THIS receipt DETECTED -> CONFIRMED; a replayed txHash at N-conf inserts nothing and never double-flips', async () => {
+    const { models, inserted } = feeModels()
+    const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+
+    // fresh txHash at N confs (>= REQUIRED_CONFIRMATIONS): the receipt is
+    // recorded AND matured by the atomic conditional UPDATE in one callback.
+    const res = mockRes()
+    await handleWebhook({ body: { payment_id: pid, confirmations: 12, tx_info: { tx_hash: 'txN', amount: '500000000000' } }, headers: {} }, res, models, mockMonero())
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0].txHash).toBe('txN')
+    // the maturity UPDATE ran, with the same shape as the tip/downvote
+    // CONFIRMED flips AND the physical snake_case columns in its WHERE/SET
+    const sqls = models.$executeRaw.mock.calls.map(sqlOf)
+    expect(sqls.some(sql => sql.includes("state = 'CONFIRMED'") && sql.includes("state = 'DETECTED'"))).toBe(true)
+    expect(sqls.some(sql => sql.includes('UPDATE "ObservedSubFee"') && sql.includes('"tx_hash"') && sql.includes('"confirmed_at"'))).toBe(true)
+
+    // replay of the SAME txHash at N confs (lws retry / duplicate delivery):
+    // the ON CONFLICT no-op means no second receipt row ...
+    const res2 = mockRes()
+    await handleWebhook({ body: { payment_id: pid, confirmations: 12, tx_info: { tx_hash: 'txN', amount: '500000000000' } }, headers: {} }, res2, models, mockMonero())
+    expect(res2.status).toHaveBeenCalledWith(200)
+    expect(inserted).toHaveLength(1)
+    // ... and the cumulative gate re-runs only as the idempotent self-heal:
+    // once per callback, with the SAME cumulative total (never a doubled
+    // amount from re-counting the replayed receipt).
+    const flips = flipPendingToLive.mock.calls.filter(c => c[1]?.id === 101)
+    expect(flips).toHaveLength(2)
+    expect(flips[0][2]).toBe(500000000000n)
+    expect(flips[1][2]).toBe(500000000000n)
+  })
+
+  test('a replayed txHash inserts nothing (idempotent)', async () => {
+    const receipts = [{ id: 1, txHash: 'tx1', paymentId: pid, piconeros: 1000000000000n }]
+    const { models, inserted } = feeModels({ receipts })
+    const res = mockRes()
+    await handleWebhook({ body: { payment_id: pid, confirmations: 3, tx_info: { tx_hash: 'tx1', amount: '1000000000000' } }, headers: {} }, res, models, mockMonero())
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(inserted).toHaveLength(0)
+    // the cumulative gate still runs on the conflict path (observer self-heal
+    // semantics — a stranded PENDING_FEE item re-flips idempotently)
+    expect(flipPendingToLive).toHaveBeenCalledWith(models, expect.objectContaining({ id: 101 }), 1000000000000n)
+  })
 })
 
 // --- auth-denial tests (Task 3 / C4) ---

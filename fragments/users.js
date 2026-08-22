@@ -37,6 +37,7 @@ ${STREAK_FIELDS}
       territoryYearlyPiconeros
       territoryOncePiconeros
       commentFeePiconeros
+      turfOwnerFees
       tipDefault
       tipRandom
       tipRandomMin

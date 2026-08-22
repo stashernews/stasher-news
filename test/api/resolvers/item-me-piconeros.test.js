@@ -30,9 +30,10 @@ jest.mock('../../../lib/lexical/server/html', () => ({
 
 const prisma = new PrismaClient()
 
-const created = { users: [], items: [], payIns: [] }
+const created = { users: [], items: [], payIns: [], observedSubFees: [] }
 
 async function cleanupTracked () {
+  await prisma.observedSubFee.deleteMany({ where: { id: { in: created.observedSubFees } } })
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } })
   // ItemUserAgg cascades on item delete (onDelete: Cascade)
   await prisma.item.deleteMany({ where: { id: { in: created.items } } })
@@ -117,5 +118,45 @@ describe('Item.mePiconeros / meDontLikePiconeros (fallback path, bare item)', ()
     expect(await resolvers.Item.mePiconeros(bare, {}, { me: { id: me }, models: prisma })).toBe(0n)
     expect(await resolvers.Item.meDontLikePiconeros(bare, {}, { me: { id: me }, models: prisma })).toBe(0n)
     expect(await resolvers.Item.mePiconeros(bare, {}, { models: prisma })).toBe(0n)
+  })
+})
+
+describe('Item.feeReceivedPiconeros (owner-routed fee legs)', () => {
+  // Owner-routed legs record ObservedSubFee receipts (fee: webhook), not
+  // FeeObservation rows — the resolver must sum both so the pending-fee modal
+  // and badge see partial payments on either routing.
+  test('sums ObservedSubFee receipts for an owner-leg fee PayIn', async () => {
+    const userId = await createUser()
+    const payIn = await prisma.payIn.create({ data: { userId, piconeros: 0n, payInType: 'ITEM_CREATE', payInState: 'PENDING_PAYMENT' } })
+    created.payIns.push(payIn.id)
+    const item = await prisma.item.create({
+      data: { userId, title: 'owner-leg fee post', status: 'ACTIVE', feeStatus: 'PENDING_FEE', feePayInId: payIn.id }
+    })
+    created.items.push(item.id)
+    for (const [i, amount] of [1_000_000_000n, 500_000_000n].entries()) {
+      const row = await prisma.observedSubFee.create({
+        data: {
+          payInId: payIn.id,
+          paymentId: `feetest${i}`,
+          txHash: `feetesthash${i}`,
+          subName: 'feetest',
+          ownerUserId: userId,
+          piconeros: amount,
+          state: 'DETECTED'
+        }
+      })
+      created.observedSubFees.push(row.id)
+    }
+    // bare item row (fallback path — no preloaded feeReceivedPiconeros)
+    const bare = await prisma.item.findUnique({ where: { id: item.id } })
+    const received = await resolvers.Item.feeReceivedPiconeros(bare, {}, { models: prisma })
+    expect(received).toBe(1_500_000_000n)
+  })
+
+  test('returns 0n for items with no fee PayIn (free posts)', async () => {
+    const userId = await createUser()
+    const item = await prisma.item.create({ data: { userId, title: 'free post', status: 'ACTIVE' } })
+    created.items.push(item.id)
+    expect(await resolvers.Item.feeReceivedPiconeros(item, {}, { models: prisma })).toBe(0n)
   })
 })

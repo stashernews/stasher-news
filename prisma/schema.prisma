@@ -615,8 +615,6 @@ model Sub {
   postTypes        PostType[]
   rankingType      RankingType
   allowFreebies    Boolean     @default(true)
-  baseCost         Int         @default(1)
-  replyCost        Int         @default(1)
   desc             String?
   status           Status      @default(ACTIVE)
   statusUpdatedAt  DateTime?
@@ -634,6 +632,16 @@ model Sub {
   billingStatus   SubBillingStatus @default(PAID)
   billingPayInId  Int?             @unique
   billingPayIn    PayIn?           @relation("SubBillingPayIn", fields: [billingPayInId], references: [id])
+
+  // Turf-owner revenue (2026-08-21 design): owner-set premiums added on top of
+  // the platform fee floor; 100% flows to the owner when a fee is routed
+  // owner-direct, or into the multiplied platform-routed fee otherwise.
+  // NOTE: no @map — camelCase physical columns. activeSubs (authed) and
+  // topSubs return raw `SELECT "Sub".*` rows straight to GraphQL, so the
+  // SUB_FIELDS-requested columns must exist camelCase in the DB (same
+  // convention as postsPiconerosFilter).
+  postPremiumPiconeros    BigInt @default(0)
+  commentPremiumPiconeros BigInt @default(0)
 
   parent            Sub?                @relation("ParentChildren", fields: [parentName], references: [name])
   children          Sub[]               @relation("ParentChildren")
@@ -1145,6 +1153,10 @@ model PayIn {
   // fee gate, FK on FeeObservation.payInId) rather than a redundant scalar.
   moneroSubaddressMajor Int?
   moneroSubaddressMinor Int?
+  // Set ONLY on owner-routed fee legs (fee: payment-ID namespace): the HMAC
+  // payment ID embedded in the integrated address of moneroUri. Reverse-maps
+  // lws webhook callbacks to this PayIn.
+  moneroPaymentId String? @unique @map("monero_payment_id")
   // StasherNews donation split (fee-allocation v2): the payer's chosen rewards
   // share (0-100) for a DONATE payIn. The rewardsWalletObserver copies it onto
   // the FeeObservation at attribution. null = legacy default (100% to the pool).
@@ -1165,6 +1177,7 @@ model PayIn {
   feeItem       Item?          @relation("ItemFeePayIn")
   feeSub        Sub?           @relation("SubBillingPayIn")
   feeObservations FeeObservation[]
+  observedSubFees ObservedSubFee[]
 
   @@index([userId])
   @@index([createdAt])
@@ -1585,6 +1598,56 @@ model DownvotePidMap {
   webhookEventId String?
 }
 
+// One row per on-chain RECEIPT of an owner-routed turf fee/boost (the sender
+// may top up an underpayment: multiple txs share the paymentId). Born DETECTED
+// at the 0-conf webhook callback; flipped CONFIRMED at N confirmations. The
+// cumulative gate (sum of receipts vs the PayIn's quoted URI amount) lives in
+// the webhook handler, mirroring the FeeObservation gate.
+model ObservedSubFee {
+  id            Int           @id @default(autoincrement())
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at")
+  txHash        String        @map("tx_hash")
+  paymentId     String        @map("payment_id")
+  payInId       Int?          @map("pay_in_id")
+  payIn         PayIn?        @relation(fields: [payInId], references: [id])
+  subName       String        @db.Citext
+  ownerUserId   Int           @map("owner_user_id")
+  piconeros     BigInt
+  height        Int?
+  confirmations Int           @default(0)
+  state         ObservedState
+  detectedAt    DateTime      @default(now()) @map("detected_at")
+  confirmedAt   DateTime?     @map("confirmed_at")
+
+  @@unique([txHash, paymentId])
+  @@index([payInId])
+  @@index([subName, state])
+  @@index([ownerUserId])
+  @@map("ObservedSubFee")
+}
+
+// Leg intent for an owner-routed fee: created at getInitial (before the PayIn
+// exists), carries the lws webhook event id for cleanup, denormalizes
+// subName/ownerUserId for receipt rows. Mirrors DownvotePidMap. If begin()
+// fails the client never sees the URI, so no payment can arrive — the map row
+// exists solely so webhookCleanup can reap the registered webhook after
+// expiry.
+model SubFeePidMap {
+  id              Int      @id @default(autoincrement())
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+  paymentId       String   @unique @map("payment_id")
+  subName         String   @db.Citext
+  ownerUserId     Int      @map("owner_user_id")
+  amountPiconeros BigInt   @map("amount_piconeros")
+  webhookEventId  String?  @map("webhook_event_id")
+  expiresAt       DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("SubFeePidMap")
+}
+
 // Fee configuration (platform-wide singleton row, id=1).
 model PlatformFeeConfig {
   id                             Int    @id @default(1)
@@ -1598,6 +1661,7 @@ model PlatformFeeConfig {
   territoryMonthlyPiconeros      BigInt @default(20000000000)
   territoryYearlyPiconeros       BigInt @default(200000000000)
   territoryOncePiconeros         BigInt @default(1000000000000)
+  maxTurfPremiumPiconeros        BigInt @default(10000000000) @map("max_turf_premium_piconeros")
   // allocation to rewards vs ops, per source (accounting-level; §6.4)
   downvoteRewardsPct             Int    @default(100)
   postingFeeRewardsPct           Int    @default(70)

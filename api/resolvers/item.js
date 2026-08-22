@@ -29,7 +29,7 @@ import { shuffleArray } from '@/lib/rand'
 import pay from '../payIn'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { resolveItemComments } from './comment-tree'
-import { itemFeeReentryFunding } from '@/api/monero/postingFee'
+import { itemFeeReentryFunding, feeReceivedPiconerosForPayIn } from '@/api/monero/postingFee'
 
 export async function getItem (parent, { id }, { me, models }) {
   const [item] = await getItemsById([id], { me, models })
@@ -947,16 +947,14 @@ export default {
       return payIn
     },
     // Cumulative on-chain piconeros observed for this item's posting-fee
-    // PayIn (each top-up tx is its own FeeObservation row). 0n when no fee
-    // PayIn exists (free posts) — drives the client's underpayment hint.
+    // PayIn — FeeObservation rows on platform-routed legs, ObservedSubFee
+    // receipts on owner-routed legs (fee: webhook), summed across both. 0n
+    // when no fee PayIn exists (free posts) — drives the client's
+    // underpayment hint.
     feeReceivedPiconeros: async (item, args, { models }) => {
       if (!item.feePayInId) return 0n
       if (typeof item.feeReceivedPiconeros !== 'undefined') return item.feeReceivedPiconeros
-      const agg = await models.feeObservation.aggregate({
-        _sum: { piconeros: true },
-        where: { payInId: item.feePayInId }
-      })
-      return agg._sum.piconeros ?? 0n
+      return await feeReceivedPiconerosForPayIn(models, item.feePayInId)
     },
     // StasherNews top-up URI for a PENDING_FEE item: re-quotes only the REMAINDER
     // after a partial fee (mirrors territoryReentryFunding), so the pending-fee

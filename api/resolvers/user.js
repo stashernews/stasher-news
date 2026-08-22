@@ -951,7 +951,8 @@ export default {
     territoryOncePiconeros: async (user, args, { models, me }) =>
       (await territoryFeePrivatesFor(models, me?.id)).territoryOncePiconeros,
     commentFeePiconeros: async (user, args, { models, me }) =>
-      (await territoryFeePrivatesFor(models, me?.id)).commentFeePiconeros
+      (await territoryFeePrivatesFor(models, me?.id)).commentFeePiconeros,
+    turfOwnerFees: () => process.env.TURF_OWNER_FEES === '1'
   },
 
   UserOptional: {

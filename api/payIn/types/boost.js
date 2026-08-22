@@ -4,10 +4,16 @@ import { buildMoneroUri } from '@/api/monero/uri'
 import { piconerosToXmr, xmrToPiconeros } from '@/lib/format'
 import { GqlInputError } from '@/lib/error'
 import { getItemResult } from '../lib/item'
+import { turfOwnerFeesEnabled, resolveOwnerFeeRouteForSub } from '@/api/monero/turfFeeRouting'
+import { createOwnerFeeLeg } from '@/api/monero/ownerFeeLeg'
+import { lwsClient } from '@/api/monero/lwsClient'
 
 // StasherNews boost (A-14) — upstream-faithful one-time permanent ranking
-// weight, 1:1 with tips, paid to the platform rewards wallet via a DEDICATED
-// major-5 fee subaddress (DONATE pattern, NOT the legacy custodial sats path).
+// weight, 1:1 with tips. When the boosted item sits in exactly ONE turf whose
+// owner has a registered wallet (and TURF_OWNER_FEES is on), the boost routes
+// 100% owner-direct via a fee: payment-ID leg; everything else is paid to the
+// platform rewards wallet via a DEDICATED major-5 fee subaddress (DONATE
+// pattern, NOT the legacy custodial sats path).
 //
 // The payIn is born PAID (fee payIns resolve to PAID at creation with
 // piconeros=0n — the FeeObservation carries the real on-chain amount): the
@@ -38,6 +44,33 @@ export async function getInitial (models, { id, piconeros }, { me }) {
 
   const item = await models.item.findUnique({ where: { id: parseInt(id) } })
   if (!item) throw new GqlInputError('item not found')
+
+  const route = turfOwnerFeesEnabled() && item.subNames?.length === 1
+    ? await resolveOwnerFeeRouteForSub(models, item.subNames[0])
+    : null
+
+  // owner-direct only when the payer is NOT the turf owner: an owner boosting
+  // in their own turf would pay themselves (minus tx fees) — a ranking sybil —
+  // so they fall through to the platform rewards-wallet leg
+  const eligible = route && Number(route.sub.userId) !== Number(me.id) ? route : null
+
+  if (eligible) {
+    // owner-direct boost: 100% to the turf owner (fee: leg, webhook-observed)
+    const leg = await createOwnerFeeLeg(models, lwsClient, {
+      ownerAccount: eligible.ownerAccount,
+      subName: eligible.sub.name,
+      amountPiconeros: amount,
+      description: 'StasherNews boost'
+    })
+    return {
+      payInType: 'BOOST',
+      userId: me.id,
+      piconeros: 0n,
+      moneroUri: leg.moneroUri,
+      moneroPaymentId: leg.paymentId,
+      itemPayIn: { itemId: parseInt(id) }
+    }
+  }
 
   const sub = await reserveFeeSubaddress(models, 'BOOST')
   const moneroUri = buildMoneroUri(

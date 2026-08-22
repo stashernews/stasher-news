@@ -217,9 +217,16 @@ describe('topSubs reads live observations', () => {
     expect(Number(b.nitems)).toBe(1)
   })
 
-  test('revenue is no longer a valid sort', async () => {
-    await expect(topSubs(null, { query: ALL_SUBS_QUERY, ...RANGE, by: 'revenue', limit: 50 }, { models: prisma, me: null }))
-      .rejects.toThrow(/invalid sort/i)
+  test('by revenue resolves (owner-routed fee receipts; 0n in this window)', async () => {
+    process.env.TURF_OWNER_FEES = '1'
+    try {
+      const { subs } = await topSubs(null, { query: ALL_SUBS_QUERY, ...RANGE, by: 'revenue', limit: 50 }, { models: prisma, me: null })
+      expect(subs.length).toBeGreaterThan(0)
+      // no ObservedSubFee receipts exist in the 2024 fixture window
+      for (const sub of subs) expect(sub.revenue).toBe(0n)
+    } finally {
+      delete process.env.TURF_OWNER_FEES
+    }
   })
 
   test('excludes DETECTED tips and tips to posts in other subs', async () => {
@@ -253,15 +260,15 @@ describe('topSubs reads live observations', () => {
     expect(other.stacked).toBe(8000000000n)
   })
 
-  test('the SubOptional GraphQL type no longer exposes revenue', async () => {
-    // Import the schema's typeDefs and assert revenue is absent from SubOptional.
+  test('the SubOptional GraphQL type exposes revenue again (owner-routed model)', async () => {
+    // Import the schema's typeDefs and assert revenue is present on SubOptional.
     // (Kept lightweight: a string check on the printed typeDef source.)
     const { readFileSync } = require('fs')
     const path = require('path')
     // resolve relative to this test file so the suite works on CI (repo at
     // /home/runner/work/...) and in the dev container (/app) alike
     const src = readFileSync(path.resolve(__dirname, '../../../api/typeDefs/sub.js'), 'utf8')
-    expect(src).not.toMatch(/revenue\s*\(/)
+    expect(src).toMatch(/revenue\s*\(/)
   })
 
   test('SUB_SORTS no longer includes revenue', async () => {

@@ -10,7 +10,7 @@ import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, DOMAIN_BETA_IDS } from '@/lib/co
 import { territorySchema, filterXmrValidator } from '@/lib/validate'
 import { useMe } from './me'
 import Info from './info'
-import { piconerosToXmrDecimal, piconerosToXmr, signedXmrToPiconeros, snapToFilterGrid } from '@/lib/format'
+import { piconerosToXmrDecimal, piconerosToXmr, signedXmrToPiconeros, snapToFilterGrid, xmrToPiconeros } from '@/lib/format'
 import { SUB } from '@/fragments/subs'
 import TerritoryBranding, { useBranding } from './territory-branding'
 import Link from 'next/link'
@@ -42,6 +42,48 @@ function SatFilterRanges () {
   )
 }
 
+// Turf owner premiums, gated server-side on TURF_OWNER_FEES and client-side on
+// me.privates.turfOwnerFees. Kept in form state as XMR decimals and converted
+// to BigInt piconeros on submit (inverse of the initial-value conversion).
+function TurfPremiumRanges () {
+  return (
+    <>
+      <Range
+        label={
+          <div className='d-flex align-items-center'>post premium
+            <Info>
+              <ul>
+                <li>extra XMR added to every posting fee in this turf, paid to your registered wallet on top of the floor fee</li>
+              </ul>
+            </Info>
+          </div>
+        }
+        name='postPremiumPiconeros'
+        min={0}
+        max={0.01}
+        step={0.0005}
+        suffix=' XMR'
+      />
+      <Range
+        label={
+          <div className='d-flex align-items-center'>comment premium
+            <Info>
+              <ul>
+                <li>extra XMR added to every comment fee in this turf, paid to your registered wallet on top of the floor fee</li>
+              </ul>
+            </Info>
+          </div>
+        }
+        name='commentPremiumPiconeros'
+        min={0}
+        max={0.01}
+        step={0.0005}
+        suffix=' XMR'
+      />
+    </>
+  )
+}
+
 export default function TerritoryForm ({ sub }) {
   const router = useRouter()
   const client = useApolloClient()
@@ -52,7 +94,17 @@ export default function TerritoryForm ({ sub }) {
   const [unarchiveTerritory] = usePayInMutation(UNARCHIVE_TERRITORY)
 
   const schema = territorySchema({ client, me, sub })
-  const xmrSchema = schema.shape({ postsPiconerosFilter: filterXmrValidator })
+  // the filter and premium fields live in form state as XMR decimals, so swap
+  // their piconero-bound validators for plain XMR-number bounds (the premium
+  // ceiling 0.01 XMR mirrors turfPremiumValidator's piconero bound)
+  const premiumXmrValidator = filterXmrValidator
+    .min(0, 'must be at least 0')
+    .max(0.01, 'must be at most 0.01 XMR')
+  const xmrSchema = schema.shape({
+    postsPiconerosFilter: filterXmrValidator,
+    postPremiumPiconeros: premiumXmrValidator,
+    commentPremiumPiconeros: premiumXmrValidator
+  })
 
   const [fetchSub] = useLazyQuery(SUB)
   const [archived, setArchived] = useState(false)
@@ -73,6 +125,16 @@ export default function TerritoryForm ({ sub }) {
       variables.postsPiconerosFilter = variables.postsPiconerosFilter == null
         ? null
         : Number(signedXmrToPiconeros(variables.postsPiconerosFilter))
+      // premiums go to the server as STRING piconeros for the BigInt scalar
+      // (never a raw JS BigInt — JSON.stringify of the variables would throw
+      // "Do not know how to serialize a BigInt"). Precision survives via the
+      // string; the server's BigInt scalar parseValue converts it back.
+      variables.postPremiumPiconeros = variables.postPremiumPiconeros == null || variables.postPremiumPiconeros === ''
+        ? '0'
+        : String(xmrToPiconeros(String(variables.postPremiumPiconeros)))
+      variables.commentPremiumPiconeros = variables.commentPremiumPiconeros == null || variables.commentPremiumPiconeros === ''
+        ? '0'
+        : String(xmrToPiconeros(String(variables.commentPremiumPiconeros)))
       const { data, error, payError } = archived
         ? await unarchiveTerritory({ variables })
         : await upsertSub({ variables: { oldName: sub?.name, ...variables } })
@@ -143,6 +205,8 @@ export default function TerritoryForm ({ sub }) {
           desc: sub?.desc || '',
           // Default xmr filter (-0.002 XMR = show downvoted content by default)
           postsPiconerosFilter: sub?.postsPiconerosFilter == null ? -0.002 : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter)))),
+          postPremiumPiconeros: sub?.postPremiumPiconeros == null ? 0 : Number(piconerosToXmrDecimal(BigInt(sub.postPremiumPiconeros))),
+          commentPremiumPiconeros: sub?.commentPremiumPiconeros == null ? 0 : Number(piconerosToXmrDecimal(BigInt(sub.commentPremiumPiconeros))),
           postTypes: sub?.postTypes || POST_TYPES,
           billingType: sub?.billingType || 'MONTHLY',
           billingAutoRenew: sub?.billingAutoRenew || false,
@@ -259,6 +323,13 @@ export default function TerritoryForm ({ sub }) {
                 name='billingAutoRenew'
                 groupClassName='ms-1 mt-2'
               />}
+          </>}
+        {me?.privates?.turfOwnerFees &&
+          <>
+            <TurfPremiumRanges />
+            <BootstrapForm.Text className='text-muted d-block mb-3'>
+              posting fees and boosts in your turf go 100% to your registered wallet (floor + your premium). cross-posts and wallet-less cases still pay the platform.
+            </BootstrapForm.Text>
           </>}
         <AccordianItem
           header={<div style={{ fontWeight: 'bold', fontSize: '92%' }}>options</div>}

@@ -138,6 +138,11 @@ export default gql`
     commentFeePiconeros: BigInt!
 
     """
+    whether turf owner fee routing (TURF_OWNER_FEES) is enabled platform-wide
+    """
+    turfOwnerFees: Boolean!
+
+    """
     only relevant to user
     """
     tipPopover: Boolean!

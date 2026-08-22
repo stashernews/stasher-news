@@ -137,7 +137,7 @@ async function attributeFeeBySubaddress (models, tx) {
 // weight 1:1 with the observed on-chain piconeros (the ranktop trigger weighs
 // boost at 1, matching tips). Comments also propagate commentBoost to
 // ancestors, mirroring the legacy boost onPaid SQL.
-async function applyBoostDetected (models, payIn, piconeros) {
+export async function applyBoostDetected (models, payIn, piconeros) {
   const { itemId } = await models.itemPayIn.findUnique({ where: { payInId: payIn.id } })
   if (!itemId) return
   await models.$executeRaw`

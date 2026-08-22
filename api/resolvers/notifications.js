@@ -205,6 +205,22 @@ export default {
           LIMIT ${LIMIT})`
       )
 
+      // turf-owner revenue: one row per CONFIRMED owner-routed fee receipt.
+      // Not env-gated: receipts only exist when the feature was on, so
+      // historical receipts still notify on a dormant deployment.
+      if (meFull.noteEarning) {
+        queries.push(
+          `(SELECT "ObservedSubFee".id::text, "ObservedSubFee"."confirmed_at" AS "sortTime",
+            "ObservedSubFee".piconeros AS "earnedPiconeros", 'Revenue' AS type
+            FROM "ObservedSubFee"
+            WHERE "ObservedSubFee"."owner_user_id" = $1
+              AND "ObservedSubFee".state = 'CONFIRMED'
+              AND "ObservedSubFee"."confirmed_at" <= $2
+            ORDER BY "sortTime" DESC
+            LIMIT ${LIMIT})`
+        )
+      }
+
       if (meFull.noteItemPiconeros) {
         queries.push(
           `(SELECT "Item".id::TEXT, "Item"."lastTipAt" AS "sortTime",
@@ -443,6 +459,16 @@ export default {
         WHERE "TerritoryTransfer"."id" = ${Number(n.id)}`
 
       return sub
+    }
+  },
+  // the notification union carries uniform columns (id, sortTime,
+  // earnedPiconeros, type); per-type detail resolves lazily, mirroring
+  // TerritoryTransfer.sub above
+  Revenue: {
+    subName: async (n, args, { models }) => {
+      const [receipt] = await models.$queryRaw`
+        SELECT "subName" FROM "ObservedSubFee" WHERE id = ${Number(n.id)}`
+      return receipt?.subName
     }
   },
   JobChanged: {

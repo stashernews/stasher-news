@@ -20,7 +20,7 @@ import { FEE_ITEM_ABANDON_DAYS } from '@/lib/constants'
 
 const prisma = new PrismaClient()
 
-const created = { users: [], items: [], payIns: [] }
+const created = { users: [], items: [], payIns: [], subFees: [], pidMaps: [] }
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -30,7 +30,7 @@ async function createUser () {
 
 // Seed a PENDING_FEE item + its fee PayIn (mirrors itemCreate.onBegin's shape),
 // created `ageMs` ago. Returns { item, payIn }.
-async function seedPendingFeeItem (minor, { ageMs = 0, feeStatus = 'PENDING_FEE', pollCost } = {}) {
+async function seedPendingFeeItem (minor, { ageMs = 0, feeStatus = 'PENDING_FEE', pollCost, moneroPaymentId } = {}) {
   const userId = await createUser()
   const createdAt = new Date(Date.now() - ageMs)
   const payIn = await prisma.payIn.create({
@@ -42,7 +42,8 @@ async function seedPendingFeeItem (minor, { ageMs = 0, feeStatus = 'PENDING_FEE'
       moneroUri: `monero:5${'F'.repeat(94)}?tx_amount=0.001`,
       moneroSubaddressMajor: 1,
       moneroSubaddressMinor: minor,
-      createdAt
+      createdAt,
+      moneroPaymentId
     }
   })
   created.payIns.push(payIn.id)
@@ -73,6 +74,10 @@ afterAll(async () => {
   await prisma.reply.deleteMany({ where: { ancestorId: { in: created.items } } })
   await prisma.itemUserAgg.deleteMany({ where: { itemId: { in: created.items } } })
   await prisma.item.deleteMany({ where: { id: { in: created.items } } })
+  // observation rows first: pre-SET-NULL their payInId may still point at a
+  // seeded payIn (RESTRICT would block its deletion below)
+  for (const id of created.subFees) await prisma.observedSubFee.deleteMany({ where: { id } })
+  for (const pid of created.pidMaps) await prisma.subFeePidMap.deleteMany({ where: { paymentId: pid } })
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
   await prisma.$disconnect()
@@ -135,4 +140,50 @@ test('is idempotent across re-runs', async () => {
 
   expect(out.abandoned).toBe(0)
   expect((await prisma.item.findUnique({ where: { id: item.id } })).deletedAt).not.toBeNull()
+})
+
+// Regression (final review Finding 1): an underpaid owner-routed leg leaves an
+// ObservedSubFee DETECTED receipt pointing at the fee PayIn. The sweep deletes
+// that PayIn — with ON DELETE RESTRICT the delete threw P2003, rolled the whole
+// abandonment tx back, and the hourly cron re-failed forever on the poison row.
+// The FK must be ON DELETE SET NULL (same bug class as FeeObservation's
+// 20260814202910 fix): the item is abandoned, the PayIn deleted, and the
+// receipt survives detached (payInId nulled).
+test('abandons an item with an ObservedSubFee receipt: PayIn deleted, receipt survives with payInId nulled', async () => {
+  const PAYMENT_ID = 'deadbeef0c0de507'
+  const SUB_NAME = '_abandonturf_507'
+  const { item, payIn } = await seedPendingFeeItem(507, { ageMs: 2 * DAY_MS, moneroPaymentId: PAYMENT_ID })
+
+  const receipt = await prisma.observedSubFee.create({
+    data: {
+      txHash: `abandonsubfee-${payIn.id}`,
+      paymentId: PAYMENT_ID,
+      payInId: payIn.id,
+      subName: SUB_NAME,
+      ownerUserId: item.userId,
+      piconeros: 1_000n, // underpaid vs the quoted fee
+      state: 'DETECTED'
+    }
+  })
+  created.subFees.push(receipt.id)
+  await prisma.subFeePidMap.create({
+    data: {
+      paymentId: PAYMENT_ID,
+      subName: SUB_NAME,
+      ownerUserId: item.userId,
+      amountPiconeros: 1_000_000_000n,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+    }
+  })
+  created.pidMaps.push(PAYMENT_ID)
+
+  const out = await runAbandonFeeItemsOnce({ models: prisma })
+
+  expect(out.abandoned).toBe(1)
+  expect((await prisma.item.findUnique({ where: { id: item.id } })).deletedAt).not.toBeNull()
+  expect(await prisma.payIn.findUnique({ where: { id: payIn.id } })).toBeNull()
+  const live = await prisma.observedSubFee.findUnique({ where: { id: receipt.id } })
+  expect(live).not.toBeNull()
+  expect(live.payInId).toBeNull()
+  expect(live.state).toBe('DETECTED')
 })

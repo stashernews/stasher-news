@@ -1,12 +1,14 @@
 /* eslint-env jest */
 import { runWebhookCleanupOnce } from '@/worker/webhookCleanup'
 
-function modelsWith (tips, dvMaps = [], confirmedDv = []) {
+function modelsWith (tips, dvMaps = [], confirmedDv = [], feeMaps = []) {
   const updated = []
   const dvUpdated = []
+  const feeUpdated = []
   return {
     _updated: updated,
     _dvUpdated: dvUpdated,
+    _feeUpdated: feeUpdated,
     models: {
       observedTip: {
         findMany: async () => tips.slice(),
@@ -20,6 +22,14 @@ function modelsWith (tips, dvMaps = [], confirmedDv = []) {
       // payment ids only (the sweep scopes the WHERE to candidates).
       observedDownvote: {
         findMany: async ({ where }) => confirmedDv.filter(o => where.paymentId.in.includes(o.paymentId))
+      },
+      // Mirror the real query: only maps with a live webhook id that have
+      // EXPIRED are candidates (the sweep scopes the WHERE to expiresAt < now,
+      // unlike the downvote sweep which re-checks expiry in JS).
+      subFeePidMap: {
+        findMany: async ({ where }) => feeMaps.filter(m =>
+          m.webhookEventId !== null && m.expiresAt < where.expiresAt.lt),
+        update: async ({ where, data }) => { feeUpdated.push({ paymentId: where.paymentId, ...data }); return {} }
       }
     }
   }
@@ -108,6 +118,49 @@ test('downvote: deleteWebhook failure warns and KEEPS the id (retried next hourl
     const out = await runWebhookCleanupOnce({ models, monero })
     expect(out.cleaned).toBe(0)
     expect(_dvUpdated).toEqual([])
+    expect(warn).toHaveBeenCalled()
+  } finally {
+    warn.mockRestore()
+  }
+})
+
+// ---- turf-fee pid-map webhook sweep ----
+
+test('subfee: expired map gets its webhook deleted + the id nulled', async () => {
+  const deleted = []
+  const monero = { deleteWebhook: async (id) => { deleted.push(id); return {} } }
+  const { _feeUpdated, models } = modelsWith(
+    [], [], [],
+    [{ paymentId: 'sf1', webhookEventId: '77', expiresAt: new Date(Date.now() - 3600e3) }]
+  )
+  const out = await runWebhookCleanupOnce({ models, monero })
+  expect(deleted).toEqual(['77'])
+  expect(_feeUpdated).toEqual([{ paymentId: 'sf1', webhookEventId: null }])
+  expect(out.cleaned).toBe(1)
+})
+
+test('subfee: live (unexpired) map is NOT swept', async () => {
+  const monero = { deleteWebhook: async () => { throw new Error('should not be called') } }
+  const { _feeUpdated, models } = modelsWith(
+    [], [], [],
+    [{ paymentId: 'sf2', webhookEventId: 'evt-sf2', expiresAt: new Date(Date.now() + 3600e3) }]
+  )
+  const out = await runWebhookCleanupOnce({ models, monero })
+  expect(out.cleaned).toBe(0)
+  expect(_feeUpdated).toEqual([])
+})
+
+test('subfee: deleteWebhook failure warns and KEEPS the id (retried next hourly run)', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const monero = { deleteWebhook: async () => { throw new Error('lws 503') } }
+    const { _feeUpdated, models } = modelsWith(
+      [], [], [],
+      [{ paymentId: 'sf3', webhookEventId: 'evt-sf3', expiresAt: new Date(Date.now() - 3600e3) }]
+    )
+    const out = await runWebhookCleanupOnce({ models, monero })
+    expect(out.cleaned).toBe(0)
+    expect(_feeUpdated).toEqual([])
     expect(warn).toHaveBeenCalled()
   } finally {
     warn.mockRestore()

@@ -25,7 +25,6 @@ import { useRouter } from 'next/router'
 import { useData } from './use-data'
 import Text from '@/components/text'
 import { numWithUnits, piconerosToXmr } from '@/lib/format'
-import BountyIcon from '@/svgs/bounty-bag.svg'
 import { LongCountdown } from './countdown'
 import { nextBillingWithGrace } from '@/lib/territory'
 import { commentSubTreeRootId } from '@/lib/item'
@@ -296,13 +295,13 @@ function ReferralReward ({ n }) {
 function RevenueNotification ({ n }) {
   return (
     <div className='d-flex'>
-      <BountyIcon className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px' }} />
+      <HandCoin className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px' }} />
       <div className='ms-2'>
         <NoteHeader color='success' big>
           you stashed {piconerosToXmr(BigInt(n.earnedPiconeros))} in turf revenue<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
         </NoteHeader>
         <div style={{ lineHeight: '140%' }}>
-          As the founder of turf <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 70% of the post, comment, boost, and tip fees. The other 30% go to <Link href='/rewards'>rewards</Link>.
+          As the founder of turf <Link href={`/~${n.subName}`}>~{n.subName}</Link>, you receive 100% of the posting fees and boosts paid in your turf, including your premium.
         </div>
       </div>
     </div>

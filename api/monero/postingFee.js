@@ -129,6 +129,28 @@ export async function postingFeePrivatesFor (models, user, viewerId) {
   }
 }
 
+// Cumulative fee received on-chain for a fee PayIn, across BOTH observation
+// tables: platform-routed legs record FeeObservation rows (rewards-wallet
+// subaddresses, observed by rewardsWalletObserver) while owner-routed legs
+// record ObservedSubFee rows (fee: payment-ID legs, observed by the lws
+// webhook). A PayIn is exactly one or the other, so the sum is the payee's
+// cumulative received. No state filter — DETECTED and CONFIRMED both count,
+// matching the webhook's cumulative gate. Drives Item.feeReceivedPiconeros
+// (underpayment hint) and itemFeeReentryFunding (top-up remainder).
+export async function feeReceivedPiconerosForPayIn (models, payInId) {
+  const [feeAgg, subFeeAgg] = await Promise.all([
+    models.feeObservation.aggregate({
+      _sum: { piconeros: true },
+      where: { payInId }
+    }),
+    models.observedSubFee.aggregate({
+      _sum: { piconeros: true },
+      where: { payInId }
+    })
+  ])
+  return (feeAgg._sum.piconeros ?? 0n) + (subFeeAgg._sum.piconeros ?? 0n)
+}
+
 // Re-entry funding info for a PENDING_FEE item (post OR comment): reuses the fee
 // PayIn's reserved subaddress (recovered from its stored monero URI) and quotes
 // only the REMAINDER, so a top-up completes the fee instead of re-quoting the
@@ -146,11 +168,7 @@ export async function itemFeeReentryFunding (models, item) {
   if (!address) return null
   const expected = moneroUriAmountPiconeros(payIn.moneroUri)
   if (expected == null) return null
-  const agg = await models.feeObservation.aggregate({
-    _sum: { piconeros: true },
-    where: { payInId: payIn.id }
-  })
-  const received = agg._sum.piconeros ?? 0n
+  const received = await feeReceivedPiconerosForPayIn(models, payIn.id)
   const remaining = expected - received
   const amount = remaining > 0n ? remaining : expected
   const moneroUri = buildMoneroUri(

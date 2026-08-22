@@ -211,18 +211,24 @@ export default {
   },
   PayIn: {
     // On-chain confirmation signal for fee payIns (DONATE/posting/territory). The
-    // payIn is born PAID (piconeros=0n; the FeeObservation carries the real
-    // amount), so this checks whether a FeeObservation in a "payment succeeded"
+    // payIn is born PAID (piconeros=0n; the observation carries the real
+    // amount), so this checks whether an observation in a "payment succeeded"
     // state has landed for it — mirroring shouldTriggerPaymentSuccess (DETECTED
-    // or CONFIRMED). FeeObservation.payInId is @unique, so at most one row. Only
-    // resolved when a query explicitly requests it (e.g. the DONATE modal poll),
-    // so it costs nothing on the general payIn queries.
+    // or CONFIRMED). FeeObservation.payInId is @unique, so at most one row.
+    // Owner-routed legs (turf-owner-revenue) record ObservedSubFee receipts
+    // instead: those are born DETECTED and only mature, so any receipt row
+    // means coins landed — no state filter needed. Only resolved when a query
+    // explicitly requests it (e.g. the DONATE modal poll), so it costs nothing
+    // on the general payIn queries.
     feeObserved: async (payIn, args, { models }) => {
       if (typeof payIn.feeObserved !== 'undefined') return payIn.feeObserved
       const obs = await models.feeObservation.findFirst({
         where: { payInId: payIn.id, state: { in: ['DETECTED', 'CONFIRMED'] } }
       })
-      return !!obs
+      if (obs) return true
+      // owner-routed legs record ObservedSubFee receipts instead
+      const subFee = await models.observedSubFee.findFirst({ where: { payInId: payIn.id } })
+      return !!subFee
     },
     payerPrivates: (payIn, args, { models, me }) => {
       if (!isMine(payIn, { me })) {

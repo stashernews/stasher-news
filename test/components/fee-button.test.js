@@ -191,3 +191,87 @@ describe('legacySatsToPiconeros — fractional escalation totals never crash Big
     expect(legacySatsToPiconeros(0)).toBe(0n)
   })
 })
+
+describe('postCommentBaseLineItems — turf premiums', () => {
+  // sub fixtures carry postPremiumPiconeros as the client receives them via
+  // SUB_FIELDS; dormant deployments hold 0 everywhere (server-zeroed at every
+  // write path), so reading the premium directly mirrors the server fee math
+  // (postFeePiconerosForSubs = Σ floor + premium per non-owned turf).
+  const sub = (name, userId, post = 0) => ({ name, userId, postPremiumPiconeros: post })
+  const lowRepMe = { id: 7, privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } }
+
+  test('a single non-owned premium turf quotes floor + premium', () => {
+    const lines = postCommentBaseLineItems({
+      me: lowRepMe,
+      subs: [sub('Revenue', 860, 2000000000)]
+    })
+    expect(lines.postingFee.term).toBe('+ 0.001 XMR')
+    expect(lines.postingFee.label).toBe('posting fee')
+    expect(piconerosToXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+    // the premium is its own receipt line, not folded into the posting fee
+    expect(lines.turfPremium.term).toBe('+ 0.002 XMR')
+    expect(lines.turfPremium.label).toBe('turf owner premium')
+    expect(piconerosToXmr(BigInt(lines.turfPremium.modifier(0)) * 1000n)).toBe('0.002 XMR')
+  })
+
+  test('a cross-post sums floor + premium per non-owned turf', () => {
+    const lines = postCommentBaseLineItems({
+      me: lowRepMe,
+      subs: [sub('Revenue', 860, 2000000000), sub('plain', 999)]
+    })
+    // posting fee: 0.001 x 2 = 0.002; premium: 0.002; total 0.004
+    expect(lines.postingFee.term).toBe('+ 0.002 XMR')
+    expect(lines.postingFee.label).toBe('posting fee \u00d7 2 turfs')
+    expect(lines.turfPremium.term).toBe('+ 0.002 XMR')
+    const total = [lines.postingFee, lines.turfPremium]
+      .sort((a, b) => (a.op === '_' && b.op !== '_' ? -1 : a.op !== '_' && b.op === '_' ? 1 : 0))
+      .reduce((cost, line) => line.modifier(cost), 0)
+    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.004 XMR')
+  })
+
+  test('owned turfs stay free even with a premium set', () => {
+    const lines = postCommentBaseLineItems({
+      me: lowRepMe,
+      subs: [sub('mine', 7, 500000000)]
+    })
+    expect(lines.baseCost.allowFreebies).toBe(true)
+    expect(lines).not.toHaveProperty('postingFee')
+  })
+
+  test('free posts stay free even with a premium turf selected', () => {
+    const lines = postCommentBaseLineItems({
+      me: { id: 7, privates: { postingFeeRequired: false, postingFeePiconeros: 0, freePostsLeft: 5 } },
+      subs: [sub('Revenue', 860, 2000000000)]
+    })
+    expect(lines.baseCost.allowFreebies).toBe(true)
+    expect(lines).not.toHaveProperty('postingFee')
+  })
+
+  test('zero-premium turfs keep the plain floor quote (dormant unchanged)', () => {
+    const lines = postCommentBaseLineItems({
+      me: lowRepMe,
+      subs: [sub('a', 1), sub('b', 2)]
+    })
+    expect(lines.postingFee.term).toBe('+ 0.002 XMR')
+    expect(lines.postingFee.label).toBe('posting fee \u00d7 2 turfs')
+    expect(lines).not.toHaveProperty('turfPremium')
+  })
+
+  test('missing premium fields (legacy cached subs) quote the plain floor', () => {
+    const lines = postCommentBaseLineItems({
+      me: lowRepMe,
+      subs: [{ name: 'legacy', userId: 860 }]
+    })
+    expect(lines.postingFee.term).toBe('+ 0.001 XMR')
+    expect(lines).not.toHaveProperty('turfPremium')
+  })
+
+  test('anon posts scale the premium too: (floor + premium) x10', () => {
+    const lines = postCommentBaseLineItems({ me: null, subs: [sub('Revenue', 860, 2000000000)] })
+    const total = [lines.postingFee, lines.turfPremium, lines.anonCharge]
+      .sort((a, b) => (a.op === '_' && b.op !== '_' ? -1 : a.op !== '_' && b.op === '_' ? 1 : 0))
+      .reduce((cost, line) => line.modifier(cost), 0)
+    // (0.001 + 0.002) x 10 = 0.03
+    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.03 XMR')
+  })
+})

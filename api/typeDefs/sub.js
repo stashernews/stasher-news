@@ -21,6 +21,8 @@ export default gql`
   extend type Mutation {
     upsertSub(oldName: String, name: String!, desc: String,
       postsPiconerosFilter: BigInt,
+      postPremiumPiconeros: BigInt,
+      commentPremiumPiconeros: BigInt,
       postTypes: [String!]!,
       billingType: String!, billingAutoRenew: Boolean!,
       sendProtocolId: Int,
@@ -30,6 +32,8 @@ export default gql`
     toggleSubSubscription(name: String!): Boolean!
     transferTerritory(subName: String!, userName: String!): Sub
     unarchiveTerritory(name: String!, desc: String, postsPiconerosFilter: BigInt,
+      postPremiumPiconeros: BigInt,
+      commentPremiumPiconeros: BigInt,
       postTypes: [String!]!,
       billingType: String!, billingAutoRenew: Boolean!,
       sendProtocolId: Int,
@@ -55,6 +59,8 @@ export default gql`
     billedLastAt: Date!
     billPaidUntil: Date
     postsPiconerosFilter: BigInt!
+    postPremiumPiconeros: BigInt!
+    commentPremiumPiconeros: BigInt!
     status: String!
     billingStatus: SubBillingStatus!
     meMuteSub: Boolean!
@@ -69,6 +75,9 @@ export default gql`
     # owner only — pending-fee modal hint
     feeReceivedPiconeros: BigInt
     billingFeePiconeros: BigInt
+
+    # owner only — confirmed owner-routed fee receipts
+    earnedPiconeros: BigInt
 
     optional: SubOptional!
   }
@@ -85,6 +94,9 @@ export default gql`
     """
     stacked(when: String, from: String, to: String): BigInt
     spent(when: String, from: String, to: String): BigInt
+    # turf-owner revenue: sum of CONFIRMED owner-routed fee receipts (0 when
+    # TURF_OWNER_FEES is off)
+    revenue(when: String, from: String, to: String): BigInt
   }
 
   type SubBranding {

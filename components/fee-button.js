@@ -114,19 +114,48 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
     }
   }
   const postMultiplier = subs.length === 0 ? 1 : postNonOwned.length
-  const scaledFeePiconeros = feePiconeros * BigInt(postMultiplier)
+  // Turf premiums: each non-owned turf contributes its post premium on top of
+  // the floor, mirroring the server fee math (postFeePiconerosForSubs = Σ
+  // floor + premium). Shown as its OWN receipt line so the info modal explains
+  // why the total exceeds the posting fee. Dormant deployments hold 0
+  // everywhere (premiums are server-zeroed at every write path), so this
+  // changes nothing when the feature is off. Free posts return above — premiums
+  // never make a free post cost anything.
+  const premiumTotalPiconeros = subs.length > 0
+    ? postNonOwned.reduce((acc, s) => acc + BigInt(s?.postPremiumPiconeros ?? 0), 0n)
+    : 0n
+  const platformFeePiconeros = feePiconeros * BigInt(postMultiplier)
+  const scaledFeePiconeros = platformFeePiconeros + premiumTotalPiconeros
   if (scaledFeePiconeros <= 0n) return {}
 
   return {
     postingFee: {
-      term: `+ ${piconerosToXmr(scaledFeePiconeros)}`,
+      term: `+ ${piconerosToXmr(platformFeePiconeros)}`,
       label: postMultiplier > 1 ? `posting fee \u00d7 ${postMultiplier} turfs` : 'posting fee',
-      // base line so the itemRepetition multiplier (op '*') scales it
+      // base line so the itemRepetition multiplier (op '*') scales it. The
+      // modifier ADDS to the accumulator (not absolute) because the premium
+      // below is a second _ line — the provider's total reduce is assign-style
+      // (modifier(acc)), so an absolute modifier would overwrite the premium's
+      // contribution instead of summing it.
       op: '_',
-      modifier: () => Number(scaledFeePiconeros / 1000n),
+      modifier: (cost) => cost + Number(platformFeePiconeros / 1000n),
       allowFreebies: false,
       isComment: false
     },
+    // the turf owner premium is a separate charge (100% goes to the owner) on
+    // top of the platform posting fee — its own base line keeps the receipt
+    // breakdown honest; both _ lines add, and the * escalation/anon lines
+    // scale the combined total exactly like the server.
+    ...(premiumTotalPiconeros > 0n
+      ? {
+          turfPremium: {
+            term: `+ ${piconerosToXmr(premiumTotalPiconeros)}`,
+            label: 'turf owner premium',
+            op: '_',
+            modifier: (cost) => cost + Number(premiumTotalPiconeros / 1000n)
+          }
+        }
+      : {}),
     ...anonCharge
   }
 }

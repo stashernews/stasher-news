@@ -57,3 +57,16 @@ export function generateBountyPaymentId (postId, nonce) {
   hmac.update(`bn:${postId}:${nonce}`)
   return hmac.digest('hex').slice(0, 16)
 }
+
+// Deterministic payment-ID generator for owner-routed turf fees/boosts.
+// HMAC-SHA256(REWARDS_PID_KEY, "fee:<seed>:<nonce>"), truncated to 8 bytes.
+// The seed is a randomUUID minted per leg (the PayIn id does not exist yet at
+// getInitial time); the nonce is Date.now(). The "fee:" prefix keeps fee IDs
+// disjoint from tip ("tip:"), downvote ("dv:"), and bounty ("bn:") namespaces
+// so webhook callbacks attribute to exactly one flow.
+export function generateSubFeePaymentId (seed, nonce) {
+  const key = resolveRewardsPidKey()
+  const hmac = createHmac('sha256', key)
+  hmac.update(`fee:${seed}:${nonce}`)
+  return hmac.digest('hex').slice(0, 16)
+}

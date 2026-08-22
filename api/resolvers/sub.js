@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { DOMAIN_BETA_IDS, ACTIVE_SUBS_PRIORITY } from '@/lib/constants'
 import { territoryReentryFunding, territoryFeePiconeros } from '@/api/monero/territoryFee'
+import { turfOwnerFeesEnabled } from '@/api/monero/turfFeeRouting'
 import { NEVER_SEEN_FEE_PAY_IN_TYPES, isHiddenFromViewer } from '@/lib/territoryVisibility'
 
 export async function getSub (parent, { name }, { models, me }) {
@@ -60,8 +61,33 @@ export async function topSubs (parent, { query, cursor, when, from, to, limit, b
     case 'spent': column = Prisma.sql`spent`; break
     case 'stacked': column = Prisma.sql`stacked`; break
     case 'items': column = Prisma.sql`nitems`; break
+    case 'revenue': column = Prisma.sql`revenue`; break
     default: throw new GqlInputError('invalid sort')
   }
+
+  // Turf-owner revenue is gated on TURF_OWNER_FEES: a merged-but-dormant
+  // deployment skips the sub_revenue CTE entirely and exposes revenue as 0n
+  // instead of a column of zeros from a scan that can never match.
+  const revenueEnabled = turfOwnerFeesEnabled()
+  const subRevenueCte = revenueEnabled
+    ? Prisma.sql`
+    sub_revenue AS (
+      SELECT user_subs.name, sum(f.piconeros)::bigint AS revenue
+      FROM user_subs
+      JOIN "ObservedSubFee" f ON f."subName" = user_subs.name
+      WHERE f.state = 'CONFIRMED'
+        AND f."confirmed_at" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
+        AND f."confirmed_at" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
+      GROUP BY user_subs.name
+    ),`
+    : Prisma.empty
+  const revenueJoin = revenueEnabled
+    ? Prisma.sql`
+      LEFT JOIN sub_revenue ON sub_revenue.name = user_subs.name`
+    : Prisma.empty
+  const revenueStat = revenueEnabled
+    ? Prisma.sql`COALESCE(sub_revenue.revenue, 0) AS revenue`
+    : Prisma.sql`0::bigint AS revenue`
 
   const subs = await models.$queryRaw`
     WITH user_subs AS (
@@ -116,18 +142,19 @@ export async function topSubs (parent, { query, cursor, when, from, to, limit, b
         AND p."payInStateChangedAt" AT TIME ZONE 'UTC' >= ${fromDate}::timestamptz
         AND p."payInStateChangedAt" AT TIME ZONE 'UTC' <= ${toDate}::timestamptz
       GROUP BY user_subs.name
-    ),
+    ),${subRevenueCte}
     sub_stats AS (
       SELECT user_subs.name,
         COALESCE(sub_stacked.stacked, 0) AS stacked,
         COALESCE(sub_spent.spent, 0) AS spent,
-        COALESCE(sub_items.nitems, 0) AS nitems
+        COALESCE(sub_items.nitems, 0) AS nitems,
+        ${revenueStat}
       FROM user_subs
       LEFT JOIN sub_stacked ON sub_stacked.name = user_subs.name
       LEFT JOIN sub_spent ON sub_spent.name = user_subs.name
-      LEFT JOIN sub_items ON sub_items.name = user_subs.name
+      LEFT JOIN sub_items ON sub_items.name = user_subs.name${revenueJoin}
     )
-    SELECT "Sub".*, sub_stats.name, sub_stats.stacked, sub_stats.spent, sub_stats.nitems, COALESCE("Sub"."postTypes", '{}') AS "postTypes"
+    SELECT "Sub".*, sub_stats.name, sub_stats.stacked, sub_stats.spent, sub_stats.nitems, sub_stats.revenue, COALESCE("Sub"."postTypes", '{}') AS "postTypes"
     FROM sub_stats
     JOIN "Sub" ON sub_stats.name = "Sub".name
     ORDER BY ${column} DESC NULLS LAST, "Sub".created_at ASC
@@ -398,6 +425,8 @@ export default {
         throw new GqlInputError('cannot transfer territory to yourself')
       }
 
+      await assertHasWallet(models, user.id, 'recipient has no registered Monero wallet — turf fees would be stranded')
+
       const [, updatedSub] = await models.$transaction([
         models.territoryTransfer.create({ data: { subName, oldUserId: me.id, newUserId: user.id } }),
         models.sub.update({ where: { name: subName }, data: { userId: user.id, billingAutoRenew: false } })
@@ -431,6 +460,9 @@ export default {
       }
 
       data.uploadIds = uploadIdsFromText(data.desc)
+
+      await assertHasWallet(models, me.id, 'register your Monero wallet first — posting fees, boosts, and revenue in your turf flow to it')
+      zeroPremiumsIfDormant(data)
 
       return await pay('TERRITORY_UNARCHIVE', data, { me, models, sendProtocolId })
     },
@@ -543,6 +575,15 @@ export default {
       if (!payIn) return null
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       return moneroUriAmountPiconeros(payIn.moneroUri) ?? territoryFeePiconeros(sub.billingType, config)
+    },
+    // Turf-owner revenue: confirmed owner-routed fee receipts (owner-gated).
+    earnedPiconeros: async (sub, args, { me, models }) => {
+      if (!me || Number(sub.userId) !== Number(me.id)) return null
+      const agg = await models.observedSubFee.aggregate({
+        _sum: { piconeros: true },
+        where: { subName: sub.name, state: 'CONFIRMED' }
+      })
+      return agg._sum.piconeros ?? 0n
     }
   }
 }
@@ -553,6 +594,26 @@ function canAccessDomainSettings ({ sub, me }) {
   if (!DOMAIN_BETA_IDS.includes(Number(me.id))) return false
   if (Number(sub.userId) !== Number(me.id)) return false
   return true
+}
+
+// Turf-owner revenue (2026-08-21): fees flow to the owner's wallet, so a turf
+// cannot be created/unarchived without one; transfers require the transferee
+// to have one. Gated on TURF_OWNER_FEES so a merged-but-dormant deployment
+// keeps today's behavior.
+async function assertHasWallet (models, userId, message) {
+  if (!turfOwnerFeesEnabled()) return
+  const account = await models.moneroAccount.findFirst({ where: { ownerUserId: userId } })
+  if (!account) throw new GqlInputError(message)
+}
+
+// Dormant-deployment contract: premium fee math is only routed to owners under
+// TURF_OWNER_FEES — ungated, a direct-GraphQL owner could raise fees with the
+// platform pocketing the premium. Force zero (never reject) so a dormant VPS
+// is byte-for-byte today's defaults.
+function zeroPremiumsIfDormant (data) {
+  if (turfOwnerFeesEnabled()) return
+  data.postPremiumPiconeros = 0n
+  data.commentPremiumPiconeros = 0n
 }
 
 // Pin the priority turfs (monero, bitcoin, crypto) to the top of the dropdown in
@@ -576,6 +637,9 @@ function subVisibilityClause (me) {
 }
 
 async function createSub (parent, { sendProtocolId, ...data }, { me, models }) {
+  await assertHasWallet(models, me.id, 'register your Monero wallet first — posting fees, boosts, and revenue in your turf flow to it')
+  zeroPremiumsIfDormant(data)
+
   try {
     return await pay('TERRITORY_CREATE', data, { me, models, sendProtocolId })
   } catch (error) {
@@ -602,6 +666,8 @@ async function updateSub (parent, { oldName, sendProtocolId, ...data }, { me, mo
   if (!oldSub) {
     throw new GqlInputError('sub not found')
   }
+
+  zeroPremiumsIfDormant(data)
 
   try {
     return await pay('TERRITORY_UPDATE', { oldName, ...data }, { me, models, sendProtocolId })

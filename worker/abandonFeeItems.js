@@ -55,6 +55,10 @@ export async function runAbandonFeeItemsOnce ({ models }) {
 
       // The fee PayIn is orphaned once the item is gone; delete it so the
       // observer stops watching the subaddress (pool rows stay ASSIGNED).
+      // Observation tables (FeeObservation, ObservedSubFee) must keep ON DELETE
+      // SET NULL FKs on payInId — a RESTRICT here threw P2003 on underpaid
+      // owner-routed legs and wedged this whole sweep (same bug class as the
+      // FeeObservation fix 20260814202910).
       await tx.payIn.delete({ where: { id: item.feePayInId } })
 
       // Clear queued jobs for this item (timestampItem/imgproxy from onPaid;

@@ -84,6 +84,31 @@ export async function runWebhookCleanupOnce ({ models, monero = lwsClient }) {
     })
     cleaned += 1
   }
+
+  // Turf-owner fee leg sweep ("fee:" namespace): unpaid/abandoned legs leave
+  // their lws webhook registered forever. A map is sweepable once expired
+  // (7d). Completed legs (gate satisfied) also stop mattering — the receiver
+  // keeps its webhook until natural expiry rather than racing top-ups, so
+  // expiry is the single sweep condition. Delete failures keep the id so the
+  // next hourly run retries (downvote-sweep semantics); the map row itself is
+  // never deleted.
+  const feeMaps = await models.subFeePidMap.findMany({
+    where: { webhookEventId: { not: null }, expiresAt: { lt: now } }
+  })
+  for (const map of feeMaps) {
+    if (!map.webhookEventId) continue
+    try {
+      await monero.deleteWebhook(map.webhookEventId)
+    } catch (err) {
+      console.warn(`webhookCleanup: subfee deleteWebhook(${map.webhookEventId}) failed (will retry next run): ${err && err.message}`)
+      continue
+    }
+    await models.subFeePidMap.update({
+      where: { paymentId: map.paymentId },
+      data: { webhookEventId: null }
+    })
+    cleaned += 1
+  }
   return { cleaned }
 }
 

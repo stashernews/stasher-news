@@ -17,12 +17,16 @@ const Items = ({ sub }) => (
   <span>
     {numWithUnits(sub.nitems, { unitSingular: 'item', unitPlural: 'items' })}
   </span>)
+// `!= null` (not `!== null` like its siblings) because queries whose optional
+// selection omits revenue (e.g. USER_WITH_SUBS) leave the field undefined
+const Revenue = ({ sub }) => (sub.optional.revenue != null && <span>{piconerosToXmr(BigInt(sub.optional.revenue))} revenue</span>)
 const Separator = () => (<span> \ </span>)
 
 const STAT_POS = {
   stacked: 0,
   spent: 1,
-  items: 2
+  items: 2,
+  revenue: 3
 }
 const STAT_COMPONENTS = [Stacked, Spent, Items]
 
@@ -34,13 +38,19 @@ export default function TerritoryList ({ ssrData, query, variables, destructureD
   const { data, fetchMore } = useQuery(query, { variables })
   const dat = useData(data, ssrData)
   const { me } = useMe()
+  // turf-owner revenue column is gated on TURF_OWNER_FEES (same flag as the
+  // premium editors) so a dormant deployment shows no zero column
+  const showRevenue = !!me?.privates?.turfOwnerFees
+  const effectiveStatComps = useMemo(
+    () => (showRevenue ? [...statCompsProp, Revenue] : statCompsProp),
+    [statCompsProp, showRevenue])
   const [statComps, setStatComps] = useState(separate(statCompsProp, Separator))
 
   useEffect(() => {
     // shift the stat we are sorting by to the front
-    const comps = [...statCompsProp]
+    const comps = [...effectiveStatComps]
     setStatComps(separate([...comps.splice(STAT_POS[variables?.by || 0], 1), ...comps], Separator))
-  }, [variables?.by], statCompsProp)
+  }, [variables?.by, effectiveStatComps])
 
   const { subs, cursor } = useMemo(() => {
     if (!dat) return {}

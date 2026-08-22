@@ -216,7 +216,7 @@ async function sendFeeProgrammatic (recipientAddress, amountPiconeros) {
     created.payIns.push(payIn.id)
     const name = `_phase3territory_${payIn.id}`
     const territory = await prisma.sub.create({
-      data: { name, userId, billingType: 'MONTHLY', billingCost: 1, baseCost: 1, replyCost: 1, rankingType: 'WOT', billingStatus: 'PENDING_FEE', billingPayInId: payIn.id }
+      data: { name, userId, billingType: 'MONTHLY', billingCost: 1, rankingType: 'WOT', billingStatus: 'PENDING_FEE', billingPayInId: payIn.id }
     })
     created.subs.push(territory.name)
 

@@ -8,6 +8,8 @@ import { alert } from '@/lib/alert'
 import { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros } from '@/api/monero/bountyFunding'
 import { applyDownvotePenalty } from '@/api/monero/downvote'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
+import { flipPendingToLive, applyBoostDetected } from '@/worker/rewardsWalletObserver'
+import { moneroUriAmountPiconeros } from '@/lib/format'
 import { safeEqual } from '@/lib/domains/auth'
 
 // lws tx-confirmation webhook receiver (spec §4.4).
@@ -247,6 +249,56 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     alert('critical', 'payment arrived after bounty abandonment',
       `bounty item ${bounty.postId}: ${piconeros} piconeros arrived after the underfunded bounty was abandoned; manual reconciliation required`,
       { dedupeKey: `bounty-late-payment-${bounty.postId}` })
+    return res.status(200).end()
+  }
+
+  // Turf-owner fee branch ("fee:" namespace): owner-routed posting/comment
+  // fees and boosts pay the OWNER's wallet at an integrated address whose
+  // embedded pid is stored on the PayIn (unique reverse map). One receipt row
+  // per tx (top-ups share the pid, not the txHash): @@unique(txHash, paymentId)
+  // + ON CONFLICT DO NOTHING make replays and retried callbacks no-ops. The
+  // cumulative gate mirrors the observer's subaddress gate: the gated Item
+  // flips live only once receipts cover the URI's quoted amount.
+  // Unknown pids: 200 no-op (lws retry hygiene).
+  const feePayIn = await models.payIn.findUnique({ where: { moneroPaymentId: paymentId } })
+  if (feePayIn) {
+    const piconeros = BigInt(amount || '0')
+    const rows = await models.$queryRaw`
+      INSERT INTO "ObservedSubFee" ("tx_hash","payment_id","pay_in_id","subName","owner_user_id","piconeros","height","confirmations","state","detected_at")
+      SELECT ${txHash}, ${paymentId}, ${feePayIn.id}, m."subName", m."owner_user_id", ${piconeros}, ${height ?? null}, ${confirmations}, 'DETECTED'::"ObservedState", NOW()
+      FROM "SubFeePidMap" m WHERE m."payment_id" = ${paymentId}
+      ON CONFLICT ("tx_hash","payment_id") DO NOTHING
+      RETURNING id`
+    const fresh = rows && rows.length > 0
+
+    // Owner-routed boost: the ranking bump fires on a fresh receipt only
+    // (a replayed txHash must not re-bump), mirroring the observer.
+    if (fresh && feePayIn.payInType === 'BOOST') {
+      try {
+        await applyBoostDetected(models, feePayIn, piconeros)
+      } catch (err) {
+        console.error(`webhook: owner-fee boost bump failed for payIn ${feePayIn.id}:`, err?.message || err)
+      }
+    }
+
+    // Cumulative amount gate (underpayment top-up support) — idempotent flip.
+    const expected = feePayIn.moneroUri ? moneroUriAmountPiconeros(feePayIn.moneroUri) : null
+    const agg = await models.observedSubFee.aggregate({
+      _sum: { piconeros: true },
+      where: { payInId: feePayIn.id }
+    })
+    const cumulative = agg._sum.piconeros ?? 0n
+    if (expected === null || cumulative >= expected) {
+      await flipPendingToLive(models, feePayIn, cumulative)
+    }
+
+    // N-conf maturity of THIS receipt (atomic conditional; replays no-op).
+    if (confirmations >= REQUIRED_CONFIRMATIONS) {
+      await models.$executeRaw`
+        UPDATE "ObservedSubFee"
+        SET state = 'CONFIRMED', confirmations = ${confirmations}, "confirmed_at" = NOW()
+        WHERE "tx_hash" = ${txHash} AND "payment_id" = ${paymentId} AND state = 'DETECTED'`
+    }
     return res.status(200).end()
   }
 

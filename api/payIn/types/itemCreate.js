@@ -9,6 +9,9 @@ import { incrementFreeCommentCount, incrementFreePostCount } from '../lib/freebi
 import { canPostFree, postingFeePiconeros, commentsFreeLeft, postsFreeLeft } from '@/api/monero/postingFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
+import { resolveOwnerFeeRoute, postFeePiconerosForSubs, commentFeePiconerosForSubs } from '@/api/monero/turfFeeRouting'
+import { createOwnerFeeLeg } from '@/api/monero/ownerFeeLeg'
+import { lwsClient } from '@/api/monero/lwsClient'
 import { uploadFees } from '@/api/resolvers/upload'
 import * as MEDIA_UPLOAD from './mediaUpload'
 
@@ -35,6 +38,44 @@ async function escalatedFeePiconeros (models, { parentId, userId, basePiconeros 
   const multiplier = ITEM_SPAM_FEE_ESCALATION_NUMERATOR ** BigInt(n)
   const divisor = ITEM_SPAM_FEE_ESCALATION_DENOMINATOR ** BigInt(n)
   return (basePiconeros * multiplier + divisor / 2n) / divisor
+}
+
+// Build the fee payment prospect for a fee-charging branch: owner-direct leg
+// when the route resolves (one non-owned turf + owner wallet + no upload fees),
+// else the platform rewards-wallet subaddress. Fee math already includes any
+// turf premiums.
+async function feeLegOrSubaddress (models, { subs, userId, fee, uploadFeesPiconeros, description, beneficiaries }) {
+  const route = await resolveOwnerFeeRoute(models, { subs, userId, uploadFeesPiconeros })
+  if (route) {
+    const leg = await createOwnerFeeLeg(models, lwsClient, {
+      ownerAccount: route.ownerAccount,
+      subName: route.sub.name,
+      amountPiconeros: fee + uploadFeesPiconeros,
+      description
+    })
+    return {
+      payInType: 'ITEM_CREATE',
+      userId,
+      piconeros: 0n,
+      moneroUri: leg.moneroUri,
+      moneroPaymentId: leg.paymentId,
+      beneficiaries
+    }
+  }
+  const sub = await reserveFeeSubaddress(models, 'POSTING')
+  const moneroUri = buildMoneroUri(
+    [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
+    { description }
+  )
+  return {
+    payInType: 'ITEM_CREATE',
+    userId,
+    piconeros: 0n,
+    moneroUri,
+    moneroSubaddressMajor: sub.major,
+    moneroSubaddressMinor: sub.minor,
+    beneficiaries
+  }
 }
 
 export async function getInitial (models, args, { me }) {
@@ -125,21 +166,16 @@ export async function getInitial (models, args, { me }) {
       // No spam escalation: ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0.
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       if (!config) throw new GqlInputError('fee config not initialized')
-      const fee = postingFeePiconeros(config) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
-      const sub = await reserveFeeSubaddress(models, 'POSTING')
-      const moneroUri = buildMoneroUri(
-        [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
-        { description: 'StasherNews anon comment fee' }
-      )
-      return {
-        payInType: 'ITEM_CREATE',
+      const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
+      const base = commentFeePiconerosForSubs(config, nonOwned) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
+      return await feeLegOrSubaddress(models, {
+        subs: itemSubs,
         userId: me.id,
-        piconeros: 0n,
-        moneroUri,
-        moneroSubaddressMajor: sub.major,
-        moneroSubaddressMinor: sub.minor,
+        fee: base,
+        uploadFeesPiconeros,
+        description: 'StasherNews anon comment fee',
         beneficiaries
-      }
+      })
     }
     const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
     if (!config) throw new GqlInputError('fee config not initialized')
@@ -163,25 +199,20 @@ export async function getInitial (models, args, { me }) {
       }
       return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
     }
-    const fee = await escalatedFeePiconeros(models, {
+    const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(me.id))
+    const base = await escalatedFeePiconeros(models, {
       parentId: args.parentId,
       userId: me.id,
-      basePiconeros: postingFeePiconeros(config)
+      basePiconeros: commentFeePiconerosForSubs(config, nonOwned)
     })
-    const sub = await reserveFeeSubaddress(models, 'POSTING')
-    const moneroUri = buildMoneroUri(
-      [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
-      { description: 'StasherNews comment fee' }
-    )
-    return {
-      payInType: 'ITEM_CREATE',
+    return await feeLegOrSubaddress(models, {
+      subs: itemSubs,
       userId: me.id,
-      piconeros: 0n,
-      moneroUri,
-      moneroSubaddressMajor: sub.major,
-      moneroSubaddressMinor: sub.minor,
+      fee: base,
+      uploadFeesPiconeros,
+      description: 'StasherNews comment fee',
       beneficiaries
-    }
+    })
   }
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
@@ -191,21 +222,18 @@ export async function getInitial (models, args, { me }) {
   // ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0). Like the anon comment
   // branch above, this must run BEFORE the user lookup.
   if (me.id === USER_ID.anon) {
-    const fee = postingFeePiconeros(config) * feeMultiplier * BigInt(ANON_POST_FEE_MULTIPLIER)
-    const sub = await reserveFeeSubaddress(models, 'POSTING')
-    const moneroUri = buildMoneroUri(
-      [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
-      { description: 'StasherNews anon posting fee' }
-    )
-    return {
-      payInType: 'ITEM_CREATE',
+    // empty subNames (defensive/legacy) keeps the flat floor via feeMultiplier's
+    // 1n default — postFeePiconerosForSubs over an empty list would sum to zero.
+    const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
+    const base = (itemSubs.length === 0 ? postingFeePiconeros(config) : postFeePiconerosForSubs(config, nonOwned)) * BigInt(ANON_POST_FEE_MULTIPLIER)
+    return await feeLegOrSubaddress(models, {
+      subs: itemSubs,
       userId: me.id,
-      piconeros: 0n,
-      moneroUri,
-      moneroSubaddressMajor: sub.major,
-      moneroSubaddressMinor: sub.minor,
+      fee: base,
+      uploadFeesPiconeros,
+      description: 'StasherNews anon posting fee',
       beneficiaries
-    }
+    })
   }
 
   const user = await models.user.findUnique({ where: { id: me.id } })
@@ -239,30 +267,26 @@ export async function getInitial (models, args, { me }) {
   }
 
   // Low-rep user OR established user who has exhausted the free-post quota:
-  // reserve a rewards-wallet posting-fee subaddress and build the URI. The post
-  // is created PENDING_FEE (invisible) until rewardsWalletObserver observes the
-  // fee and flips it to FEE_PAID. (Anon posts are handled in the early-return
+  // route the posting fee — owner-direct when it resolves to a single non-owned
+  // turf with a registered owner wallet, else a rewards-wallet subaddress. The
+  // post is created PENDING_FEE (invisible) until the fee is observed on-chain
+  // (rewardsWalletObserver for subaddresses, the fee: webhook for owner-direct
+  // legs) and flipped to FEE_PAID. (Anon posts are handled in the early-return
   // branch above.)
-  const baseFee = postingFeePiconeros(config) * feeMultiplier
-  const fee = await escalatedFeePiconeros(models, {
+  const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(me.id))
+  const base = await escalatedFeePiconeros(models, {
     parentId: null,
     userId: me.id,
-    basePiconeros: baseFee
+    basePiconeros: itemSubs.length === 0 ? postingFeePiconeros(config) : postFeePiconerosForSubs(config, nonOwned)
   })
-  const sub = await reserveFeeSubaddress(models, 'POSTING')
-  const moneroUri = buildMoneroUri(
-    [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
-    { description: 'StasherNews posting fee' }
-  )
-  return {
-    payInType: 'ITEM_CREATE',
+  return await feeLegOrSubaddress(models, {
+    subs: itemSubs,
     userId: me.id,
-    piconeros: 0n,
-    moneroUri,
-    moneroSubaddressMajor: sub.major,
-    moneroSubaddressMinor: sub.minor,
+    fee: base,
+    uploadFeesPiconeros,
+    description: 'StasherNews posting fee',
     beneficiaries
-  }
+  })
 }
 
 export async function validateBeforeCreate (tx, payInProspect, payInArgs, { me }) {
@@ -299,12 +323,14 @@ export async function onBegin (tx, payInId, args) {
   const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
 
   // StasherNews posting-fee gate: a PayIn that reserved a rewards-wallet fee
-  // subaddress (moneroSubaddressMajor set) creates the Item PENDING_FEE (invisible
-  // until the rewardsWalletObserver observes the fee and flips it to FEE_PAID); otherwise
-  // the Item is live (FEE_NOT_REQUIRED). feeStatus is derived here from the PayIn's
-  // subaddress fields rather than threaded through the prospect, since feeStatus is
-  // an Item column (not a PayIn column).
-  const feeStatus = payIn.moneroSubaddressMajor != null ? 'PENDING_FEE' : 'FEE_NOT_REQUIRED'
+  // subaddress (moneroSubaddressMajor set) or routed owner-direct
+  // (moneroPaymentId set) creates the Item PENDING_FEE (invisible until the fee
+  // is observed on-chain and flipped to FEE_PAID); otherwise the Item is live
+  // (FEE_NOT_REQUIRED). feeStatus is derived here from the PayIn's fee markers
+  // rather than threaded through the prospect, since feeStatus is an Item
+  // column (not a PayIn column).
+  const feeRequired = payIn.moneroSubaddressMajor != null || payIn.moneroPaymentId != null
+  const feeStatus = feeRequired ? 'PENDING_FEE' : 'FEE_NOT_REQUIRED'
 
   const { userNames, itemIds } = extractMentions(args.text)
   const mentions = await getMentions(tx, { names: userNames, userId: payIn.userId })
@@ -324,7 +350,7 @@ export async function onBegin (tx, payInId, args) {
   const imgproxyUrls = await getTempImgproxyUrls(tx, uploadIds)
 
   // freebie is true when no on-chain fee is required and it's a comment or bio
-  const isFreebie = payIn.moneroSubaddressMajor == null && !!(parentId || data.bio)
+  const isFreebie = !feeRequired && !!(parentId || data.bio)
 
   const itemData = {
     parentId: parentId ? parseInt(parentId) : null,

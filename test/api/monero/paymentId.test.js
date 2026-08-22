@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { generateTipPaymentId, generateDownvotePaymentId } from '@/api/monero/paymentId'
+import { generateTipPaymentId, generateDownvotePaymentId, generateBountyPaymentId, generateSubFeePaymentId } from '@/api/monero/paymentId'
 
 test('generateTipPaymentId returns a 16-char hex string', () => {
   const pid = generateTipPaymentId(42, 1)
@@ -79,5 +79,27 @@ describe('mainnet fail-closed on weak default REWARDS_PID_KEY', () => {
     process.env.MONERO_NETWORK = 'mainnet'
     expect(generateTipPaymentId(42, 1)).toMatch(/^[0-9a-f]{16}$/)
     expect(generateDownvotePaymentId(42, 1)).toMatch(/^[0-9a-f]{16}$/)
+  })
+})
+
+describe('generateSubFeePaymentId', () => {
+  it('is deterministic for a given (seed, nonce)', () => {
+    expect(generateSubFeePaymentId('seed-1', 123))
+      .toBe(generateSubFeePaymentId('seed-1', 123))
+  })
+  it('differs across seeds and nonces', () => {
+    expect(generateSubFeePaymentId('seed-1', 123)).not.toBe(generateSubFeePaymentId('seed-2', 123))
+    expect(generateSubFeePaymentId('seed-1', 123)).not.toBe(generateSubFeePaymentId('seed-1', 124))
+  })
+  it('is 16 hex chars', () => {
+    expect(generateSubFeePaymentId('s', 1)).toMatch(/^[0-9a-f]{16}$/)
+  })
+  it('never collides with tip/dv/bn namespaces for the same inputs', () => {
+    for (let i = 0; i < 100; i++) {
+      const fee = generateSubFeePaymentId('x', i)
+      expect(fee).not.toBe(generateTipPaymentId('x', i))
+      expect(fee).not.toBe(generateDownvotePaymentId('x', i))
+      expect(fee).not.toBe(generateBountyPaymentId('x', i))
+    }
   })
 })
