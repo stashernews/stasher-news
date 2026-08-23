@@ -1,6 +1,22 @@
 /* eslint-env jest */
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 
+// The verified badge is hard-off pending the award/pay redesign; these legacy
+// tests mock the flag ON so the grant logic stays covered as documentation.
+// var, not let/const: jest.mock factories may only reference out-of-scope
+// names prefixed with "mock", and const/let here would be in TDZ when the
+// hoisted jest.mock call runs.
+jest.mock('../../lib/verified-badge-flag', () => ({
+  __esModule: true,
+  isVerifiedBadgeEnabled: () => mockFlag
+}))
+
+var mockFlag = true
+
+beforeEach(() => {
+  mockFlag = true
+})
+
 const DAY = 86_400_000
 const CONFIG = {
   id: 1,
@@ -69,5 +85,19 @@ describe('maybeGrantVerifiedBadge', () => {
     }
     const result = await maybeGrantVerifiedBadge(models, 42)
     expect(result).toBe(false)
+  })
+
+  test('no-op when the badge is disabled (never queries the DB)', async () => {
+    mockFlag = false
+    const models = {
+      platformFeeConfig: { findUnique: jest.fn() },
+      user: { findUnique: jest.fn() },
+      moneroAccount: { findFirst: jest.fn() },
+      $queryRaw: jest.fn()
+    }
+    const result = await maybeGrantVerifiedBadge(models, 42)
+    expect(result).toBe(false)
+    expect(models.moneroAccount.findFirst).not.toHaveBeenCalled()
+    expect(models.$queryRaw).not.toHaveBeenCalled()
   })
 })

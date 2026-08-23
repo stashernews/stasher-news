@@ -14,6 +14,7 @@ import { processCrop } from '@/lib/imgproxy'
 import { payInTypesSql } from '../payIn/lib/sql'
 import { Prisma } from '@prisma/client'
 import { enabledAuthMethods } from '@/lib/authProviderEnv'
+import { isVerifiedBadgeEnabled } from '@/lib/verified-badge-flag'
 
 const contributors = new Set()
 
@@ -973,6 +974,8 @@ export default {
       return user.streak
     },
     hasWallet: async (user, args, { models, me }) => {
+      if (!isVerifiedBadgeEnabled()) return false
+
       if (user.hideBadges && (!me || me.id !== user.id)) {
         return false
       }

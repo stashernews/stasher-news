@@ -19,6 +19,22 @@ jest.mock('../../../lib/lexical/server/html', () => ({
   lexicalHTMLGenerator: async () => ''
 }))
 
+// The verified badge is hard-off pending the award/pay redesign; these legacy
+// tests mock the flag ON so the hasWallet gate logic stays covered as
+// documentation. var, not let/const: jest.mock factories may only reference
+// out-of-scope names prefixed with "mock", and const/let here would be in TDZ
+// when the hoisted jest.mock call runs.
+jest.mock('../../../lib/verified-badge-flag', () => ({
+  __esModule: true,
+  isVerifiedBadgeEnabled: () => mockFlag
+}))
+
+var mockFlag = true
+
+beforeEach(() => {
+  mockFlag = true
+})
+
 const { UserOptional } = userResolvers
 
 const DAY = 86_400_000
@@ -156,6 +172,17 @@ test('hasWallet fetches missing createdAt/stackedPiconeros for feed authors and 
   const rec = await UserOptional.hasWallet({ id: 5 }, {}, { models })
   expect(rec).toBe(true)
   expect(models.user.findUnique).toHaveBeenCalledTimes(1)
+})
+
+test('hasWallet returns false when the badge is disabled (never queries the DB)', async () => {
+  mockFlag = false
+  const models = {
+    platformFeeConfig: { findUnique: jest.fn() },
+    moneroAccount: { findFirst: jest.fn() }
+  }
+  const rec = await UserOptional.hasWallet(mkUser(), {}, { models })
+  expect(rec).toBe(false)
+  expect(models.moneroAccount.findFirst).not.toHaveBeenCalled()
 })
 
 test('tippedRecently returns false for other viewers when hideBadges is on (never queries the DB)', async () => {
