@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { applyTipDetected } from '@/api/monero/ranking'
+import { shouldExcludeTip, resolveItemSubName } from '@/api/monero/selfTip'
 import { RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
 import { alert } from '@/lib/alert'
 import { moneroPendingTips } from '@/lib/metrics'
@@ -36,10 +37,11 @@ export async function runReconcilePendingTipsOnce ({
   const expireBefore = new Date(now - PENDING_EXPIRY_MS)
 
   const eligible = await models.observedTip.findMany({
-    where: { state: 'PENDING', detectedAt: { lt: reconcileBefore } }
+    where: { state: 'PENDING', detectedAt: { lt: reconcileBefore } },
+    include: { post: { select: { userId: true } } }
   })
   moneroPendingTips.set(eligible.length)
-  if (eligible.length === 0) return { recovered: 0, expired: 0 }
+  if (eligible.length === 0) return { recovered: 0, expired: 0, excluded: 0 }
 
   if (eligible.length >= STUCK_ALERT_THRESHOLD) {
     const oldestMs = eligible.reduce((m, t) => {
@@ -60,11 +62,12 @@ export async function runReconcilePendingTipsOnce ({
   }
   const accounts = await models.moneroAccount.findMany({
     where: { id: { in: [...byAccount.keys()] } },
-    include: { viewKey: true }
+    include: { viewKey: true, subaddresses: { select: { majorIndex: true, minorIndex: true } } }
   })
 
   let recovered = 0
   let expired = 0
+  let excluded = 0
   for (const account of accounts) {
     const tips = byAccount.get(account.id) || []
     // Unregistered/soft-deleted accounts (view key wiped, status INACTIVE) can't be
@@ -83,7 +86,44 @@ export async function runReconcilePendingTipsOnce ({
       const tx = byPid.get(String(tip.paymentId).toLowerCase())
       if (tx) {
         const amount = tx.piconeros ?? tip.piconeros
+        const direct = tip.tipperId != null && tip.tipperId === tip.post?.userId
+        const isExcluded = shouldExcludeTip({
+          tipperId: tip.tipperId,
+          postUserId: tip.post?.userId,
+          account,
+          tx
+        })
         await models.$transaction(async (txdb) => {
+          if (isExcluded) {
+            // Atomic conditional claim: only the first flipper (us or the
+            // webhook) wins. EXCLUDED is terminal — no apply, no streaks.
+            const claimed = await txdb.$executeRaw`
+              UPDATE "ObservedTip"
+              SET state = 'EXCLUDED', "exclusionReason" = ${direct ? 'DIRECT_SELF_TIP' : 'SELF_SEND'}::"TipExclusionReason",
+                  "txHash" = ${tx.hash}, height = ${tx.height ?? null}, piconeros = ${amount}, confirmations = 0
+              WHERE id = ${tip.id} AND state = 'PENDING'`
+            if (claimed > 0) {
+              const subName = await resolveItemSubName(tip.postId, txdb)
+              await txdb.abuseSignal.create({
+                data: {
+                  kind: direct ? 'SELF_TIP_EXCLUDED' : 'SELF_SEND_EXCLUDED',
+                  subjectUserId: tip.post?.userId,
+                  actorUserId: tip.tipperId ?? null,
+                  tipId: tip.id,
+                  postId: tip.postId,
+                  subName,
+                  piconeros: amount,
+                  txHash: tx.hash,
+                  paymentId: tip.paymentId,
+                  details: direct
+                    ? undefined
+                    : { note: 'amount recorded as lws reported it (change-output inflation possible)' }
+                }
+              })
+              excluded += 1
+            }
+            return
+          }
           // Atomic conditional claim: only the first flipper (us or the webhook) wins.
           const claimed = await txdb.$executeRaw`
             UPDATE "ObservedTip"
@@ -91,7 +131,10 @@ export async function runReconcilePendingTipsOnce ({
                 height = ${tx.height ?? null}, piconeros = ${amount}, confirmations = 0
             WHERE id = ${tip.id} AND state = 'PENDING'`
           if (claimed > 0) {
-            await apply(tip.postId, tip.tipperId, amount, txdb)
+            const rankDelta = await apply(tip.postId, tip.tipperId, amount, txdb)
+            await txdb.$executeRaw`
+              UPDATE "ObservedTip" SET "rankPiconeros" = ${rankDelta}
+              WHERE id = ${tip.id} AND state = 'DETECTED'`
             recovered += 1
           }
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
@@ -104,14 +147,14 @@ export async function runReconcilePendingTipsOnce ({
       }
     }
   }
-  return { recovered, expired }
+  return { recovered, expired, excluded }
 }
 
 export async function reconcilePendingTips ({ models }) {
   // Recurrence is cron-owned (pgboss.schedule row reconcilePendingTips); no
   // self-requeue.
   const out = await runReconcilePendingTipsOnce({ models })
-  if (out.recovered || out.expired) {
-    console.log(`reconcilePendingTips: recovered ${out.recovered}, expired ${out.expired}`)
+  if (out.recovered || out.expired || out.excluded) {
+    console.log(`reconcilePendingTips: recovered ${out.recovered}, expired ${out.expired}, excluded ${out.excluded}`)
   }
 }

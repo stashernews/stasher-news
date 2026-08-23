@@ -93,5 +93,6 @@ export default gql`
     CONFIRMED
     REORGED
     EXPIRED
+    EXCLUDED
   }
 `

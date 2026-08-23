@@ -106,7 +106,20 @@ function mockModels (overrides = {}) {
         // assertions below.
         findUnique: overrides.txItemFind || jest.fn().mockResolvedValue({ bountyPiconeros: 100_000_000_000n })
       },
-      platformFeeConfig: { findUnique: overrides.txConfigFind || jest.fn().mockResolvedValue({ bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }) },
+      platformFeeConfig: {
+        findUnique: overrides.txConfigFind || jest.fn().mockResolvedValue({
+          bountyFeeMinPiconeros: 10_000_000_000n,
+          bountyFeePct: 1,
+          tipRankCapPiconeros: 100_000_000_000n,
+          tipRankFactorFloor: 0.7,
+          tipRankRampDays: 14,
+          anonTipRankCapPiconeros: 100_000_000_000n,
+          anonTipRankFactor: 0.7
+        })
+      },
+      abuseSignal: {
+        create: overrides.txAbuseSignalCreate || jest.fn().mockResolvedValue({})
+      },
       $executeRaw: execRaw,
       $queryRaw: queryRaw
     })),
@@ -121,6 +134,7 @@ function mockModels (overrides = {}) {
 function mockMonero (overrides = {}) {
   return {
     deleteWebhook: jest.fn().mockResolvedValue({}),
+    getAddressTxs: jest.fn().mockResolvedValue({ transactions: [] }),
     ...overrides
   }
 }
@@ -154,13 +168,18 @@ test('returns 200 when payment_id is missing', async () => {
 })
 
 test('flips PENDING -> DETECTED at 0 confirmations and runs the ranking delta', async () => {
-  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-1', post: { userId: 99 } }
+  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: null, subaddresses: [] } }
   const txUpdate = jest.fn().mockResolvedValue({ ...tip, state: 'DETECTED' })
   const execRaw = jest.fn().mockResolvedValue(1)
+  // The tip has no tipperId, so applyTipDetected skips the guard lookup and
+  // calls $queryRaw exactly once — for the delta chain, which ends in
+  // `SELECT rank_delta`.
+  const queryRaw = jest.fn().mockResolvedValue([{ rank_delta: 700000000n }])
   const models = mockModels({
     observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
     txUpdate,
-    execRaw
+    execRaw,
+    queryRaw
   })
   const res = mockRes()
   await handleWebhook({
@@ -174,10 +193,14 @@ test('flips PENDING -> DETECTED at 0 confirmations and runs the ranking delta', 
   // the same transaction and also calls $executeRaw on the tx, so execRaw is
   // invoked one or more times (>= 1 = at least the claim).
   expect(execRaw.mock.calls.length).toBeGreaterThanOrEqual(1)
+  // The applied rank delta is persisted on the tip row (exact reorg reversal).
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const raws = [...execRaw.mock.calls.map(sqlOf), ...queryRaw.mock.calls.map(sqlOf)]
+  expect(raws.some(sql => sql.includes('"rankPiconeros"'))).toBe(true)
 })
 
 test('does NOT apply ranking delta when the conditional claim loses (race with reconcile sweep)', async () => {
-  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-1', post: { userId: 99 } }
+  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: null, subaddresses: [] } }
   const txUpdate = jest.fn().mockResolvedValue({})
   // The sweep already flipped the row DETECTED, so the conditional UPDATE
   // matches 0 rows -> the webhook loses the claim and must NOT apply the delta.
@@ -196,6 +219,139 @@ test('does NOT apply ranking delta when the conditional claim loses (race with r
   // (claimed === 0), so there is no second apply call -> no double-count.
   expect(execRaw).toHaveBeenCalledTimes(1)
   expect(txUpdate).not.toHaveBeenCalled()
+})
+
+test('direct self-tip (tipperId === post.userId) -> EXCLUDED: no ranking delta, no streaks, AbuseSignal written, webhook deleted', async () => {
+  const ACCT = { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) }, subaddresses: [] }
+  const tip = { id: 1, postId: 10, tipperId: 99, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: ACCT }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const txAbuseSignalCreate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
+    execRaw,
+    txAbuseSignalCreate
+  })
+  const monero = mockMonero()
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // the EXCLUDED claim ran
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const sqls = execRaw.mock.calls.map(sqlOf)
+  expect(sqls.some(sql => sql.includes("state = 'EXCLUDED'") && sql.includes("state = 'PENDING'"))).toBe(true)
+  // exactly ONE $executeRaw: the claim. applyTipDetected + COIN streak + checkStreak never ran.
+  expect(execRaw).toHaveBeenCalledTimes(1)
+  // AbuseSignal row written in the same transaction
+  expect(txAbuseSignalCreate).toHaveBeenCalledWith(expect.objectContaining({
+    data: expect.objectContaining({ kind: 'SELF_TIP_EXCLUDED', subjectUserId: 99, actorUserId: 99, postId: 10, tipId: 1 })
+  }))
+  expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-1')
+})
+
+test('self-send (spent output from the recipient own wallet) -> EXCLUDED with reason SELF_SEND', async () => {
+  const ACCT = { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) }, subaddresses: [] }
+  const tip = { id: 2, postId: 10, tipperId: null, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-2', post: { userId: 99 }, recipientAccount: ACCT }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const txAbuseSignalCreate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
+    execRaw,
+    txAbuseSignalCreate
+  })
+  // the self-send lookup scans the recipient account; the tip tx's inputs come
+  // from the recipient's own primary subaddress
+  const monero = mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ hash: 'deadbeef', height: 2172600, payment_id: 'abc123', piconeros: 1000000000n, spent_outputs: [{ sender: { maj_i: 0, min_i: 0 } }] }]
+    })
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(monero.getAddressTxs).toHaveBeenCalledTimes(1)
+  // The exclusionReason is a BOUND PARAM (${exclusionReason}::"TipExclusionReason"),
+  // never SQL text — assert the claim via its SQL shape and the reason via the
+  // call's bound values (the same [...call].slice(1).flat() idiom the
+  // checkStreak test uses).
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const claimCall = execRaw.mock.calls.find(call => sqlOf(call).includes("state = 'EXCLUDED'") && sqlOf(call).includes("state = 'PENDING'"))
+  expect(claimCall).toBeDefined()
+  expect(sqlOf(claimCall)).toContain('"TipExclusionReason"')
+  expect([...claimCall].slice(1).flat()).toContain('SELF_SEND')
+  expect(execRaw).toHaveBeenCalledTimes(1)
+  expect(txAbuseSignalCreate).toHaveBeenCalledWith(expect.objectContaining({
+    data: expect.objectContaining({ kind: 'SELF_SEND_EXCLUDED', actorUserId: null })
+  }))
+})
+
+test('a normal tip does NOT call getAddressTxs for the self-send scan when tipper is known and external... scan runs but excludes nothing', async () => {
+  const ACCT = { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) }, subaddresses: [] }
+  const tip = { id: 3, postId: 10, tipperId: 77, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-3', post: { userId: 99 }, recipientAccount: ACCT }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const txAbuseSignalCreate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
+    execRaw,
+    txAbuseSignalCreate
+  })
+  const monero = mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ hash: 'deadbeef', height: 2172600, payment_id: 'abc123', piconeros: 1000000000n, spent_outputs: [{ sender: { maj_i: 4, min_i: 2 } }] }]
+    })
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // NOT excluded: the DETECTED claim ran instead
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const sqls = execRaw.mock.calls.map(sqlOf)
+  expect(sqls.some(sql => sql.includes("state = 'DETECTED'") && sql.includes("state = 'PENDING'"))).toBe(true)
+  expect(sqls.some(sql => sql.includes("state = 'EXCLUDED'"))).toBe(false)
+  expect(txAbuseSignalCreate).not.toHaveBeenCalled()
+})
+
+test('retried callback for an already-EXCLUDED tip is a 200 no-op + best-effort webhook delete', async () => {
+  const tip = { id: 4, postId: 10, tipperId: 99, state: 'EXCLUDED', paymentId: 'abc123', piconeros: 1000000000n, webhookEventId: 'evt-4', post: { userId: 99 } }
+  const models = mockModels({ observedTip: { findFirst: jest.fn().mockResolvedValue(tip) } })
+  const monero = mockMonero()
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 3, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(models.$transaction).not.toHaveBeenCalled()
+  expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-4')
+})
+
+test('lws scan failure during the self-send check fails closed (non-200, lws will retry)', async () => {
+  const ACCT = { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) }, subaddresses: [] }
+  const tip = { id: 5, postId: 10, tipperId: null, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-5', post: { userId: 99 }, recipientAccount: ACCT }
+  const models = mockModels({ observedTip: { findFirst: jest.fn().mockResolvedValue(tip) } })
+  const monero = mockMonero({ getAddressTxs: jest.fn().mockRejectedValue(new Error('lws down')) })
+  const res = mockRes()
+  await expect(handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models, monero)).rejects.toThrow(/lws down/)
+})
+
+test('skips the self-send scan for an unscannable account (no viewKey) and detects normally', async () => {
+  const ACCT = { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: null, subaddresses: [] }
+  const tip = { id: 6, postId: 10, tipperId: 77, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-6', post: { userId: 99 }, recipientAccount: ACCT }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const models = mockModels({ observedTip: { findFirst: jest.fn().mockResolvedValue(tip) }, execRaw })
+  const monero = mockMonero()
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(monero.getAddressTxs).not.toHaveBeenCalled()
 })
 
 test('flips DETECTED -> CONFIRMED at REQUIRED_CONFIRMATIONS, bumps stackedPiconeros, deletes webhook', async () => {
@@ -266,7 +422,7 @@ test('does NOT bump author stackedPiconeros when the recipient is the rewards wa
 })
 
 test('updates confirmations count for intermediate DETECTED callbacks (< REQUIRED_CONFIRMATIONS)', async () => {
-  const tip = { id: 1, postId: 10, state: 'DETECTED', paymentId: 'abc123', piconeros: 1000000000n, height: 2172600, webhookEventId: 'evt-1', post: { userId: 99 } }
+  const tip = { id: 1, postId: 10, state: 'DETECTED', paymentId: 'abc123', piconeros: 1000000000n, height: 2172600, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: null, subaddresses: [] } }
   const models = mockModels({
     observedTip: {
       findFirst: jest.fn().mockResolvedValue(tip),
@@ -285,7 +441,7 @@ test('updates confirmations count for intermediate DETECTED callbacks (< REQUIRE
 })
 
 test('is idempotent — a callback when already CONFIRMED is a no-op', async () => {
-  const tip = { id: 1, postId: 10, state: 'CONFIRMED', paymentId: 'abc123', piconeros: 1000000000n, post: { userId: 99 } }
+  const tip = { id: 1, postId: 10, state: 'CONFIRMED', paymentId: 'abc123', piconeros: 1000000000n, post: { userId: 99 }, recipientAccount: { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: null, subaddresses: [] } }
   const models = mockModels({
     observedTip: { findFirst: jest.fn().mockResolvedValue(tip), update: jest.fn() }
   })

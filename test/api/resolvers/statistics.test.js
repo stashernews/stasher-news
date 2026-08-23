@@ -277,6 +277,10 @@ describe('Query.statistics', () => {
     expect(sentTips[0].item.id).toBe(otherPost.id)
   })
 
+  // Intentionally stays green: this seeds a CONFIRMED self-tip row directly (a
+  // legacy state reachable before self-tip exclusion) and documents that the
+  // statistics resolver still reports such rows; new direct self-tips can no
+  // longer reach CONFIRMED (they go EXCLUDED at detection).
   test('a self-tip appears as BOTH a receive row and a send row', async () => {
     const me = await createUser()
     const acct = await createAccount(me)

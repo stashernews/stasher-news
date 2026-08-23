@@ -31,6 +31,9 @@ test('recovers a PENDING tip whose payment_id appears in the lws re-scan (PENDIN
     })
   }
   let applied = null
+  // Capture the txdb raw SQL (the exclusion tests' idiom) so the rank-delta
+  // persistence UPDATE is assertable.
+  const execs = []
   const models = {
     observedTip: {
       findMany: async () => [t],
@@ -41,7 +44,11 @@ test('recovers a PENDING tip whose payment_id appears in the lws re-scan (PENDIN
     $transaction: async (fn) => {
       // emulate the serializable tx: the raw UPDATE claims 1 row, then apply runs
       const txdb = {
-        $executeRaw: async () => 1,
+        $executeRaw: async (...args) => {
+          const q = args[0]
+          execs.push({ sql: Array.isArray(q) ? q.join('') : q.text, vals: [...args].slice(1).flat() })
+          return 1
+        },
         observedTip: { update: async () => {} }
       }
       await fn(txdb)
@@ -50,9 +57,13 @@ test('recovers a PENDING tip whose payment_id appears in the lws re-scan (PENDIN
   }
   // applyTipDetected is imported by the worker from ranking.js; spy via its effect by
   // stubbing the module is heavier — instead assert the recovery count + that $transaction ran.
-  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => { applied = true } })
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => { applied = true; return 700000000n } })
   expect(out.recovered).toBe(1)
   expect(applied).toBe(true)
+  // The applied rank delta is persisted on the tip row (exact reorg reversal).
+  const rankSet = execs.find(e => e.sql.includes('"rankPiconeros"'))
+  expect(rankSet).toBeDefined()
+  expect(rankSet.vals).toContain(700000000n)
 })
 
 test('expires a PENDING tip with no matching payment after PENDING_EXPIRY_MS (-> EXPIRED)', async () => {
@@ -113,7 +124,7 @@ test('never calls lws for an account without a viewKey, but still expires its PE
   }
   const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => {} })
   expect(lws.getAddressTxs).not.toHaveBeenCalled()
-  expect(out).toEqual({ recovered: 0, expired: 1 })
+  expect(out).toEqual({ recovered: 0, expired: 1, excluded: 0 })
   expect(expiredWhere).toEqual({ id: 4n, state: 'PENDING' })
 })
 
@@ -125,5 +136,99 @@ test('does NOT touch fresh PENDING tips (younger than RECONCILE_PENDING_AGE_MS)'
     $transaction: async () => {}
   }
   const out = await runReconcilePendingTipsOnce({ models, lwsClient: { getAddressTxs: async () => ({ transactions: [] }) }, apply: async () => {} })
-  expect(out).toEqual({ recovered: 0, expired: 0 })
+  expect(out).toEqual({ recovered: 0, expired: 0, excluded: 0 })
+})
+
+test('recovers a PENDING direct self-tip as EXCLUDED (no apply, AbuseSignal written)', async () => {
+  const t = tip({ id: 10n, tipperId: 5, post: { userId: 5 } }) // tipper === author
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: {}, subaddresses: [] }
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [{ hash: 'deadbeef', height: 100, payment_id: 'AABBCCDD11223344', piconeros: 1000000000n, spent_outputs: [] }],
+      blockchain_height: 110
+    })
+  }
+  let applied = false
+  let signalData = null
+  // Capture BOTH the SQL text and the bound values: the exclusionReason is a
+  // tagged-template BIND PARAM, so it never appears in the SQL text — only in
+  // the call's trailing arguments.
+  const execs = []
+  const models = {
+    observedTip: { findMany: async () => [t] },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async (fn) => {
+      const txdb = {
+        $executeRaw: async (...args) => {
+          const q = args[0]
+          execs.push({ sql: Array.isArray(q) ? q.join('') : q.text, vals: [...args].slice(1).flat() })
+          return 1
+        },
+        $queryRaw: async () => [{ subName: null }],
+        abuseSignal: { create: async ({ data }) => { signalData = data } }
+      }
+      await fn(txdb)
+    }
+  }
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => { applied = true } })
+  expect(out.excluded).toBe(1)
+  expect(out.recovered).toBe(0)
+  expect(applied).toBe(false)
+  const excluded = execs.find(e => e.sql.includes("state = 'EXCLUDED'") && e.sql.includes("state = 'PENDING'"))
+  expect(excluded).toBeDefined()
+  expect(excluded.sql).toContain('"TipExclusionReason"')
+  expect(excluded.vals).toContain('DIRECT_SELF_TIP')
+  expect(signalData).toMatchObject({ kind: 'SELF_TIP_EXCLUDED', subjectUserId: 5, actorUserId: 5, tipId: 10n, postId: 42 })
+})
+
+test('recovers a PENDING self-send (anon tip from the author registered wallet) as EXCLUDED', async () => {
+  const t = tip({ id: 11n, tipperId: null, post: { userId: 5 } })
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: {}, subaddresses: [] }
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [{ hash: 'deadbeef', height: 100, payment_id: 'AABBCCDD11223344', piconeros: 1000000000n, spent_outputs: [{ sender: { maj_i: 0, min_i: 0 } }] }],
+      blockchain_height: 110
+    })
+  }
+  let applied = false
+  let signalData = null
+  const models = {
+    observedTip: { findMany: async () => [t] },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async (fn) => {
+      const txdb = {
+        $executeRaw: async () => 1,
+        $queryRaw: async () => [{ subName: 'meta' }],
+        abuseSignal: { create: async ({ data }) => { signalData = data } }
+      }
+      await fn(txdb)
+    }
+  }
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => { applied = true } })
+  expect(out.excluded).toBe(1)
+  expect(applied).toBe(false)
+  expect(signalData).toMatchObject({ kind: 'SELF_SEND_EXCLUDED', subName: 'meta' })
+})
+
+test('a normal recovered tip still detects (exclusion check passes it through)', async () => {
+  const t = tip({ id: 12n, tipperId: 6, post: { userId: 5 } })
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: {}, subaddresses: [] }
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [{ hash: 'deadbeef', height: 100, payment_id: 'AABBCCDD11223344', piconeros: 1000000000n, spent_outputs: [{ sender: { maj_i: 4, min_i: 2 } }] }],
+      blockchain_height: 110
+    })
+  }
+  let applied = false
+  const models = {
+    observedTip: { findMany: async () => [t] },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async (fn) => {
+      await fn({ $executeRaw: async () => 1 })
+    }
+  }
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => { applied = true; return 700000000n } })
+  expect(out.recovered).toBe(1)
+  expect(out.excluded).toBe(0)
+  expect(applied).toBe(true)
 })

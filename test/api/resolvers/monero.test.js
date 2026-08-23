@@ -380,6 +380,21 @@ describe('Mutation.initiateTip', () => {
     }, { me: { id: tipperId }, models: prisma, monero: makeMockLws() })).rejects.toThrow(/post not found/i)
   })
 
+  test('rejects when the caller is the post author (direct self-tip gate)', async () => {
+    const authorId = await createUser()
+    await registerFor(authorId)
+    const post = await createPost(authorId)
+    const lws = makeMockLws()
+    await expect(resolvers.Mutation.initiateTip(null, {
+      postId: String(post.id),
+      amount: '1000000000'
+    }, { me: { id: authorId }, models: prisma, monero: lws }))
+      .rejects.toThrow(/cannot tip your own post/i)
+    expect(lws.addWebhook).not.toHaveBeenCalled()
+    const count = await prisma.observedTip.count({ where: { postId: post.id } })
+    expect(count).toBe(0)
+  })
+
   test('redirects to the rewards wallet when the author has no MoneroAccount (wallet-less / anon)', async () => {
     const authorId = await createUser()
     const post = await createPost(authorId) // author has NO registered wallet

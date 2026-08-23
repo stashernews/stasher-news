@@ -31,9 +31,17 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
-async function createUser () {
+// ageDays: null = as-created (now); N>0 = backdated N days (matured);
+// N<0 = future-dated (day-0 CLAMP — GREATEST(0.0, ·) pins the ramp at 0,
+// yielding exactly the 0.7 floor; see the age-factor test for why exactness
+// matters here).
+async function createUser (ageDays = null) {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
-  return rows[0].id
+  const id = rows[0].id
+  if (ageDays != null) {
+    await prisma.$executeRaw`UPDATE users SET created_at = now() - (${ageDays} || ' days')::interval WHERE id = ${id}::int`
+  }
+  return id
 }
 
 // Root post: path is the item's own id as a single ltree label (SN convention).
@@ -61,16 +69,17 @@ async function createComment (userId, rootId, title) {
 function readItem (id) {
   return prisma.item.findUnique({
     where: { id },
-    select: { piconeros: true, ranktop: true, commentPiconeros: true, upvotes: true }
+    select: { piconeros: true, ranktop: true, commentPiconeros: true, upvotes: true, tipRankPiconeros: true, anonTipPiconeros: true, commentTipRankPiconeros: true }
   })
 }
 
 test('applyTipDetected bumps Item.piconeros, ranktop, and ItemUserAgg.tipPiconeros', async () => {
   const u = await createUser(); created.users.push(u)
+  const tipper = await createUser(); created.users.push(tipper)
   const p = await createRoot(u, 'tip-bump'); created.items.push(p)
 
   const before = await readItem(p)
-  await applyTipDetected(p, u, 5000000n)
+  await applyTipDetected(p, tipper, 5000000n)
   const after = await readItem(p)
 
   expect(after.piconeros - before.piconeros).toBe(5000000n)
@@ -78,18 +87,19 @@ test('applyTipDetected bumps Item.piconeros, ranktop, and ItemUserAgg.tipPiconer
   expect(after.upvotes - before.upvotes).toBe(1)
 
   const agg = await prisma.itemUserAgg.findUnique({
-    where: { itemId_userId: { itemId: p, userId: u } }
+    where: { itemId_userId: { itemId: p, userId: tipper } }
   })
   expect(agg.tipPiconeros).toBe(5000000n)
 })
 
 test('a repeat tip from the same user does not double-count the tipper', async () => {
   const u = await createUser(); created.users.push(u)
+  const tipper = await createUser(); created.users.push(tipper)
   const p = await createRoot(u, 'repeat-tip'); created.items.push(p)
 
-  await applyTipDetected(p, u, 3000000n)
+  await applyTipDetected(p, tipper, 3000000n)
   const once = await readItem(p)
-  await applyTipDetected(p, u, 2000000n)
+  await applyTipDetected(p, tipper, 2000000n)
   const twice = await readItem(p)
 
   expect(twice.piconeros - once.piconeros).toBe(2000000n)
@@ -114,11 +124,12 @@ test('applyTipDetected with null tipper bumps piconeros but creates no ItemUserA
 
 test('applyTipDetected on a comment propagates commentPiconeros to ancestor posts', async () => {
   const u = await createUser(); created.users.push(u)
+  const tipper = await createUser(); created.users.push(tipper)
   const root = await createRoot(u, 'prop-root'); created.items.push(root)
   const comment = await createComment(u, root, 'prop-comment'); created.items.push(comment)
 
   const before = await readItem(root)
-  await applyTipDetected(comment, u, 4000000n)
+  await applyTipDetected(comment, tipper, 4000000n)
   const after = await readItem(root)
 
   // root is an ancestor (path @> comment.path) → commentPiconeros bumps by the tip
@@ -129,9 +140,10 @@ test('applyTipDetected on a comment propagates commentPiconeros to ancestor post
 
 test('reverseTip subtracts piconeros, lowers ranktop, and decrements upvotes', async () => {
   const u = await createUser(); created.users.push(u)
+  const tipper = await createUser(); created.users.push(tipper)
   const p = await createRoot(u, 'reverse'); created.items.push(p)
 
-  await applyTipDetected(p, u, 5000000n)
+  await applyTipDetected(p, tipper, 5000000n)
   const before = await readItem(p)
   await reverseTip(p, 2000000n)
   const after = await readItem(p)
@@ -197,4 +209,122 @@ test('anonymous tips (no tipperId) leave weightedVotes untouched (no per-user at
 
   expect(after.weightedVotes).toBe(before.weightedVotes)
   expect(after.subWeightedVotes).toBe(before.subWeightedVotes)
+})
+
+test('applyTipDetected no-ops when the tipper is the item author (defense-in-depth guard)', async () => {
+  const u = await createUser(); created.users.push(u)
+  const p = await createRoot(u, 'self-tip-guard'); created.items.push(p)
+
+  const before = await readItem(p)
+  await applyTipDetected(p, u, 5000000n)
+  const after = await readItem(p)
+
+  expect(after.piconeros).toBe(before.piconeros)
+  expect(after.upvotes).toBe(before.upvotes)
+  const count = await prisma.itemUserAgg.count({ where: { itemId: p } })
+  expect(count).toBe(0)
+})
+
+test('capped rank: a tip beyond the 0.1 XMR per-tipper cap adds money but no rank', async () => {
+  const u = await createUser(30); created.users.push(u) // matured tipper: factor 1.0
+  // separate author: u tipping their own post would trip the Task 5 self-tip
+  // guard (applyTipDetected returns 0n) and never exercise the cap math
+  const author = await createUser(); created.users.push(author)
+  const p = await createRoot(author, 'cap-test'); created.items.push(p)
+
+  await applyTipDetected(p, u, 100_000_000_000n) // exactly CAP
+  const atCap = await readItem(p)
+  expect(atCap.tipRankPiconeros).toBe(100_000_000_000n)
+
+  const delta = await applyTipDetected(p, u, 50_000_000_000n) // +0.05 XMR past cap
+  const pastCap = await readItem(p)
+  expect(pastCap.piconeros).toBe(150_000_000_000n) // true total still displays
+  expect(pastCap.tipRankPiconeros).toBe(100_000_000_000n) // rank term saturated
+  expect(delta).toBe(0n)
+})
+
+test('new-account factor: a day-0 tipper ranks at the 0.7 floor', async () => {
+  const author = await createUser(); created.users.push(author)
+  // FUTURE-dated (ageDays -1): created_at is ahead of now(), so the factor's
+  // GREATEST(0.0, ·) clamp pins age at 0 -> EXACTLY 0.7. A same-tick
+  // createUser() would be a few ms old -> factor 0.7000000124 ->
+  // 7_000_000_124n, breaking the exact assertions below.
+  const tipper = await createUser(-1); created.users.push(tipper)
+  const p = await createRoot(author, 'age-factor'); created.items.push(p)
+
+  const delta = await applyTipDetected(p, tipper, 10_000_000_000n) // 0.01 XMR, under cap
+  const item = await readItem(p)
+  expect(item.tipRankPiconeros).toBe(7_000_000_000n) // exactly 0.7 x 1e10
+  expect(delta).toBe(7_000_000_000n)
+  expect(item.piconeros).toBe(10_000_000_000n)
+})
+
+test('anonymous collective bucket: first 0.1 XMR counts at 0.7, everything after adds zero', async () => {
+  const u = await createUser(); created.users.push(u)
+  const p = await createRoot(u, 'anon-bucket'); created.items.push(p)
+
+  const d1 = await applyTipDetected(p, null, 60_000_000_000n) // 0.06 XMR
+  expect(d1).toBe(42_000_000_000n) // 0.7 x 6e10
+  const d2 = await applyTipDetected(p, null, 60_000_000_000n) // bucket hits 0.12 XMR -> capped at 0.1
+  expect(d2).toBe(28_000_000_000n) // 0.7 x (1e11 - 6e10)
+  const d3 = await applyTipDetected(p, null, 60_000_000_000n) // past cap
+  expect(d3).toBe(0n)
+
+  const item = await readItem(p)
+  expect(item.anonTipPiconeros).toBe(180_000_000_000n)
+  expect(item.tipRankPiconeros).toBe(70_000_000_000n) // 0.7 x 1e11
+  expect(item.piconeros).toBe(180_000_000_000n)
+})
+
+test('concurrent anonymous tips do not overshoot the collective cap (row-locked bucket math)', async () => {
+  const u = await createUser(); created.users.push(u)
+  const p = await createRoot(u, 'anon-concurrency'); created.items.push(p)
+
+  // Two 0.06 XMR anon tips fired concurrently. A pre-read CTE would let both
+  // compute their delta from the same empty bucket (2 x 0.7 x 6e10 = 8.4e10
+  // rank — overshoot); the inline SET-clause math evaluates against the
+  // row-locked latest value, so the second tip waits, re-evaluates, and gets
+  // only the remaining headroom. Total rank must be exactly the capped 7e10.
+  // (Pre-fix this test is timing-dependent — it fails whenever the second
+  // statement starts before the first commits, which Promise.all makes the
+  // common case; post-fix it is deterministic.)
+  await Promise.all([
+    applyTipDetected(p, null, 60_000_000_000n),
+    applyTipDetected(p, null, 60_000_000_000n)
+  ])
+  const item = await readItem(p)
+  expect(item.anonTipPiconeros).toBe(120_000_000_000n)
+  expect(item.tipRankPiconeros).toBe(70_000_000_000n) // exactly 0.7 x 1e11 cap — no overshoot
+  expect(item.piconeros).toBe(120_000_000_000n)
+})
+
+test('comment tips propagate commentTipRankPiconeros with the capped delta', async () => {
+  // separate author for the same guard reason as the cap test above: the
+  // matured user is the TIPPER, not the comment author
+  const author = await createUser(); created.users.push(author)
+  const u = await createUser(30); created.users.push(u) // matured tipper: factor 1.0
+  const root = await createRoot(author, 'cap-prop-root'); created.items.push(root)
+  const comment = await createComment(author, root, 'cap-prop-comment'); created.items.push(comment)
+
+  await applyTipDetected(comment, u, 150_000_000_000n) // 1.5x CAP
+  const after = await readItem(root)
+  expect(after.commentTipRankPiconeros).toBe(100_000_000_000n) // capped, factor 1.0
+  expect(after.commentPiconeros).toBe(150_000_000_000n) // true total
+})
+
+test('reverseTip subtracts the stored rank delta exactly', async () => {
+  const author = await createUser(); created.users.push(author)
+  // Matured tipper (factor 1.0): the delta is EXACTLY the raw amount, so the
+  // reversal assertions are integer-exact. (A same-tick fresh tipper drifts to
+  // 7_000_000_124n — see the createUser note above.)
+  const tipper = await createUser(30); created.users.push(tipper)
+  const p = await createRoot(author, 'reverse-capped'); created.items.push(p)
+
+  const delta = await applyTipDetected(p, tipper, 10_000_000_000n) // factor 1.0 x 1e10
+  expect(delta).toBe(10_000_000_000n)
+  const before = await readItem(p)
+  await reverseTip(p, 10_000_000_000n, delta)
+  const after = await readItem(p)
+  expect(after.tipRankPiconeros).toBe(0n)
+  expect(before.piconeros - after.piconeros).toBe(10_000_000_000n)
 })

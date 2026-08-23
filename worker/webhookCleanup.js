@@ -6,7 +6,7 @@ import { lwsClient } from '@/api/monero/lwsClient'
 // (a) that deleteWebhook is best-effort, and (b) confirmFinalizer's safety-net CONFIRMED
 // path does NOT delete the webhook at all. Never-paid tips leave their webhook registered
 // forever. This hourly job finds ObservedTips whose webhook is no longer needed — state
-// CONFIRMED or EXPIRED — calls lws deleteWebhook(eventId), and nulls webhookEventId so the
+// CONFIRMED, EXPIRED, or EXCLUDED — calls lws deleteWebhook(eventId), and nulls webhookEventId so the
 // row is never reprocessed. deleteWebhook failures are swallowed (best-effort): the row is
 // nullled regardless so a permanently-bad event id doesn't block the cron.
 //
@@ -29,15 +29,15 @@ import { lwsClient } from '@/api/monero/lwsClient'
 
 export async function runWebhookCleanupOnce ({ models, monero = lwsClient }) {
   const tips = await models.observedTip.findMany({
-    where: { webhookEventId: { not: null }, state: { in: ['CONFIRMED', 'EXPIRED'] } }
+    where: { webhookEventId: { not: null }, state: { in: ['CONFIRMED', 'EXPIRED', 'EXCLUDED'] } }
   })
   let cleaned = 0
   for (const tip of tips) {
     // Defensive re-check of the WHERE clause: a row that lost its webhookEventId, or
-    // flipped out of CONFIRMED/EXPIRED between query and processing, is skipped so we
+    // flipped out of CONFIRMED/EXPIRED/EXCLUDED between query and processing, is skipped so we
     // never call deleteWebhook(null) or yank a webhook a still-DETECTED tip needs.
     if (!tip.webhookEventId) continue
-    if (tip.state !== 'CONFIRMED' && tip.state !== 'EXPIRED') continue
+    if (tip.state !== 'CONFIRMED' && tip.state !== 'EXPIRED' && tip.state !== 'EXCLUDED') continue
     try {
       await monero.deleteWebhook(tip.webhookEventId)
     } catch (err) {

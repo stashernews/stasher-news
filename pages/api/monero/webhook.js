@@ -7,6 +7,7 @@ import { moneroWebhooksReceivedTotal } from '@/lib/metrics'
 import { alert } from '@/lib/alert'
 import { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros } from '@/api/monero/bountyFunding'
 import { applyDownvotePenalty } from '@/api/monero/downvote'
+import { shouldExcludeTip, resolveItemSubName } from '@/api/monero/selfTip'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { flipPendingToLive, applyBoostDetected } from '@/worker/rewardsWalletObserver'
 import { moneroUriAmountPiconeros } from '@/lib/format'
@@ -65,13 +66,81 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
 
   const tip = await models.observedTip.findFirst({
     where: { paymentId },
-    include: { post: { select: { userId: true } }, recipientAccount: { select: { label: true, ownerUserId: true } } }
+    include: {
+      post: { select: { userId: true } },
+      recipientAccount: {
+        select: { label: true, ownerUserId: true, address: true, status: true, viewKey: true, subaddresses: { select: { majorIndex: true, minorIndex: true } } }
+      }
+    }
   })
   if (tip) {
     if (tip.state === 'CONFIRMED') return res.status(200).end()
 
+    if (tip.state === 'EXCLUDED') {
+      // Retried lws callbacks for an excluded tip: terminal state, nothing to do.
+      if (tip.webhookEventId) {
+        try {
+          await monero.deleteWebhook(tip.webhookEventId)
+        } catch (err) {
+          console.warn(`webhook: lws deleteWebhook failed (best-effort): ${err && err.message}`)
+        }
+      }
+      return res.status(200).end()
+    }
+
     if (tip.state === 'PENDING') {
       const piconeros = BigInt(amount || '0')
+      // Self-tip exclusion (spec §2.3): direct self-tip is a free check from
+      // data in hand; the self-send check scans the recipient account via lws
+      // (tip callbacks are low-frequency). Fail closed on lws errors: a non-200
+      // makes lws retry, and reconcilePendingTips is the backstop.
+      const direct = tip.tipperId != null && tip.tipperId === tip.post.userId
+      let selfSend = false
+      if (!direct && tip.recipientAccount?.viewKey && tip.recipientAccount?.status === 'ACTIVE') {
+        const resp = await monero.getAddressTxs(tip.recipientAccount, 0, null)
+        const byPid = new Map()
+        for (const t of (resp.transactions || [])) {
+          if (t.payment_id) byPid.set(String(t.payment_id).toLowerCase(), t)
+        }
+        const tx = byPid.get(String(paymentId).toLowerCase()) ?? null
+        selfSend = shouldExcludeTip({ tipperId: tip.tipperId, postUserId: tip.post.userId, account: tip.recipientAccount, tx })
+      }
+      if (direct || selfSend) {
+        const exclusionReason = direct ? 'DIRECT_SELF_TIP' : 'SELF_SEND'
+        await models.$transaction(async (tx) => {
+          const claimed = await tx.$executeRaw`
+            UPDATE "ObservedTip"
+            SET state = 'EXCLUDED', "exclusionReason" = ${exclusionReason}::"TipExclusionReason",
+                "txHash" = ${txHash}, height = ${height ?? null},
+                piconeros = ${piconeros}, confirmations = ${confirmations}
+            WHERE id = ${tip.id} AND state = 'PENDING'`
+          if (claimed > 0) {
+            const subName = await resolveItemSubName(tip.postId, tx)
+            await tx.abuseSignal.create({
+              data: {
+                kind: direct ? 'SELF_TIP_EXCLUDED' : 'SELF_SEND_EXCLUDED',
+                subjectUserId: tip.post.userId,
+                actorUserId: tip.tipperId ?? null,
+                tipId: tip.id,
+                postId: tip.postId,
+                subName,
+                piconeros,
+                txHash: txHash ?? 'unknown',
+                paymentId,
+                details: direct ? undefined : { note: 'amount recorded as lws reported it (change-output inflation possible)' }
+              }
+            })
+          }
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+        if (tip.webhookEventId) {
+          try {
+            await monero.deleteWebhook(tip.webhookEventId)
+          } catch (err) {
+            console.warn(`webhook: lws deleteWebhook failed (best-effort): ${err && err.message}`)
+          }
+        }
+        return res.status(200).end()
+      }
       await models.$transaction(async (tx) => {
         const claimed = await tx.$executeRaw`
           UPDATE "ObservedTip"
@@ -79,7 +148,11 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
               height = ${height ?? null}, piconeros = ${piconeros}, confirmations = ${confirmations}
           WHERE id = ${tip.id} AND state = 'PENDING'`
         if (claimed > 0) {
-          await applyTipDetected(tip.postId, tip.tipperId, piconeros, tx)
+          const rankDelta = await applyTipDetected(tip.postId, tip.tipperId, piconeros, tx)
+          // Persist the applied rank delta for exact reorg reversal (spec §4.3).
+          await tx.$executeRaw`
+            UPDATE "ObservedTip" SET "rankPiconeros" = ${rankDelta}
+            WHERE id = ${tip.id} AND state = 'DETECTED'`
           if (tip.tipperId != null) {
             const [coin] = await tx.$queryRaw`
               INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)

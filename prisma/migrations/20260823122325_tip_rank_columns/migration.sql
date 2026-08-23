@@ -1,0 +1,14 @@
+-- AlterTable
+ALTER TABLE "Item" ADD COLUMN     "anonTipPiconeros" BIGINT NOT NULL DEFAULT 0,
+ADD COLUMN     "commentTipRankPiconeros" BIGINT NOT NULL DEFAULT 0,
+ADD COLUMN     "tipRankPiconeros" BIGINT NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE "ObservedTip" ADD COLUMN     "rankPiconeros" BIGINT;
+
+-- AlterTable
+ALTER TABLE "PlatformFeeConfig" ADD COLUMN     "anonTipRankCapPiconeros" BIGINT NOT NULL DEFAULT 100000000000,
+ADD COLUMN     "anonTipRankFactor" DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+ADD COLUMN     "tipRankCapPiconeros" BIGINT NOT NULL DEFAULT 100000000000,
+ADD COLUMN     "tipRankFactorFloor" DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+ADD COLUMN     "tipRankRampDays" INTEGER NOT NULL DEFAULT 14;

@@ -13,104 +13,104 @@ model Snl {
 }
 
 model User {
-  id                  Int                  @id @default(autoincrement())
-  createdAt           DateTime             @default(now()) @map("created_at")
-  updatedAt           DateTime             @default(now()) @updatedAt @map("updated_at")
-  name                String?              @unique(map: "users.name_unique") @db.Citext
-  email               String?              @unique(map: "users.email_unique")
-  emailVerified       DateTime?            @map("email_verified")
-  emailHash           String?              @unique(map: "users.email_hash_unique")
-  checkedNotesAt      DateTime?
-  foundNotesAt        DateTime?
-  apiKeyHash          String?              @unique(map: "users.apikeyhash_unique") @db.Char(64)
-  apiKeyEnabled       Boolean              @default(false)
-  tipRandomMin        BigInt?
-  tipRandomMax        BigInt?
-  bioId               Int?
-  pubkey              String?              @unique(map: "users.pubkey_unique")
-  inviteId            String?
-  tipPopover          Boolean              @default(false)
-  upvotePopover       Boolean              @default(false)
-  lastSeenAt          DateTime?
-  stackedCredits      BigInt               @default(0)
-  noteAllDescendants  Boolean              @default(true)
-  noteEarning         Boolean              @default(true)
-  noteInvites         Boolean              @default(true)
-  noteItemPiconeros   Boolean              @default(true)
-  noteMentions        Boolean              @default(true)
-  noteItemMentions    Boolean              @default(true)
-  photoId             Int?
-  postsPiconerosFilter BigInt?
+  id                      Int                  @id @default(autoincrement())
+  createdAt               DateTime             @default(now()) @map("created_at")
+  updatedAt               DateTime             @default(now()) @updatedAt @map("updated_at")
+  name                    String?              @unique(map: "users.name_unique") @db.Citext
+  email                   String?              @unique(map: "users.email_unique")
+  emailVerified           DateTime?            @map("email_verified")
+  emailHash               String?              @unique(map: "users.email_hash_unique")
+  checkedNotesAt          DateTime?
+  foundNotesAt            DateTime?
+  apiKeyHash              String?              @unique(map: "users.apikeyhash_unique") @db.Char(64)
+  apiKeyEnabled           Boolean              @default(false)
+  tipRandomMin            BigInt?
+  tipRandomMax            BigInt?
+  bioId                   Int?
+  pubkey                  String?              @unique(map: "users.pubkey_unique")
+  inviteId                String?
+  tipPopover              Boolean              @default(false)
+  upvotePopover           Boolean              @default(false)
+  lastSeenAt              DateTime?
+  stackedCredits          BigInt               @default(0)
+  noteAllDescendants      Boolean              @default(true)
+  noteEarning             Boolean              @default(true)
+  noteInvites             Boolean              @default(true)
+  noteItemPiconeros       Boolean              @default(true)
+  noteMentions            Boolean              @default(true)
+  noteItemMentions        Boolean              @default(true)
+  photoId                 Int?
+  postsPiconerosFilter    BigInt?
   commentsPiconerosFilter BigInt?
-  freeCommentCount    Int                  @default(0)
-  freeCommentResetAt  DateTime?
-  freePostCount       Int                  @default(0)
-  freePostResetAt     DateTime?
-  nsfwMode            Boolean              @default(false)
-  fiatCurrency        String               @default("USD")
-  hideFromTopUsers    Boolean              @default(false)
-  imgproxyOnly        Boolean              @default(false)
-  showImagesAndVideos Boolean              @default(true)
-  referrerId          Int?
-  nostrPubkey         String?
-  nostrAuthPubkey     String?              @unique(map: "users.nostrAuthPubkey_unique")
-  nostrCrossposting   Boolean              @default(false)
-  noteBadges          Boolean              @default(true)
-  streak              Int?
-  infected            Boolean              @default(false)
-  cured               Boolean              @default(false)
-  subs                String[]
-  hideBadges          Boolean              @default(false)
-  hideStashAmount      Boolean              @default(true)
-  Bookmarks           Bookmark[]
-  Earn                Earn[]
-  invites             Invite[]             @relation("Invites")
-  items               Item[]               @relation("UserItems")
-  mentions            Mention[]
-  PushSubscriptions   PushSubscription[]
-  Streak              Streak[]
-  ThreadSubscriptions ThreadSubscription[]
-  SubSubscriptions    SubSubscription[]
-  Upload              Upload[]             @relation("Uploads")
-  nostrRelays         UserNostrRelay[]
-  bio                 Item?                @relation(fields: [bioId], references: [id])
-  invite              Invite?              @relation(fields: [inviteId], references: [id])
-  photo               Upload?              @relation(fields: [photoId], references: [id])
-  referrer            User?                @relation("referrals", fields: [referrerId], references: [id])
-  referrees           User[]               @relation("referrals")
-  Account             Account[]
-  Session             Session[]
-  hideBookmarks       Boolean              @default(false)
-  hideGithub          Boolean              @default(true)
-  hideNostr           Boolean              @default(true)
-  hideTwitter         Boolean              @default(true)
-  noReferralLinks     Boolean              @default(false)
-  githubId            String?
-  twitterId           String?
-  followers           UserSubscription[]   @relation("follower")
-  followees           UserSubscription[]   @relation("followee")
-  diagnostics         Boolean              @default(false)
-  muters              Mute[]               @relation("muter")
-  muteds              Mute[]               @relation("muted")
-  Sub                 Sub[]
-  MuteSub             MuteSub[]
-  TerritoryTransfers  TerritoryTransfer[]  @relation("TerritoryTransfer_oldUser")
-  TerritoryReceives   TerritoryTransfer[]  @relation("TerritoryTransfer_newUser")
-  AncestorReplies     Reply[]              @relation("AncestorReplyUser")
-  Replies             Reply[]
-  Reminder            Reminder[]
-  ItemUserAgg         ItemUserAgg[]
-  oneDayReferrals     OneDayReferral[]     @relation("OneDayReferral_referrer")
-  oneDayReferrees     OneDayReferral[]     @relation("OneDayReferral_referrees")
-  domainAuthRequests  DomainAuthRequest[]
-  walletsUpdatedAt    DateTime?
-  UserSubTrust        UserSubTrust[]
-  PayIn               PayIn[]
-  CommentsViewAt      CommentsViewAt[]
-  infectedBy          Infection?           @relation("Infection_infectee")
-  infectedByMe        Infection[]          @relation("Infection_infector")
-  curedBy             Cure?                @relation("Cure_curee")
-  curedByMe           Cure[]               @relation("Cure_curer")
+  freeCommentCount        Int                  @default(0)
+  freeCommentResetAt      DateTime?
+  freePostCount           Int                  @default(0)
+  freePostResetAt         DateTime?
+  nsfwMode                Boolean              @default(false)
+  fiatCurrency            String               @default("USD")
+  hideFromTopUsers        Boolean              @default(false)
+  imgproxyOnly            Boolean              @default(false)
+  showImagesAndVideos     Boolean              @default(true)
+  referrerId              Int?
+  nostrPubkey             String?
+  nostrAuthPubkey         String?              @unique(map: "users.nostrAuthPubkey_unique")
+  nostrCrossposting       Boolean              @default(false)
+  noteBadges              Boolean              @default(true)
+  streak                  Int?
+  infected                Boolean              @default(false)
+  cured                   Boolean              @default(false)
+  subs                    String[]
+  hideBadges              Boolean              @default(false)
+  hideStashAmount         Boolean              @default(true)
+  Bookmarks               Bookmark[]
+  Earn                    Earn[]
+  invites                 Invite[]             @relation("Invites")
+  items                   Item[]               @relation("UserItems")
+  mentions                Mention[]
+  PushSubscriptions       PushSubscription[]
+  Streak                  Streak[]
+  ThreadSubscriptions     ThreadSubscription[]
+  SubSubscriptions        SubSubscription[]
+  Upload                  Upload[]             @relation("Uploads")
+  nostrRelays             UserNostrRelay[]
+  bio                     Item?                @relation(fields: [bioId], references: [id])
+  invite                  Invite?              @relation(fields: [inviteId], references: [id])
+  photo                   Upload?              @relation(fields: [photoId], references: [id])
+  referrer                User?                @relation("referrals", fields: [referrerId], references: [id])
+  referrees               User[]               @relation("referrals")
+  Account                 Account[]
+  Session                 Session[]
+  hideBookmarks           Boolean              @default(false)
+  hideGithub              Boolean              @default(true)
+  hideNostr               Boolean              @default(true)
+  hideTwitter             Boolean              @default(true)
+  noReferralLinks         Boolean              @default(false)
+  githubId                String?
+  twitterId               String?
+  followers               UserSubscription[]   @relation("follower")
+  followees               UserSubscription[]   @relation("followee")
+  diagnostics             Boolean              @default(false)
+  muters                  Mute[]               @relation("muter")
+  muteds                  Mute[]               @relation("muted")
+  Sub                     Sub[]
+  MuteSub                 MuteSub[]
+  TerritoryTransfers      TerritoryTransfer[]  @relation("TerritoryTransfer_oldUser")
+  TerritoryReceives       TerritoryTransfer[]  @relation("TerritoryTransfer_newUser")
+  AncestorReplies         Reply[]              @relation("AncestorReplyUser")
+  Replies                 Reply[]
+  Reminder                Reminder[]
+  ItemUserAgg             ItemUserAgg[]
+  oneDayReferrals         OneDayReferral[]     @relation("OneDayReferral_referrer")
+  oneDayReferrees         OneDayReferral[]     @relation("OneDayReferral_referrees")
+  domainAuthRequests      DomainAuthRequest[]
+  walletsUpdatedAt        DateTime?
+  UserSubTrust            UserSubTrust[]
+  PayIn                   PayIn[]
+  CommentsViewAt          CommentsViewAt[]
+  infectedBy              Infection?           @relation("Infection_infectee")
+  infectedByMe            Infection[]          @relation("Infection_infector")
+  curedBy                 Cure?                @relation("Cure_curee")
+  curedByMe               Cure[]               @relation("Cure_curer")
 
   // StasherNews Monero fields (§4.2)
   moneroAddress       String?
@@ -120,9 +120,11 @@ model User {
   tipDefaultPiconeros BigInt       @default(1000000000)
 
   // back-relations for the Monero observation models
-  moneroAccounts MoneroAccount[]
-  rewardPayouts  RewardPayout[]
-  bountyPayments BountyPayment[]
+  moneroAccounts        MoneroAccount[]
+  rewardPayouts         RewardPayout[]
+  bountyPayments        BountyPayment[]
+  abuseSignalsAsSubject AbuseSignal[]   @relation("AbuseSignalSubject")
+  abuseSignalsAsActor   AbuseSignal[]   @relation("AbuseSignalActor")
 
   @@index([photoId])
   @@index([createdAt], map: "users.created_at_index")
@@ -283,9 +285,9 @@ model Upload {
 }
 
 model Earn {
-  id             Int       @id @default(autoincrement())
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+  id             Int                 @id @default(autoincrement())
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @default(now()) @updatedAt @map("updated_at")
   piconeros      BigInt
   userId         Int
   rank           Int?
@@ -293,7 +295,7 @@ model Earn {
   type           EarnType?
   typeId         Int?
   distributionId Int?
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   distribution   RewardDistribution? @relation(fields: [distributionId], references: [id], onDelete: SetNull)
 
   @@index([createdAt], map: "Earn.created_at_index")
@@ -322,113 +324,117 @@ model Invite {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Item {
-  id                   Int                   @id @default(autoincrement())
-  createdAt            DateTime              @default(now()) @map("created_at")
-  updatedAt            DateTime              @default(now()) @updatedAt @map("updated_at")
-  title                String?
-  text                 String?
-  url                  String?
-  userId               Int
-  parentId             Int?
-  path                 Unsupported("ltree")?
-  pinId                Int?
-  location             String?
-  remote               Boolean?
-  subNames             String[]              @db.Citext
-  statusUpdatedAt      DateTime?
-  status               Status                @default(ACTIVE)
-  company              String?
-  weightedVotes        Float                 @default(0)
-  subWeightedVotes     Float                 @default(0)
-  boost                BigInt                @default(0)
-  pollCost             Int?
-  commentPiconeros     BigInt                @default(0)
-  commentDownPiconeros BigInt                @default(0)
-  commentCredits       BigInt                @default(0)
-  commentCost          Int                   @default(0)
-  commentBoost         BigInt                @default(0)
-  weightedComments     Float                 @default(0)
-  lastCommentAt        DateTime?
-  lastTipAt            DateTime?
-  ncomments            Int                   @default(0)
-  nDirectComments      Int                   @default(0)
-  piconeros            BigInt                @default(0)
-  downPiconeros        BigInt                @default(0)
-  credits              BigInt                @default(0)
-  cost                 Int                   @default(0)
-  weightedDownVotes    Float                 @default(0)
-  subWeightedDownVotes Float                 @default(0)
-  bio                  Boolean               @default(false)
-  freebie              Boolean               @default(false)
-  deletedAt            DateTime?
-  otsFile              Bytes?
-  otsHash              String?
-  imgproxyUrls         Json?
-  noteId               String?               @unique(map: "Item.noteId_unique")
-  rootId               Int?
-  upvotes              Int                   @default(0)
-  Bookmark             Bookmark[]
-  parent               Item?                 @relation("ParentChildren", fields: [parentId], references: [id])
-  children             Item[]                @relation("ParentChildren")
-  pin                  Pin?                  @relation(fields: [pinId], references: [id])
-  root                 Item?                 @relation("RootDescendant", fields: [rootId], references: [id])
-  descendants          Item[]                @relation("RootDescendant")
-  bountyAwardWinnerFor Item[] @relation("BountyAwardWinner")
-  user                 User                  @relation("UserItems", fields: [userId], references: [id], onDelete: Cascade)
-  mentions             Mention[]
-  itemReferrers        ItemMention[]         @relation("referrer")
-  itemReferees         ItemMention[]         @relation("referee")
-  pollOptions          PollOption[]
-  PollVote             PollVote[]
-  threadSubscriptions  ThreadSubscription[]
-  User                 User[]
-  itemUploads          ItemUpload[]
-  uploadId             Int?
-  netInvestment        BigInt                  @default(0)
-  feeInvestmentPiconeros BigInt                @default(0)
-  apiKey               Boolean               @default(false)
-  pollExpiresAt        DateTime?
-  Ancestors            Reply[]               @relation("AncestorReplyItem")
-  Replies              Reply[]
-  Reminder             Reminder[]
-  ItemUserAgg          ItemUserAgg[]
-  AutoSocialPost       AutoSocialPost[]
-  randPollOptions      Boolean               @default(false)
-  itemPayIns           ItemPayIn[]
-  CommentsViewAt       CommentsViewAt[]
-  ranktop              Float                 @default(0)
-  litCenteredSum       Float                 @default(0)
-  litCenteredAt        Float                 @default(0)
-  ranklit              Float                 @default(0)
-  subs                 ItemSub[]
+  id                      Int                   @id @default(autoincrement())
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @default(now()) @updatedAt @map("updated_at")
+  title                   String?
+  text                    String?
+  url                     String?
+  userId                  Int
+  parentId                Int?
+  path                    Unsupported("ltree")?
+  pinId                   Int?
+  location                String?
+  remote                  Boolean?
+  subNames                String[]              @db.Citext
+  statusUpdatedAt         DateTime?
+  status                  Status                @default(ACTIVE)
+  company                 String?
+  weightedVotes           Float                 @default(0)
+  subWeightedVotes        Float                 @default(0)
+  boost                   BigInt                @default(0)
+  pollCost                Int?
+  commentPiconeros        BigInt                @default(0)
+  commentTipRankPiconeros BigInt                @default(0)
+  commentDownPiconeros    BigInt                @default(0)
+  commentCredits          BigInt                @default(0)
+  commentCost             Int                   @default(0)
+  commentBoost            BigInt                @default(0)
+  weightedComments        Float                 @default(0)
+  lastCommentAt           DateTime?
+  lastTipAt               DateTime?
+  ncomments               Int                   @default(0)
+  nDirectComments         Int                   @default(0)
+  piconeros               BigInt                @default(0)
+  tipRankPiconeros        BigInt                @default(0)
+  anonTipPiconeros        BigInt                @default(0)
+  downPiconeros           BigInt                @default(0)
+  credits                 BigInt                @default(0)
+  cost                    Int                   @default(0)
+  weightedDownVotes       Float                 @default(0)
+  subWeightedDownVotes    Float                 @default(0)
+  bio                     Boolean               @default(false)
+  freebie                 Boolean               @default(false)
+  deletedAt               DateTime?
+  otsFile                 Bytes?
+  otsHash                 String?
+  imgproxyUrls            Json?
+  noteId                  String?               @unique(map: "Item.noteId_unique")
+  rootId                  Int?
+  upvotes                 Int                   @default(0)
+  Bookmark                Bookmark[]
+  parent                  Item?                 @relation("ParentChildren", fields: [parentId], references: [id])
+  children                Item[]                @relation("ParentChildren")
+  pin                     Pin?                  @relation(fields: [pinId], references: [id])
+  root                    Item?                 @relation("RootDescendant", fields: [rootId], references: [id])
+  descendants             Item[]                @relation("RootDescendant")
+  bountyAwardWinnerFor    Item[]                @relation("BountyAwardWinner")
+  user                    User                  @relation("UserItems", fields: [userId], references: [id], onDelete: Cascade)
+  mentions                Mention[]
+  itemReferrers           ItemMention[]         @relation("referrer")
+  itemReferees            ItemMention[]         @relation("referee")
+  pollOptions             PollOption[]
+  PollVote                PollVote[]
+  threadSubscriptions     ThreadSubscription[]
+  User                    User[]
+  itemUploads             ItemUpload[]
+  uploadId                Int?
+  netInvestment           BigInt                @default(0)
+  feeInvestmentPiconeros  BigInt                @default(0)
+  apiKey                  Boolean               @default(false)
+  pollExpiresAt           DateTime?
+  Ancestors               Reply[]               @relation("AncestorReplyItem")
+  Replies                 Reply[]
+  Reminder                Reminder[]
+  ItemUserAgg             ItemUserAgg[]
+  AutoSocialPost          AutoSocialPost[]
+  randPollOptions         Boolean               @default(false)
+  itemPayIns              ItemPayIn[]
+  CommentsViewAt          CommentsViewAt[]
+  ranktop                 Float                 @default(0)
+  litCenteredSum          Float                 @default(0)
+  litCenteredAt           Float                 @default(0)
+  ranklit                 Float                 @default(0)
+  subs                    ItemSub[]
   // Note: we leave this because there's an expensive exclusion constraint
   // that depends on this column unnecessarily ... remove during next maintenance window
-  subName              String?               @db.Citext
+  subName                 String?               @db.Citext
 
   // StasherNews posting-fee gate (§6.2, Q8): a low-rep author's post is created
   // PENDING_FEE and invisible until the rewardsWalletObserver observes the posting fee;
   // FEE_PAID (or FEE_NOT_REQUIRED for above-threshold authors) makes it visible.
-  feeStatus   ItemFeeStatus @default(FEE_NOT_REQUIRED)
-  feePayInId  Int?           @unique
-  feePayIn    PayIn?         @relation("ItemFeePayIn", fields: [feePayInId], references: [id])
+  feeStatus  ItemFeeStatus @default(FEE_NOT_REQUIRED)
+  feePayInId Int?          @unique
+  feePayIn   PayIn?        @relation("ItemFeePayIn", fields: [feePayInId], references: [id])
 
   // Bounties (A-13): the funded bounty amount + status lifecycle. UNFUNDED posts
   // are invisible until the funding payment confirms (mirrors the feeStatus gate).
-  bountyPiconeros    BigInt        @default(0)
-  bountyStatus       BountyStatus  @default(UNFUNDED)
-  bountyConfirmedAt  DateTime?
+  bountyPiconeros       BigInt          @default(0)
+  bountyStatus          BountyStatus    @default(UNFUNDED)
+  bountyConfirmedAt     DateTime?
   // A-13 award indication: the winning comment (bountyAwardedAt) and the link
   // from the bounty post to it (bountyWinnerCommentId) — set atomically in
   // the payBounty claim transaction. BountyPayment stays the historical record.
   bountyAwardedAt       DateTime?
   bountyWinnerCommentId Int?
-  bountyWinnerComment   Item?     @relation("BountyAwardWinner", fields: [bountyWinnerCommentId], references: [id])
-  bountyPayments     BountyPayment[]
+  bountyWinnerComment   Item?           @relation("BountyAwardWinner", fields: [bountyWinnerCommentId], references: [id])
+  bountyPayments        BountyPayment[]
 
   // back-relations for observed Monero tips/downvotes (ObservedTip/ObservedDownvote)
   observedTips      ObservedTip[]
   observedDownvotes ObservedDownvote[]
   observedBounties  ObservedBounty[]
+  abuseSignals      AbuseSignal[]
 
   @@index([uploadId])
   @@index([lastTipAt])
@@ -503,15 +509,15 @@ model ItemSub {
 // see: https://stackoverflow.com/questions/61781595/postgres-read-commited-doesnt-re-read-updated-row?noredirect=1#comment109279507_61781595
 // or: https://www.cybertec-postgresql.com/en/transaction-anomalies-with-select-for-update/
 model ItemUserAgg {
-  id          Int      @id @default(autoincrement())
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
-  itemId      Int
-  userId      Int
-  tipPiconeros     BigInt   @default(0)
+  id                Int      @id @default(autoincrement())
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
+  itemId            Int
+  userId            Int
+  tipPiconeros      BigInt   @default(0)
   downvotePiconeros BigInt   @default(0)
-  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item              Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([itemId, userId])
   @@index([itemId])
@@ -612,26 +618,26 @@ model Sub {
   parentName String?               @db.Citext
   path       Unsupported("ltree")?
 
-  postTypes        PostType[]
-  rankingType      RankingType
-  allowFreebies    Boolean     @default(true)
-  desc             String?
-  status           Status      @default(ACTIVE)
-  statusUpdatedAt  DateTime?
-  billingType      BillingType
-  billingCost      Int
-  billingAutoRenew Boolean     @default(false)
-  billedLastAt     DateTime    @default(now())
-  billPaidUntil    DateTime?
-  postsPiconerosFilter BigInt                   @default(-100000000000)
-  nsfw             Boolean     @default(false)
+  postTypes            PostType[]
+  rankingType          RankingType
+  allowFreebies        Boolean     @default(true)
+  desc                 String?
+  status               Status      @default(ACTIVE)
+  statusUpdatedAt      DateTime?
+  billingType          BillingType
+  billingCost          Int
+  billingAutoRenew     Boolean     @default(false)
+  billedLastAt         DateTime    @default(now())
+  billPaidUntil        DateTime?
+  postsPiconerosFilter BigInt      @default(-100000000000)
+  nsfw                 Boolean     @default(false)
 
   // StasherNews territory-fee gate (§6.2): territory create/renew fees land on the
   // rewards wallet; billingStatus tracks PAID -> PENDING_FEE -> LAPSED. Reuses the
   // existing billedLastAt/billPaidUntil cadence in worker/territory.js.
-  billingStatus   SubBillingStatus @default(PAID)
-  billingPayInId  Int?             @unique
-  billingPayIn    PayIn?           @relation("SubBillingPayIn", fields: [billingPayInId], references: [id])
+  billingStatus  SubBillingStatus @default(PAID)
+  billingPayInId Int?             @unique
+  billingPayIn   PayIn?           @relation("SubBillingPayIn", fields: [billingPayInId], references: [id])
 
   // Turf-owner revenue (2026-08-21 design): owner-set premiums added on top of
   // the platform fee floor; 100% flows to the owner when a fee is routed
@@ -1143,10 +1149,10 @@ model PayIn {
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // StasherNews (§4.2): Monero URI / observed-tip / observed-downvote linkage
-  moneroUri      String?
-  paymentId      String?
-  observedTipId  BigInt?
-  observedDownvoteId BigInt?
+  moneroUri             String?
+  paymentId             String?
+  observedTipId         BigInt?
+  observedDownvoteId    BigInt?
   // StasherNews fee linkage (§6.2): the rewards-wallet fee subaddress this PayIn
   // watches. The detected FeeObservations are reached via the `feeObservations`
   // back-relation (1:N — one row per partial-payment tx under the cumulative
@@ -1156,26 +1162,26 @@ model PayIn {
   // Set ONLY on owner-routed fee legs (fee: payment-ID namespace): the HMAC
   // payment ID embedded in the integrated address of moneroUri. Reverse-maps
   // lws webhook callbacks to this PayIn.
-  moneroPaymentId String? @unique @map("monero_payment_id")
+  moneroPaymentId       String? @unique @map("monero_payment_id")
   // StasherNews donation split (fee-allocation v2): the payer's chosen rewards
   // share (0-100) for a DONATE payIn. The rewardsWalletObserver copies it onto
   // the FeeObservation at attribution. null = legacy default (100% to the pool).
-  donationRewardsPct Int?
+  donationRewardsPct    Int?
 
-  genesis       PayIn?        @relation("PayInGenesis", fields: [genesisId], references: [id], onDelete: Cascade)
-  successor     PayIn?        @relation("PayInSuccessor", fields: [successorId], references: [id], onDelete: Cascade)
-  predecessor   PayIn?        @relation("PayInSuccessor")
-  benefactor    PayIn?        @relation("PayInBenefactor", fields: [benefactorId], references: [id], onDelete: Cascade)
-  beneficiaries PayIn[]       @relation("PayInBenefactor")
-  itemPayIn     ItemPayIn?
-  subPayIn      SubPayIn?
-  progeny       PayIn[]       @relation("PayInGenesis")
-  pollVote      PollVote?
-  uploadPayIns  UploadPayIn[]
+  genesis         PayIn?           @relation("PayInGenesis", fields: [genesisId], references: [id], onDelete: Cascade)
+  successor       PayIn?           @relation("PayInSuccessor", fields: [successorId], references: [id], onDelete: Cascade)
+  predecessor     PayIn?           @relation("PayInSuccessor")
+  benefactor      PayIn?           @relation("PayInBenefactor", fields: [benefactorId], references: [id], onDelete: Cascade)
+  beneficiaries   PayIn[]          @relation("PayInBenefactor")
+  itemPayIn       ItemPayIn?
+  subPayIn        SubPayIn?
+  progeny         PayIn[]          @relation("PayInGenesis")
+  pollVote        PollVote?
+  uploadPayIns    UploadPayIn[]
   // back-relations for the fee 1:1 linkages (Item.feePayIn / Sub.billingPayIn /
   // FeeObservation.payIn). The FKs live on the other side; these are the read sides.
-  feeItem       Item?          @relation("ItemFeePayIn")
-  feeSub        Sub?           @relation("SubBillingPayIn")
+  feeItem         Item?            @relation("ItemFeePayIn")
+  feeSub          Sub?             @relation("SubBillingPayIn")
   feeObservations FeeObservation[]
   observedSubFees ObservedSubFee[]
 
@@ -1243,6 +1249,7 @@ enum ObservedState {
   CONFIRMED
   REORGED
   EXPIRED
+  EXCLUDED
 }
 
 enum ProofType {
@@ -1314,10 +1321,10 @@ model MoneroAccount {
   lwsRegisteredAt DateTime?
   createdAt       DateTime         @default(now())
 
-  user         User?             @relation(fields: [ownerUserId], references: [id])
-  viewKey      MoneroViewKey?
-  subaddresses SubaddressIndex[]
-  observedTips ObservedTip[]
+  user             User?             @relation(fields: [ownerUserId], references: [id])
+  viewKey          MoneroViewKey?
+  subaddresses     SubaddressIndex[]
+  observedTips     ObservedTip[]
   observedBounties ObservedBounty[]
 
   @@unique([address, network])
@@ -1341,13 +1348,13 @@ model MoneroViewKey {
 
 // Pool of pre-registered subaddress indexes for an author account.
 model SubaddressIndex {
-  id             Int             @id @default(autoincrement())
-  accountId      Int
-  majorIndex     Int
-  minorIndex     Int
-  address        String
-  state          SubaddressState @default(AVAILABLE)
-  createdAt      DateTime        @default(now())
+  id         Int             @id @default(autoincrement())
+  accountId  Int
+  majorIndex Int
+  minorIndex Int
+  address    String
+  state      SubaddressState @default(AVAILABLE)
+  createdAt  DateTime        @default(now())
 
   account MoneroAccount @relation(fields: [accountId], references: [id])
 
@@ -1357,7 +1364,7 @@ model SubaddressIndex {
 
 // An observed incoming tip (the non-custodial replacement for PayInBolt11).
 model ObservedTip {
-  id                 BigInt        @id @default(autoincrement())
+  id                 BigInt              @id @default(autoincrement())
   txHash             String
   postId             Int
   tipperId           Int?
@@ -1366,22 +1373,63 @@ model ObservedTip {
   recipientMinor     Int?
   paymentId          String
   piconeros          BigInt
+  rankPiconeros      BigInt?
   height             Int?
-  confirmations      Int           @default(0)
-  state              ObservedState @default(DETECTED)
-  proofType          ProofType     @default(INDEXED)
+  confirmations      Int                 @default(0)
+  state              ObservedState       @default(DETECTED)
+  proofType          ProofType           @default(INDEXED)
+  exclusionReason    TipExclusionReason?
   txPrivateKey       String?
   webhookEventId     String?
-  detectedAt         DateTime      @default(now())
+  detectedAt         DateTime            @default(now())
   confirmedAt        DateTime?
 
   post             Item          @relation(fields: [postId], references: [id])
   recipientAccount MoneroAccount @relation(fields: [recipientAccountId], references: [id])
+  abuseSignal      AbuseSignal?
 
   @@unique([txHash, recipientAccountId, recipientMajor, recipientMinor])
   @@index([postId])
   @@index([state])
   @@index([state, confirmedAt])
+}
+
+enum TipExclusionReason {
+  DIRECT_SELF_TIP
+  SELF_SEND
+}
+
+// Deterministic self-tip abuse events (spec §3). One row per excluded
+// ObservedTip (tipId unique). Written transactionally with every exclusion.
+// Resolution fields are free-form until the moderation spec formalizes them.
+enum AbuseSignalKind {
+  SELF_TIP_EXCLUDED
+  SELF_SEND_EXCLUDED
+}
+
+model AbuseSignal {
+  id            BigInt          @id @default(autoincrement())
+  kind          AbuseSignalKind
+  subjectUserId Int
+  actorUserId   Int?
+  tipId         BigInt          @unique
+  postId        Int
+  subName       String?         @db.Citext
+  piconeros     BigInt
+  txHash        String
+  paymentId     String
+  details       Json?
+  detectedAt    DateTime        @default(now())
+  resolvedAt    DateTime?
+  resolution    String?
+
+  subjectUser User        @relation("AbuseSignalSubject", fields: [subjectUserId], references: [id])
+  actorUser   User?       @relation("AbuseSignalActor", fields: [actorUserId], references: [id])
+  tip         ObservedTip @relation(fields: [tipId], references: [id])
+  post        Item        @relation(fields: [postId], references: [id])
+
+  @@index([subjectUserId])
+  @@index([kind, detectedAt])
 }
 
 // An observed downvote payment (arrives on the platform rewards wallet).
@@ -1424,8 +1472,8 @@ model ObservedBounty {
   detectedAt         DateTime      @default(now())
   confirmedAt        DateTime?
 
-  post             Item          @relation(fields: [postId], references: [id])
-  recipientAccount MoneroAccount @relation(fields: [recipientAccountId], references: [id])
+  post             Item                    @relation(fields: [postId], references: [id])
+  recipientAccount MoneroAccount           @relation(fields: [recipientAccountId], references: [id])
   receipts         ObservedBountyReceipt[]
 
   @@unique([txHash, paymentId])
@@ -1467,22 +1515,22 @@ model ObservedBountyReceipt {
 // recipientAddress is the signer's target (winner's / author's / rewards wallet);
 // feePiconeros is the platform fee moved escrow -> rewards wallet on AWARD/RECLAIM.
 model BountyPayment {
-  id            Int                @id @default(autoincrement())
-  itemId        Int
-  winnerUserId  Int
-  piconeros     BigInt
-  feePiconeros  BigInt             @default(0)
+  id               Int               @id @default(autoincrement())
+  itemId           Int
+  winnerUserId     Int
+  piconeros        BigInt
+  feePiconeros     BigInt            @default(0)
   recipientAddress String
-  kind          BountyPayoutKind   @default(AWARD)
-  txHash        String?
-  feeTxHash     String?
-  feePendingAt  DateTime?
-  height        Int?
-  confirmations Int                @default(0)
-  state         BountyPayoutState  @default(QUEUED)
-  createdAt     DateTime           @default(now())
-  sentAt        DateTime?
-  confirmedAt   DateTime?
+  kind             BountyPayoutKind  @default(AWARD)
+  txHash           String?
+  feeTxHash        String?
+  feePendingAt     DateTime?
+  height           Int?
+  confirmations    Int               @default(0)
+  state            BountyPayoutState @default(QUEUED)
+  createdAt        DateTime          @default(now())
+  sentAt           DateTime?
+  confirmedAt      DateTime?
 
   item   Item @relation(fields: [itemId], references: [id])
   winner User @relation(fields: [winnerUserId], references: [id])
@@ -1521,20 +1569,20 @@ enum BountyPayoutKind {
 // linked Item.feeStatus / Sub.billingStatus to paid. Phase 4's rewardsDistributor
 // sums these per period. postId/subName are denormalized for the rewards ledger.
 model FeeObservation {
-  id             BigInt        @id @default(autoincrement())
-  txHash         String
-  payInId        Int?
-  feeType        FeeType
-  postId         Int?
-  subName        String?       @db.Citext
-  recipientMajor Int
-  recipientMinor Int
-  piconeros      BigInt
-  height         Int?
-  confirmations  Int           @default(0)
-  state          ObservedState @default(DETECTED)
-  detectedAt     DateTime      @default(now())
-  confirmedAt    DateTime?
+  id                 BigInt        @id @default(autoincrement())
+  txHash             String
+  payInId            Int?
+  feeType            FeeType
+  postId             Int?
+  subName            String?       @db.Citext
+  recipientMajor     Int
+  recipientMinor     Int
+  piconeros          BigInt
+  height             Int?
+  confirmations      Int           @default(0)
+  state              ObservedState @default(DETECTED)
+  detectedAt         DateTime      @default(now())
+  confirmedAt        DateTime?
   // StasherNews donation split (fee-allocation v2): the payer's chosen rewards
   // share copied from the PayIn at attribution; null = 100% to the pool.
   donationRewardsPct Int?
@@ -1653,6 +1701,13 @@ model PlatformFeeConfig {
   id                             Int    @id @default(1)
   requiredConfirmations          Int    @default(10)
   minTipPiconeros                BigInt @default(100000000)
+  // Tip-ranking devaluation (spec §4): per-tipper cap + account-age factor for
+  // attributed tips; collective cap + factor for anonymous tips.
+  tipRankCapPiconeros            BigInt @default(100000000000)
+  tipRankFactorFloor             Float  @default(0.7)
+  tipRankRampDays                Int    @default(14)
+  anonTipRankCapPiconeros        BigInt @default(100000000000)
+  anonTipRankFactor              Float  @default(0.7)
   defaultDownvotePiconeros       BigInt @default(1000000000)
   downvoteMinPiconeros           BigInt @default(100000000)
   freePostThresholdPiconeros     BigInt @default(10000000000)
@@ -1672,13 +1727,13 @@ model PlatformFeeConfig {
   walletlessTipRewardsPct        Int    @default(70)
   // boosts (BOOST fee observations): % of inflow allocated to the curator
   // rewards pool; the remainder is the ops share. Default 30 (operator, 2026-08-11).
-  boostRewardsPct               Int    @default(30)
+  boostRewardsPct                Int    @default(30)
   // bounties (A-13): fee = max(bountyFeeMinPiconeros, bountyFeePct% of the
   // bounty), capped at 20% of the bounty -> 100% ops; expiry window in days
   // from funding confirmation.
-  bountyFeeMinPiconeros BigInt @default(10000000000)
-  bountyFeePct          Int    @default(1)
-  bountyExpiryDays      Int    @default(30)
+  bountyFeeMinPiconeros          BigInt @default(10000000000)
+  bountyFeePct                   Int    @default(1)
+  bountyExpiryDays               Int    @default(30)
   // rewards distribution
   // Top-N curator count: 10 at launch (fewer, larger payouts); raise as the
   // platform grows — operator-tunable via the PlatformFeeConfig row.

@@ -61,6 +61,13 @@ export async function initiateTipCore ({ postId, amount, models, monero, me, hea
 
   const post = await models.item.findUnique({ where: { id } })
   if (!post) throw new GqlInputError('post not found')
+  // Self-tip gate: the client already hides the tip button on your own items;
+  // this makes the server honest and skips a pointless webhook round-trip.
+  // (Wallet-side self-sends by a logged-OUT author are caught at detection by
+  // isSelfSend; unregistered-wallet self-tips are bounded by the rank caps.)
+  if (me?.id != null && me.id === post.userId) {
+    throw new GqlInputError('you cannot tip your own post')
+  }
 
   // Resolve the recipient: the post author's wallet when registered, otherwise
   // the platform rewards wallet (the author has no wallet — e.g. an anonymous

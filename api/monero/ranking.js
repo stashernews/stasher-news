@@ -1,54 +1,63 @@
 import { Prisma } from '@prisma/client'
 import prisma from '@/api/models'
 
-// Ranking side-effects of an observed Monero tip.
+// Ranking side-effects of an observed Monero tip (capped rank terms, spec §4).
 //
-// StasherNews tips are observed off-chain by the moneroIndexer (Task 4). When a
-// tip is DETECTED this hook bumps the tipped Item's `piconeros` and propagates
-// `commentPiconeros` to ancestors so the retained `item_ranking` BEFORE UPDATE
-// trigger recomputes `ranktop`/`ranklit` — exactly the ranking path SN's
-// custodial `onPaid` followed (`api/payIn/types/zap.js`), scoped to what the
-// ranking trigger and the trust web actually read.
+// In addition to the true totals (`Item.piconeros`, ancestor
+// `commentPiconeros`), a detected tip bumps the CAPPED ranking terms the
+// `item_ranking` trigger reads:
+//   - attributed tipper: factor(age) x min(their cumulative tips, CAP)
+//     where factor = FLOOR + (1-FLOOR) x min(1, ageDays/RAMP), frozen at
+//     detection time (monotonic — no drift, no recomputation)
+//   - anonymous: ANON_FACTOR x min(collective anon total, ANON_CAP) — all anon
+//     tips to a post share ONE bucket (Item.anonTipPiconeros)
+//   - ancestors get commentTipRankPiconeros += the same capped delta
 //
-// Scope (deliberate, per the Task 5 plan):
-//   - `Item.piconeros += piconeros`
-//   - `ItemUserAgg (itemId, userId).tipPiconeros += piconeros` (only when
-//     tipperId is present — anonymous tips still rank but skip the per-user
-//     attribution since `ItemUserAgg.userId` is non-nullable)
-//   - ancestor `Item.commentPiconeros += piconeros` (path-based, ORDER BY id for
-//     consistent lock ordering — deadlock safety per api/payIn/README.md)
+// applyTipDetected RETURNS the applied rank delta so callers persist it on
+// ObservedTip.rankPiconeros (exact reorg reversal via reverseTip). upvotes /
+// weightedVotes / subWeightedVotes math is unchanged from the uncapped era;
+// the trust web already excludes self-acts.
 //
-// Trust-weighting columns: on a DETECTED tip with a known tipper this bumps
-// `weightedVotes`/`subWeightedVotes` by zapTrust × LOG(tipPiconeros) — the exact
-// upstream zap.js math (mirrors worker/rewardsWalletObserver's downvote path) —
-// consuming UserSubTrust from the nightly trust worker, plus `upvotes` (the
-// distinct-tipper count). `weightedComments`, `credits`, and `lastTipAt` are
-// still not touched. `ranktop` reads only piconeros/commentPiconeros, so ranking
-// stays correct independent of weightedVotes; weightedVotes feeds the weekly
-// curator rewards distributor (worker/curatorShares.js).
-//
-// All deltas bind `piconeros` as BIGINT (piconeros are BigInt; never coerced
-// to Number). applyTipDetected issues a parentId SELECT then the WITH … chain
-// (two statements, one ReadCommitted transaction — the codebase standard, see
-// api/payIn/index.js + README): parentId is immutable so reading it on the
-// caller's tx is safe, and the delta chain uses the increment-in-place pattern
-// that is correct under ReadCommitted.
+// Transaction pattern unchanged: parentId/userId/config reads + one delta
+// chain per detection, ReadCommitted-safe increments.
 
-// Prisma.raw embeds a controlled '+'/'-' literal (never user input) so the
-// ancestor-propagation SQL is written once for both add and subtract paths.
 const ADD = Prisma.raw('+')
 const SUB = Prisma.raw('-')
 
-function tipDeltaSql (postId, tipperId, piconeros, sign, isComment) {
-  // Optional per-user attribution CTE. Omitted entirely for anonymous tips so
-  // no ItemUserAgg row is created; the rest of the chain still runs. The
-  // RETURNING first_vote is 1 when this is the tipper's FIRST tip on the post
-  // (tipPiconeros was 0 before this upsert) and 0 on repeat tips — mirroring the
-  // legacy zap.js `upvotes += first_vote` distinct-tipper count. log_sats is the
-  // diminishing-marginal-weight LOG term (mirrors worker/rewardsWalletObserver's
-  // downvote path + upstream zap.js) that scales the tipper's territory trust
-  // into weightedVotes/subWeightedVotes below.
+// Fallbacks when the PlatformFeeConfig row is absent (fresh DBs). Must match
+// the schema defaults exactly.
+export const DEFAULT_TIP_RANK_CONFIG = {
+  tipRankCapPiconeros: 100_000_000_000n,
+  tipRankFactorFloor: 0.7,
+  tipRankRampDays: 14,
+  anonTipRankCapPiconeros: 100_000_000_000n,
+  anonTipRankFactor: 0.7
+}
+
+export async function loadTipRankConfig (handle) {
+  const row = await handle.platformFeeConfig.findUnique({ where: { id: 1 } })
+  if (!row) return DEFAULT_TIP_RANK_CONFIG
+  return {
+    tipRankCapPiconeros: row.tipRankCapPiconeros ?? DEFAULT_TIP_RANK_CONFIG.tipRankCapPiconeros,
+    tipRankFactorFloor: row.tipRankFactorFloor ?? DEFAULT_TIP_RANK_CONFIG.tipRankFactorFloor,
+    tipRankRampDays: row.tipRankRampDays ?? DEFAULT_TIP_RANK_CONFIG.tipRankRampDays,
+    anonTipRankCapPiconeros: row.anonTipRankCapPiconeros ?? DEFAULT_TIP_RANK_CONFIG.anonTipRankCapPiconeros,
+    anonTipRankFactor: row.anonTipRankFactor ?? DEFAULT_TIP_RANK_CONFIG.anonTipRankFactor
+  }
+}
+
+// account-age factor: FLOOR + (1-FLOOR) x min(1, ageDays/RAMP)
+function ageFactorSql (cfg) {
+  return Prisma.sql`(${cfg.tipRankFactorFloor}::DOUBLE PRECISION + (1.0 - ${cfg.tipRankFactorFloor}::DOUBLE PRECISION)
+    * LEAST(1.0, GREATEST(0.0, EXTRACT(EPOCH FROM (now() - u."created_at")) / 86400.0 / ${cfg.tipRankRampDays}::DOUBLE PRECISION)))`
+}
+
+function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
   const isAdd = sign === ADD
+
+  // ---- unchanged: per-user attribution upsert (attributed only) ----
+  // (RETURNING also exposes userId/tipPiconeros post-upsert — rank_calc
+  // derives the capped delta from them; first_vote/log_sats are unchanged.)
   const zap = tipperId == null
     ? Prisma.empty
     : Prisma.sql`
@@ -57,16 +66,12 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment) {
           VALUES (${tipperId}::INTEGER, ${postId}::INTEGER, ${piconeros}::BIGINT)
           ON CONFLICT ("itemId", "userId") DO UPDATE
           SET "tipPiconeros" = "ItemUserAgg"."tipPiconeros" + ${piconeros}::BIGINT, updated_at = now()
-          RETURNING ("tipPiconeros" = ${piconeros}::BIGINT)::INTEGER AS first_vote,
+          RETURNING "userId", "tipPiconeros",
+            ("tipPiconeros" = ${piconeros}::BIGINT)::INTEGER AS first_vote,
             LOG("tipPiconeros"::FLOAT / GREATEST("tipPiconeros" - ${piconeros}, 1)::FLOAT) AS log_sats
         ),`
 
-  // Territory + trust lookup, only for attributed tips (the weightedVotes bump
-  // needs per-user trust). Mirrors worker/rewardsWalletObserver's
-  // applyDownvotePenalty: resolve the item's first sub via COALESCE on the root
-  // then the item itself (default 'meta'), then left-join UserSubTrust to read
-  // the tipper's zapPost/zapComment trust for that territory. Anonymous tips
-  // (no tipperId) and reversals (reverseTip passes null) skip this entirely.
+  // ---- unchanged: territory + trust lookup (attributed only) ----
   const trust = tipperId == null
     ? Prisma.empty
     : Prisma.sql`
@@ -84,89 +89,196 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment) {
           LEFT JOIN "UserSubTrust" ust ON ust."subName" = territory."subName" AND ust."userId" = ${tipperId}::INTEGER
         ),`
 
-  // upvotes is the # of distinct tippers. A detected tip bumps it once per tipper
-  // via first_vote; anonymous tips have no per-user attribution so leave it
-  // unchanged. Reversal (reorg rollback) decrements by one. When the zap CTE is
-  // present it must be named in FROM for its columns to be referenceable.
+  // ---- NEW: the capped rank delta ----
+  // ATTRIBUTED tips: rank_calc derives from zap's RETURNING (after =
+  // zap.tipPiconeros post-upsert; the factor joins the tipper's User row).
+  // The per-(item, user) upsert row-serializes concurrent tips from the same
+  // tipper, so the before/after values are exact under concurrency. CTE
+  // order: zap BEFORE rank_calc (rank_calc reads zap's RETURNING).
+  // ANONYMOUS tips: NO pre-read CTE — see itemTippedAnon below (a pre-read
+  // races concurrent anon callbacks past the collective cap).
+  const attrRankCalc = (tipperId != null && isAdd)
+    ? Prisma.sql`
+        rank_calc AS (
+          SELECT ROUND((
+            (LEAST(z."tipPiconeros", ${cfg.tipRankCapPiconeros}::BIGINT)
+             - LEAST(z."tipPiconeros" - ${piconeros}::BIGINT, ${cfg.tipRankCapPiconeros}::BIGINT))::DOUBLE PRECISION
+            * ${ageFactorSql(cfg)}
+          )::NUMERIC)::BIGINT AS rank_delta
+          FROM zap z LEFT JOIN users u ON u.id = z."userId"
+        ),`
+    : Prisma.empty
+
+  // ---- upvotes / weightedVotes: unchanged semantics ----
   const needZap = isAdd && tipperId != null
   const upvotesSet = isAdd
     ? (tipperId == null
         ? Prisma.sql`"upvotes" = "Item"."upvotes"`
         : Prisma.sql`"upvotes" = "Item"."upvotes" + zap.first_vote`)
     : Prisma.sql`"upvotes" = "Item"."upvotes" - 1`
-  // Trust-weighted vote terms (ADD path + attributed tip only). Reversal does
-  // NOT touch weightedVotes — upstream has no zap reversal; the bounded reorg
-  // drift on the score column is accepted for v1.
   const weightedSet = needZap
     ? Prisma.sql`,
         "weightedVotes" = "Item"."weightedVotes" + zapper."zapTrust" * zap.log_sats,
         "subWeightedVotes" = "Item"."subWeightedVotes" + zapper."subZapTrust" * zap.log_sats`
     : Prisma.empty
-  const fromZap = needZap ? Prisma.sql`FROM zap, zapper` : Prisma.empty
 
+  // ---- the capped-delta SET terms ----
+  // ADD (attributed): live rank_delta from rank_calc. SUB (reorg reversal):
+  // the caller's stored per-row delta (ObservedTip.rankPiconeros, fallback
+  // raw piconeros). (The anon ADD path never reaches these — it builds its
+  // own item_tipped below.)
+  const tipRankSet = isAdd
+    ? Prisma.sql`"tipRankPiconeros" = "Item"."tipRankPiconeros" ${sign} rank_calc.rank_delta`
+    : Prisma.sql`"tipRankPiconeros" = "Item"."tipRankPiconeros" ${sign} ${cfg.rankDelta}::BIGINT`
+  const commentTipRankSet = isAdd
+    ? Prisma.sql`"commentTipRankPiconeros" = "Item"."commentTipRankPiconeros" ${sign} rank_calc.rank_delta`
+    : Prisma.sql`"commentTipRankPiconeros" = "Item"."commentTipRankPiconeros" ${sign} ${cfg.rankDelta}::BIGINT`
+
+  // ---- ANON ADD: bucket + cap math live INLINE in the SET clause ----
+  // An increment-in-place expression is evaluated against the row-locked
+  // LATEST value: a concurrent anon callback's UPDATE blocks on this row's
+  // lock, then re-evaluates (EvalPlanQual) on the committed bucket — the
+  // exact guarantee `piconeros = "Item".piconeros + x` already has. A pre-read
+  // CTE (snapshot SELECT before the UPDATE) would let two concurrent anon
+  // callbacks both see the same not-yet-full bucket and EACH collect up to
+  // the full cap — overshooting the collective cap. The applied delta is
+  // recovered afterwards from item_tipped's RETURNING (anonRankCalc below).
+  const isAnonAdd = isAdd && tipperId == null
+  const itemTippedAnon = isAnonAdd
+    ? Prisma.sql`
+        item_tipped AS (
+          UPDATE "Item"
+          SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
+              "anonTipPiconeros" = "Item"."anonTipPiconeros" + ${piconeros}::BIGINT,
+              "tipRankPiconeros" = "Item"."tipRankPiconeros" + ROUND((${cfg.anonTipRankFactor}::DOUBLE PRECISION *
+                (LEAST("Item"."anonTipPiconeros" + ${piconeros}::BIGINT, ${cfg.anonTipRankCapPiconeros}::BIGINT)
+                 - LEAST("Item"."anonTipPiconeros", ${cfg.anonTipRankCapPiconeros}::BIGINT)))::NUMERIC)::BIGINT,
+              ${upvotesSet}
+          WHERE "Item".id = ${postId}::INTEGER
+          RETURNING "Item".*
+        ),`
+    : Prisma.empty
+
+  // The delta actually applied (for ancestors + applyTipDetected's return
+  // value): recomputed from item_tipped's post-update RETURNING —
+  // delta = F x (LEAST(new bucket, CAP) - LEAST(new bucket - amt, CAP)).
+  // item_tipped RETURNINGs the full row, so the new bucket is t's
+  // "anonTipPiconeros". CTE order: item_tipped BEFORE rank_calc (Postgres
+  // WITH entries may only reference earlier entries).
+  const anonRankCalc = isAnonAdd
+    ? Prisma.sql`
+        rank_calc AS (
+          SELECT ROUND((${cfg.anonTipRankFactor}::DOUBLE PRECISION *
+            (LEAST(t."anonTipPiconeros", ${cfg.anonTipRankCapPiconeros}::BIGINT)
+             - LEAST(t."anonTipPiconeros" - ${piconeros}::BIGINT, ${cfg.anonTipRankCapPiconeros}::BIGINT)))::NUMERIC)::BIGINT AS rank_delta
+          FROM item_tipped t
+        ),`
+    : Prisma.empty
+
+  // ADD ends with a trailing comma (ancestors follows as a CTE); SUB is the
+  // final WITH entry (the bare ancestors UPDATE follows, no comma — the
+  // pre-Task-8 shape).
+  const itemTipped = isAdd
+    ? Prisma.sql`
+        item_tipped AS (
+          UPDATE "Item"
+          SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
+              ${tipRankSet},
+              ${upvotesSet}${weightedSet}
+          FROM zap, zapper, rank_calc
+          WHERE "Item".id = ${postId}::INTEGER
+          RETURNING "Item".*
+        ),`
+    : Prisma.sql`
+        item_tipped AS (
+          UPDATE "Item"
+          SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
+              ${tipRankSet},
+              ${upvotesSet}
+          WHERE "Item".id = ${postId}::INTEGER
+          RETURNING "Item".*
+        )`
+
+  // ---- ancestor propagation: true total + capped delta, lock-ordered ----
+  // (ADD: rank_calc is joined into the UPDATE FROM — the SET term references
+  // rank_calc.rank_delta, which must be in the outer FROM list.)
+  const ancestors = isAdd
+    ? Prisma.sql`
+        ancestors AS (
+          UPDATE "Item"
+          SET "commentPiconeros" = "Item"."commentPiconeros" ${sign} ${piconeros}::BIGINT,
+              ${commentTipRankSet}
+          FROM (
+            SELECT "Item".id
+            FROM "Item", item_tipped, rank_calc
+            WHERE "Item".path @> item_tipped.path AND "Item".id <> item_tipped.id
+            ORDER BY "Item".id
+          ) AS anc, rank_calc
+          WHERE "Item".id = anc.id
+        )
+        SELECT rank_delta FROM rank_calc`
+    : Prisma.sql`
+        UPDATE "Item"
+        SET "commentPiconeros" = "Item"."commentPiconeros" ${sign} ${piconeros}::BIGINT,
+            ${commentTipRankSet}
+        FROM (
+          SELECT "Item".id
+          FROM "Item", item_tipped
+          WHERE "Item".path @> item_tipped.path AND "Item".id <> item_tipped.id
+          ORDER BY "Item".id
+        ) AS ancestors
+        WHERE "Item".id = ancestors.id`
+
+  // ---- assembly: two CTE orderings ----
+  // anon ADD: item_tipped (inline bucket math) BEFORE rank_calc (reads its
+  // RETURNING), then ancestors (reads rank_calc) — so the early return is a
+  // different WITH list, not just different fragments.
+  // attributed ADD: trust, zapper, zap, rank_calc (reads zap), item_tipped
+  // (reads zap/zapper/rank_calc), ancestors.
+  // SUB: trust/zap/attrRankCalc are all empty -> WITH item_tipped, ancestors.
+  if (isAnonAdd) {
+    return Prisma.sql`
+      WITH ${itemTippedAnon} ${anonRankCalc}
+      ${ancestors}`
+  }
   return Prisma.sql`
-    WITH ${trust}${zap}
-    item_tipped AS (
-      UPDATE "Item"
-      SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
-          ${upvotesSet}${weightedSet}
-      ${fromZap}
-      WHERE "Item".id = ${postId}::INTEGER
-      RETURNING "Item".*
-    )
-    UPDATE "Item"
-    SET "commentPiconeros" = "Item"."commentPiconeros" ${sign} ${piconeros}::BIGINT
-    FROM (
-      SELECT "Item".id
-      FROM "Item", item_tipped
-      WHERE "Item".path @> item_tipped.path AND "Item".id <> item_tipped.id
-      ORDER BY "Item".id
-    ) AS ancestors
-    WHERE "Item".id = ancestors.id`
+    WITH ${trust}${zap}${attrRankCalc}
+    ${itemTipped}
+    ${ancestors}`
 }
 
 export async function applyTipDetected (postId, tipperId, piconeros, tx) {
-  // Derive isComment for the trust-weight lookup (zapPostTrust vs
-  // zapCommentTrust). The webhook receiver passes (postId, tipperId, piconeros,
-  // tx) and does not have the Item object, so the single indexed-PK parentId
-  // select here is the mandated placement. Anonymous tips skip the trust bump
-  // entirely (no per-user attribution) so no lookup is needed. parentId is
-  // immutable so reading it on the caller's tx (or prisma, standalone) is safe.
+  const handle = tx || prisma
   let isComment = false
   if (tipperId != null) {
-    const q = Prisma.sql`SELECT "parentId" FROM "Item" WHERE id = ${postId}::INTEGER`
+    // parentId picks zapPostTrust vs zapCommentTrust; userId is the self-tip
+    // guard (defense-in-depth — the webhook/reconcile exclusion is primary).
+    const q = Prisma.sql`SELECT "parentId", "userId" FROM "Item" WHERE id = ${postId}::INTEGER`
     const rows = tx ? await tx.$queryRaw(q) : await prisma.$queryRaw(q)
-    isComment = rows[0]?.parentId != null
+    const row = rows[0]
+    isComment = row?.parentId != null
+    if (row?.userId != null && row.userId === tipperId) return 0n
   }
-  const sql = tipDeltaSql(postId, tipperId, piconeros, ADD, isComment)
-  if (tx) {
-    await tx.$executeRaw(sql)
-    return
-  }
-  await prisma.$transaction(
-    t => t.$executeRaw(sql),
-    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 10000 }
-  )
+  const cfg = await loadTipRankConfig(handle)
+  const sql = tipDeltaSql(postId, tipperId, piconeros, ADD, isComment, cfg)
+  // The chain ends in `SELECT rank_delta` -> $queryRaw. Returns [] when the
+  // item vanished mid-flight; treat as 0n.
+  const rows = tx
+    ? await tx.$queryRaw(sql)
+    : await prisma.$transaction(
+      t => t.$queryRaw(sql),
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 10000 }
+    )
+  return rows?.[0]?.rank_delta ?? 0n
 }
 
-// Inverse of applyTipDetected for reorg reconciliation (Task 6). Reverses the
-// ranking-relevant deltas only (Item.piconeros + ancestor commentPiconeros) so the
-// trigger recomputes ranktop/ranklit downward. It does NOT reverse
-// ItemUserAgg.tipPiconeros because the signature carries no tipperId — see
-// task-5-report.md for the design decision; Task 6 can pass the tipperId if it
-// needs precise per-user reversal.
-export async function reverseTip (postId, piconeros, tx) {
-  // Transaction propagation mirrors applyTipDetected (above). When `tx` is
-  // supplied the caller OWNS the transaction — run the ranking SQL directly on
-  // it and do NOT open an inner $transaction. This lets reconcileReorg wrap the
-  // ObservedTip.update (state=REORGED) and this reversal in ONE serializable
-  // $transaction so they commit or roll back together: a partial failure
-  // (reverseTip throws after the state flip committed) can never leave a REORGED
-  // row with piconeros still bumped — the over-credit window the Task 6 review
-  // flagged. Without `tx` the original standalone behaviour is preserved so
-  // every other caller — the Task 5 unit tests, the seedTip test helper — is
-  // unchanged. The SQL/tipDeltaSql helper is untouched.
-  const sql = tipDeltaSql(postId, null, piconeros, SUB)
+// Inverse for reorg reconciliation. No production caller yet — the future
+// reorg reconciler consumes this. rankPiconeros is the delta the detection
+// applied (ObservedTip.rankPiconeros) — subtract it EXACTLY; fallback to the
+// raw amount only for pre-migration rows where it is null.
+export async function reverseTip (postId, piconeros, rankPiconeros = null, tx) {
+  const cfg = { rankDelta: rankPiconeros ?? piconeros }
+  const sql = tipDeltaSql(postId, null, piconeros, SUB, false, cfg)
   if (tx) {
     await tx.$executeRaw(sql)
     return

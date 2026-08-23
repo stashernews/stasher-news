@@ -166,3 +166,12 @@ test('subfee: deleteWebhook failure warns and KEEPS the id (retried next hourly 
     warn.mockRestore()
   }
 })
+
+test('sweeps the lws webhook for an EXCLUDED tip (failed best-effort delete at exclusion time)', async () => {
+  const { models, _updated } = modelsWith([{ id: 1n, webhookEventId: 'evt-1', state: 'EXCLUDED' }])
+  const monero = { deleteWebhook: jest.fn().mockResolvedValue({}) }
+  const out = await runWebhookCleanupOnce({ models, monero })
+  expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-1')
+  expect(_updated).toContainEqual(expect.objectContaining({ id: 1n, webhookEventId: null }))
+  expect(out.cleaned).toBe(1)
+})

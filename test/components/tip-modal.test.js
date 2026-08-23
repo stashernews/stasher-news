@@ -48,6 +48,10 @@ describe('tipStatusCopy', () => {
     expect(tipStatusCopy('REORGED')).toMatch(/reorganized/)
   })
 
+  test('EXCLUDED copy explains the tip was not counted (self-tip)', () => {
+    expect(tipStatusCopy('EXCLUDED')).toMatch(/not counted/)
+  })
+
   test('returns null for the waiting states (no redundant status line)', () => {
     expect(tipStatusCopy('PENDING')).toBeNull()
     expect(tipStatusCopy(null)).toBeNull()

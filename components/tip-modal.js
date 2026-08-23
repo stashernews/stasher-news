@@ -174,6 +174,8 @@ function xmrToPiconerosSafe (amount) {
 
 export function tipStatusCopy (state) {
   switch (state) {
+    case 'EXCLUDED':
+      return 'this tip was not counted (self-tip)'
     case 'EXPIRED':
       return 'this tip expired before it was detected — try again'
     case 'REORGED':
