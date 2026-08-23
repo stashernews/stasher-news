@@ -9,7 +9,7 @@ import { incrementFreeCommentCount, incrementFreePostCount } from '../lib/freebi
 import { canPostFree, postingFeePiconeros, commentsFreeLeft, postsFreeLeft } from '@/api/monero/postingFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
-import { resolveOwnerFeeRoute, postFeePiconerosForSubs, commentFeePiconerosForSubs } from '@/api/monero/turfFeeRouting'
+import { resolveOwnerFeeRoute, postFeePiconerosForSubs, postFloorPiconerosForSubs, commentFeePiconerosForSubs, commentFloorPiconerosForSubs } from '@/api/monero/turfFeeRouting'
 import { createOwnerFeeLeg } from '@/api/monero/ownerFeeLeg'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { uploadFees } from '@/api/resolvers/upload'
@@ -42,15 +42,17 @@ async function escalatedFeePiconeros (models, { parentId, userId, basePiconeros 
 
 // Build the fee payment prospect for a fee-charging branch: owner-direct leg
 // when the route resolves (one non-owned turf + owner wallet + no upload fees),
-// else the platform rewards-wallet subaddress. Fee math already includes any
-// turf premiums.
-async function feeLegOrSubaddress (models, { subs, userId, fee, uploadFeesPiconeros, description, beneficiaries }) {
+// else the platform rewards-wallet subaddress. `fee` is the platform FLOOR
+// math only; `premiumPiconeros` (the turf-owner surcharge delta) is added
+// EXCLUSIVELY on the owner-routed leg — a premium must never be charged when
+// the payment would land in the platform wallet.
+async function feeLegOrSubaddress (models, { subs, userId, fee, premiumPiconeros = 0n, uploadFeesPiconeros, description, beneficiaries }) {
   const route = await resolveOwnerFeeRoute(models, { subs, userId, uploadFeesPiconeros })
   if (route) {
     const leg = await createOwnerFeeLeg(models, lwsClient, {
       ownerAccount: route.ownerAccount,
       subName: route.sub.name,
-      amountPiconeros: fee + uploadFeesPiconeros,
+      amountPiconeros: fee + premiumPiconeros + uploadFeesPiconeros,
       description
     })
     return {
@@ -164,14 +166,20 @@ export async function getInitial (models, args, { me }) {
     if (me.id === USER_ID.anon) {
       // anon has no freebie quota and pays the comment fee x ANON_COMMENT_FEE_MULTIPLIER.
       // No spam escalation: ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0.
+      // Anon CAN route owner-direct (they own no turf, so the single-turf root
+      // resolves), so the comment premium rides that leg — scaled by the same
+      // anon multiplier as the floor to keep the owner-routed total unchanged —
+      // while the platform fallback charges floor-only x multiplier.
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       if (!config) throw new GqlInputError('fee config not initialized')
       const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
-      const base = commentFeePiconerosForSubs(config, nonOwned) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
+      const base = commentFloorPiconerosForSubs(config, nonOwned) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
+      const premium = (commentFeePiconerosForSubs(config, nonOwned) - commentFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
       return await feeLegOrSubaddress(models, {
         subs: itemSubs,
         userId: me.id,
         fee: base,
+        premiumPiconeros: premium,
         uploadFeesPiconeros,
         description: 'StasherNews anon comment fee',
         beneficiaries
@@ -200,15 +208,18 @@ export async function getInitial (models, args, { me }) {
       return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
     }
     const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(me.id))
+    // spam escalation scales the platform FLOOR only; the turf premium is the
+    // owner's surcharge — it rides exclusively the owner-routed leg, un-escalated
     const base = await escalatedFeePiconeros(models, {
       parentId: args.parentId,
       userId: me.id,
-      basePiconeros: commentFeePiconerosForSubs(config, nonOwned)
+      basePiconeros: commentFloorPiconerosForSubs(config, nonOwned)
     })
     return await feeLegOrSubaddress(models, {
       subs: itemSubs,
       userId: me.id,
       fee: base,
+      premiumPiconeros: commentFeePiconerosForSubs(config, nonOwned) - commentFloorPiconerosForSubs(config, nonOwned),
       uploadFeesPiconeros,
       description: 'StasherNews comment fee',
       beneficiaries
@@ -223,13 +234,18 @@ export async function getInitial (models, args, { me }) {
   // branch above, this must run BEFORE the user lookup.
   if (me.id === USER_ID.anon) {
     // empty subNames (defensive/legacy) keeps the flat floor via feeMultiplier's
-    // 1n default — postFeePiconerosForSubs over an empty list would sum to zero.
+    // 1n default — postFloorPiconerosForSubs over an empty list would sum to zero.
+    // Anon CAN route owner-direct (they own no turf), so the post premium rides
+    // that leg scaled by the same anon multiplier — the platform fallback
+    // charges floor-only x multiplier.
     const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
-    const base = (itemSubs.length === 0 ? postingFeePiconeros(config) : postFeePiconerosForSubs(config, nonOwned)) * BigInt(ANON_POST_FEE_MULTIPLIER)
+    const base = (itemSubs.length === 0 ? postingFeePiconeros(config) : postFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_POST_FEE_MULTIPLIER)
+    const premium = (postFeePiconerosForSubs(config, nonOwned) - postFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_POST_FEE_MULTIPLIER)
     return await feeLegOrSubaddress(models, {
       subs: itemSubs,
       userId: me.id,
       fee: base,
+      premiumPiconeros: premium,
       uploadFeesPiconeros,
       description: 'StasherNews anon posting fee',
       beneficiaries
@@ -272,17 +288,19 @@ export async function getInitial (models, args, { me }) {
   // post is created PENDING_FEE (invisible) until the fee is observed on-chain
   // (rewardsWalletObserver for subaddresses, the fee: webhook for owner-direct
   // legs) and flipped to FEE_PAID. (Anon posts are handled in the early-return
-  // branch above.)
+  // branch above.) Spam escalation scales the floor; the premium delta rides
+  // only the owner-routed leg.
   const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(me.id))
   const base = await escalatedFeePiconeros(models, {
     parentId: null,
     userId: me.id,
-    basePiconeros: itemSubs.length === 0 ? postingFeePiconeros(config) : postFeePiconerosForSubs(config, nonOwned)
+    basePiconeros: itemSubs.length === 0 ? postingFeePiconeros(config) : postFloorPiconerosForSubs(config, nonOwned)
   })
   return await feeLegOrSubaddress(models, {
     subs: itemSubs,
     userId: me.id,
     fee: base,
+    premiumPiconeros: postFeePiconerosForSubs(config, nonOwned) - postFloorPiconerosForSubs(config, nonOwned),
     uploadFeesPiconeros,
     description: 'StasherNews posting fee',
     beneficiaries

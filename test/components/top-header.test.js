@@ -4,9 +4,12 @@ import { act } from 'react'
 import { parseHTML } from 'linkedom'
 import TopHeader from '@/components/top-header'
 
-var mockPush = jest.fn()
-var mockRouter = { query: { when: 'day' }, push: (...args) => mockPush(...args) }
-var mockSelectProps = {}
+// const for mockPush/mockRouter (never reassigned), let for mockSelectProps
+// (reassigned per-test); jest.mock factories reference these lazily
+// (mock*-prefixed per babel-plugin-jest-hoist), so TDZ never applies.
+const mockPush = jest.fn()
+const mockRouter = { query: { when: 'day' }, push: (...args) => mockPush(...args) }
+let mockSelectProps = {}
 
 jest.mock('next/router', () => ({ useRouter: () => mockRouter }))
 

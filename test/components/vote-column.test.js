@@ -34,10 +34,9 @@ jest.mock(`${process.cwd()}/components/form`, () => ({
 // down-arrow glyph is instead asserted against the svg file itself below.
 jest.mock(`${process.cwd()}/svgs/up-arrow.svg`, () => ({ className }) => <svg className={className}><path d='arrow' /></svg>)
 
-// var, not let/const: jest.mock factories may only reference out-of-scope
-// names prefixed with "mock", and const/let here would be in TDZ when the
-// hoisted jest.mock call runs.
-var mockShowModal
+// let, not const: reassigned per-test; jest.mock factories reference these
+// lazily (mock*-prefixed per babel-plugin-jest-hoist), so TDZ never applies.
+let mockShowModal
 
 let win
 let container

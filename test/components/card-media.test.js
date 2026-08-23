@@ -117,9 +117,9 @@ jest.mock(`${process.cwd()}/svgs/video-on-fill.svg`, () => (props) => <svg {...p
 // render Link as a plain anchor so clicks are testable without Next router state
 jest.mock('next/link', () => ({ href, children, ...props }) => <a href={href} {...props}>{children}</a>)
 
-// var (not let/const): jest.mock factories can only reference mock-prefixed
-// out-of-scope names; const/let would be in TDZ when the hoisted mock runs.
-var mockMe
+// let, not const: reassigned per-test; jest.mock factories reference these
+// lazily (mock*-prefixed per babel-plugin-jest-hoist), so TDZ never applies.
+let mockMe
 
 let win
 let container

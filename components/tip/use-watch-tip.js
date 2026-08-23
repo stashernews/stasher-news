@@ -19,9 +19,11 @@ import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 const POLL_INTERVAL_MS = 3000
 
 // Stop polling once the tip reaches any of these. DETECTED/CONFIRMED are success
-// triggers (fire onDetected); REORGED/EXPIRED are failure terminals.
+// triggers (fire onDetected); REORGED/EXPIRED/EXCLUDED are failure terminals —
+// EXCLUDED tips render the "not counted" copy (tip-modal tipStatusCopy) and
+// must also tear down the interval, or the modal polls forever.
 // PENDING/null keep polling.
-const TERMINAL_STATES = new Set(['DETECTED', 'CONFIRMED', 'REORGED', 'EXPIRED'])
+export const TERMINAL_STATES = new Set(['DETECTED', 'CONFIRMED', 'REORGED', 'EXPIRED', 'EXCLUDED'])
 
 export default function useWatchTip ({ paymentId, onDetected }) {
   const { data, refetch } = useQuery(TIP_STATUS, {

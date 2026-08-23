@@ -199,9 +199,6 @@ function updateAncestors (cache, { payerPrivates }) {
       cache.modify({
         id: `Item:${aId}`,
         fields: {
-          commentCredits (existingCommentCredits = 0) {
-            return Number(existingCommentCredits) + piconeros
-          },
           commentPiconeros (existingCommentSats = 0) {
             return Number(existingCommentSats) + piconeros
           }

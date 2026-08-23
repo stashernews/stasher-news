@@ -14,7 +14,7 @@ import { useData } from './use-data'
 const DEFAULT_FILTER = () => true
 const DEFAULT_VARIABLES = {}
 
-export default function Items ({ ssrData, variables = DEFAULT_VARIABLES, query, destructureData, rank, noMoreText, Footer, Header, filter = DEFAULT_FILTER }) {
+export default function Items ({ ssrData, variables = DEFAULT_VARIABLES, query, destructureData, rank, noMoreText, emptyText, Footer, Header, filter = DEFAULT_FILTER }) {
   const { data, fetchMore } = useQuery(query || SUB_ITEMS, { variables })
   const Foooter = Footer || MoreFooter
   const dat = useData(data, ssrData)
@@ -62,7 +62,7 @@ export default function Items ({ ssrData, variables = DEFAULT_VARIABLES, query, 
         ))}
       </div>
       <Foooter
-        cursor={cursor} fetchMore={fetchMore} noMoreText={noMoreText}
+        cursor={cursor} fetchMore={fetchMore} noMoreText={noMoreText} emptyText={emptyText}
         count={items?.length}
         Skeleton={Skeleton}
       />

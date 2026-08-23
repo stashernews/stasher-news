@@ -83,6 +83,12 @@ export async function checkStreak ({ data: { id, type = 'FLAME' }, models }) {
     }
   })
 
+  // A job enqueued for a deleted/unknown user (e.g. a tip's recipient account
+  // whose owner was removed) has nothing to do — bail before dereferencing
+  // user.streak in isStreakActive, which would throw and mark the job
+  // permanently failed.
+  if (!user) return
+
   console.log('checking streak', id, type, isStreakActive(type, user))
 
   if (isStreakActive(type, user)) {

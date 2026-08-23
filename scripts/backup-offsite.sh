@@ -63,6 +63,19 @@ if [ ! -f "$SECRETS_FILE" ]; then
   echo "offsite backup: $SECRETS_FILE not found — this looks like a dev machine; refusing to run." >&2
   exit 1
 fi
+
+# --- alert wiring ------------------------------------------------------------
+# notify() pages via ALERT_WEBHOOK_URL, which lives SOPS-encrypted in
+# $SECRETS_FILE (decrypted into the app's env at boot by load-secrets.sh).
+# Cron runs as root with an empty environment, so extract just this one key
+# here; degrade silently (no sops, decryption failure) — the stderr line still
+# lands in the cron log.
+if [ -z "${ALERT_WEBHOOK_URL:-}" ] && command -v sops >/dev/null 2>&1; then
+  SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/stashernews/keys/age.agekey}"
+  export SOPS_AGE_KEY_FILE
+  ALERT_WEBHOOK_URL="$(sops -d --extract '["ALERT_WEBHOOK_URL"]' "$SECRETS_FILE" 2>/dev/null || true)"
+fi
+
 for remote in "$B2_REMOTE" "$MEDIA_REMOTE"; do
   if ! rclone listremotes 2>/dev/null | grep -q "^${remote}:$"; then
     echo "offsite backup: rclone remote '${remote}:' is not configured (see ops handoff)" >&2
@@ -121,6 +134,7 @@ if [ -d "$BACKUPS_DIR" ]; then
 fi
 
 if [ "$fail" -ne 0 ]; then
+  notify CRITICAL "offsite backup failed" "one or more legs failed — see the cron log for details"
   echo "!! offsite backup: one or more legs FAILED — check output above" >&2
   exit 1
 fi

@@ -149,4 +149,29 @@ describe('GET /api/health deadman wiring', () => {
     expect(res.statusCode).toBe(200)
     expect(res.body.deadman).toBeNull()
   })
+
+  test('backup completed row already archived out of pgboss.job still counts (and can go stale)', async () => {
+    // Regression: pg-boss archives completed jobs out of pgboss.job after ~12h;
+    // a once-daily dbBackup row lives in pgboss.archive long before the 26h
+    // deadman threshold. The deadman scan must UNION both tables.
+    const staleBackup = new Date(Date.now() - BACKUP_STALE_MS - 60_000)
+    let sawArchive = false
+    models.$queryRaw.mockImplementation(async (strings) => {
+      const sql = strings.join('')
+      if (sql.includes("name IN ('healthProbe', 'dbBackup')")) {
+        expect(sql).toContain('pgboss.archive')
+        sawArchive = true
+        // dbBackup row exists ONLY in the archive table
+        return completedAtRows({ healthProbe: new Date(), dbBackup: staleBackup })
+      }
+      return [{ failed: 0, pending: 0, oldestPending: null }]
+    })
+
+    const res = resStub()
+    await handler({ method: 'GET' }, res)
+
+    expect(sawArchive).toBe(true)
+    expect(alert).toHaveBeenCalledWith('critical', 'nightly backup missing', expect.any(String), { dedupeKey: 'dbBackup-silent' })
+    expect(res.body.deadman).toMatchObject({ backupStale: true })
+  })
 })

@@ -43,6 +43,15 @@ RESTORE_DB="${RESTORE_DB:-stackernews_restore_test}"
 DB_CONTAINER="${DB_CONTAINER:-db}"
 APP_CONTAINER="${APP_CONTAINER:-app}"
 
+# Alert wiring: cron runs as root with an empty environment; ALERT_WEBHOOK_URL
+# lives SOPS-encrypted at the same path the app boots from. Best-effort.
+SECRETS_FILE="${SECRETS_FILE:-/etc/stashernews/secrets.env}"
+if [ -z "${ALERT_WEBHOOK_URL:-}" ] && [ -f "$SECRETS_FILE" ] && command -v sops >/dev/null 2>&1; then
+  SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/stashernews/keys/age.agekey}"
+  export SOPS_AGE_KEY_FILE
+  ALERT_WEBHOOK_URL="$(sops -d --extract '["ALERT_WEBHOOK_URL"]' "$SECRETS_FILE" 2>/dev/null || true)"
+fi
+
 drop_restore_db() {
   # A restored psql may briefly hold a connection; force-disconnect before DROP so
   # cleanup is reliable even if the EXIT trap fires mid-restore.

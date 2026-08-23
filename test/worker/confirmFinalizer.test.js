@@ -29,7 +29,7 @@ const ADDR = '5' + '3'.repeat(94) // 95-char Monero address placeholder
 
 // Tracks every row created across tests so afterAll can tear them down in
 // FK-safe order: ObservedTip/ObservedDownvote -> Item -> MoneroAccount -> users.
-const created = { users: [], items: [], accounts: [], tips: [], downvotes: [], bounties: [] }
+const created = { users: [], items: [], accounts: [], tips: [], downvotes: [], subFees: [], bounties: [] }
 
 // Pin the fee config deterministically for the height-set-short reconcile
 // fixture (same regime as test/worker/bounties.test.js, so the quote math is
@@ -40,6 +40,7 @@ let feeConfigSnapshot = null
 afterAll(async () => {
   await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } })
   await prisma.observedDownvote.deleteMany({ where: { id: { in: created.downvotes } } })
+  await prisma.observedSubFee.deleteMany({ where: { id: { in: created.subFees } } })
   // ObservedBountyReceipt rows cascade on ObservedBounty delete (FK onDelete: Cascade).
   await prisma.observedBounty.deleteMany({ where: { id: { in: created.bounties } } })
   await prisma.feeObservation.deleteMany({ where: { postId: { in: created.items }, feeType: 'BOUNTY_FEE' } })
@@ -271,6 +272,65 @@ test('a DETECTED ObservedDownvote stays DETECTED below 10 confirmations', async 
   const after = await prisma.observedDownvote.findUnique({ where: { id: downvote.id } })
   expect(after.state).toBe('DETECTED')
   expect(after.confirmedAt).toBeNull()
+})
+
+// Seed a DETECTED ObservedSubFee directly (bypassing the webhook) so the test
+// exercises ONLY the confirmFinalizer flip path. txHash/paymentId must be
+// unique under the @@unique([txHash, paymentId]). owner_user_id carries no FK,
+// so any user id is valid — a freshly created user keeps it realistic.
+let subFeeSeq = 0
+async function seedSubFee ({ subName, ownerUserId, piconeros, height }) {
+  subFeeSeq += 1
+  const subFee = await prisma.observedSubFee.create({
+    data: {
+      txHash: 'osf' + String(subFeeSeq),
+      paymentId: 'osftest' + String(subFeeSeq).padStart(8, '0') + '00000000',
+      subName,
+      ownerUserId,
+      piconeros,
+      height,
+      state: 'DETECTED'
+    }
+  })
+  created.subFees.push(subFee.id)
+  return subFee
+}
+
+// ObservedSubFee (turf-owner fee legs): the lws webhook N-conf callback is the
+// primary maturer — the finalizer pass is the safety net for a missed callback
+// (deploy restart, swept stragglers), mirroring the FeeObservation pass.
+test('a DETECTED ObservedSubFee becomes CONFIRMED at 10 confirmations (missed webhook N-conf callback)', async () => {
+  const ownerUserId = await createUser(); created.users.push(ownerUserId)
+  const subFee = await seedSubFee({ subName: 'turf-conf', ownerUserId, piconeros: 1_000_000_000n, height: 991 })
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(1000), lwsClient: emptyLws() })
+
+  const after = await prisma.observedSubFee.findUnique({ where: { id: subFee.id } })
+  expect(after.state).toBe('CONFIRMED')
+  expect(after.confirmations).toBe(10)
+  expect(after.confirmedAt).toBeInstanceOf(Date)
+})
+
+test('a DETECTED ObservedSubFee stays DETECTED below 10 confirmations', async () => {
+  const ownerUserId = await createUser(); created.users.push(ownerUserId)
+  const subFee = await seedSubFee({ subName: 'turf-not-yet', ownerUserId, piconeros: 1_000_000_000n, height: 999 })
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(1000), lwsClient: emptyLws() })
+
+  const after = await prisma.observedSubFee.findUnique({ where: { id: subFee.id } })
+  expect(after.state).toBe('DETECTED')
+  expect(after.confirmedAt).toBeNull()
+})
+
+test('a mempool ObservedSubFee (height null) is skipped even at high chain height', async () => {
+  const ownerUserId = await createUser(); created.users.push(ownerUserId)
+  const subFee = await seedSubFee({ subName: 'turf-mempool', ownerUserId, piconeros: 1_000_000_000n, height: null })
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(9999), lwsClient: emptyLws() })
+
+  const after = await prisma.observedSubFee.findUnique({ where: { id: subFee.id } })
+  expect(after.state).toBe('DETECTED')
+  expect(after.confirmations).toBe(0)
 })
 
 // Seed a DETECTED ObservedBounty directly (bypassing the webhook) so the test

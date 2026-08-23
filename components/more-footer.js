@@ -23,7 +23,7 @@ const FooterFetchMore = ({ cursor, fetchMore, setLoading }) => {
   )
 }
 
-export default function MoreFooter ({ cursor, count, fetchMore, Skeleton, invisible, noMoreText = 'GENESIS' }) {
+export default function MoreFooter ({ cursor, count, fetchMore, Skeleton, invisible, noMoreText = 'GENESIS', emptyText = 'EMPTY' }) {
   const [loading, setLoading] = useState(false)
 
   if (loading) {
@@ -33,7 +33,7 @@ export default function MoreFooter ({ cursor, count, fetchMore, Skeleton, invisi
   let Footer = FooterFetchMore
   if (!cursor) {
     Footer = () => (
-      <div className='text-muted' style={{ fontFamily: DISPLAY_FONT, fontSize: '2rem', opacity: '0.75' }}>{count === 0 ? 'EMPTY' : noMoreText}</div>
+      <div className='text-muted' style={{ fontFamily: DISPLAY_FONT, fontSize: '2rem', opacity: '0.75' }}>{count === 0 ? emptyText : noMoreText}</div>
     )
   }
 

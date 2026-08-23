@@ -8,7 +8,7 @@
 // Mocked $queryRaw/$queryRawUnsafe — no live DB (per plan testing latitude;
 // live-DB coverage of the stat itself lives in test/api/resolvers/topSubs.test.js).
 
-import { topSubs } from '@/api/resolvers/sub'
+import subResolvers, { topSubs } from '@/api/resolvers/sub'
 import notifications from '@/api/resolvers/notifications'
 import { Prisma } from '@prisma/client'
 
@@ -119,6 +119,59 @@ describe('topSubs revenue stat', () => {
     expect(sql).not.toContain('sub_revenue')
     expect(sql).toContain('0::bigint AS revenue')
     expect(sql).toContain('ORDER BY stacked DESC NULLS LAST')
+  })
+})
+
+describe('Sub.earnedPiconeros (tenure-scoped owner revenue)', () => {
+  function captureAggregateModels (sum = 5n) {
+    let capturedWhere = null
+    const models = {
+      observedSubFee: {
+        aggregate: jest.fn(async ({ where }) => {
+          capturedWhere = where
+          return { _sum: { piconeros: sum } }
+        })
+      }
+    }
+    models.capturedWhere = () => {
+      if (!capturedWhere) throw new Error('observedSubFee.aggregate was not called')
+      return capturedWhere
+    }
+    return models
+  }
+
+  test('counts only receipts attributed to the CURRENT owner (tenure-scoped)', async () => {
+    const models = captureAggregateModels(42n)
+
+    const out = await subResolvers.Sub.earnedPiconeros(
+      { name: 'turf', userId: 7 }, {}, { me: { id: 7 }, models })
+
+    expect(out).toBe(42n)
+    expect(models.capturedWhere()).toMatchObject({
+      subName: 'turf',
+      state: 'CONFIRMED',
+      ownerUserId: 7
+    })
+  })
+
+  test('ownership gate: non-owner me gets null and no aggregate call', async () => {
+    const models = captureAggregateModels()
+
+    const out = await subResolvers.Sub.earnedPiconeros(
+      { name: 'turf', userId: 7 }, {}, { me: { id: 999 }, models })
+
+    expect(out).toBeNull()
+    expect(models.observedSubFee.aggregate).not.toHaveBeenCalled()
+  })
+
+  test('ownership gate: anon me gets null and no aggregate call', async () => {
+    const models = captureAggregateModels()
+
+    const out = await subResolvers.Sub.earnedPiconeros(
+      { name: 'turf', userId: 7 }, {}, { me: null, models })
+
+    expect(out).toBeNull()
+    expect(models.observedSubFee.aggregate).not.toHaveBeenCalled()
   })
 })
 

@@ -119,15 +119,29 @@ describe('ITEM_CREATE getInitial routing', () => {
     expect(reserveFeeSubaddress).toHaveBeenCalled()
   })
 
-  it('cross-posts (2 turfs) always route to the platform with per-turf premium math', async () => {
+  it('wallet-less owner falls back to the rewards-wallet subaddress charging FLOOR ONLY (no premium)', async () => {
+    const m = models({ subOwnerHasWallet: false, premium: { post: 2_000_000_000n } })
+    const r = await getInitial(m, { ...subArgs, title: 'x' }, { me: lowRepMe })
+    expect(r.moneroPaymentId).toBeUndefined()
+    expect(r.moneroSubaddressMajor).toBeDefined()
+    expect(reserveFeeSubaddress).toHaveBeenCalled()
+    // uri quotes floor only — the 0.002 premium is NOT charged when it would
+    // land in the platform wallet
+    expect(r.moneroUri).toContain('tx_amount=0.001')
+    expect(r.moneroUri).not.toContain('0.003')
+  })
+
+  it('cross-posts (2 turfs) always route to the platform charging floors only (no premium)', async () => {
     const m = models({ premium: { post: 500_000_000n } })
     // second turf owned by someone else without premium: models.sub rows give
-    // 'turf' the configured premium and 'other' none
+    // 'turf' the configured premium and 'other' none — neither premium may be
+    // charged on the platform fallback leg
     const r = await getInitial(m, { subNames: ['turf', 'other'], title: 'x' }, { me: lowRepMe })
     expect(r.moneroPaymentId).toBeUndefined()
     expect(reserveFeeSubaddress).toHaveBeenCalled()
-    // 2 floors + 1 premium = 0.0025
-    expect(r.moneroUri).toContain('tx_amount=0.0025')
+    // 2 floors, no premium — premiums never route to the platform wallet
+    expect(r.moneroUri).toContain('tx_amount=0.002')
+    expect(r.moneroUri).not.toContain('0.0025')
   })
 
   it('gate off keeps today’s platform routing', async () => {
@@ -149,5 +163,19 @@ describe('ITEM_CREATE getInitial routing', () => {
     expect(r.moneroPaymentId).toMatch(/^[0-9a-f]{16}$/)
     expect(reserveFeeSubaddress).not.toHaveBeenCalled()
     expect(r.moneroUri).toContain('tx_amount=0.0012')
+  })
+
+  it('comments fall back to the platform subaddress charging FLOOR ONLY (no premium)', async () => {
+    const m = models({
+      subOwnerHasWallet: false,
+      premium: { comment: 200_000_000n },
+      parentSubs: [{ name: 'turf', userId: 42, postPremiumPiconeros: 0n, commentPremiumPiconeros: 200_000_000n }]
+    })
+    m.user = { findUnique: async () => ({ id: 7, freeCommentCount: 99, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date() }) }
+    const r = await getInitial(m, { parentId: '123', subNames: null }, { me: lowRepMe })
+    expect(r.moneroPaymentId).toBeUndefined()
+    expect(reserveFeeSubaddress).toHaveBeenCalled()
+    expect(r.moneroUri).toContain('tx_amount=0.001')
+    expect(r.moneroUri).not.toContain('0.0012')
   })
 })

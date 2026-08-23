@@ -92,13 +92,12 @@ jest.mock('@apollo/client/react', () => ({
   })
 }))
 
-// var, not let/const: jest.mock factories may only reference out-of-scope
-// names prefixed with "mock", and const/let here would be in TDZ when the
-// hoisted jest.mock call runs.
-var mockRouter = { asPath: '/~bitcoin' }
-var mockMe = null
-var mockRewardsTotal = '1200000000000'
-var mockRewardsTime = null
+// let, not const: reassigned per-test; jest.mock factories reference these
+// lazily (mock*-prefixed per babel-plugin-jest-hoist), so TDZ never applies.
+let mockRouter = { asPath: '/~bitcoin' }
+let mockMe = null
+let mockRewardsTotal = '1200000000000'
+let mockRewardsTime = null
 
 // props shape mirrors what components/nav/index.js builds for DesktopHeader
 const TURF_PROPS = {

@@ -21,15 +21,15 @@ jest.mock('../../../lib/lexical/server/html', () => ({
 
 // The verified badge is hard-off pending the award/pay redesign; these legacy
 // tests mock the flag ON so the hasWallet gate logic stays covered as
-// documentation. var, not let/const: jest.mock factories may only reference
-// out-of-scope names prefixed with "mock", and const/let here would be in TDZ
-// when the hoisted jest.mock call runs.
+// documentation. let, not const: reassigned per-test; jest.mock factories
+// reference these lazily (mock*-prefixed per babel-plugin-jest-hoist), so TDZ
+// never applies.
 jest.mock('../../../lib/verified-badge-flag', () => ({
   __esModule: true,
   isVerifiedBadgeEnabled: () => mockFlag
 }))
 
-var mockFlag = true
+let mockFlag = true
 
 beforeEach(() => {
   mockFlag = true

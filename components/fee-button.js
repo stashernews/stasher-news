@@ -116,12 +116,15 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
   const postMultiplier = subs.length === 0 ? 1 : postNonOwned.length
   // Turf premiums: each non-owned turf contributes its post premium on top of
   // the floor, mirroring the server fee math (postFeePiconerosForSubs = Σ
-  // floor + premium). Shown as its OWN receipt line so the info modal explains
-  // why the total exceeds the posting fee. Dormant deployments hold 0
-  // everywhere (premiums are server-zeroed at every write path), so this
-  // changes nothing when the feature is off. Free posts return above — premiums
-  // never make a free post cost anything.
-  const premiumTotalPiconeros = subs.length > 0
+  // floor + premium per non-owned turf). Shown as its OWN receipt line so the
+  // info modal explains why the total exceeds the posting fee. Gated on
+  // me.privates.turfOwnerFees — the client proxy for the TURF_OWNER_FEES gate
+  // — because premiums ride only owner-routed legs: when the feature is off
+  // (or the viewer is anon, with no privates), the fallback charges floor-only
+  // and the receipt must not quote a premium. Free posts return above —
+  // premiums never make a free post cost anything.
+  const ownerFeesOn = !!me?.privates?.turfOwnerFees
+  const premiumTotalPiconeros = ownerFeesOn && subs.length > 0
     ? postNonOwned.reduce((acc, s) => acc + BigInt(s?.postPremiumPiconeros ?? 0), 0n)
     : 0n
   const platformFeePiconeros = feePiconeros * BigInt(postMultiplier)

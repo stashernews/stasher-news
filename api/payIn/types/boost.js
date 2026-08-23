@@ -3,7 +3,7 @@ import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { piconerosToXmr, xmrToPiconeros } from '@/lib/format'
 import { GqlInputError } from '@/lib/error'
-import { getItemResult } from '../lib/item'
+import { getItemResult, getSubs } from '../lib/item'
 import { turfOwnerFeesEnabled, resolveOwnerFeeRouteForSub } from '@/api/monero/turfFeeRouting'
 import { createOwnerFeeLeg } from '@/api/monero/ownerFeeLeg'
 import { lwsClient } from '@/api/monero/lwsClient'
@@ -45,8 +45,16 @@ export async function getInitial (models, { id, piconeros }, { me }) {
   const item = await models.item.findUnique({ where: { id: parseInt(id) } })
   if (!item) throw new GqlInputError('item not found')
 
-  const route = turfOwnerFeesEnabled() && item.subNames?.length === 1
-    ? await resolveOwnerFeeRouteForSub(models, item.subNames[0])
+  // Top-level posts key on their own subNames; comments carry none — resolve
+  // the root post's turfs (same walk as comment posting fees, getSubs) so a
+  // comment boost in a single-owner turf routes owner-direct like its fee.
+  let routeSubs = item.subNames?.length === 1 ? item.subNames : null
+  if (!routeSubs && item.parentId) {
+    const rootSubs = await getSubs(models, { parentId: item.parentId })
+    routeSubs = rootSubs.length === 1 ? [rootSubs[0].name] : null
+  }
+  const route = turfOwnerFeesEnabled() && routeSubs
+    ? await resolveOwnerFeeRouteForSub(models, routeSubs[0])
     : null
 
   // owner-direct only when the payer is NOT the turf owner: an owner boosting

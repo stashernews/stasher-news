@@ -15,15 +15,27 @@ export function turfOwnerFeesEnabled () {
   return process.env.TURF_OWNER_FEES === '1'
 }
 
-export function premiumPiconeros (sub, kind) {
+// Static ceiling — mirrors the yup bound in lib/validate.js. Used when the
+// runtime config row is unavailable.
+export const MAX_TURF_PREMIUM_PICONEROS = 10_000_000_000n
+
+export function premiumPiconeros (config, sub, kind) {
+  // Flag-gated on READ (the write path force-zeroes via zeroPremiumsIfDormant,
+  // but a mid-flight kill-switch toggle must also stop charging premiums at
+  // quote time — otherwise users pay "owner premiums" that route to the
+  // platform wallet) and clamped to the operator's maxTurfPremiumPiconeros.
+  if (!turfOwnerFeesEnabled()) return 0n
   const raw = sub?.[`${kind}PremiumPiconeros`]
-  return raw == null ? 0n : BigInt(raw)
+  if (raw == null) return 0n
+  const cap = BigInt(config?.maxTurfPremiumPiconeros ?? MAX_TURF_PREMIUM_PICONEROS)
+  const value = BigInt(raw)
+  return value > cap ? cap : value
 }
 
 /** Post fee = Σ over non-owned turfs of (floor + that turf's post premium). */
 export function postFeePiconerosForSubs (config, nonOwnedSubs) {
   return nonOwnedSubs.reduce(
-    (acc, s) => acc + postingFeePiconeros(config) + premiumPiconeros(s, 'post'), 0n)
+    (acc, s) => acc + postingFeePiconeros(config) + premiumPiconeros(config, s, 'post'), 0n)
 }
 
 /**
@@ -31,8 +43,20 @@ export function postFeePiconerosForSubs (config, nonOwnedSubs) {
  * Multi-turf roots collect no premium (no single owner to pay).
  */
 export function commentFeePiconerosForSubs (config, nonOwnedSubs) {
-  const premium = nonOwnedSubs.length === 1 ? premiumPiconeros(nonOwnedSubs[0], 'comment') : 0n
+  const premium = nonOwnedSubs.length === 1 ? premiumPiconeros(config, nonOwnedSubs[0], 'comment') : 0n
   return postingFeePiconeros(config) + premium
+}
+
+/** Floor-only variants: what a platform-wallet FALLBACK charges. Owner
+ * premiums are the owner's surcharge — they are never charged when the
+ * payment would land in the platform rewards wallet (cross-posts,
+ * wallet-less owners, feature off). */
+export function postFloorPiconerosForSubs (config, nonOwnedSubs) {
+  return nonOwnedSubs.reduce((acc, _s) => acc + postingFeePiconeros(config), 0n)
+}
+
+export function commentFloorPiconerosForSubs (config, nonOwnedSubs) {
+  return postingFeePiconeros(config)
 }
 
 export async function resolveOwnerFeeRouteForSub (models, subName) {

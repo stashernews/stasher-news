@@ -39,7 +39,6 @@ export const ITEM_FIELDS = gql`
     otsHash
     position
     piconeros
-    credits
     meAnonPiconeros @client
     boost
     bounty
@@ -51,7 +50,6 @@ export const ITEM_FIELDS = gql`
     path
     upvotes
     mePiconeros
-    meCredits
     meDontLikePiconeros
     downPiconeros
     commentDownPiconeros
@@ -63,7 +61,6 @@ export const ITEM_FIELDS = gql`
     ncomments
     nDirectComments
     commentPiconeros
-    commentCredits
     commentCost
     commentBoost
     lastCommentAt

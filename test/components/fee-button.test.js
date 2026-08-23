@@ -196,9 +196,13 @@ describe('postCommentBaseLineItems — turf premiums', () => {
   // sub fixtures carry postPremiumPiconeros as the client receives them via
   // SUB_FIELDS; dormant deployments hold 0 everywhere (server-zeroed at every
   // write path), so reading the premium directly mirrors the server fee math
-  // (postFeePiconerosForSubs = Σ floor + premium per non-owned turf).
+  // (postFeePiconerosForSubs = Σ floor + premium per non-owned turf). The
+  // premium LINE is gated on me.privates.turfOwnerFees — the client proxy for
+  // the TURF_OWNER_FEES gate (privates.turfOwnerFees resolves server-side from
+  // the env): premiums ride only owner-routed legs, so the receipt shows them
+  // only while the feature can actually pay owners.
   const sub = (name, userId, post = 0) => ({ name, userId, postPremiumPiconeros: post })
-  const lowRepMe = { id: 7, privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } }
+  const lowRepMe = { id: 7, privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0, turfOwnerFees: true } }
 
   test('a single non-owned premium turf quotes floor + premium', () => {
     const lines = postCommentBaseLineItems({
@@ -212,6 +216,18 @@ describe('postCommentBaseLineItems — turf premiums', () => {
     expect(lines.turfPremium.term).toBe('+ 0.002 XMR')
     expect(lines.turfPremium.label).toBe('turf owner premium')
     expect(piconerosToXmr(BigInt(lines.turfPremium.modifier(0)) * 1000n)).toBe('0.002 XMR')
+  })
+
+  test('the premium line is hidden when me.privates.turfOwnerFees is off (feature dormant)', () => {
+    const lines = postCommentBaseLineItems({
+      me: { id: 7, privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } },
+      subs: [sub('Revenue', 860, 2000000000)]
+    })
+    expect(lines.postingFee.term).toBe('+ 0.001 XMR')
+    expect(piconerosToXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+    // stored premiums exist but the flag is off: premiums never ride a leg the
+    // platform wallet would collect, so the receipt must not quote one
+    expect(lines).not.toHaveProperty('turfPremium')
   })
 
   test('a cross-post sums floor + premium per non-owned turf', () => {
@@ -240,7 +256,7 @@ describe('postCommentBaseLineItems — turf premiums', () => {
 
   test('free posts stay free even with a premium turf selected', () => {
     const lines = postCommentBaseLineItems({
-      me: { id: 7, privates: { postingFeeRequired: false, postingFeePiconeros: 0, freePostsLeft: 5 } },
+      me: { id: 7, privates: { postingFeeRequired: false, postingFeePiconeros: 0, freePostsLeft: 5, turfOwnerFees: true } },
       subs: [sub('Revenue', 860, 2000000000)]
     })
     expect(lines.baseCost.allowFreebies).toBe(true)
@@ -266,12 +282,15 @@ describe('postCommentBaseLineItems — turf premiums', () => {
     expect(lines).not.toHaveProperty('turfPremium')
   })
 
-  test('anon posts scale the premium too: (floor + premium) x10', () => {
+  test('anon posts (no me) hide the premium line and quote the floor x10', () => {
     const lines = postCommentBaseLineItems({ me: null, subs: [sub('Revenue', 860, 2000000000)] })
-    const total = [lines.postingFee, lines.turfPremium, lines.anonCharge]
-      .sort((a, b) => (a.op === '_' && b.op !== '_' ? -1 : a.op !== '_' && b.op === '_' ? 1 : 0))
+    expect(lines).not.toHaveProperty('turfPremium')
+    const total = [lines.postingFee, lines.anonCharge]
+      .sort((a, b) => (a.op === '_' ? -1 : 1))
       .reduce((cost, line) => line.modifier(cost), 0)
-    // (0.001 + 0.002) x 10 = 0.03
-    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.03 XMR')
+    // 0.001 x 10 = 0.01 (the server may still charge a premium on an
+    // owner-routed anon leg — the receipt cannot know the route, so it
+    // quotes the fallback floor like every other estimate it makes)
+    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.01 XMR')
   })
 })

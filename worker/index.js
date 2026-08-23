@@ -37,6 +37,7 @@ import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
 import { abandonFeeItems } from './abandonFeeItems'
+import { reconcileOwnerFeeLegs } from './reconcileOwnerFeeLegs'
 import { healthProbe } from './healthProbe'
 import { dbBackup } from './dbBackup'
 import { writeWorkerHeartbeat } from './heartbeat'
@@ -218,6 +219,13 @@ async function work () {
   // FEE_ITEM_ABANDON_DAYS (1 day). Recurrence is cron-owned (pgboss.schedule
   // row abandonFeeItems, hourly) — no self-requeue.
   await boss.work('abandonFeeItems', { includeMetadata: true }, jobWrapper(abandonFeeItems))
+
+  // reconcileOwnerFeeLegs: hourly backstop for owner-routed fee legs whose
+  // lws webhook callback was missed — re-observes receipts via lws and replays
+  // them through the cumulative gate so PENDING_FEE items flip before
+  // abandonFeeItems strikes. Recurrence is cron-owned (pgboss.schedule row
+  // reconcileOwnerFeeLegs, hourly) — no self-requeue.
+  await boss.work('reconcileOwnerFeeLegs', { includeMetadata: true }, jobWrapper(reconcileOwnerFeeLegs))
 
   // rewardsWalletObserver: polls the platform rewards wallet for posting/territory
   // fee outputs (subaddress attribution) and downvote payments (payment_id

@@ -223,14 +223,6 @@ export const DONATE = gql`
     }
   }`
 
-export const BUY_CREDITS = gql`
-  ${PAY_IN_FIELDS}
-  mutation buyCredits($credits: Int!, $sendProtocolId: Int) {
-    buyCredits(credits: $credits, sendProtocolId: $sendProtocolId) {
-      ...PayInFields
-    }
-  }`
-
 export const ACT_MUTATION = gql`
   ${PAY_IN_FIELDS}
   mutation act($id: ID!, $piconeros: BigInt!, $act: String) {

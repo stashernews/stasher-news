@@ -576,12 +576,17 @@ export default {
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       return moneroUriAmountPiconeros(payIn.moneroUri) ?? territoryFeePiconeros(sub.billingType, config)
     },
-    // Turf-owner revenue: confirmed owner-routed fee receipts (owner-gated).
+    // Turf-owner revenue: confirmed owner-routed fee receipts, TENURE-scoped —
+    // only receipts the snapshot attributed to the sub's CURRENT owner count
+    // (matches the Revenue notifications' receipt-time attribution; after a
+    // turf transfer, the new owner's readout starts from zero, the old
+    // owner's notifications keep their history). The topSubs leaderboard is
+    // deliberately turf-all-time (it ranks turfs, not owners).
     earnedPiconeros: async (sub, args, { me, models }) => {
       if (!me || Number(sub.userId) !== Number(me.id)) return null
       const agg = await models.observedSubFee.aggregate({
         _sum: { piconeros: true },
-        where: { subName: sub.name, state: 'CONFIRMED' }
+        where: { subName: sub.name, state: 'CONFIRMED', ownerUserId: Number(sub.userId) }
       })
       return agg._sum.piconeros ?? 0n
     }

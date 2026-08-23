@@ -8,9 +8,8 @@ import { alert } from '@/lib/alert'
 import { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros } from '@/api/monero/bountyFunding'
 import { applyDownvotePenalty } from '@/api/monero/downvote'
 import { shouldExcludeTip, resolveItemSubName } from '@/api/monero/selfTip'
+import { applySubFeeReceipt } from '@/api/monero/subFeeObservation'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
-import { flipPendingToLive, applyBoostDetected } from '@/worker/rewardsWalletObserver'
-import { moneroUriAmountPiconeros } from '@/lib/format'
 import { safeEqual } from '@/lib/domains/auth'
 
 // lws tx-confirmation webhook receiver (spec §4.4).
@@ -69,7 +68,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     include: {
       post: { select: { userId: true } },
       recipientAccount: {
-        select: { label: true, ownerUserId: true, address: true, status: true, viewKey: true, subaddresses: { select: { majorIndex: true, minorIndex: true } } }
+        select: { label: true, ownerUserId: true, address: true, status: true, viewKey: true, lastTxId: true, subaddresses: { select: { majorIndex: true, minorIndex: true } } }
       }
     }
   })
@@ -97,13 +96,38 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
       const direct = tip.tipperId != null && tip.tipperId === tip.post.userId
       let selfSend = false
       if (!direct && tip.recipientAccount?.viewKey && tip.recipientAccount?.status === 'ACTIVE') {
-        const resp = await monero.getAddressTxs(tip.recipientAccount, 0, null)
-        const byPid = new Map()
-        for (const t of (resp.transactions || [])) {
-          if (t.payment_id) byPid.set(String(t.payment_id).toLowerCase(), t)
+        // Incremental scan via the account's lastTxId cursor (full history was
+        // O(account age) per tip callback). Guarantee: if the incremental
+        // response does not contain OUR pid, fall back to one full scan — the
+        // detection semantics can only match today's, never regress. The tip's
+        // own tx just arrived, so its id is newer than any stored cursor; a
+        // mempool tx may lack an id / be excluded from since_tx_id responses,
+        // and the fallback covers that too (worst case = fail-open
+        // non-exclusion, same as today when the account is unscannable).
+        const account = tip.recipientAccount
+        const lookup = (txs) => {
+          const byPid = new Map()
+          for (const t of (txs || [])) {
+            if (t.payment_id) byPid.set(String(t.payment_id).toLowerCase(), t)
+          }
+          return byPid.get(String(paymentId).toLowerCase()) ?? null
         }
-        const tx = byPid.get(String(paymentId).toLowerCase()) ?? null
-        selfSend = shouldExcludeTip({ tipperId: tip.tipperId, postUserId: tip.post.userId, account: tip.recipientAccount, tx })
+        let resp = await monero.getAddressTxs(account, account.lastTxId ?? 0, null)
+        let tx = lookup(resp.transactions)
+        if (!tx && account.lastTxId != null) {
+          resp = await monero.getAddressTxs(account, 0, null)
+          tx = lookup(resp.transactions)
+        }
+        // forward-only cursor advance (never regresses on concurrent/lws re-sends)
+        const maxId = (resp.transactions || []).reduce(
+          (m, t) => (typeof t.id === 'number' && t.id > m ? t.id : m), Number(account.lastTxId ?? 0))
+        if (maxId > Number(account.lastTxId ?? 0)) {
+          await models.moneroAccount.updateMany({
+            where: { id: account.id, OR: [{ lastTxId: null }, { lastTxId: { lt: BigInt(maxId) } }] },
+            data: { lastTxId: BigInt(maxId) }
+          }).catch(() => {}) // best-effort: a lost advance only costs one fuller scan
+        }
+        selfSend = shouldExcludeTip({ tipperId: tip.tipperId, postUserId: tip.post.userId, account, tx })
       }
       if (direct || selfSend) {
         const exclusionReason = direct ? 'DIRECT_SELF_TIP' : 'SELF_SEND'
@@ -327,51 +351,36 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
 
   // Turf-owner fee branch ("fee:" namespace): owner-routed posting/comment
   // fees and boosts pay the OWNER's wallet at an integrated address whose
-  // embedded pid is stored on the PayIn (unique reverse map). One receipt row
-  // per tx (top-ups share the pid, not the txHash): @@unique(txHash, paymentId)
-  // + ON CONFLICT DO NOTHING make replays and retried callbacks no-ops. The
-  // cumulative gate mirrors the observer's subaddress gate: the gated Item
-  // flips live only once receipts cover the URI's quoted amount.
-  // Unknown pids: 200 no-op (lws retry hygiene).
+  // embedded pid is stored on the PayIn (unique reverse map). Receipt insert,
+  // boost bump, cumulative amount gate, and N-conf maturity live in the
+  // shared applier (api/monero/subFeeObservation.js) — idempotent by
+  // construction (one receipt row per tx via @@unique(txHash, paymentId) +
+  // ON CONFLICT DO NOTHING). Unknown pids: 200 no-op (lws retry hygiene).
   const feePayIn = await models.payIn.findUnique({ where: { moneroPaymentId: paymentId } })
   if (feePayIn) {
     const piconeros = BigInt(amount || '0')
-    const rows = await models.$queryRaw`
-      INSERT INTO "ObservedSubFee" ("tx_hash","payment_id","pay_in_id","subName","owner_user_id","piconeros","height","confirmations","state","detected_at")
-      SELECT ${txHash}, ${paymentId}, ${feePayIn.id}, m."subName", m."owner_user_id", ${piconeros}, ${height ?? null}, ${confirmations}, 'DETECTED'::"ObservedState", NOW()
-      FROM "SubFeePidMap" m WHERE m."payment_id" = ${paymentId}
-      ON CONFLICT ("tx_hash","payment_id") DO NOTHING
-      RETURNING id`
-    const fresh = rows && rows.length > 0
+    await applySubFeeReceipt(models, { feePayIn, paymentId, txHash, piconeros, height, confirmations })
+    return res.status(200).end()
+  }
 
-    // Owner-routed boost: the ranking bump fires on a fresh receipt only
-    // (a replayed txHash must not re-bump), mirroring the observer.
-    if (fresh && feePayIn.payInType === 'BOOST') {
-      try {
-        await applyBoostDetected(models, feePayIn, piconeros)
-      } catch (err) {
-        console.error(`webhook: owner-fee boost bump failed for payIn ${feePayIn.id}:`, err?.message || err)
-      }
+  // Money landed on a fee pid with NO PayIn: the leg was abandoned
+  // (underpaid past the window — abandonFeeItems deleted the PayIn) but the
+  // SubFeePidMap row persists for attribution. Record the receipt (ledger
+  // visibility; the owner keeps the XMR) and page operators for manual
+  // reconciliation — bounty-branch parity (see the EXPIRED bounty case
+  // above). No map row: fall through to the downvote dispatch below, so
+  // unknown pids keep their 200 no-op (lws retry hygiene).
+  const feeMapRow = await models.subFeePidMap.findUnique({ where: { paymentId } })
+  if (feeMapRow) {
+    const piconeros = BigInt(amount || '0')
+    try {
+      await applySubFeeReceipt(models, { feePayIn: null, paymentId, txHash, piconeros, height, confirmations })
+    } catch (err) {
+      console.warn(`webhook: abandoned-fee receipt record failed (best-effort): ${err && err.message}`)
     }
-
-    // Cumulative amount gate (underpayment top-up support) — idempotent flip.
-    const expected = feePayIn.moneroUri ? moneroUriAmountPiconeros(feePayIn.moneroUri) : null
-    const agg = await models.observedSubFee.aggregate({
-      _sum: { piconeros: true },
-      where: { payInId: feePayIn.id }
-    })
-    const cumulative = agg._sum.piconeros ?? 0n
-    if (expected === null || cumulative >= expected) {
-      await flipPendingToLive(models, feePayIn, cumulative)
-    }
-
-    // N-conf maturity of THIS receipt (atomic conditional; replays no-op).
-    if (confirmations >= REQUIRED_CONFIRMATIONS) {
-      await models.$executeRaw`
-        UPDATE "ObservedSubFee"
-        SET state = 'CONFIRMED', confirmations = ${confirmations}, "confirmed_at" = NOW()
-        WHERE "tx_hash" = ${txHash} AND "payment_id" = ${paymentId} AND state = 'DETECTED'`
-    }
+    alert('critical', 'payment arrived after fee abandonment',
+      `turf ${feeMapRow.subName}: ${piconeros} piconeros arrived on abandoned fee leg ${paymentId}; manual reconciliation required`,
+      { dedupeKey: `subfee-late-payment-${paymentId}` })
     return res.status(200).end()
   }
 

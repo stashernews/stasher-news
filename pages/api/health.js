@@ -43,10 +43,21 @@ async function checkDeadman (now = Date.now()) {
   if (now - lastDeadmanCheck < DEADMAN_MIN_INTERVAL_MS) return null
   lastDeadmanCheck = now
   try {
+    // UNION pgboss.archive: pg-boss archives completed jobs out of pgboss.job
+    // after ~12h (default archiveCompletedAfterSeconds; archive rows persist
+    // 7d). dbBackup completes once daily — without the archive table its
+    // completed row vanishes from pgboss.job long before the 26h threshold,
+    // backupLastCompletedAt goes null, and "null is never stale" silently
+    // disarms the backup deadman. Same columns exist in both tables.
     const rows = await models.$queryRaw`
       SELECT name, MAX(completedon) AS "lastCompletedAt"
-      FROM pgboss.job
-      WHERE name IN ('healthProbe', 'dbBackup') AND state = 'completed'
+      FROM (
+        SELECT name, completedon FROM pgboss.job
+        WHERE name IN ('healthProbe', 'dbBackup') AND state = 'completed'
+        UNION ALL
+        SELECT name, completedon FROM pgboss.archive
+        WHERE name IN ('healthProbe', 'dbBackup') AND state = 'completed'
+      ) t
       GROUP BY name`
     const byName = Object.fromEntries(rows.map(r => [r.name, r.lastCompletedAt ? new Date(r.lastCompletedAt) : null]))
     const workerLastCompletedAt = byName.healthProbe ?? null

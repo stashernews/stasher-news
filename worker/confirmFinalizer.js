@@ -30,9 +30,10 @@ import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 // diverge — a CONFIRMED tip with an unbumped author (or vice versa) would
 // desync the reputation calc. The transaction guarantees they commit together.
 //
-// Scope: ObservedTip, FeeObservation, AND ObservedDownvote. The tip flip is coupled
-// to the author stackedPiconeros denorm (atomic); the fee and downvote flips are
-// ledger-only (their ranking/visibility effects already applied at DETECTION).
+// Scope: ObservedTip, FeeObservation, ObservedSubFee, AND ObservedDownvote. The
+// tip flip is coupled to the author stackedPiconeros denorm (atomic); the fee,
+// sub-fee (turf-owner), and downvote flips are ledger-only (their ranking/
+// visibility effects already applied at DETECTION).
 // Reorg reversal is NOT implemented — deferred as an accepted v1 limitation
 // (consistent with the tip flow; a >10-block Monero reorg is negligible).
 //
@@ -152,6 +153,36 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
       where: { id: fee.id },
       data: { state: 'CONFIRMED', confirmations, confirmedAt: new Date() }
     })
+  }
+
+  // ObservedSubFee (turf-owner fee legs): ledger-only maturity, mirroring the
+  // FeeObservation pass. The lws webhook N-conf callback is the primary
+  // maturer; this is the safety net for missed callbacks (deploy restarts,
+  // swept stragglers) — without it a missed callback strands the receipt at
+  // DETECTED forever, invisible to revenue notifications/leaderboard/
+  // earnedPiconeros (all filter CONFIRMED). Revenue notifications are
+  // query-side (the notifications resolver reads CONFIRMED rows) — no effects
+  // here. The conditional updateMany (state: 'DETECTED' guard) makes a race
+  // with a late webhook CONFIRMED callback a count-0 no-op instead of a
+  // confirmedAt overwrite. NULL-height DETECTED rows are the reconcile
+  // chain's job, not this pass's.
+  const subFees = await models.observedSubFee.findMany({
+    where: { state: 'DETECTED', height: { not: null } },
+    select: { id: true, height: true },
+    take: SCAN_BATCH_SIZE
+  })
+  let subFeeConfirmed = 0
+  for (const subFee of subFees) {
+    const confirmations = chainHeight - subFee.height + 1
+    if (confirmations < REQUIRED_CONFIRMATIONS) continue
+    const res = await models.observedSubFee.updateMany({
+      where: { id: subFee.id, state: 'DETECTED' },
+      data: { state: 'CONFIRMED', confirmations, confirmedAt: new Date() }
+    })
+    subFeeConfirmed += res.count
+  }
+  if (subFeeConfirmed > 0) {
+    console.log(`confirmFinalizer: matured ${subFeeConfirmed} ObservedSubFee receipt(s) DETECTED -> CONFIRMED (missed N-conf callback safety net)`)
   }
 
   // ObservedDownvote (rewardsWalletObserver): mature DETECTED downvotes to

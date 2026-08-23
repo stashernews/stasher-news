@@ -40,10 +40,17 @@ const PRIMARY = '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyC
 
 const config = { minTipPiconeros: 100_000_000n }
 
-function models ({ subNames = ['turf'], ownerHasWallet = true } = {}) {
+function models ({ subNames = ['turf'], ownerHasWallet = true, parentId = null, rootSubs = null } = {}) {
   return {
     platformFeeConfig: { findUnique: async () => config },
-    item: { findUnique: async () => ({ id: 1, subNames }) },
+    // comments carry subNames: null and a parentId — their turf comes from the
+    // root post via getSubs' $queryRaw walk (rootSubs below)
+    item: { findUnique: async () => ({ id: 1, subNames, parentId }) },
+    $queryRaw: async (strings, ...values) => {
+      const sql = Array.isArray(strings) ? strings.join('') : String(strings)
+      if (sql.includes('"Sub"')) return rootSubs ?? []
+      return []
+    },
     sub: { findUnique: async () => ({ name: 'turf', userId: 42 }) },
     moneroAccount: { findFirst: async () => ownerHasWallet ? { id: 9, ownerUserId: 42, address: PRIMARY } : null },
     subFeePidMap: { create: async () => ({}) }
@@ -60,6 +67,28 @@ describe('BOOST getInitial routing', () => {
     expect(r.moneroPaymentId).toMatch(/^[0-9a-f]{16}$/)
     expect(r.moneroSubaddressMajor).toBeUndefined()
     expect(reserveFeeSubaddress).not.toHaveBeenCalled()
+  })
+  it('routes a COMMENT boost owner-direct via the root post’s single turf', async () => {
+    const r = await getInitial(
+      models({ subNames: null, parentId: 42, rootSubs: [{ name: 'turf', userId: 42 }] }),
+      { id: '1', piconeros: '2000000000' }, { me })
+    expect(r.moneroPaymentId).toMatch(/^[0-9a-f]{16}$/)
+    expect(r.moneroSubaddressMajor).toBeUndefined()
+    expect(reserveFeeSubaddress).not.toHaveBeenCalled()
+  })
+  it('comment boosts in multi-turf roots fall back to major-5', async () => {
+    const r = await getInitial(
+      models({ subNames: null, parentId: 42, rootSubs: [{ name: 'a', userId: 42 }, { name: 'b', userId: 99 }] }),
+      { id: '1', piconeros: '2000000000' }, { me })
+    expect(r.moneroPaymentId).toBeUndefined()
+    expect(r.moneroSubaddressMajor).toBe(5)
+  })
+  it('comment boosts fall back when the root owner has no wallet', async () => {
+    const r = await getInitial(
+      models({ subNames: null, parentId: 42, ownerHasWallet: false, rootSubs: [{ name: 'turf', userId: 42 }] }),
+      { id: '1', piconeros: '2000000000' }, { me })
+    expect(r.moneroPaymentId).toBeUndefined()
+    expect(r.moneroSubaddressMajor).toBe(5)
   })
   it('falls back to major-5 for cross-posted items', async () => {
     const r = await getInitial(models({ subNames: ['a', 'b'] }), { id: '1', piconeros: '500000000' }, { me })

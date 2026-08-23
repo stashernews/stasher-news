@@ -69,6 +69,17 @@ test('skips users with an active streak', async () => {
   expect(models.$queryRaw).not.toHaveBeenCalled()
 })
 
+test('no-ops cleanly when the user does not exist (guards the streak deref)', async () => {
+  const models = {
+    user: { findUnique: async () => null },
+    $queryRaw: jest.fn()
+  }
+  // A checkStreak job enqueued for a deleted/unknown user must not throw on
+  // user.streak nor run any streak query — it just returns.
+  await expect(checkStreak({ data: { id: 404, type: 'FLAME' }, models })).resolves.toBeUndefined()
+  expect(models.$queryRaw).not.toHaveBeenCalled()
+})
+
 // Real-DB COIN streak lifecycle test (live migrated database, FK-safe teardown).
 // Run via the app container:
 //   docker exec -w /app -e NODE_OPTIONS=--experimental-vm-modules -u apprunner app npx jest test/worker/streak.test.js

@@ -122,12 +122,12 @@ describe('Sub.earnedPiconeros (owner-gated turf revenue readout)', () => {
   const aggregate = jest.fn(async () => ({ _sum: { piconeros: 1234n } }))
   const earnedModels = { observedSubFee: { aggregate } }
 
-  it('owner sees the CONFIRMED ObservedSubFee sum', async () => {
+  it('owner sees the CONFIRMED ObservedSubFee sum, tenure-scoped to the current owner', async () => {
     await expect(subResolvers.Sub.earnedPiconeros(turf, null, { me: gqlMe, models: earnedModels }))
       .resolves.toBe(1234n)
     expect(aggregate).toHaveBeenCalledWith({
       _sum: { piconeros: true },
-      where: { subName: 't', state: 'CONFIRMED' }
+      where: { subName: 't', state: 'CONFIRMED', ownerUserId: gqlMe.id }
     })
   })
   it('non-owner sees null and no aggregate runs', async () => {

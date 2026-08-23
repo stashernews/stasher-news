@@ -48,14 +48,13 @@ jest.mock(`${process.cwd()}/svgs/arrow-right-s-fill.svg`, () => ({
   default: props => <svg {...props} />
 }))
 
-// var, not let/const: jest.mock factories may only reference out-of-scope
-// names prefixed with "mock", and const/let would be in TDZ when the hoisted
-// jest.mock calls run (vote-column.test.js).
-var mockMe
-var mockRouterPush
-var mockShowModal
-var mockUpsertSub
-var mockApolloClient
+// let, not const: reassigned per-test; jest.mock factories reference these
+// lazily (mock*-prefixed per babel-plugin-jest-hoist), so TDZ never applies.
+let mockMe
+let mockRouterPush
+let mockShowModal
+let mockUpsertSub
+let mockApolloClient
 
 let win
 let container

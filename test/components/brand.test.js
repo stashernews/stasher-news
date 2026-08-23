@@ -1,13 +1,13 @@
 /* eslint-env jest */
 // Renders the shared Brand component with react-dom/client backed by linkedom
 // (repo harness — see test/components/vote-column.test.js for the quirks:
-// runtime-absolute jest.mock paths, var-only mock symbols).
+// runtime-absolute jest.mock paths, let mock symbols).
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { parseHTML } from 'linkedom'
 import { Brand } from '@/components/nav/common'
 
-var mockBranding = {}
+let mockBranding = {}
 
 jest.mock(`${process.cwd()}/components/territory-branding`, () => ({
   useBranding: () => mockBranding

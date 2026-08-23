@@ -1,7 +1,9 @@
 /* eslint-env jest */
 import {
   turfOwnerFeesEnabled, premiumPiconeros, postFeePiconerosForSubs,
-  commentFeePiconerosForSubs, resolveOwnerFeeRoute, resolveOwnerFeeRouteForSub
+  commentFeePiconerosForSubs, postFloorPiconerosForSubs, commentFloorPiconerosForSubs,
+  resolveOwnerFeeRoute, resolveOwnerFeeRouteForSub,
+  MAX_TURF_PREMIUM_PICONEROS
 } from '@/api/monero/turfFeeRouting'
 import { territorySchema } from '@/lib/validate'
 
@@ -25,6 +27,9 @@ describe('turfOwnerFeesEnabled', () => {
 })
 
 describe('premium math', () => {
+  beforeEach(() => { process.env.TURF_OWNER_FEES = '1' })
+  afterEach(() => { delete process.env.TURF_OWNER_FEES })
+
   it('sums floor + premium per non-owned sub for posts', () => {
     expect(postFeePiconerosForSubs(config, [sub('a', 1, 500_000_000n)])).toBe(1_500_000_000n)
     expect(postFeePiconerosForSubs(config, [sub('a', 1, 100n), sub('b', 2, 200n)])).toBe(2_000_000_300n)
@@ -33,9 +38,45 @@ describe('premium math', () => {
     expect(commentFeePiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n)])).toBe(1_700_000_000n)
     expect(commentFeePiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n), sub('b', 2)])).toBe(1_000_000_000n)
   })
+  it('floor-only helpers quote the platform FALLBACK charge even with stored premiums', () => {
+    expect(postFloorPiconerosForSubs(config, [sub('a', 1, 500_000_000n), sub('b', 2, 200n)])).toBe(2_000_000_000n)
+    expect(commentFloorPiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n)])).toBe(1_000_000_000n)
+  })
   it('tolerates missing premium fields (legacy rows)', () => {
-    expect(premiumPiconeros({}, 'post')).toBe(0n)
+    expect(premiumPiconeros(config, {}, 'post')).toBe(0n)
     expect(commentFeePiconerosForSubs(config, [{}])).toBe(1_000_000_000n)
+  })
+})
+
+describe('premiumPiconeros flag gate + config clamp', () => {
+  afterEach(() => { delete process.env.TURF_OWNER_FEES })
+
+  test('TURF_OWNER_FEES off: stored premiums are zeroed on read (kill-switch)', () => {
+    delete process.env.TURF_OWNER_FEES
+    const s = sub('turf', 2, 5_000_000_000n, 3_000_000_000n)
+    expect(premiumPiconeros(config, s, 'post')).toBe(0n)
+    expect(premiumPiconeros(config, s, 'comment')).toBe(0n)
+  })
+
+  test('flag on: stored premium above maxTurfPremiumPiconeros is clamped', () => {
+    process.env.TURF_OWNER_FEES = '1'
+    const tightConfig = { postingFeeFloorPiconeros: 1_000_000_000n, maxTurfPremiumPiconeros: 1_000_000_000n }
+    const s = sub('turf', 2, 5_000_000_000n, 500_000_000n)
+    expect(premiumPiconeros(tightConfig, s, 'post')).toBe(1_000_000_000n)
+    expect(premiumPiconeros(tightConfig, s, 'comment')).toBe(500_000_000n)
+  })
+
+  test('flag on, missing config max: falls back to the static 0.01 XMR ceiling', () => {
+    process.env.TURF_OWNER_FEES = '1'
+    const s = sub('turf', 2, 99_000_000_000n, 0n)
+    expect(premiumPiconeros(undefined, s, 'post')).toBe(MAX_TURF_PREMIUM_PICONEROS)
+  })
+
+  test('flag off: fee helpers quote floor-only even with stored premiums', () => {
+    delete process.env.TURF_OWNER_FEES
+    const s = sub('turf', 2, 5_000_000_000n, 3_000_000_000n)
+    expect(postFeePiconerosForSubs(config, [s])).toBe(1_000_000_000n)
+    expect(commentFeePiconerosForSubs(config, [s])).toBe(1_000_000_000n)
   })
 })
 

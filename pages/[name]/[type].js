@@ -8,6 +8,8 @@ import PageLoading from '@/components/page-loading'
 import { UserLayout } from '.'
 import { Form, Select, DatePicker } from '@/components/form'
 import { whenToFrom } from '@/lib/time'
+import { useMe } from '@/components/me'
+import { COPY } from '@/lib/rebrand-copy'
 
 const staticVariables = { sort: 'user' }
 const variablesFunc = vars => ({
@@ -20,12 +22,18 @@ export const getServerSideProps = getGetServerSideProps(
 
 export default function UserItems ({ ssrData }) {
   const router = useRouter()
+  const { me } = useMe()
   const variables = variablesFunc(router.query)
 
   const { data } = useQuery(USER, { variables })
   if (!data && !ssrData) return <PageLoading />
 
   const { user } = data || ssrData
+
+  const desperadosEmpty = variables.type === 'desperados' &&
+    !!me &&
+    me.privates?.postsPiconerosFilter == null &&
+    me.privates?.commentsPiconerosFilter == null
 
   return (
     <UserLayout user={user}>
@@ -35,6 +43,7 @@ export default function UserItems ({ ssrData }) {
           ssrData={ssrData}
           variables={variables}
           query={USER_WITH_ITEMS}
+          emptyText={desperadosEmpty ? COPY.desperadosEmpty : undefined}
         />
       </div>
     </UserLayout>

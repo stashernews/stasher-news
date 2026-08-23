@@ -39,7 +39,6 @@ export const COMMENT_FIELDS = gql`
     downPiconeros
     commentDownPiconeros
     mePiconeros
-    meCredits
     meDontLikePiconeros
     meBookmark
     meSubscription
@@ -47,7 +46,6 @@ export const COMMENT_FIELDS = gql`
     netInvestment
     path
     commentPiconeros
-    commentCredits
     commentCost
     commentBoost
     mine
@@ -101,7 +99,6 @@ export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
     downPiconeros
     commentDownPiconeros
     mePiconeros
-    meCredits
     meDontLikePiconeros
     meBookmark
     meSubscription
@@ -109,7 +106,6 @@ export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
     netInvestment
     path
     commentPiconeros
-    commentCredits
     commentCost
     commentBoost
     mine
