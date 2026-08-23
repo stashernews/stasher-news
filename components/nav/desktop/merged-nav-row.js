@@ -7,9 +7,10 @@ import styles from '../../header.module.css'
 // Shared single-row desktop nav content, used by both the merged top header
 // (HeaderMerged) and the scroll sticky bar (StickyBar) so the two are
 // pixel-identical: same elements (back, brand, turf selector, sorts, search,
-// price pill, comment navigator, post button, right corner) and the same
-// navMergedRow classes. The second-bar elements keep their hasNavSelect /
-// branding gating so non-turf pages look exactly as before.
+// centered rewards/price cluster, comment navigator, post button, right
+// corner) and the same navMergedRow classes. The second-bar elements keep
+// their hasNavSelect / branding gating so non-turf pages look exactly as
+// before.
 export default function MergedNavRow (props) {
   const { prefix, sub, topNavKey, dropNavKey } = props
   const branding = useBranding()
@@ -30,9 +31,12 @@ export default function MergedNavRow (props) {
         </div>
       )}
       <SearchItem prefix={prefix} className='me-0 ms-2 d-none d-md-flex' />
-      <div className='ms-auto d-flex align-items-center gap-2'>
+      <div className='navCenterCluster'>
         <NavRewards />
-        <NavPrice className='navPricePill d-none d-md-flex' />
+        <span className='navCenterDivider' />
+        <NavPrice className='d-none d-md-flex' />
+      </div>
+      <div className='ms-auto d-flex align-items-center gap-2'>
         <CommentsNavigator navigator={navigator} commentCount={commentCount} />
         {showSubNav && <PostItem className='d-none d-md-flex' prefix={prefix} />}
         <RightCorner dropNavKey={dropNavKey} className='d-none d-md-flex' />

@@ -10,7 +10,7 @@ export default function SecondBar (props) {
   return (
     <Navbar>
       <Nav
-        className={styles.navbarNav}
+        className={`${styles.navbarNav} navMobileSecondBar`}
         activeKey={topNavKey}
       >
         <Sorts {...props} />

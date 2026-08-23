@@ -183,6 +183,10 @@ describe('HeaderMerged zero-removal', () => {
     // lit/new/top sorts (second-bar)
     const linkTexts = Array.from(container.querySelectorAll('a')).map(a => a.textContent)
     expect(linkTexts).toEqual(expect.arrayContaining(['lit', 'new', 'top']))
+    // sort links carry the global styling hook (navSortLink) used by the SCSS
+    const sortLinks = Array.from(container.querySelectorAll('.navSortLink'))
+    expect(sortLinks.length).toBe(3)
+    expect(sortLinks.map(a => a.textContent)).toEqual(['lit', 'new', 'top'])
     // search (top-bar)
     expect(container.querySelector('a[href="/search"] svg')).toBeTruthy()
     // price ticker (top-bar): NavPrice's Nav.Item, which wraps the Price
@@ -210,7 +214,7 @@ describe('HeaderMerged zero-removal', () => {
   })
 
   it('omits the second-bar elements on non-turf pages like the two-bar header does', async () => {
-    await renderHeader({ prefix: '/', path: '/', pathname: '/', topNavKey: 'hot', dropNavKey: '', sub: 'home' })
+    await renderHeader({ prefix: '/', path: '/', pathname: '/', topNavKey: 'hot', dropNavKey: '', sub: 'frontpage' })
 
     expect(container.querySelector('[data-testid="turf-select"]')).toBeNull()
     const linkTexts = Array.from(container.querySelectorAll('a')).map(a => a.textContent)
@@ -221,20 +225,25 @@ describe('HeaderMerged zero-removal', () => {
 })
 
 describe('NavRewards', () => {
-  it('renders the rewards amount link and a days/hours countdown before the price pill', async () => {
+  it('renders the rewards amount link and a days/hours countdown in the centered cluster', async () => {
     await renderHeader(TURF_PROPS)
 
-    const amount = container.querySelector('a[href="/rewards"]')
+    const cluster = container.querySelector('.navCenterCluster')
+    expect(cluster).toBeTruthy()
+
+    const amount = cluster.querySelector('a[href="/rewards"]')
     expect(amount).toBeTruthy()
     expect(amount.textContent).toBe('1.2 XMR in rewards')
 
-    const timer = container.querySelector('.navRewards .navRewardsTimer')
+    const timer = cluster.querySelector('.navRewards .navRewardsTimer')
     expect(timer).toBeTruthy()
     expect(timer.textContent).toMatch(/^\d+d \d{1,2}h$/)
 
-    const cluster = container.querySelector('.navMerged .ms-auto')
-    const firstLink = cluster.querySelector('a')
-    expect(firstLink.getAttribute('href')).toBe('/rewards')
+    // divider separates the rewards readout from the price ticker
+    expect(cluster.querySelector('.navCenterDivider')).toBeTruthy()
+
+    // the price ticker Nav.Item also lives in the centered cluster
+    expect(cluster.querySelectorAll('.nav-item').length).toBeGreaterThanOrEqual(2)
   })
 
   it('renders nothing when the rewards pool is not available', async () => {

@@ -133,16 +133,16 @@ export function NavRewards () {
   )
 }
 
-const PREPEND_SUBS = ['home']
+const PREPEND_SUBS = ['frontpage']
 const APPEND_SUBS = [{ label: '--------', items: ['create'] }]
 export function NavSelect ({ sub: subName, className, size }) {
-  const sub = subName || 'home'
+  const sub = subName || 'frontpage'
 
   return (
     <Nav.Item className={className}>
       <SubSelect
         sub={sub} prependSubs={PREPEND_SUBS} appendSubs={APPEND_SUBS} noForm
-        groupClassName='mb-0' size={size}
+        groupClassName='mb-0' size={size} className='navTopSelect'
       />
     </Nav.Item>
   )
@@ -358,13 +358,13 @@ export function Sorts ({ prefix, className }) {
   return (
     <>
       <Nav.Item className={className}>
-        <Nav.Link as={Link} href={prefix + '/'} eventKey='' className={`${styles.navLink} ${styles.navSort}`}>lit</Nav.Link>
+        <Nav.Link as={Link} href={prefix + '/'} eventKey='' className={`${styles.navLink} ${styles.navSort} navSortLink`}>lit</Nav.Link>
       </Nav.Item>
       <Nav.Item className={className}>
-        <Nav.Link as={Link} href={prefix + '/new'} eventKey='new' className={`${styles.navLink} ${styles.navSort}`}>new</Nav.Link>
+        <Nav.Link as={Link} href={prefix + '/new'} eventKey='new' className={`${styles.navLink} ${styles.navSort} navSortLink`}>new</Nav.Link>
       </Nav.Item>
       <Nav.Item className={className}>
-        <Nav.Link as={Link} href={prefix + '/top/posts/day'} eventKey='top' className={`${styles.navLink} ${styles.navSort}`}>top</Nav.Link>
+        <Nav.Link as={Link} href={prefix + '/top/posts/day'} eventKey='top' className={`${styles.navLink} ${styles.navSort} navSortLink`}>top</Nav.Link>
       </Nav.Item>
     </>
   )

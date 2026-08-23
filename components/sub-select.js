@@ -76,7 +76,7 @@ export default function SubSelect ({ prependSubs, sub, onChange, size, appendSub
   return (
     <Select
       onChange={onChange || ((_, e) => {
-        const sub = ['home', 'pick territory'].includes(e.target.value) ? undefined : e.target.value
+        const sub = ['frontpage', 'pick territory'].includes(e.target.value) ? undefined : e.target.value
         if (sub === 'create') {
           router.push('/territory')
           return

@@ -21,18 +21,30 @@ export default function TopBar ({ prefix, sub, path, pathname, topNavKey, dropNa
   return (
     <Navbar>
       <Nav
-        className={styles.navbarNav}
+        className={`${styles.navbarNav} navMobileRow`}
         activeKey={topNavKey}
       >
-        <Back className='d-flex d-md-none' />
         {hasNavSelect({ path, pathname })
-          ? <NavSelect sub={sub} className='w-100' />
+          ? (
+            <>
+              <Back />
+              <NavSelect sub={sub} className='w-100' />
+            </>
+            )
           : (
             <>
-              <NavPrice className='flex-shrink-1' />
-              <CommentsNavigator navigator={navigator} commentCount={commentCount} className='px-2' />
-              {me ? <NavWalletSummary /> : <SignUpButton width='fit-content' />}
-            </>)}
+              <div className='navMobileLeft'>
+                <Back />
+              </div>
+              <div className='navMobileCenter'>
+                <NavPrice className='flex-shrink-1' />
+              </div>
+              <div className='navMobileRight'>
+                <CommentsNavigator navigator={navigator} commentCount={commentCount} className='px-2' />
+                {me ? <NavWalletSummary /> : <SignUpButton width='fit-content' />}
+              </div>
+            </>
+            )}
       </Nav>
     </Navbar>
   )

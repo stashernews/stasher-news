@@ -72,12 +72,12 @@
 }
 
 // ---- merged single-row desktop header (rebrand) ----
-// One row holds back arrow, brand, turf selector, sorts, search, price ticker,
-// comment navigator, block-height pill, post button and the user corner. The
-// row wraps (instead of clipping or dropping elements) at narrow desktop
+// One row holds back arrow, brand, turf selector, sorts, search, centered
+// rewards/price cluster, comment navigator, post button and the user corner.
+// The row wraps (instead of clipping or dropping elements) at narrow desktop
 // widths; every element of the previous two-bar header is retained. The wrap
 // and height live on the inner flex row (stable .navMergedRow class, set in
-// components/nav/desktop/header-merged.js) rather than the outer .navMerged
+// components/nav/desktop/merged-nav-row.js) rather than the outer .navMerged
 // Bootstrap Navbar, which is nowrap; height:auto + min-height:39px keep a
 // wrapped row from clipping against header.module.css's fixed 39px height.
 .stealth-rebrand {
@@ -86,40 +86,36 @@
     row-gap: 4px;
     height: auto;
     min-height: 39px;
+    position: relative;
   }
 
-  // cycling price ticker styled as an orange pill. The Price component already
-  // cycles fiat / XMR-per-fiat / block-height on click, so a standalone
-  // block-height element is redundant — the pill unifies all three modes.
-  // .navPricePill is a global class (not the CSS-module .price) so it survives
-  // Next.js class-name hashing.
-  .navMergedRow .navPricePill {
-    flex-grow: 0;
-  }
-
-  .navMergedRow .navPricePill button {
-    font-family: 'Chakra Petch', sans-serif;
-    font-size: calc(0.75rem + 2pt);
-    color: var(--bs-primary);
-    border: 1px solid rgba(255, 102, 0, 0.35);
-    background: rgba(255, 102, 0, 0.08);
-    border-radius: 6px;
-    padding: 3px 10px;
+  // centered cluster: rewards readout + price ticker, absolutely centered on
+  // the merged row (left:50% of the relative .navMergedRow). The in-flow left
+  // and right content fits well under the md+ breakpoint, so the cluster never
+  // overlaps the wrapped row. The Chakra Petch font lives on the cluster so the
+  // rewards link, countdown and price ticker all inherit it.
+  .navCenterCluster {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
     white-space: nowrap;
-    line-height: 1.4;
-    cursor: pointer;
-  }
-
-  .navMergedRow .navPricePill button:hover {
-    background: rgba(255, 102, 0, 0.16);
-  }
-
-  // rewards pool amount + payout countdown: plain grey Chakra Petch text,
-  // between the search icon and the price pill, matching the mockup
-  .navMergedRow .navRewards {
     font-family: 'Chakra Petch', sans-serif;
     font-weight: 500;
     font-size: calc(0.8rem + 2pt);
+  }
+
+  .navCenterDivider {
+    width: 1px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  // rewards pool amount + payout countdown: plain grey Chakra Petch text in the
+  // centered cluster, matching the mockup
+  .navMergedRow .navRewards {
     color: var(--stealth-muted);
     white-space: nowrap;
   }
@@ -134,6 +130,40 @@
     text-decoration: underline;
   }
 
+  // price ticker in the centered cluster: the same plain muted Chakra Petch
+  // text as the rewards readout — no pill, no ◉ symbol. The Price component
+  // still cycles fiat / XMR-per-fiat / block-height on click.
+  .navCenterCluster .nav-link {
+    color: var(--stealth-muted) !important;
+    padding: 0.25rem 0;
+    line-height: 1.4;
+  }
+
+  .navCenterCluster .nav-link:hover {
+    color: var(--bs-body-color) !important;
+  }
+
+  // below xl the row is too narrow for the absolutely-centered cluster to
+  // clear the in-flow content, so the cluster drops to its own centered line
+  // (header height then matches the pre-rebrand two-bar height). At xl+ the
+  // single-row dead-centering fits.
+  @media (max-width: 1199.98px) {
+    .navMergedRow .navCenterCluster {
+      position: static;
+      left: auto;
+      transform: none;
+      flex: 1 1 100%;
+      order: 1;
+      justify-content: center;
+    }
+
+    // neutralize the price ticker's flex-grow:1 (header.module.css .price) so
+    // the cluster's justify-content:center centers both items on the line
+    .navMergedRow .navCenterCluster .nav-item {
+      flex-grow: 0;
+    }
+  }
+
   // header nym in the display font (approved: Chakra Petch in the top bar)
   .navMergedRow .navNym {
     font-family: 'Chakra Petch', sans-serif;
@@ -141,8 +171,93 @@
     font-size: calc(0.8rem + 2pt);
   }
 
-  .navMergedRow .navPricePill button::before {
-    content: '◉\00a0';
+  // turf selector in the top bars: plain Chakra Petch text + an inverted-
+  // triangle caret instead of the boxed native <select>. appearance:none
+  // strips the browser widget and Bootstrap's chevron background; the caret is
+  // drawn by the wrapping flex span's ::after because a <select> cannot carry
+  // its own pseudo-elements.
+  .navMergedRow .navTopSelect,
+  .navMobileRow .navTopSelect {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    background-image: none;
+    font-family: 'Chakra Petch', sans-serif;
+    font-weight: 500;
+    font-size: calc(0.8rem + 2pt);
+    color: var(--bs-body-color);
+    text-align: right;
+    cursor: pointer;
+  }
+
+  // desktop: shrink-to-fit next to the brand, ellipsis on long turf names
+  .navMergedRow .navTopSelect {
+    width: auto !important;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  // mobile: the full-width row stays clickable; the caret sits right after
+  // the text
+  .navMobileRow .navTopSelect {
+    width: 100% !important;
+  }
+
+  .navMergedRow .form-group > span.d-flex::after,
+  .navMobileRow .form-group > span.d-flex::after {
+    content: '▾';
+    margin-left: 6px;
+    color: var(--stealth-muted);
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+
+  // active feed (lit/new/top) in the top bars: bold orange instead of the
+  // site-wide near-white active nav-link. Covers the merged desktop row and
+  // the mobile second bar; specificity beats globals.scss's .nav-link.active
+  // + hover !important rules.
+  .navMergedRow .navSortLink.nav-link.active,
+  .navMergedRow .navSortLink.nav-link.active:hover,
+  .navMergedRow .navSortLink.nav-link.active:focus,
+  .navMobileSecondBar .navSortLink.nav-link.active,
+  .navMobileSecondBar .navSortLink.nav-link.active:hover,
+  .navMobileSecondBar .navSortLink.nav-link.active:focus {
+    color: var(--bs-primary) !important;
+  }
+
+  // mobile top bar + mobile sticky bar: price dead-centered between the back
+  // arrow (left) and the comment navigator / wallet / sign-up (right)
+  .navMobileRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .navMobileRow .navMobileLeft,
+  .navMobileRow .navMobileRight {
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .navMobileRow .navMobileLeft {
+    justify-content: flex-start;
+  }
+
+  .navMobileRow .navMobileRight {
+    justify-content: flex-end;
+  }
+
+  .navMobileRow .navMobileCenter {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   // downvote arrow: dims by default, brightens to danger red on hover

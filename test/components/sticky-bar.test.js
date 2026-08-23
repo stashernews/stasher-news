@@ -7,7 +7,7 @@
 // NavPrice, PostItem, RightCorner, Back — plus CommentsNavigator) through the
 // shared MergedNavRow, so these tests double as parity checks: the sticky bar
 // must contain every merged-header element (turf selector, sorts, post
-// button, styled price pill). Only environment-level leaves are mocked (next
+// button, centered rewards/price cluster). Only environment-level leaves are mocked (next
 // router/link, the GraphQL-feeding hooks, the form-leaf SubSelect, and svgs —
 // which resolve to string stubs under next/jest and cannot render as
 // components).
@@ -191,11 +191,17 @@ describe('StickyBar desktop parity with HeaderMerged', () => {
     expect(buttonTexts).toEqual(expect.arrayContaining(['sign up', 'login']))
   })
 
-  it('keeps the mobile sticky section (back, price, sign up)', async () => {
+  it('keeps the mobile sticky section (back, centered price, sign up)', async () => {
     await renderStickyBar(TURF_PROPS)
 
     // mobile container exists and keeps the sign-up button for logged-out users
     expect(container.textContent).toContain('sign up')
     expect(container.querySelectorAll('a[role="button"] svg').length).toBeGreaterThan(0)
+    // price dead-centered between the back arrow and the right-side controls
+    expect(container.querySelector('.navMobileLeft')).toBeTruthy()
+    const center = container.querySelector('.navMobileCenter')
+    expect(center).toBeTruthy()
+    expect(center.querySelector('.nav-item')).toBeTruthy()
+    expect(container.querySelector('.navMobileRight')).toBeTruthy()
   })
 })
