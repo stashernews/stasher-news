@@ -243,7 +243,7 @@ Yes. If you see content that you think should not be on Stasher News, you can cl
 
 Downvoting content is a form of negative feedback that reduces the visibility of the specific item. Downvote payments fund the weekly curator rewards pool.
 
-If an item gets downvoted using enough XMR, it is outlawed and hidden from view. If you wish to see outlawed content, move the 'posts xmr filter' or 'comments xmr filter' slider in your [settings](/settings) to zero or below — the 'wild west' end of the slider.
+By default, nothing is hidden from your feeds — your filter starts at the 'wild west' end (show all). If you move the 'posts xmr filter' or 'comments xmr filter' slider in your [settings](/settings) up from 'wild west', items downvoted below your threshold become outlawed: posts drop out of your feeds and comments collapse to the bottom. Turfs and the logged-out front page are stricter: they only hide posts downvoted below -0.1 XMR net investment, and outlawed items always remain reachable by direct link.
 
 ---
 

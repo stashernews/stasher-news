@@ -34,7 +34,7 @@ function SatFilterRanges () {
         </div>
       }
       name='postsPiconerosFilter'
-      min={-0.01}
+      min={-0.1}
       max={0.01}
       step={0.0001}
       suffix=' XMR'
@@ -203,8 +203,8 @@ export default function TerritoryForm ({ sub }) {
         initial={{
           name: sub?.name || '',
           desc: sub?.desc || '',
-          // Default xmr filter (-0.002 XMR = show downvoted content by default)
-          postsPiconerosFilter: sub?.postsPiconerosFilter == null ? -0.002 : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter)))),
+          // Default xmr filter (-0.1 XMR: only heavily downvoted posts leave lit/top)
+          postsPiconerosFilter: sub?.postsPiconerosFilter == null ? -0.1 : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter)))),
           postPremiumPiconeros: sub?.postPremiumPiconeros == null ? 0 : Number(piconerosToXmrDecimal(BigInt(sub.postPremiumPiconeros))),
           commentPremiumPiconeros: sub?.commentPremiumPiconeros == null ? 0 : Number(piconerosToXmrDecimal(BigInt(sub.commentPremiumPiconeros))),
           postTypes: sub?.postTypes || POST_TYPES,

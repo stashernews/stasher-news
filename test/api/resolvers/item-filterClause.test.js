@@ -63,12 +63,12 @@ describe('filterClause with BigInt filters', () => {
       userLoader: { load: async () => null },
       subLoader: { load: async () => null }
     })
-    expect(clause).toContain('>= -2000000000')
+    expect(clause).toContain('>= -100000000000')
   })
 
   test('territory lit stays territory-authoritative even when the user set -∞', async () => {
-    const clause = await filterClause('links', 'tech', 'lit', ctx({ postsPiconerosFilter: null, commentsPiconerosFilter: null }, { postsPiconerosFilter: -2000000000n }))
-    expect(clause).toContain('>= -2000000000')
+    const clause = await filterClause('links', 'tech', 'lit', ctx({ postsPiconerosFilter: null, commentsPiconerosFilter: null }, { postsPiconerosFilter: -100000000000n }))
+    expect(clause).toContain('>= -100000000000')
   })
 
   test('non-curated territory feed (sort new) does not throw with BigInt territory filter', async () => {

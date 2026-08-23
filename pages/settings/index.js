@@ -350,13 +350,13 @@ export default function Settings ({ ssrData }) {
               </div>
             }
             name='postsPiconerosFilter'
-            min={-0.01}
+            min={-0.1}
             max={0.01}
             step={0.0001}
             suffix=' XMR'
             allOption
             labels={[
-              { value: -0.01, label: 'wild west' },
+              { value: -0.1, label: 'wild west' },
               { value: 0.01, label: 'tea & crumpets' }
             ]}
           />
@@ -372,13 +372,13 @@ export default function Settings ({ ssrData }) {
               </div>
             }
             name='commentsPiconerosFilter'
-            min={-0.01}
+            min={-0.1}
             max={0.01}
             step={0.0001}
             suffix=' XMR'
             allOption
             labels={[
-              { value: -0.01, label: 'wild west' },
+              { value: -0.1, label: 'wild west' },
               { value: 0.01, label: 'tea & crumpets' }
             ]}
           />

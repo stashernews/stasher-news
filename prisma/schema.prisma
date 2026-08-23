@@ -40,8 +40,8 @@ model User {
   noteMentions        Boolean              @default(true)
   noteItemMentions    Boolean              @default(true)
   photoId             Int?
-  postsPiconerosFilter BigInt?                 @default(-2000000000)
-  commentsPiconerosFilter BigInt?              @default(-2000000000)
+  postsPiconerosFilter BigInt?
+  commentsPiconerosFilter BigInt?
   freeCommentCount    Int                  @default(0)
   freeCommentResetAt  DateTime?
   freePostCount       Int                  @default(0)
@@ -623,7 +623,7 @@ model Sub {
   billingAutoRenew Boolean     @default(false)
   billedLastAt     DateTime    @default(now())
   billPaidUntil    DateTime?
-  postsPiconerosFilter BigInt                   @default(-2000000000)
+  postsPiconerosFilter BigInt                   @default(-100000000000)
   nsfw             Boolean     @default(false)
 
   // StasherNews territory-fee gate (§6.2): territory create/renew fees land on the
