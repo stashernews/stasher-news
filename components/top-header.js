@@ -35,7 +35,7 @@ export default function TopHeader ({ sub, cat }) {
     if (query.from && !query.to) return
 
     await router.push({
-      pathname: `${prefix}/top/${what}/${when || 'day'}`,
+      pathname: `${prefix}/top/${what === 'stackers' ? 'stashers' : what}/${when || 'day'}`,
       query
     })
   }
