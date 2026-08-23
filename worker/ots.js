@@ -13,7 +13,7 @@ const ITEM_OTS_FIELDS = gql`
   }`
 
 export async function timestampItem ({ data: { id }, apollo, models }) {
-  const { data: { item: { parentId, parentOtsHash, title, text, url } } } = await apollo.query({
+  const { data: { item } } = await apollo.query({
     query: gql`
         ${ITEM_OTS_FIELDS}
         query Item {
@@ -22,6 +22,11 @@ export async function timestampItem ({ data: { id }, apollo, models }) {
           }
         }`
   })
+
+  // item was deleted (STOPPED) before it could be timestamped — nothing to do
+  if (!item) return
+
+  const { parentId, parentOtsHash, title, text, url } = item
 
   if (parentId && !parentOtsHash) {
     throw new Error('no parent hash available ... retrying later')
