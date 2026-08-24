@@ -233,11 +233,13 @@ export default function Transparency ({ ssrData }) {
                     </div>
                     {d.opsSweepTxHash && (
                       <div className='ms-2 mt-1'>
-                        <a href={`${explorerTxUrl(w.network)}${d.opsSweepTxHash}`} target='_blank' rel='noreferrer'>
-                          <small className='text-monospace text-break text-decoration-none'>
-                            ops sweep tx: {d.opsSweepTxHash.slice(0, 24)}…
-                          </small>
-                        </a>
+                        {d.opsSweepTxHash.split(',').map((h, i) => (
+                          <a key={h} href={`${explorerTxUrl(w.network)}${h}`} target='_blank' rel='noreferrer' className='d-block'>
+                            <small className='text-monospace text-break text-decoration-none'>
+                              {i === 0 ? 'ops sweep' : 'sweep'} tx: {h.slice(0, 24)}…
+                            </small>
+                          </a>
+                        ))}
                       </div>
                     )}
                     {di === 0 && d.payouts.length > 0 && (

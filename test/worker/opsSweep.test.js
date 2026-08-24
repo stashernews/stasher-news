@@ -67,29 +67,41 @@ function makeFakeModels (distribution) {
   }
 }
 
-function makeFakeWallet ({ unlocked = 10_000_000_000_000n, unlockedAfterSync, throwsOn = false, throwErr = null } = {}) {
+function makeFakeWallet ({ unlocked = 10_000_000_000_000n, unlockedByAccount, unlockedAfterSync, throwsOn = false, throwErr = null, throwsOnAccount = {}, fee = 0n } = {}) {
   const calls = []
+  const relayCalls = []
   const order = []
-  let balance = unlocked
+  let byAccount = unlockedByAccount || { 0: unlocked }
   let n = 0
+  const hash = () => 'ab' + String(++n).padStart(6, '0') + 'cd'.repeat(28) // 64 hex chars
+  async function getBalance (idx) { return BigInt(byAccount[idx] || 0n) }
   return {
     calls,
+    relayCalls,
     order,
     async sync () {
       order.push('sync')
-      if (unlockedAfterSync !== undefined) balance = unlockedAfterSync
+      if (unlockedAfterSync !== undefined) byAccount = { 0: unlockedAfterSync }
     },
-    async getUnlockedBalance () {
+    async getUnlockedBalance (idx) {
       order.push('getUnlockedBalance')
-      return balance
+      return getBalance(idx)
     },
     async createTx (req) {
       order.push('createTx')
       calls.push(req)
+      if (throwsOnAccount[req.accountIndex]) throw throwsOnAccount[req.accountIndex]
       if (throwsOn) throw throwErr
-      n += 1
-      const hash = 'ab' + String(n).padStart(6, '0') + 'cd'.repeat(28) // 2+6+56 = 64 hex chars
-      return { getHash: () => hash }
+      // fee-aware balance validation mirrors the real wallet on every create:
+      // the fee is charged on top of the destination amount, from the source account.
+      if (BigInt(fee) > 0n && await getBalance(req.accountIndex) < BigInt(req.amount) + BigInt(fee)) {
+        throw new Error('not enough unlocked money')
+      }
+      return { getHash: () => hash(), getFee: async () => BigInt(fee) }
+    },
+    async relayTx (req) {
+      relayCalls.push(req)
+      return req.getHash() // the real wallet returns the relayed tx hash
     }
   }
 }
@@ -126,8 +138,9 @@ test('sweeps the ops earmark (SWEPT) when it fits under unlocked minus the floor
     accountIndex: 0,
     address: COLD_ADDRESS,
     amount: 3_000_000_000_000n,
-    relay: true
+    relay: false
   })
+  expect(wallet.relayCalls).toHaveLength(1)
   expect(models.store.opsSweepState).toBe('SWEPT')
   expect(models.store.opsSweptPiconeros).toBe(3_000_000_000_000n)
   expect(models.store.opsSweepTxHash).toBe(res.txHash)
@@ -248,7 +261,9 @@ test('sweeps once the wallet is synced, even when the cached balance was stale',
   const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
 
   expect(res.state).toBe('SWEPT')
-  expect(wallet.order).toEqual(['sync', 'getUnlockedBalance', 'createTx'])
+  expect(wallet.order[0]).toBe('sync')
+  expect(wallet.order[wallet.order.length - 1]).toBe('createTx')
+  expect(wallet.order.indexOf('sync')).toBeLessThan(wallet.order.indexOf('getUnlockedBalance'))
 })
 
 test('syncs the wallet exactly once before reading the balance when a sweep is attempted', async () => {
@@ -260,4 +275,55 @@ test('syncs the wallet exactly once before reading the balance when a sweep is a
 
   expect(wallet.order.filter(m => m === 'sync')).toHaveLength(1)
   expect(wallet.order.indexOf('sync')).toBeLessThan(wallet.order.indexOf('getUnlockedBalance'))
+})
+
+test('sweeps across multiple accounts when the earmark exceeds any single account (2026-08-24 fix)', async () => {
+  const dist = makeDistribution({ opsAvailablePiconeros: 5_000_000_000_000n })
+  const models = makeFakeModels(dist)
+  const wallet = makeFakeWallet({ unlockedByAccount: { 0: 3_000_000_000_000n, 1: 2_500_000_000_000n } })
+  const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
+  expect(res.state).toBe('SWEPT')
+  expect(res.swept).toBe(5_000_000_000_000n)
+  expect(wallet.calls).toHaveLength(2)
+  expect(wallet.calls[0]).toEqual({ accountIndex: 0, address: COLD_ADDRESS, amount: 3_000_000_000_000n, relay: false })
+  expect(wallet.calls[1]).toEqual({ accountIndex: 1, address: COLD_ADDRESS, amount: 2_000_000_000_000n, relay: false })
+  expect(wallet.relayCalls).toHaveLength(2)
+  expect(models.store.opsSweptPiconeros).toBe(5_000_000_000_000n)
+  expect(models.store.opsSweepTxHash).toMatch(/^[0-9a-f]{64},[0-9a-f]{64}$/)
+})
+
+test('persists the partial sweep (relayed hashes + swept amount) when a later account hard-fails', async () => {
+  const dist = makeDistribution({ opsAvailablePiconeros: 5_000_000_000_000n })
+  const models = makeFakeModels(dist)
+  const wallet = makeFakeWallet({
+    unlockedByAccount: { 0: 3_000_000_000_000n, 1: 2_500_000_000_000n },
+    throwsOnAccount: { 1: new Error('invalid recipient address') }
+  })
+  const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
+  expect(res.state).toBe('FAILED')
+  expect(models.store.opsSweepState).toBe('FAILED')
+  expect(models.store.opsSweptPiconeros).toBe(3_000_000_000_000n)
+  expect(models.store.opsSweepTxHash).toMatch(/^[0-9a-f]{64}$/)
+})
+
+test('fee-aware sweeps: full-balance accounts send unlocked minus fee headroom, not a silent SKIPPED_LOCKED (audit #1)', async () => {
+  const dist = makeDistribution({ opsAvailablePiconeros: 5_500_000_000_000n })
+  const models = makeFakeModels(dist)
+  // The earmark (5.5e12) exceeds either account (3e12 / 2.5e12), so BOTH sends
+  // are full-balance sends. With relay:true + no fee awareness every createTx
+  // threw 'not enough unlocked money' and the sweep no-op'd SKIPPED_LOCKED.
+  const wallet = makeFakeWallet({
+    unlockedByAccount: { 0: 3_000_000_000_000n, 1: 2_500_000_000_000n },
+    fee: 400_000_000n // 0.0004 XMR — inside the 0.001 XMR headroom default
+  })
+  const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
+  expect(res.state).toBe('SWEPT')
+  // each account: first attempt = full balance (fee overflows), retry decrements by the headroom
+  expect(wallet.calls[0]).toEqual({ accountIndex: 0, address: COLD_ADDRESS, amount: 3_000_000_000_000n, relay: false })
+  expect(wallet.calls[1]).toEqual({ accountIndex: 0, address: COLD_ADDRESS, amount: 3_000_000_000_000n - 1_000_000_000n, relay: false })
+  expect(wallet.calls[2]).toEqual({ accountIndex: 1, address: COLD_ADDRESS, amount: 2_500_000_000_000n, relay: false })
+  expect(wallet.calls[3]).toEqual({ accountIndex: 1, address: COLD_ADDRESS, amount: 2_500_000_000_000n - 1_000_000_000n, relay: false })
+  expect(wallet.relayCalls).toHaveLength(2)
+  expect(res.swept).toBe((3_000_000_000_000n - 1_000_000_000n) + (2_500_000_000_000n - 1_000_000_000n))
+  expect(models.store.opsSweepTxHash).toMatch(/^[0-9a-f]{64},[0-9a-f]{64}$/)
 })

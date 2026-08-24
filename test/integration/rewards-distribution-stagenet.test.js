@@ -129,7 +129,7 @@ async function generateStagenetAddresses (count) {
 
     // Verify the rewards wallet has spendable balance. If not, the test
     // cannot exercise the sign+broadcast path — bail early with guidance.
-    const wallet = await getRewardsWallet()
+    const wallet = await getRewardsWallet(prisma)
     const unlocked = BigInt(await wallet.getUnlockedBalance(0))
     console.log(`  rewards wallet account-0 unlocked: ${unlocked.toString()} pico (${(Number(unlocked) / 1e12).toFixed(6)} XMR)`)
     if (unlocked < POOL_PICONEROS) {

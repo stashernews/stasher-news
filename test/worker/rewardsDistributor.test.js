@@ -277,6 +277,10 @@ async function purgePriorResidue () {
   // address: '5' + digits + 90 'A's. No real Monero address ends in 90 identical
   // chars, so the trailing-A signature is unambiguous AND reaches the NULL-owned
   // recipient accounts that testUserIds cannot.
+  // Fee subaddresses before the accounts they lock: an interrupted fee-pool
+  // test can leave SubaddressIndex rows on A{90}$ accounts, which would abort
+  // the account delete below on SubaddressIndex_accountId_fkey.
+  await prisma.$executeRaw`DELETE FROM "SubaddressIndex" WHERE "accountId" IN (SELECT id FROM "MoneroAccount" WHERE address ~ 'A{90}$')`
   await prisma.$executeRaw`DELETE FROM "MoneroAccount" WHERE address ~ 'A{90}$'`
   // Test users (safe now: their items/tips/earn/payins/accounts are gone).
   if (testUserIds.length) await prisma.user.deleteMany({ where: { id: { in: testUserIds } } })
@@ -391,7 +395,7 @@ beforeAll(async () => {
   await seedTip({ postId, tipperId: c3, piconeros: 2_000_000_000_000n, confirmedAt: new Date(inPeriod.getTime() + 120000), recipientAccountId: recipientAccount.id })
 
   // --- Run the distribution (Task 9 signer stub injected) ---
-  result = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  result = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, sweepOpsEarmark: async () => ({ state: 'DISABLED' }) })
   created.distributions.push(result.id)
 
   // Genuine (non-fixture) confirmed inflow inside the distribution's period:
@@ -663,13 +667,140 @@ test('a FAILED distribution with QUEUED payouts is resumable to COMPLETE (Fix 2)
   const payout = await prisma.rewardPayout.create({
     data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
   })
-  await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, fakeSigner)
+  await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, fakeSigner, async () => ({ state: 'DISABLED' }))
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('COMPLETE')
   expect(updated.completedAt).toBeTruthy()
   const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
   expect(payoutAfter.state).toBe('SENT')
   expect(payoutAfter.txHash).toMatch(/^[0-9a-f]{64}$/)
+})
+
+test('a signer SKIP (insufficient unlocked) leaves the distribution FAILED — never COMPLETE (2026-08-24 fix)', async () => {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 31 * DAY),
+      periodEnd: new Date(Date.now() - 30 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 1,
+      status: 'PENDING'
+    }
+  })
+  created.distributions.push(dist.id)
+  const payout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  let sweepCalled = false
+  await finalizeDistribution(
+    prisma,
+    { ...dist, payouts: [payout] },
+    async () => ({ sent: 0, failed: 0, skipped: 1 }),
+    async () => { sweepCalled = true; return { state: 'SWEPT' } })
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('FAILED')
+  expect(updated.completedAt).toBeNull()
+  expect(sweepCalled).toBe(false) // sweep not attempted on an unsent batch
+  const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
+  expect(payoutAfter.state).toBe('QUEUED') // resumable
+})
+
+test('a partial send (sent > 0, skipped > 0) also marks the distribution FAILED (resumable)', async () => {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 32 * DAY),
+      periodEnd: new Date(Date.now() - 31 * DAY),
+      poolPiconeros: 2_000_000_000n,
+      distributedPiconeros: 2_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 2,
+      status: 'PENDING'
+    }
+  })
+  created.distributions.push(dist.id)
+  const payouts = []
+  for (let i = 0; i < 2; i++) {
+    payouts.push(await prisma.rewardPayout.create({
+      data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+    }))
+  }
+  await finalizeDistribution(
+    prisma,
+    { ...dist, payouts },
+    async (rows, { models }) => {
+      await models.rewardPayout.update({ where: { id: rows[0].id }, data: { state: 'SENT', txHash: 'ab'.repeat(32) } })
+      return { sent: 1, failed: 0, skipped: 1 }
+    },
+    async () => ({ state: 'SWEPT' }))
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('FAILED')
+  const p0 = await prisma.rewardPayout.findUnique({ where: { id: payouts[0].id } })
+  const p1 = await prisma.rewardPayout.findUnique({ where: { id: payouts[1].id } })
+  expect(p0.state).toBe('SENT')
+  expect(p1.state).toBe('QUEUED')
+})
+
+test('a signer hard-failure summary (failed > 0) marks the distribution FAILED too', async () => {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 33 * DAY),
+      periodEnd: new Date(Date.now() - 32 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 1,
+      status: 'PENDING'
+    }
+  })
+  created.distributions.push(dist.id)
+  const payout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  await finalizeDistribution(
+    prisma,
+    { ...dist, payouts: [payout] },
+    async (rows, { models }) => {
+      await models.rewardPayout.update({ where: { id: rows[0].id }, data: { state: 'FAILED' } })
+      return { sent: 0, failed: 1, skipped: 0 }
+    },
+    async () => ({ state: 'SWEPT' }))
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('FAILED')
+})
+
+test('an unpersisted relay (sent>0, unpersisted>0) marks the distribution FAILED — never COMPLETE (audit #6)', async () => {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 34 * DAY),
+      periodEnd: new Date(Date.now() - 33 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 1,
+      status: 'PENDING'
+    }
+  })
+  created.distributions.push(dist.id)
+  const payout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  let sweepCalled = false
+  await finalizeDistribution(
+    prisma,
+    { ...dist, payouts: [payout] },
+    async () => ({ sent: 1, failed: 0, skipped: 0, unpersisted: 1 }),
+    async () => { sweepCalled = true; return { state: 'SWEPT' } })
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('FAILED')
+  expect(updated.completedAt).toBeNull()
+  expect(sweepCalled).toBe(false) // sweep not attempted on an unrecorded batch
+  const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
+  expect(payoutAfter.state).toBe('QUEUED')
 })
 
 test('B4: a successful ops sweep (SWEPT) completes the distribution with opsSweepState=SWEPT', async () => {

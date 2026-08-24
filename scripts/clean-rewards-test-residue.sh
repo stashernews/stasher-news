@@ -105,6 +105,15 @@ WHERE "accountId" IN (
      OR id IN (SELECT id FROM _tip_accounts)
      OR "ownerUserId" IN (SELECT id FROM _tu));
 
+-- Fee subaddresses before the accounts they lock (same three scopes as the
+-- account delete below).
+DELETE FROM "SubaddressIndex"
+WHERE "accountId" IN (
+  SELECT id FROM "MoneroAccount"
+  WHERE address ~ 'A{90}$'
+     OR id IN (SELECT id FROM _tip_accounts)
+     OR "ownerUserId" IN (SELECT id FROM _tu));
+
 -- Test MoneroAccounts.
 DELETE FROM "MoneroAccount"
 WHERE address ~ 'A{90}$'

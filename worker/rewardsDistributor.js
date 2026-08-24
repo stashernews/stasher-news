@@ -379,6 +379,14 @@ function toBigInt (v) {
 //     the run already finished).
 //   - Catastrophic signer failure: flip to FAILED. QUEUED payouts are untouched
 //     (funds never left the wallet), so the next run resumes as above.
+//   - Incomplete send summary: if sendPayouts reports any skipped or failed
+//     payouts (skipped > 0 || failed > 0), the distribution is marked FAILED
+//     (resumable) with a CRITICAL alert and the ops sweep is NOT attempted this
+//     run — it never reaches COMPLETE until every payout is SENT.
+//   - Unpersisted relays: a payout relayed on-chain whose DB persist failed
+//     twice counts as `unpersisted` — same FAILED (resumable) path; the next
+//     run's wallet-history reconciliation flips it SENT without re-sending
+//     (never a silent COMPLETE, never a double pay).
 export async function finalizeDistribution (models, distribution, sendPayouts, sweepOpsEarmark = defaultSweepOpsEarmark) {
   // SENDING = another process is mid-send; COMPLETE = already done. Nothing for
   // this call to drive. (PENDING and FAILED fall through — FAILED is resumable
@@ -410,7 +418,20 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
   moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.SENDING)
 
   try {
-    await sendPayouts(payouts, { models })
+    const sendSummary = await sendPayouts(payouts, { models })
+    if (sendSummary && (sendSummary.skipped > 0 || sendSummary.failed > 0 || (sendSummary.unpersisted || 0) > 0)) {
+      logError({ distributionId: distribution.id, ...sendSummary }, 'rewardsDistributor: CRITICAL — payouts not fully sent; distribution FAILED (resumable)')
+      alert('critical', 'rewards distribution send incomplete',
+        `distribution ${distribution.id}: sent ${sendSummary.sent}, skipped ${sendSummary.skipped}, failed ${sendSummary.failed}, unpersisted ${sendSummary.unpersisted ?? 0}; marked FAILED (resumable) — payouts remain QUEUED` +
+        ((sendSummary.unpersisted || 0) > 0 ? '. WARNING: unpersisted payouts WERE relayed on-chain; the next run reconciles them from wallet history — do NOT manually re-send them.' : ''),
+        { dedupeKey: `dist-${distribution.id}-send-incomplete` })
+      await models.rewardDistribution.update({
+        where: { id: distribution.id },
+        data: { status: 'FAILED' }
+      })
+      moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
+      return
+    }
     const sweep = await sweepOpsEarmark({ distribution, models })
     if (sweep.state === 'FAILED') {
       logError({ distributionId: distribution.id }, 'rewardsDistributor: CRITICAL — ops sweep FAILED after payouts were sent; manual reconciliation required')
