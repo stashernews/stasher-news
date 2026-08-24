@@ -48,8 +48,12 @@ function heuristicCheckViewKey (viewKey) {
   return null
 }
 
+// Rendered client-side only (ssr: false): the SSR render client is cache-only
+// and can never resolve this orphan query, so running it on the server would
+// render the wizard in the initial HTML for users WITH a wallet — a hydration
+// mismatch when the client then loads. see wallet-warning.js for the same fix.
 export default function WalletSetup () {
-  const { data, loading, error } = useQuery(MY_MONERO_ACCOUNT)
+  const { data, loading, error } = useQuery(MY_MONERO_ACCOUNT, { ssr: false })
   if (loading) return <div className='text-muted'>loading wallet…</div>
   if (error) return <Alert variant='danger'>failed to load wallet status: {error.message}</Alert>
   const account = data?.myMoneroAccount
