@@ -219,6 +219,22 @@ export default {
             ORDER BY "sortTime" DESC
             LIMIT ${LIMIT})`
         )
+        // bounty award: escrow payouts surface once the payout tx actually
+        // goes out (SENT/CONFIRMED), so the notification never precedes the
+        // money. QUEUED payouts stay hidden (the award decision is not yet a
+        // transfer); FAILED payouts never notify.
+        queries.push(
+          `(SELECT "BountyPayment".id::text,
+            COALESCE("BountyPayment"."confirmedAt", "BountyPayment"."sentAt") AS "sortTime",
+            "BountyPayment".piconeros AS "earnedPiconeros", 'BountyPayment' AS type
+            FROM "BountyPayment"
+            WHERE "BountyPayment"."winnerUserId" = $1
+              AND "BountyPayment".kind = 'AWARD'
+              AND "BountyPayment".state IN ('SENT', 'CONFIRMED')
+              AND COALESCE("BountyPayment"."confirmedAt", "BountyPayment"."sentAt") < $2
+            ORDER BY "sortTime" DESC
+            LIMIT ${LIMIT})`
+        )
       }
 
       if (meFull.noteItemPiconeros) {
@@ -431,8 +447,9 @@ export default {
   },
   BountyPayment: {
     item: async (n, args, { models, me }) => {
-      const itemPayIn = await models.itemPayIn.findUnique({ where: { payInId: Number(n.id) } })
-      return await getItem(n, { id: itemPayIn.itemId }, { models, me })
+      const payout = await models.bountyPayment.findUnique({ where: { id: Number(n.id) } })
+      if (!payout) return null
+      return await getItem(n, { id: payout.itemId }, { models, me })
     }
   },
   Reply: {

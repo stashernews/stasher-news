@@ -107,4 +107,13 @@ describe('BountyFundingView payable amount', () => {
     expect(copies[0].getAttribute('data-value')).toBe('0.012')
     expect(copies[1].getAttribute('data-value')).toBe(ADDRESS)
   })
+
+  test('does not show the redundant "fund later" close note', async () => {
+    await renderView()
+
+    // the shared MoneroPaymentView close note remains
+    expect(container.textContent).toContain('close this window')
+    // the bounty-specific duplicate is gone
+    expect(container.textContent).not.toContain('fund later')
+  })
 })

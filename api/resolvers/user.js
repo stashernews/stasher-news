@@ -431,6 +431,18 @@ export default {
           foundNotes()
           return true
         }
+        const [newBountyAward] = await models.$queryRawUnsafe(`
+          SELECT EXISTS(
+            SELECT *
+            FROM "BountyPayment"
+            WHERE "BountyPayment"."winnerUserId" = $1
+              AND "BountyPayment".kind = 'AWARD'
+              AND "BountyPayment".state IN ('SENT', 'CONFIRMED')
+              AND COALESCE("BountyPayment"."confirmedAt", "BountyPayment"."sentAt") > $2)`, me.id, lastChecked)
+        if (newBountyAward.exists) {
+          foundNotes()
+          return true
+        }
       }
 
       // check if new invites have been redeemed

@@ -141,11 +141,6 @@ export default function BountyFundingView ({ postId, amountPiconeros, onClose })
           </small>
         </p>
       </MoneroPaymentView>
-      <p className='text-muted text-center mt-3'>
-        <small>
-          You can close this window and fund later from the post page — the bounty stays hidden until funded.
-        </small>
-      </p>
     </div>
   )
 }

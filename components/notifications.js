@@ -559,12 +559,15 @@ function Votification ({ n }) {
 
 function BountyPayment ({ n }) {
   return (
-    <>
-      <NoteHeader color='success'>
-        you received a {piconerosToXmr(BigInt(n.earnedPiconeros))} bounty payment
-      </NoteHeader>
-      <NoteItem item={n.item} />
-    </>
+    <div className='d-flex'>
+      <HandCoin className='align-self-center fill-success mx-1' width={24} height={24} style={{ flex: '0 0 24px' }} />
+      <div className='ms-2'>
+        <NoteHeader color='success'>
+          you received a {piconerosToXmr(BigInt(n.earnedPiconeros))} bounty payment
+        </NoteHeader>
+        <NoteItem item={n.item} />
+      </div>
+    </div>
   )
 }
 
