@@ -232,7 +232,7 @@ describe('NavRewards', () => {
 
     const amount = cluster.querySelector('a[href="/rewards"]')
     expect(amount).toBeTruthy()
-    expect(amount.textContent).toBe('1.2 XMR in rewards')
+    expect(amount.textContent).toMatch(/^1\.2 XMR in \d+d \d{1,2}h$/)
 
     const timer = cluster.querySelector('.navRewards .navRewardsTimer')
     expect(timer).toBeTruthy()

@@ -7,6 +7,7 @@ import PageLoading from '@/components/page-loading'
 import { useQuery } from '@apollo/client/react'
 import { useData } from '@/components/use-data'
 import { SSR, FAST_POLL_INTERVAL_MS } from '@/lib/constants'
+import { piconerosToXmr } from '@/lib/format'
 
 const REWARDS_WALLET = gql`
   query rewardsWalletInfo {
@@ -155,8 +156,8 @@ export default function Transparency ({ ssrData }) {
           </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
             <Stat label='Balance' value={`${w.balanceXmr} XMR`} sub={`${w.balancePiconeros} piconeros`} />
-            <Stat label='Total received' value={`${w.totalReceivedPiconeros} piconeros`} sub='confirmed observations (ledger)' />
-            <Stat label='Total sent' value={`${w.totalSentPiconeros} piconeros`} sub='recorded payouts + ops sweeps' />
+            <Stat label='Total received' value={piconerosToXmr(toBigInt(w.totalReceivedPiconeros))} sub='confirmed observations (ledger)' />
+            <Stat label='Total sent' value={piconerosToXmr(toBigInt(w.totalSentPiconeros))} sub='recorded payouts + ops sweeps' />
           </div>
           {w.balanceNeedsReconciliation && (
             <div className='alert alert-warning mt-3 mb-0'>
@@ -173,21 +174,21 @@ export default function Transparency ({ ssrData }) {
             </small>
           </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
-            <Stat label='Rewards earmark' value={`${w.rewardsEarmarkPiconeros} piconeros`} sub='funds curator payouts' />
-            <Stat label='Ops earmark' value={`${w.opsEarmarkPiconeros} piconeros`} sub='platform operations' />
+            <Stat label='Rewards earmark' value={piconerosToXmr(toBigInt(w.rewardsEarmarkPiconeros))} sub='funds curator payouts' />
+            <Stat label='Ops earmark' value={piconerosToXmr(toBigInt(w.opsEarmarkPiconeros))} sub='platform operations' />
           </div>
 
           <h4 className='text-muted mt-4'>Confirmed inflow by source</h4>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
-            <Stat label='Downvotes' value={`${pi.downvotePiconeros} piconeros`} sub={`${pi.downvoteRewardsPct}% to rewards`} />
-            <Stat label='Posting fees' value={`${pi.postingFeePiconeros} piconeros`} sub={`${pi.postingFeeRewardsPct}% to rewards`} />
-            <Stat label='Turf fees' value={`${pi.territoryFeePiconeros} piconeros`} sub={`${pi.territoryFeeRewardsPct}% to rewards`} />
-            <Stat label='Wallet-less tips' value={`${pi.walletlessTipPiconeros} piconeros`} sub={`${pi.walletlessTipRewardsPct}% to rewards`} />
+            <Stat label='Downvotes' value={piconerosToXmr(toBigInt(pi.downvotePiconeros))} sub={`${pi.downvoteRewardsPct}% to rewards`} />
+            <Stat label='Posting fees' value={piconerosToXmr(toBigInt(pi.postingFeePiconeros))} sub={`${pi.postingFeeRewardsPct}% to rewards`} />
+            <Stat label='Turf fees' value={piconerosToXmr(toBigInt(pi.territoryFeePiconeros))} sub={`${pi.territoryFeeRewardsPct}% to rewards`} />
+            <Stat label='Wallet-less tips' value={piconerosToXmr(toBigInt(pi.walletlessTipPiconeros))} sub={`${pi.walletlessTipRewardsPct}% to rewards`} />
           </div>
           <div className='d-flex flex-wrap justify-content-between py-3 my-2'>
-            <Stat label='Total inflow' value={`${pi.totalPiconeros} piconeros`} />
-            <Stat label='Rewards share' value={`${pi.rewardsPiconeros} piconeros`} />
-            <Stat label='Ops share' value={`${pi.opsPiconeros} piconeros`} />
+            <Stat label='Total inflow' value={piconerosToXmr(toBigInt(pi.totalPiconeros))} />
+            <Stat label='Rewards share' value={piconerosToXmr(toBigInt(pi.rewardsPiconeros))} />
+            <Stat label='Ops share' value={piconerosToXmr(toBigInt(pi.opsPiconeros))} />
           </div>
 
           <h4 className='text-muted mt-4'>Distribution log</h4>
@@ -218,16 +219,16 @@ export default function Transparency ({ ssrData }) {
                         value={`${d.payoutCount} payout${d.payoutCount === 1 ? '' : 's'}`}
                         sub={`${new Date(d.periodStart).toLocaleDateString()} → ${new Date(d.periodEnd).toLocaleDateString()}`}
                       />
-                      <Stat label='Pool' value={`${d.poolPiconeros} pico`} />
-                      <Stat label='Distributed' value={`${d.distributedPiconeros} pico`} />
-                      <Stat label='Rolled over' value={`${d.rolledOverPiconeros} pico`} />
+                      <Stat label='Pool' value={piconerosToXmr(toBigInt(d.poolPiconeros))} />
+                      <Stat label='Distributed' value={piconerosToXmr(toBigInt(d.distributedPiconeros))} />
+                      <Stat label='Rolled over' value={piconerosToXmr(toBigInt(d.rolledOverPiconeros))} />
                     </div>
                     <div className='d-flex flex-wrap justify-content-between align-items-start ms-2 mt-1'>
-                      <Stat label='Ops inflow' value={`${d.opsInflowPiconeros} pico`} sub="this period's ops share" />
-                      <Stat label='Ops swept' value={`${d.opsSweptPiconeros} pico`} sub={`ops sweep: ${opsSweepLabel(d.opsSweepState)}`} />
+                      <Stat label='Ops inflow' value={piconerosToXmr(toBigInt(d.opsInflowPiconeros))} sub="this period's ops share" />
+                      <Stat label='Ops swept' value={piconerosToXmr(toBigInt(d.opsSweptPiconeros))} sub={`ops sweep: ${opsSweepLabel(d.opsSweepState)}`} />
                       <Stat
                         label='Pending ops (rolled over)'
-                        value={`${pendingOpsPiconeros(d).toString()} pico`}
+                        value={piconerosToXmr(pendingOpsPiconeros(d))}
                         sub={d.opsSweepState === 'SKIPPED_LOCKED' ? 'deferred — locked change, lands next period' : 'to next period'}
                       />
                     </div>
@@ -248,8 +249,7 @@ export default function Transparency ({ ssrData }) {
                         {d.payouts.map(p => (
                           <div key={p.id} className='d-flex flex-column mb-1'>
                             <span className='text-monospace'>
-                              {p.curatorNym || `user #${p.curatorId}`} — {p.amountXmr} XMR
-                              {' '}<span className='text-muted'>({p.piconeros} pico)</span> — {p.state}
+                              {p.curatorNym || `user #${p.curatorId}`} — {p.amountXmr} XMR — {p.state}
                             </span>
                             {p.txHash && (
                               <a href={`${explorerTxUrl(w.network)}${p.txHash}`} target='_blank' rel='noreferrer'>

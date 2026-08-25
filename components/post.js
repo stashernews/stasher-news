@@ -165,11 +165,16 @@ export default function Post ({ subs }) {
     type = subs[0].postTypes[0].toLowerCase()
   }
 
+  // picking the bounty post type pre-selects the bounties turf
+  const selectedSubs = type === 'bounty' && !subNames(subs).includes('bounties')
+    ? [...subNames(subs), 'bounties']
+    : subNames(subs)
+
   return (
     <>
       <PostForm type={type} subs={subs}>
         <SubMultiSelect
-          subs={subNames(subs)}
+          subs={selectedSubs}
           placeholder='pick turfs'
           filterSubs={s => s.postTypes?.includes(type.toUpperCase())}
           className='d-flex'

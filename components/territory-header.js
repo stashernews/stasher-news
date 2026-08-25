@@ -100,6 +100,22 @@ export default function TerritoryHeader ({ sub }) {
     }
   )
 
+  const [toggleSubSubscription] = useMutation(
+    gql`
+      mutation toggleSubSubscription($name: String!) {
+        toggleSubSubscription(name: $name)
+      }`, {
+      update (cache, { data: { toggleSubSubscription } }) {
+        cache.modify({
+          id: `Sub:{"name":"${sub.name}"}`,
+          fields: {
+            meSubscription: () => toggleSubSubscription
+          }
+        })
+      }
+    }
+  )
+
   const isMine = Number(sub.userId) === Number(me?.id)
 
   return (
@@ -119,23 +135,38 @@ export default function TerritoryHeader ({ sub }) {
                         <Button variant='outline-grey border-2 rounded py-0' size='sm'>edit turf</Button>
                       </Link>)
                     : (
-                      <Button
-                        variant='outline-grey border-2 py-0 rounded'
-                        size='sm'
-                        onClick={async () => {
-                          try {
-                            await toggleMuteSub({ variables: { name: sub.name } })
-                          } catch {
-                            toaster.danger(`failed to ${sub.meMuteSub ? 'join' : 'mute'} turf`)
-                            return
-                          }
-                          toaster.success(`${sub.meMuteSub ? 'joined' : 'muted'} turf`)
-                        }}
-                      >{sub.meMuteSub ? 'join' : 'mute'} turf
-                      </Button>)
-              )}
+                      <>
+                        <Button
+                          variant='outline-grey border-2 py-0 rounded'
+                          size='sm'
+                          onClick={async () => {
+                            try {
+                              await toggleSubSubscription({ variables: { name: sub.name } })
+                            } catch {
+                              toaster.danger(sub.meSubscription ? 'failed to unsubscribe' : 'failed to subscribe')
+                              return
+                            }
+                            toaster.success(sub.meSubscription ? 'unsubscribed' : 'subscribed')
+                          }}
+                        >{sub.meSubscription ? 'unsubscribe' : 'subscribe'}
+                        </Button>
+                        <Button
+                          variant='outline-grey border-2 py-0 rounded'
+                          size='sm'
+                          onClick={async () => {
+                            try {
+                              await toggleMuteSub({ variables: { name: sub.name } })
+                            } catch {
+                              toaster.danger(`failed to ${sub.meMuteSub ? 'join' : 'mute'} turf`)
+                              return
+                            }
+                            toaster.success(`${sub.meMuteSub ? 'joined' : 'muted'} turf`)
+                          }}
+                        >{sub.meMuteSub ? 'join' : 'mute'} turf
+                        </Button>
+                      </>)
+                  )}
                   <ActionDropdown>
-                    <ToggleSubSubscriptionDropdownItem sub={sub} />
                     {isMine && (
                       <>
                         <Dropdown.Divider />

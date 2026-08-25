@@ -249,9 +249,9 @@ function EarnNotification ({ n }) {
 
   return (
     <div className='d-flex'>
-      <HandCoin className='align-self-center fill-boost mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
+      <HandCoin className='align-self-center fill-primary mx-1' width={24} height={24} style={{ flex: '0 0 24px', transform: 'rotateY(180deg)' }} />
       <div className='ms-2'>
-        <NoteHeader color='boost' big>
+        <NoteHeader color='primary' big>
           you stashed {piconerosToXmr(BigInt(n.earnedPiconeros))} in rewards<small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{time}</small>
         </NoteHeader>
         {n.sources &&
@@ -262,7 +262,7 @@ function EarnNotification ({ n }) {
             {n.sources.tipComments > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0 || n.sources.tipPosts > 0) && ' \\ '}{piconerosToXmr(BigInt(n.sources.tipComments))} for tipping top comments early</span>}
           </div>}
         <div style={{ lineHeight: '140%' }}>
-          SN distributes the XMR it earns to top stashers like you daily. The top stashers make the top posts and comments or tip the top posts and comments early and generously. View the rewards pool and make a donation <Link href='/rewards'>here</Link>.
+          SN distributes the XMR it earns to top stashers like you weekly. The top stashers make the top posts and comments or tip the top posts and comments early and generously. View the rewards pool and make a donation <Link href='/rewards'>here</Link>.
         </div>
         <small className='text-muted ms-1 pb-1 fw-normal'>click for details</small>
       </div>
@@ -284,7 +284,7 @@ function ReferralReward ({ n }) {
             {n.sources.oneDay > 0 && <span>{n.sources.forever > 0 && ' \\ '}{piconerosToXmr(BigInt(n.sources.oneDay))} for stashers referred to content by you today</span>}
           </div>}
         <div style={{ lineHeight: '140%' }}>
-          SN gives referral rewards to stashers like you for referring the top stashers daily. You refer stashers when they visit your posts, comments, profile, or turf, or if they visit SN through your referral links.
+          SN gives referral rewards to stashers like you for referring the top stashers weekly. You refer stashers when they visit your posts, comments, profile, or turf, or if they visit SN through your referral links.
         </div>
       </div>
     </div>
