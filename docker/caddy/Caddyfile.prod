@@ -28,18 +28,6 @@ stasher.news {
 		reverse_proxy minio:9000
 	}
 
-	# Client media-type check: the browser requests
-	# ${NEXT_PUBLIC_MEDIA_CHECK_URL}/<encoded src>. On the VPS that is
-	# https://stasher.news/media-check/<x>. Map /media-check/<x> -> capture:5678/media/<x>,
-	# which runs capture's mediaCheck handler (returns { mime, isImage, isVideo }).
-	# uri replace keeps the /media segment capture expects — strip_prefix would
-	# drop it and capture's /* screenshot handler would answer with the wrong shape.
-	@mediacheck path /media-check/*
-	handle @mediacheck {
-		uri replace /media-check /media 1
-		reverse_proxy capture:5678
-	}
-
 	handle {
 		reverse_proxy app:3000 {
 			# preserve the original Host so proxy.js's getDomainMapping(host) sees

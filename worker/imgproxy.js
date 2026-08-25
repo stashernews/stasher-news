@@ -10,7 +10,7 @@ if (!imgProxyEnabled) {
 }
 
 const IMGPROXY_URL = process.env.IMGPROXY_URL_DOCKER || process.env.NEXT_PUBLIC_IMGPROXY_URL
-const MEDIA_CHECK_URL = process.env.MEDIA_CHECK_URL_DOCKER || process.env.NEXT_PUBLIC_MEDIA_CHECK_URL
+const MEDIA_CHECK_URL = process.env.MEDIA_CHECK_URL_DOCKER || 'http://capture:5678/media'
 
 const cache = new Map()
 
@@ -158,7 +158,9 @@ const isMediaURL = async (url, { forceFetch }) => {
 
   // primary: media check service
   try {
-    const res = await fetch(`${MEDIA_CHECK_URL}/${encodeURIComponent(url)}`)
+    const mediaHeaders = {}
+    if (process.env.CAPTURE_MEDIA_TOKEN) mediaHeaders['x-capture-token'] = process.env.CAPTURE_MEDIA_TOKEN
+    const res = await fetch(`${MEDIA_CHECK_URL}/${encodeURIComponent(url)}`, { headers: mediaHeaders })
     if (res.ok) {
       const data = await res.json()
       isMedia = data.isImage || data.isVideo

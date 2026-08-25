@@ -1,4 +1,48 @@
 import { filetypemime } from 'magic-bytes.js'
+import { createHash, timingSafeEqual } from 'node:crypto'
+import { Agent, fetch as undiciFetch, setGlobalDispatcher } from 'undici'
+import { assertPublicHost, ssrfSafeLookup, ssrfEnforced } from './ssrf.js'
+
+// Every socket this process dials resolves through the validating lookup, so
+// even destinations we forgot to pre-check (redirect hops) cannot reach private
+// ranges. Dev is exempt (lib/ssrf.js parity): the media-URL rewrite below
+// deliberately targets internal MinIO in development.
+if (ssrfEnforced()) {
+  setGlobalDispatcher(new Agent({ connect: { lookup: ssrfSafeLookup } }))
+}
+
+const MEDIA_TOKEN = process.env.CAPTURE_MEDIA_TOKEN
+const MAX_REDIRECT_HOPS = 3
+
+function tokenOk (req) {
+  // fail closed in production: an unconfigured token must never accept
+  if (!MEDIA_TOKEN) return process.env.NODE_ENV !== 'production'
+  const h = req.headers['x-capture-token']
+  return typeof h === 'string' && h.length === MEDIA_TOKEN.length &&
+    timingSafeEqual(Buffer.from(h), Buffer.from(MEDIA_TOKEN))
+}
+
+// SSRF-guarded fetch: validates the hostname (IP literals never hit the DNS
+// lookup, so they are pre-checked explicitly), follows redirects MANUALLY with
+// per-hop re-validation, and caps the hop count.
+async function guardedFetch (url, init = {}) {
+  let current = url
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+    const u = new URL(current) // throws on invalid -> caller's 400/500 path
+    if (!/^https?:$/.test(u.protocol)) throw new Error('unsupported protocol')
+    if (ssrfEnforced()) assertPublicHost(u.hostname)
+    const res = await undiciFetch(current, { ...init, redirect: 'manual' })
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const loc = res.headers.get('location')
+      if (!loc) return res
+      try { await res.body?.cancel() } catch {}
+      current = new URL(loc, current).href
+      continue
+    }
+    return res
+  }
+  throw new Error('too many redirects')
+}
 
 const TIMEOUT_HEAD = 2000
 const TIMEOUT_GET = 10000
@@ -24,7 +68,7 @@ function timeoutSignal (timeout) {
 const requiresAuth = (res) => res.status === 401 || res.status === 403
 
 async function headMime (url, timeout = TIMEOUT_HEAD) {
-  const res = await fetch(url, { method: 'HEAD', signal: timeoutSignal(timeout) })
+  const res = await guardedFetch(url, { method: 'HEAD', signal: timeoutSignal(timeout) })
   // bail on auth or forbidden
   if (requiresAuth(res)) return null
 
@@ -32,7 +76,7 @@ async function headMime (url, timeout = TIMEOUT_HEAD) {
 }
 
 async function readMagicBytes (url, { timeout = TIMEOUT_GET, byteLimit = BYTE_LIMIT } = {}) {
-  const res = await fetch(url, {
+  const res = await guardedFetch(url, {
     method: 'GET',
     // accept image and video, but not other types
     headers: { Range: `bytes=0-${byteLimit - 1}`, Accept: 'image/*,video/*;q=0.9,*/*;q=0.8' },
@@ -76,6 +120,9 @@ export default async function mediaCheck (req, res) {
   let url = req.params.url
   if (typeof url !== 'string' || !/^(https?:\/\/)/.test(url)) {
     return res.status(400).json({ error: 'Invalid URL' })
+  }
+  if (!tokenOk(req)) {
+    return res.status(401).json({ error: 'unauthorized' })
   }
 
   try {

@@ -12,7 +12,11 @@ const GOOD = {
   NEXTAUTH_URL: 'https://stasher.news',
   NEXT_PUBLIC_URL: 'https://stasher.news',
   LOGIN_EMAIL_SERVER: 'smtps://resend:real-key@smtp.resend.com:465',
-  LOGIN_EMAIL_FROM: 'login@stasher.news'
+  LOGIN_EMAIL_FROM: 'login@stasher.news',
+  IMGPROXY_KEY: '1'.repeat(64),
+  IMGPROXY_SALT: '2'.repeat(64),
+  OPENSEARCH_PASSWORD: 'real-opensearch-password',
+  CAPTURE_MEDIA_TOKEN: 'real-capture-token'
 }
 
 test('passes in production when all required vars are set', () => {
@@ -52,6 +56,38 @@ test('throws in production when LOGIN_EMAIL_FROM is the dev sender', () => {
 test('throws in production when NEXT_PUBLIC_URL points at localhost', () => {
   const env = { ...GOOD, NEXT_PUBLIC_URL: 'http://localhost:3000' }
   expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/NEXT_PUBLIC_URL/)
+})
+
+test('throws in production when IMGPROXY_KEY equals the committed dev value', () => {
+  // read the committed dev value the same way the PROD_MUST_DIFFER mechanism does
+  const devKey = require('fs').readFileSync('.env.development', 'utf8').match(/^IMGPROXY_KEY=(\w+)$/m)[1]
+  const env = { ...GOOD, IMGPROXY_KEY: devKey }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/IMGPROXY_KEY/)
+})
+
+test('throws in production when IMGPROXY_SALT equals the committed dev value', () => {
+  // read the committed dev value the same way the PROD_MUST_DIFFER mechanism does
+  const devSalt = require('fs').readFileSync('.env.development', 'utf8').match(/^IMGPROXY_SALT=(\w+)$/m)[1]
+  const env = { ...GOOD, IMGPROXY_SALT: devSalt }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/IMGPROXY_SALT/)
+})
+
+test('throws in production when CAPTURE_MEDIA_TOKEN equals the committed dev value', () => {
+  // read the committed dev value the same way the PROD_MUST_DIFFER mechanism does
+  // (\w alone can't match the hyphenated dev value)
+  const devToken = require('fs').readFileSync('.env.development', 'utf8').match(/^CAPTURE_MEDIA_TOKEN=([\w-]+)$/m)[1]
+  const env = { ...GOOD, CAPTURE_MEDIA_TOKEN: devToken }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/CAPTURE_MEDIA_TOKEN/)
+})
+
+test('throws in production when IMGPROXY_SALT is missing entirely', () => {
+  const env = { ...GOOD, IMGPROXY_SALT: undefined }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/IMGPROXY_SALT/)
+})
+
+test('throws in production when OPENSEARCH_PASSWORD carries the dev marker', () => {
+  const env = { ...GOOD, OPENSEARCH_PASSWORD: 'dev-opensearch-admin' }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/OPENSEARCH_PASSWORD/)
 })
 
 test('does not throw in non-production even with insecure defaults', () => {

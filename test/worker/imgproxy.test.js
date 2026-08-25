@@ -36,7 +36,7 @@ beforeAll(() => {
   process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
   // pin the media-check endpoint so isMediaURL's media-check branch is fully
   // determined by the fetch mock below, independent of the runner's env
-  process.env.NEXT_PUBLIC_MEDIA_CHECK_URL = 'https://capture.test/media'
+  process.env.MEDIA_CHECK_URL_DOCKER = 'https://capture.test/media'
   process.env.NEXT_PUBLIC_IMGPROXY_URL = 'https://imgprxy.test/'
   process.env.IMGPROXY_SALT = 'a'.repeat(64)
   process.env.IMGPROXY_KEY = 'b'.repeat(64)

@@ -314,10 +314,15 @@ export const config = {
     {
       source: '/((?!api|_next/static|_error|404|500|offline|_next/image|_next/webpack-hmr|favicon.ico).*)'
     },
-    // the invite gate also protects the GraphQL API; all other /api/* routes
-    // (next-auth, webhooks, metrics, health, ots) are intentionally NOT gated
+    // the invite gate also protects the GraphQL API and the media-check proxy
+    // (media-check joined the gated set per the capture-infra plan; gate-off
+    // is a no-op); all other /api/* routes (next-auth, webhooks, metrics,
+    // health, ots) are intentionally NOT gated
     {
       source: '/api/graphql'
+    },
+    {
+      source: '/api/media-check'
     }
   ]
 }

@@ -9,10 +9,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.20.0",
+    "ipaddr.js": "^2.2.0",
     "magic-bytes.js": "^1.12.1",
-    "puppeteer-core": "^21.10.0"
+    "puppeteer-core": "^25.9.0",
+    "undici": "^6.19.0"
   },
   "type": "module"
 }

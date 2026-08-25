@@ -1,7 +1,6 @@
 import express from 'express'
 import puppeteer from 'puppeteer-core'
 import mediaCheck from './media-check.js'
-import cors from 'cors'
 
 const captureUrl = process.env.CAPTURE_URL || 'http://host.docker.internal:3000/'
 const captureBaseUrl = new URL(captureUrl)
@@ -89,8 +88,11 @@ async function getBrowser () {
   }
 
   browserPromise ||= puppeteer.launch({
-    headless: 'new',
-    executablePath: 'google-chrome-stable',
+    headless: true,
+    // absolute symlink path: puppeteer-core >= v25 stats the path (existsSync)
+    // and a bare command name would not resolve; the Dockerfile bridges it to
+    // the Chrome-for-Testing binary in the pptruser cache
+    executablePath: '/usr/local/bin/google-chrome-stable',
     handleSIGINT: false,
     handleSIGTERM: false,
     handleSIGHUP: false,
@@ -339,11 +341,7 @@ app.get('/health', async (req, res) => {
   res.status(200).end()
 })
 
-app.get('/media/:url', cors({
-  origin: '*',
-  methods: ['GET', 'OPTIONS'],
-  credentials: false
-}), mediaCheck)
+app.get('/media/:url', mediaCheck)
 
 app.get('/*', async (req, res) => {
   const url = new URL(req.originalUrl, captureBaseUrl)

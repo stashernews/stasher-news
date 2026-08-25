@@ -103,14 +103,21 @@ services:
     healthcheck:
       <<: *healthcheck
       test: ["CMD", "curl", "-f", "http://localhost:5678/health"]
-    env_file: *env_file
+    # env-starved on purpose (audit B-1): capture used to inherit the FULL app
+    # env (DATABASE_URL, MinIO root keys, opensearch admin password) — it needs
+    # none of them, and a browser compromise should land on an empty env.
     environment:
-      # configure to screenshot production, because local dev is too slow
       - CAPTURE_URL=http://stasher.news
+      - NODE_ENV=${NODE_ENV:-development}
+      - NEXT_PUBLIC_MEDIA_URL=${NEXT_PUBLIC_MEDIA_URL:-}
+      - MEDIA_URL_DOCKER=${MEDIA_URL_DOCKER:-}
+      - CAPTURE_MEDIA_TOKEN=${CAPTURE_MEDIA_TOKEN:-}
+    security_opt:
+      - no-new-privileges:true
     expose:
       - "5678"
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     labels:
       CONNECT: "localhost:5678"
     cpu_shares: "${CPU_SHARES_LOW}"
@@ -155,7 +162,7 @@ services:
     restart: unless-stopped
     env_file: *env_file_app
     ports:
-      - "3001:8080"
+      - "127.0.0.1:3001:8080"
     expose:
       - "8080"
     labels:
@@ -250,8 +257,8 @@ services:
       - discovery.type=single-node
       - "_JAVA_OPTIONS=-Xms2g -Xmx2g"
     ports:
-      - 9200:9200 # REST API
-      - 9600:9600 # Performance Analyzer
+      - 127.0.0.1:9200:9200 # REST API
+      - 127.0.0.1:9600:9600 # Performance Analyzer
     volumes:
       - os:/usr/share/opensearch/data
       - ./docker/opensearch/init-opensearch.sh:/usr/share/opensearch/init-opensearch.sh
@@ -276,7 +283,7 @@ services:
       - OPENSEARCH_HOSTS=http://opensearch:9200
       - server.ssl.enabled=false
     ports:
-      - 5601:5601
+      - 127.0.0.1:5601:5601
     links:
       - opensearch
     labels:
@@ -371,7 +378,7 @@ services:
     volumes:
       - monerod:/root/.bitmonero
     ports:
-      - "${MONEROD_RPC_PORT:-38081}:${MONEROD_RPC_PORT:-38081}"
+      - "127.0.0.1:${MONEROD_RPC_PORT:-38081}:${MONEROD_RPC_PORT:-38081}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${MONEROD_RPC_PORT:-38081}/get_height || exit 1"]
       interval: 30s
