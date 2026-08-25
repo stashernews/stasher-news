@@ -25,6 +25,8 @@ jest.mock('../../../lib/lexical/server/html', () => ({
   lexicalHTMLGenerator: async () => ''
 }))
 
+const { Prisma } = require('@prisma/client')
+
 let resolvers
 
 beforeEach(() => {
@@ -224,22 +226,59 @@ describe('Query.meRewards', () => {
     const models = {
       rewardDistribution: { findFirst: jest.fn(async () => covering) },
       $queryRaw: jest.fn(async () => [{
-        total: 1_200_000_000n,
-        rewards: [{ type: 'TIP_POST', rank: 3, piconeros: 1_200_000_000n, typeId: null }]
+        // Prisma $queryRaw deserializes PostgreSQL numeric (sum(int8)) as a
+        // Decimal object, NOT a bigint — the shape that crashed the BigInt
+        // scalar serializer during SSR. The resolver must coerce it.
+        total: new Prisma.Decimal('1200000000'),
+        rewards: [{ type: 'TIP_POST', rank: 3, piconeros: '1200000000', typeId: null }]
       }])
     }
     const [mine] = await resolvers.Query.meRewards(null, { when: ['2026-07-28'] }, { me: { id: 7 }, models })
 
     expect(mine.total).toBe(1_200_000_000n)
     expect(mine.rewards[0]).toMatchObject({ type: 'TIP_POST', rank: 3 })
+    expect(mine.rewards[0].piconeros).toBe('1200000000')
     // the Earn query is scoped to the covering distribution id (the last bound arg)
     const [, ...args] = models.$queryRaw.mock.calls[0]
     expect(args[args.length - 1]).toBe(42)
+    // the per-reward piconeros must be cast to text in the json_build_object so
+    // Prisma returns an exact string, not a lossy JS number (precision > 2^53)
+    const [sql] = models.$queryRaw.mock.calls[0]
+    expect(sql.join('?')).toContain('piconeros::text')
   })
 
   test('returns empty when no covering distribution exists', async () => {
     const models = { rewardDistribution: { findFirst: jest.fn(async () => null) } }
     const result = await resolvers.Query.meRewards(null, { when: ['2026-06-01'] }, { me: { id: 7 }, models })
+    expect(result).toEqual([])
+  })
+
+  test('coerces the raw Decimal total to an exact BigInt (regression: serializer threw on Prisma Decimal)', async () => {
+    const periodStart = new Date('2026-07-25T00:00:00.000Z')
+    const periodEnd = new Date('2026-08-01T00:00:00.000Z')
+    const models = {
+      rewardDistribution: { findFirst: jest.fn(async () => ({ id: 42, periodStart, periodEnd })) },
+      $queryRaw: jest.fn(async () => [{
+        // > 2^53: a JS number would lose precision; the Decimal string must
+        // survive the BigInt() coercion exactly.
+        total: new Prisma.Decimal('12345678901234567890'),
+        rewards: []
+      }])
+    }
+    const [mine] = await resolvers.Query.meRewards(null, { when: ['2026-07-28'] }, { me: { id: 7 }, models })
+
+    expect(typeof mine.total).toBe('bigint')
+    expect(mine.total).toBe(12345678901234567890n)
+  })
+
+  test('returns empty when the covering distribution has no Earn rows for the viewer', async () => {
+    const periodStart = new Date('2026-07-25T00:00:00.000Z')
+    const periodEnd = new Date('2026-08-01T00:00:00.000Z')
+    const models = {
+      rewardDistribution: { findFirst: jest.fn(async () => ({ id: 42, periodStart, periodEnd })) },
+      $queryRaw: jest.fn(async () => [])
+    }
+    const result = await resolvers.Query.meRewards(null, { when: ['2026-07-28'] }, { me: { id: 7 }, models })
     expect(result).toEqual([])
   })
 })

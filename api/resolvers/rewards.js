@@ -175,14 +175,15 @@ export default {
       })
       if (!covering) return []
 
-      return await models.$queryRaw`
+      const rows = await models.$queryRaw`
         SELECT coalesce(sum(piconeros), 0) as total,
-               json_agg(json_build_object('type', type, 'rank', rank, 'piconeros', piconeros, 'typeId', "typeId")) as rewards
+               json_agg(json_build_object('type', type, 'rank', rank, 'piconeros', piconeros::text, 'typeId', "typeId")) as rewards
         FROM "Earn"
         WHERE "Earn"."userId" = ${me.id}
           AND (type IS NULL OR type NOT IN ('FOREVER_REFERRAL', 'ONE_DAY_REFERRAL'))
           AND "Earn"."distributionId" = ${covering.id}
         GROUP BY "Earn"."distributionId"`
+      return rows.map(r => ({ ...r, total: BigInt(r.total.toString()) }))
     }
   },
   Rewards: {
