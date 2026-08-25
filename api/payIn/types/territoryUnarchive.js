@@ -21,7 +21,7 @@ export async function getInitial (models, { billingType, uploadIds = [] }, { me 
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
   const fee = territoryFeePiconeros(billingType, config)
-  const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UNARCHIVE') // major 2
+  const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UNARCHIVE', { me }) // major 2
 
   const beneficiaries = []
   let uploadFeesPiconeros = 0n

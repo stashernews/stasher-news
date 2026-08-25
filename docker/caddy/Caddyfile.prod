@@ -48,6 +48,8 @@ stasher.news {
 			# Tell Next.js the browser-facing request was HTTPS, preserving the
 			# ALB-era X-Forwarded-Proto contract (Secure cookies, crypto.subtle)
 			header_up X-Forwarded-Proto https
+			# overwrite (not append) the client-supplied X-Forwarded-For (audit B-2)
+			header_up X-Forwarded-For {remote_host}
 		}
 	}
 }

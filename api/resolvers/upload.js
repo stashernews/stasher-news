@@ -2,6 +2,7 @@ import { USER_ID, IMAGE_PIXELS_MAX, UPLOAD_SIZE_MAX, UPLOAD_SIZE_MAX_AVATAR, UPL
 import { createPresignedPost } from '@/api/s3'
 import { GqlAuthenticationError, GqlAuthorizationError, GqlInputError } from '@/lib/error'
 import { rateLimit } from '@/lib/rate-limit'
+import { clientIp } from '@/lib/client-ip'
 import { Prisma } from '@prisma/client'
 
 export default {
@@ -23,9 +24,7 @@ export default {
   Mutation: {
     getSignedPOST: async (parent, { type, size, width, height, avatar, subName }, { models, me, headers }) => {
       if (!me) {
-        const fwd = headers?.['x-forwarded-for']
-        const ip = (typeof fwd === 'string' && fwd.length > 0) ? fwd.split(',')[0].trim() : 'unknown'
-        const rl = rateLimit({ key: `upload:${ip}`, limit: 20, windowMs: 60 * 60_000 })
+        const rl = rateLimit({ key: `upload:${clientIp(headers)}`, limit: 20, windowMs: 60 * 60_000 })
         if (!rl.allowed) throw new GqlInputError('upload rate limit exceeded, try again later')
       }
 

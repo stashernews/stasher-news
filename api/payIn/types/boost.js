@@ -80,7 +80,7 @@ export async function getInitial (models, { id, piconeros }, { me }) {
     }
   }
 
-  const sub = await reserveFeeSubaddress(models, 'BOOST')
+  const sub = await reserveFeeSubaddress(models, 'BOOST', { me })
   const moneroUri = buildMoneroUri(
     [{ address: sub.address, amount }],
     { description: 'StasherNews boost' }

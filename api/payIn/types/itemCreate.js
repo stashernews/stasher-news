@@ -64,7 +64,7 @@ async function feeLegOrSubaddress (models, { subs, userId, fee, premiumPiconeros
       beneficiaries
     }
   }
-  const sub = await reserveFeeSubaddress(models, 'POSTING')
+  const sub = await reserveFeeSubaddress(models, 'POSTING', { me: { id: userId } })
   const moneroUri = buildMoneroUri(
     [{ address: sub.address, amount: fee + uploadFeesPiconeros }],
     { description }
@@ -106,7 +106,7 @@ export async function getInitial (models, args, { me }) {
   // still apply, exactly like posts/comments.
   if (args.bio) {
     if (uploadFeesPiconeros > 0n) {
-      const sub = await reserveFeeSubaddress(models, 'POSTING')
+      const sub = await reserveFeeSubaddress(models, 'POSTING', { me })
       const moneroUri = buildMoneroUri(
         [{ address: sub.address, amount: uploadFeesPiconeros }],
         { description: 'StasherNews upload fee' }
@@ -138,7 +138,7 @@ export async function getInitial (models, args, { me }) {
 
   if (feeMultiplier === 0n) {
     if (uploadFeesPiconeros > 0n) {
-      const sub = await reserveFeeSubaddress(models, 'POSTING')
+      const sub = await reserveFeeSubaddress(models, 'POSTING', { me })
       const moneroUri = buildMoneroUri(
         [{ address: sub.address, amount: uploadFeesPiconeros }],
         { description: 'StasherNews upload fee' }
@@ -190,7 +190,7 @@ export async function getInitial (models, args, { me }) {
     const commenter = await models.user.findUnique({ where: { id: me.id } })
     if (commentsFreeLeft(commenter, config) > 0) {
       if (uploadFeesPiconeros > 0n) {
-        const sub = await reserveFeeSubaddress(models, 'POSTING')
+        const sub = await reserveFeeSubaddress(models, 'POSTING', { me })
         const moneroUri = buildMoneroUri(
           [{ address: sub.address, amount: uploadFeesPiconeros }],
           { description: 'StasherNews upload fee' }
@@ -260,7 +260,7 @@ export async function getInitial (models, args, { me }) {
 
   if (established && postsLeft > 0) {
     if (uploadFeesPiconeros > 0n) {
-      const sub = await reserveFeeSubaddress(models, 'POSTING')
+      const sub = await reserveFeeSubaddress(models, 'POSTING', { me })
       const moneroUri = buildMoneroUri(
         [{ address: sub.address, amount: uploadFeesPiconeros }],
         { description: 'StasherNews upload fee' }

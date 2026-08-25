@@ -81,7 +81,14 @@ beforeAll(async () => {
   // 3. platform_rewards wallet for the active network (getRewardsWalletId lookup).
   //    The dev env already has this (seeded with the monero profile); find-or-create
   //    so the test also works against a fresh DB, and only tear down what we created.
-  let account = await prisma.moneroAccount.findFirst({ where: { label: 'platform_rewards', network: NETWORK } })
+  //    orderBy id asc mirrors getRewardsWalletId's resolution — a bare findFirst
+  //    can land on a residue platform_rewards row (e.g. an interrupted
+  //    boost.test.js run leaks a higher-id one) that the engine never draws
+  //    from, and the drawn-coords assertions below query the wrong account.
+  let account = await prisma.moneroAccount.findFirst({
+    where: { label: 'platform_rewards', network: NETWORK },
+    orderBy: { id: 'asc' }
+  })
   if (!account) {
     account = await prisma.moneroAccount.create({
       data: { address: makeAddress(), label: 'platform_rewards', network: NETWORK, status: 'ACTIVE' }

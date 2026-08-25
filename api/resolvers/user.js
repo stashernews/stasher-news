@@ -651,7 +651,7 @@ export default {
 
       return Number(photoId)
     },
-    upsertBio: async (parent, { text, sendProtocolId }, { me, models, userLoader }) => {
+    upsertBio: async (parent, { text, sendProtocolId }, { me, models, userLoader, headers }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
@@ -663,7 +663,7 @@ export default {
       if (user?.bioId) {
         return await updateItem(parent, { id: user.bioId, bio: true, text, title: `@${user?.name}'s bio`, sendProtocolId }, { me, models })
       } else {
-        return await createItem(parent, { bio: true, text, title: `@${user?.name}'s bio`, sendProtocolId }, { me, models })
+        return await createItem(parent, { bio: true, text, title: `@${user?.name}'s bio`, sendProtocolId }, { me, models, headers })
       }
     },
     generateApiKey: async (parent, { id }, { models, me, userLoader }) => {

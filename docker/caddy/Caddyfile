@@ -47,6 +47,10 @@ http://127.0.0.1:5555 {
 		# Tell Next.js the browser-facing request was HTTPS so dev cookies that
 		# depend on Secure, like sn_referrer, match the TLS-terminated origin.
 		header_up X-Forwarded-Proto https
+		# overwrite (not append) the client-supplied X-Forwarded-For: without
+		# this, Caddy appends the real IP AFTER any spoofed entries the client
+		# sent, and the app's rightmost-entry parser is the only defense
+		header_up X-Forwarded-For {remote_host}
 	}
 }
 

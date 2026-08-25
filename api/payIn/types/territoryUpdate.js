@@ -56,7 +56,7 @@ export async function getInitial (models, { oldName, billingType, uploadIds = []
     const cadencePiconeros = cadenceFee ? territoryFeePiconeros(billingType, config) : 0n
     // cadence fee + uploads share the territory subaddress when both apply; uploads-only use POSTING
     const feeType = cadenceFee ? 'TERRITORY_UPDATE' : 'POSTING'
-    const reserved = await reserveFeeSubaddress(models, feeType)
+    const reserved = await reserveFeeSubaddress(models, feeType, { me })
     prospect.moneroUri = buildMoneroUri(
       [{ address: reserved.address, amount: cadencePiconeros + uploadFeesPiconeros }],
       { description: cadenceFee ? `StasherNews turf ${oldSub.name} switch to ${billingType}` : 'StasherNews upload fee' }

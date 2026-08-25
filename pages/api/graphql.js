@@ -16,12 +16,7 @@ import { lexicalStateLoader } from '@/lib/lexical/server/loader'
 import { createUserLoader, createSubLoader } from '@/api/loaders'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { rateLimit } from '@/lib/rate-limit'
-
-function clientIp (req) {
-  const fwd = req.headers['x-forwarded-for']
-  if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim()
-  return req.socket?.remoteAddress || 'unknown'
-}
+import { clientIp } from '@/lib/client-ip'
 
 const apolloServer = new ApolloServer({
   typeDefs,
@@ -125,7 +120,7 @@ export default function protectedContentTypeHandler (req, res) {
   }
 
   const burst = Number(process.env.GRAPHQL_RATE_LIMIT ?? 300)
-  const rl = rateLimit({ key: `gql:${clientIp(req)}`, limit: burst, windowMs: 10_000 })
+  const rl = rateLimit({ key: `gql:${clientIp(req.headers, req.socket?.remoteAddress)}`, limit: burst, windowMs: 10_000 })
   if (!rl.allowed) {
     res.setHeader('Retry-After', Math.ceil(rl.retryAfterMs / 1000))
     return res.status(429).json({ error: 'Too many requests' })

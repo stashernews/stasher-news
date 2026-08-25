@@ -19,7 +19,7 @@ export const paymentMethods = [
 ]
 
 export async function getInitial (models, { piconeros, rewardsPct }, { me }) {
-  const sub = await reserveFeeSubaddress(models, 'DONATE')
+  const sub = await reserveFeeSubaddress(models, 'DONATE', { me })
   const moneroUri = buildMoneroUri(
     [{ address: sub.address, amount: piconeros }],
     { description: 'StasherNews donation to the rewards pool' }

@@ -7,6 +7,7 @@ import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 import { rateLimit } from '@/lib/rate-limit'
+import { clientIp } from '@/lib/client-ip'
 
 // StasherNews Monero wallet-setup + tip-initiation resolvers (spec §4.5, §7.3).
 //
@@ -43,9 +44,7 @@ export async function initiateTipCore ({ postId, amount, models, monero, me, hea
   const id = Number(postId)
   const piconeros = BigInt(amount)
 
-  const fwd = headers?.['x-forwarded-for']
-  const ip = (typeof fwd === 'string' && fwd.length > 0) ? fwd.split(',')[0].trim() : 'unknown'
-  const ipRl = rateLimit({ key: `tip:${ip}`, limit: 10, windowMs: 60_000 })
+  const ipRl = rateLimit({ key: `tip:${clientIp(headers)}`, limit: 10, windowMs: 60_000 })
   if (!ipRl.allowed) throw new GqlInputError('too many tips initiated, try again shortly')
 
   const pending = await models.observedTip.count({

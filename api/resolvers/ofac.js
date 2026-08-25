@@ -1,4 +1,5 @@
 import { GqlAuthorizationError } from '@/lib/error'
+import { clientIp } from '@/lib/client-ip'
 
 // this function makes america more secure apparently
 export default async function assertGofacYourself ({ models, headers, ip }) {
@@ -9,8 +10,7 @@ export default async function assertGofacYourself ({ models, headers, ip }) {
 }
 
 export async function gOFACYourself ({ models, headers = {}, ip }) {
-  const { 'x-forwarded-for': xForwardedFor, 'x-real-ip': xRealIp } = headers
-  ip ||= xRealIp || xForwardedFor?.split(',')?.[0]
+  ip ||= clientIp(headers)
   if (!ip) return false
 
   try {

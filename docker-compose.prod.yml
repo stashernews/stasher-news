@@ -14,6 +14,16 @@ services:
       - BACKUP_DIR=/backups
     volumes:
       - backups:/backups
+    # bind the published app port to loopback (audit follow-up #3): Caddy on
+    # the compose network is the only intended ingress. A publicly bound :3000
+    # lets direct-to-app requests choose their own X-Forwarded-For and bypass
+    # every per-IP rate limit (the rightmost-entry parser trusts the last hop,
+    # which for a direct connection is the client itself). External monitoring
+    # must use https://stasher.news/api/health (through Caddy), never :3000.
+    # !override replaces the base file's 0.0.0.0 bind — without it compose
+    # merges ports as a union and the public bind would survive.
+    ports: !override
+      - "127.0.0.1:3000:3000"
     command:
       - sh
       - -c

@@ -24,6 +24,7 @@ import { makeExcerpt } from '@/lib/excerpt'
 import assertGofacYourself from './ofac'
 import assertApiKeyNotPermitted from './apiKey'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
+import { assertItemCreateAllowance } from '@/api/payIn/itemCreateAllowance'
 import { parse } from 'tldts'
 import { shuffleArray } from '@/lib/rand'
 import pay from '../payIn'
@@ -788,34 +789,34 @@ export default {
 
       return await deleteItemByAuthor({ models, id, item: old })
     },
-    upsertLink: async (parent, { id, ...item }, { me, models }) => {
+    upsertLink: async (parent, { id, ...item }, { me, models, headers }) => {
       await validateSchema(linkSchema, item, { models, me })
 
       if (id) {
         return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models })
+        return await createItem(parent, item, { me, models, headers })
       }
     },
-    upsertDiscussion: async (parent, { id, ...item }, { me, models }) => {
+    upsertDiscussion: async (parent, { id, ...item }, { me, models, headers }) => {
       await validateSchema(discussionSchema, item, { models, me })
 
       if (id) {
         return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models })
+        return await createItem(parent, item, { me, models, headers })
       }
     },
-    upsertBounty: async (parent, { id, ...item }, { me, models }) => {
+    upsertBounty: async (parent, { id, ...item }, { me, models, headers }) => {
       await validateSchema(bountySchema, item, { models, me })
 
       if (id) {
         return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models })
+        return await createItem(parent, item, { me, models, headers })
       }
     },
-    upsertPoll: async (parent, { id, ...item }, { me, models }) => {
+    upsertPoll: async (parent, { id, ...item }, { me, models, headers }) => {
       const numExistingChoices = id
         ? await models.pollOption.count({
           where: {
@@ -830,10 +831,10 @@ export default {
         return await updateItem(parent, { id, ...item }, { me, models })
       } else {
         item.pollCost = item.pollCost || POLL_COST
-        return await createItem(parent, item, { me, models })
+        return await createItem(parent, item, { me, models, headers })
       }
     },
-    upsertJob: async (parent, { id, ...item }, { me, models }) => {
+    upsertJob: async (parent, { id, ...item }, { me, models, headers }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
@@ -848,16 +849,16 @@ export default {
       if (id) {
         return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models })
+        return await createItem(parent, item, { me, models, headers })
       }
     },
-    upsertComment: async (parent, { id, ...item }, { me, models }) => {
+    upsertComment: async (parent, { id, ...item }, { me, models, headers }) => {
       await validateSchema(commentSchema, item)
 
       if (id) {
         return await updateItem(parent, { id, ...item }, { me, models })
       } else {
-        return await createItem(parent, item, { me, models })
+        return await createItem(parent, item, { me, models, headers })
       }
     },
     updateNoteId: async (parent, { id, noteId }, { me, models }) => {
@@ -1397,7 +1398,10 @@ export const updateItem = async (parent, { hash, hmac, sendProtocolId, ...item }
   return await pay('ITEM_UPDATE', item, { models, me, sendProtocolId })
 }
 
-export const createItem = async (parent, { sendProtocolId, ...item }, { me, models }) => {
+export const createItem = async (parent, { sendProtocolId, ...item }, { me, models, headers }) => {
+  // abuse gate BEFORE any DB work or fee-subaddress reservation (audit A-3)
+  await assertItemCreateAllowance({ models, me, headers })
+
   item.userId = me ? Number(me.id) : USER_ID.anon
 
   item.uploadIds = uploadIdsFromText(item.text)

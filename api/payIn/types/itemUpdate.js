@@ -39,7 +39,7 @@ export async function getInitial (models, { id, uploadIds = [], bio, subNames },
   let moneroSubaddressMajor = null
   let moneroSubaddressMinor = null
   if (uploadFeesPiconeros > 0n) {
-    const sub = await reserveFeeSubaddress(models, 'POSTING')
+    const sub = await reserveFeeSubaddress(models, 'POSTING', { me })
     moneroUri = buildMoneroUri(
       [{ address: sub.address, amount: uploadFeesPiconeros }],
       { description: 'StasherNews upload fee' }

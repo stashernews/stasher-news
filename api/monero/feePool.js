@@ -15,6 +15,9 @@
 //  not subaddresses, so they do not consume this pool.)
 
 import prisma from '@/api/models'
+import { rateLimit } from '@/lib/rate-limit'
+import { GqlInputError } from '@/lib/error'
+import { USER_ID } from '@/lib/constants'
 
 export const REWARDS_POSTING_MAJOR = 1
 export const REWARDS_TERRITORY_MAJOR = 2
@@ -58,6 +61,19 @@ export async function getRewardsWalletId (models = prisma) {
 }
 
 /**
+ * Choke-point attempt throttle (audit A-3 follow-up): every fee-subaddress
+ * consumer (item create/update, boost, donate, territory ops) funnels through
+ * reserveFeeSubaddress, and every attempt permanently consumes one pool entry
+ * whether or not it is ever paid — so an unpaid-attempt loop from one account
+ * (e.g. edit-window updates each attaching a new unpaid upload) exhausts the
+ * finite pools (~2000 posting / ~200 others). Keyed per user (the payIn engine
+ * always provides me, defaulting to the synthetic anon user); per-IP
+ * backstops live at the resolver layer. Env-overridable like the email limits.
+ */
+export const FEE_RESERVE_ATTEMPTS_PER_USER = Number(process.env.FEE_RESERVE_ATTEMPTS_PER_USER) || 60
+export const FEE_RESERVE_WINDOW_MS = Number(process.env.FEE_RESERVE_WINDOW_MS) || 10 * 60_000
+
+/**
  * Atomically draw + reserve one AVAILABLE fee subaddress for a pending fee event.
  *
  * Uses FOR UPDATE SKIP LOCKED so concurrent draws never double-assign: if two
@@ -65,9 +81,17 @@ export async function getRewardsWalletId (models = prisma) {
  * "pool exhausted" (which the caller surfaces as "re-run derive-fee-pool").
  * Returns { id, major, minor, address }.
  */
-export async function reserveFeeSubaddress (models, feeType) {
+export async function reserveFeeSubaddress (models, feeType, { me } = {}) {
   const major = FEE_TYPE_TO_MAJOR[feeType]
   if (!major) throw new Error(`reserveFeeSubaddress: unknown feeType ${feeType}`)
+
+  const rl = rateLimit({
+    key: `feereserve:${Number(me?.id) || USER_ID.anon}`,
+    limit: FEE_RESERVE_ATTEMPTS_PER_USER,
+    windowMs: FEE_RESERVE_WINDOW_MS
+  })
+  if (!rl.allowed) throw new GqlInputError('too many fee reservations, try again shortly')
+
   const walletId = await getRewardsWalletId(models)
 
   const rows = await models.$queryRaw`

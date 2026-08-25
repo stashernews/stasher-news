@@ -15,6 +15,7 @@ import { multiAuthMiddleware, setMultiAuthCookies, cookieOptions } from '@/lib/a
 import { isAuthProviderEnabled } from '@/lib/authProviderEnv'
 import { getDomainMapping } from '@/lib/domains'
 import { isSafeRedirectPath, parseSafeHost } from '@/lib/safe-url'
+import { checkEmailSendAllowance } from '@/lib/auth-send-limiter'
 import { BECH32_CHARSET } from '@/lib/constants'
 import { COPY } from '@/lib/rebrand-copy'
 import { NodeNextRequest } from 'next/dist/server/base-http/node'
@@ -515,6 +516,18 @@ async function sendVerificationRequest ({
   token,
   provider
 }, req) {
+  // abuse gate (audit B-3): /api/auth/* is not invite-gated and was previously
+  // unthrottled. The identifier cooldown drops SILENTLY (no enumeration oracle,
+  // mirroring the signin-cookie silent drop below); the IP burst throws the
+  // standard send-failure error.
+  const limited = checkEmailSendAllowance({
+    identifier: email,
+    headers: req.headers,
+    socketAddress: req.socket?.remoteAddress
+  })
+  if (limited === 'identifier') return Promise.resolve()
+  if (limited === 'ip') throw new Error('SEND_VERIFICATION_EMAIL_ERROR')
+
   let user = await prisma.user.findUnique({
     where: {
       // Look for the user by hashed email

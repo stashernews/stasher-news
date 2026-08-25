@@ -22,7 +22,7 @@ export async function getInitial (models, { name }, { me }) {
   const sub = await models.sub.findUnique({ where: { name } })
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   const fee = territoryFeePiconeros(sub.billingType, config)
-  const reserved = await reserveFeeSubaddress(models, 'TERRITORY_BILLING') // major 2
+  const reserved = await reserveFeeSubaddress(models, 'TERRITORY_BILLING', { me }) // major 2
   const moneroUri = buildMoneroUri(
     [{ address: reserved.address, amount: fee }],
     { description: `StasherNews territory ${name} renewal (${sub.billingType})` }
