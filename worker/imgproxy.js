@@ -4,6 +4,7 @@ import { decodeProxyUrl } from '@/lib/url'
 import { imgProxyEnabled, createImgproxyPath } from '@/lib/imgproxy'
 import { snFetch } from '@/lib/fetch'
 import { logInfo, logWarn } from '@/lib/logger'
+import { fetchXPreview } from '@/lib/x-preview'
 
 if (!imgProxyEnabled) {
   console.warn('IMGPROXY_* env vars not set, imgproxy calls are no-ops now')
@@ -68,9 +69,22 @@ function matchUrl (matchers, url) {
 }
 
 export async function imgproxy ({ data: { id, forceFetch = false }, models }) {
-  if (!imgProxyEnabled) return
-
   const item = await models.item.findUnique({ where: { id } })
+
+  const xPreview = item.url && !isJob(item) ? await fetchXPreview(item.url) : null
+  if (xPreview?.imageUrl && imgProxyEnabled) {
+    // proxy the tweet image through imgproxy so viewers never hit pbs.twimg.com
+    const entries = await createImgproxyUrls(id, xPreview.imageUrl, { models, forceFetch })
+    const entry = entries[xPreview.imageUrl]
+    if (entry) xPreview.image = entry
+  }
+  if (xPreview) delete xPreview.imageUrl
+
+  if (!imgProxyEnabled) {
+    // xPreview must not depend on imgproxy env being set
+    await models.item.update({ where: { id }, data: { xPreview } })
+    return
+  }
 
   let imgproxyUrls = {}
   if (item.text) {
@@ -82,7 +96,7 @@ export async function imgproxy ({ data: { id, forceFetch = false }, models }) {
 
   logInfo({ itemId: id }, 'imgproxy: updating item urls')
 
-  await models.item.update({ where: { id }, data: { imgproxyUrls } })
+  await models.item.update({ where: { id }, data: { imgproxyUrls, xPreview } })
 }
 
 export const createImgproxyUrls = async (id, text, { models, forceFetch }) => {

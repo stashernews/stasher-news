@@ -75,6 +75,7 @@ export const ITEM_FIELDS = gql`
     uploadId
     mine
     imgproxyUrls
+    xPreview
     rel
     apiKey
     cost

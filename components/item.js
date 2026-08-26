@@ -14,6 +14,7 @@ import VideoIcon from '@/svgs/video-on-fill.svg'
 import { piconerosToXmr } from '@/lib/format'
 import ItemInfo from './item-info'
 import { CardMedia } from './card-media'
+import { XPreviewCard } from './x-preview'
 import { commentsViewedAt } from '@/lib/new-comments'
 import { useRouter } from 'next/router'
 import { timeLeft } from '@/lib/time'
@@ -93,6 +94,8 @@ export default function Item ({
 
   const media = mediaType({ url: item.url, imgproxyUrls: item.imgproxyUrls })
   const MediaIcon = media === 'video' ? VideoIcon : ImageIcon
+  const { me } = useMe()
+  const showXPreview = !!item.xPreview && me?.privates?.showImagesAndVideos !== false
 
   return (
     <>
@@ -126,9 +129,10 @@ export default function Item ({
                 </span>}
               {media && <span className={styles.icon}><MediaIcon className='fill-grey ms-2' height={16} width={16} /></span>}
             </Link>
-            {item.url && !media && <ItemLink url={item.url} rel={item.rel} />}
+            {item.url && !media && !showXPreview && <ItemLink url={item.url} rel={item.rel} />}
           </div>
           {excerpt && <p className='item-excerpt'>{excerpt}</p>}
+          {!full && showXPreview && <XPreviewCard xPreview={item.xPreview} url={item.url} feed />}
           <ItemInfo
             full={full} item={item}
             onQuoteReply={onQuoteReply}

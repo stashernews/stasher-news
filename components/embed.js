@@ -2,24 +2,9 @@ import { memo, useEffect, useRef, useState } from 'react'
 import classNames from 'classnames'
 import useDarkMode from './dark-mode'
 import { Button } from 'react-bootstrap'
-import { TwitterTweetEmbed } from 'react-twitter-embed'
 import LiteYouTubeEmbed from 'react-lite-youtube-embed'
 import 'react-lite-youtube-embed/dist/LiteYouTubeEmbed.css'
-
-function TweetSkeleton ({ className }) {
-  return (
-    <div className={classNames('sn-tweets-skeleton', className)}>
-      <div className='sn-tweet-skeleton'>
-        <div className='sn-tweet-skeleton__img clouds' />
-        <div className='sn-tweet-skeleton__content'>
-          <div className='sn-tweet-skeleton__line clouds' />
-          <div className='sn-tweet-skeleton__line clouds' />
-          <div className='sn-tweet-skeleton__line clouds' />
-        </div>
-      </div>
-    </div>
-  )
-}
+import { XPreviewCard } from './x-preview'
 
 export const NostrEmbed = memo(function NostrEmbed ({ className, darkMode, id }) {
   const [show, setShow] = useState(false)
@@ -119,27 +104,13 @@ const SpotifyEmbed = function SpotifyEmbed ({ src, className }) {
 
 const Embed = memo(function Embed ({ src, provider, id, meta, className, topLevel }) {
   const [darkMode] = useDarkMode()
-  const [overflowing, setOverflowing] = useState(true)
-  const [show, setShow] = useState(false)
   const embedClass = className || `sn-embed--${provider}`
 
   if (provider === 'twitter') {
     return (
-      <>
-        <div className={classNames('sn-twitter-container', !show && 'sn-embed-contained', embedClass)}>
-          <TwitterTweetEmbed
-            tweetId={id}
-            options={{ theme: darkMode ? 'dark' : 'light', width: topLevel ? 550 : 350 }}
-            key={darkMode ? '1' : '2'}
-            placeholder={<TweetSkeleton className={embedClass} />}
-            onLoad={() => setOverflowing(true)}
-          />
-          {overflowing && !show &&
-            <Button size='lg' variant='info' className='sn-embed-show-full' onClick={() => setShow(true)}>
-              show full tweet
-            </Button>}
-        </div>
-      </>
+      <div className={classNames('sn-twitter-container', embedClass)}>
+        <XPreviewCard url={src} />
+      </div>
     )
   }
 

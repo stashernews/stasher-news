@@ -26,6 +26,7 @@ import { UNKNOWN_LINK_REL, DEFAULT_POSTS_PICONEROS_FILTER } from '@/lib/constant
 import classNames from 'classnames'
 import { CarouselProvider } from './carousel'
 import Embed from './embed'
+import { XPreviewCard } from './x-preview'
 import useCommentsView from './use-comments-view'
 import useCallbackRef from './use-callback-ref'
 
@@ -53,8 +54,17 @@ function BioItem ({ item, handleClick }) {
   )
 }
 
-function ItemEmbed ({ url, imgproxyUrls }) {
+function ItemEmbed ({ url, imgproxyUrls, xPreview }) {
+  const { me } = useMe()
   const provider = parseEmbedUrl(url)
+  if (provider?.provider === 'twitter') {
+    return (
+      <div className='mt-3'>
+        <XPreviewCard xPreview={xPreview} url={url} showImage={me?.privates?.showImagesAndVideos !== false} />
+      </div>
+    )
+  }
+
   if (provider) {
     return (
       <div className='mt-3'>
@@ -100,7 +110,7 @@ function TopLevelItem ({ item, noReply, ...props }) {
     >
       <article className={classNames(styles.fullItemContainer, 'topLevel')} ref={textRef}>
         {item.text && <ItemText item={item} readerRef={onReaderRef} />}
-        {item.url && !isBelowFilter && <ItemEmbed url={item.url} imgproxyUrls={item.imgproxyUrls} />}
+        {item.url && !isBelowFilter && <ItemEmbed url={item.url} imgproxyUrls={item.imgproxyUrls} xPreview={item.xPreview} />}
         {item.poll && <Poll item={item} />}
         {item.bounty &&
           <div className='fw-bold mt-2'>

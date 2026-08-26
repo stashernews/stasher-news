@@ -406,7 +406,6 @@ span + .sn-link {
 }
 
 // embed containers
-.sn-twitter-container,
 .sn-nostr-container,
 .sn-video-wrapper,
 .sn-wavlake-wrapper,
@@ -417,13 +416,11 @@ span + .sn-link {
 }
 
 // twitter and nostr
-.sn-twitter-container,
 .sn-nostr-container {
   position: relative;
   overflow: hidden;
 }
 
-.sn-twitter-container iframe,
 .sn-nostr-container iframe {
   border-radius: 13px;
 }
@@ -437,12 +434,10 @@ span + .sn-link {
   overflow: hidden;
 }
 
-.sn-embed-contained.sn-embed--twitter,
 .sn-embed-contained.sn-embed--nostr {
   height: 150px;
 }
 
-.topLevel .sn-embed-contained.sn-embed--twitter,
 .topLevel .sn-embed-contained.sn-embed--nostr {
   height: 200px;
 }
@@ -504,53 +499,6 @@ span + .sn-link {
   max-width: 480px;
   border-radius: 13px;
   overflow: hidden;
-}
-
-// tweet skeleton
-.sn-tweets-skeleton {
-  display: flex;
-  flex-flow: row wrap;
-  max-width: 350px;
-  width: 100%;
-  padding-right: 12px;
-}
-
-.topLevel .sn-tweets-skeleton {
-  max-width: 550px;
-}
-
-.sn-tweet-skeleton {
-  width: 100%;
-  border: 0.05rem solid var(--theme-borderColor);
-  border-radius: 12px;
-  height: 150px;
-  padding: 1.5rem;
-}
-
-.topLevel .sn-tweet-skeleton {
-  height: 200px;
-}
-
-.sn-tweet-skeleton__img {
-  height: 48px;
-  width: 48px;
-  border-radius: 50%;
-}
-
-.sn-tweet-skeleton__content {
-  height: 50%;
-  margin-top: 1rem;
-}
-
-.sn-tweet-skeleton__line {
-  height: 25%;
-  margin: 0.5rem 0;
-  width: 100%;
-  border-radius: .4rem;
-}
-
-.sn-tweet-skeleton__line:last-child {
-  width: 75%;
 }
 
 // embed dimensions per provider

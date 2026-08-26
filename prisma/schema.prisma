@@ -369,6 +369,7 @@ model Item {
   otsFile                 Bytes?
   otsHash                 String?
   imgproxyUrls            Json?
+  xPreview                Json?
   noteId                  String?               @unique(map: "Item.noteId_unique")
   rootId                  Int?
   upvotes                 Int                   @default(0)

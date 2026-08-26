@@ -156,6 +156,7 @@ export default gql`
     otsHash: String
     parentOtsHash: String
     imgproxyUrls: JSONObject
+    xPreview: JSONObject
     rel: String
     apiKey: Boolean
     feeStatus: ItemFeeStatus!
