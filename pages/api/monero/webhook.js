@@ -7,7 +7,7 @@ import { moneroWebhooksReceivedTotal } from '@/lib/metrics'
 import { alert } from '@/lib/alert'
 import { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros } from '@/api/monero/bountyFunding'
 import { applyDownvotePenalty } from '@/api/monero/downvote'
-import { shouldExcludeTip, resolveItemSubName } from '@/api/monero/selfTip'
+import { shouldExcludeTip, resolveItemSubName, lookupTipTx, excludeDetectedTipIfSelfSend } from '@/api/monero/selfTip'
 import { applySubFeeReceipt } from '@/api/monero/subFeeObservation'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { safeEqual } from '@/lib/domains/auth'
@@ -19,6 +19,13 @@ import { safeEqual } from '@/lib/domains/auth'
 // ObservedTip state machine:
 //   PENDING  -> DETECTED  (0-conf callback: record tx, bump Item.msats)
 //   DETECTED -> CONFIRMED (N-conf callback: bump User.stackedPiconeros)
+//
+// Self-tip exclusion (spec §2.3) runs at the 0-conf claim AND is re-run once
+// the tx is mined: lws cannot report spent_outputs for a mempool tx, so the
+// 0-conf self-send check can fail open. excludeDetectedTipIfSelfSend re-runs
+// it at the first callback carrying a block height and at the N-conf claim
+// (before any author credit) — reversing the provisional ranking delta when
+// a wash tip is caught late.
 //
 // Payment IDs that match no tip ("bn:" bounty namespace) fall through to the
 // bounty branch, which drives the ObservedBounty state machine:
@@ -68,7 +75,9 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     include: {
       post: { select: { userId: true } },
       recipientAccount: {
-        select: { label: true, ownerUserId: true, address: true, status: true, viewKey: true, lastTxId: true, subaddresses: { select: { majorIndex: true, minorIndex: true } } }
+        // id is required by lookupTipTx's cursor advance (WHERE id = ...);
+        // viewKey/status gate the scan, subaddresses feed isSelfSend.
+        select: { id: true, label: true, ownerUserId: true, address: true, status: true, viewKey: true, lastTxId: true, subaddresses: { select: { majorIndex: true, minorIndex: true } } }
       }
     }
   })
@@ -110,37 +119,12 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
       const direct = tip.tipperId != null && tip.tipperId === tip.post.userId
       let selfSend = false
       if (!direct && tip.recipientAccount?.viewKey && tip.recipientAccount?.status === 'ACTIVE') {
-        // Incremental scan via the account's lastTxId cursor (full history was
-        // O(account age) per tip callback). Guarantee: if the incremental
-        // response does not contain OUR pid, fall back to one full scan — the
-        // detection semantics can only match today's, never regress. The tip's
-        // own tx just arrived, so its id is newer than any stored cursor; a
-        // mempool tx may lack an id / be excluded from since_tx_id responses,
-        // and the fallback covers that too (worst case = fail-open
-        // non-exclusion, same as today when the account is unscannable).
+        // Incremental scan via the account's lastTxId cursor + full-scan
+        // fallback — see lookupTipTx (api/monero/selfTip.js). A mempool tx
+        // carries no spent_outputs yet, so this 0-conf check can fail open;
+        // excludeDetectedTipIfSelfSend re-runs it once the tx is mined.
         const account = tip.recipientAccount
-        const lookup = (txs) => {
-          const byPid = new Map()
-          for (const t of (txs || [])) {
-            if (t.payment_id) byPid.set(String(t.payment_id).toLowerCase(), t)
-          }
-          return byPid.get(String(paymentId).toLowerCase()) ?? null
-        }
-        let resp = await monero.getAddressTxs(account, account.lastTxId ?? 0, null)
-        let tx = lookup(resp.transactions)
-        if (!tx && account.lastTxId != null) {
-          resp = await monero.getAddressTxs(account, 0, null)
-          tx = lookup(resp.transactions)
-        }
-        // forward-only cursor advance (never regresses on concurrent/lws re-sends)
-        const maxId = (resp.transactions || []).reduce(
-          (m, t) => (typeof t.id === 'number' && t.id > m ? t.id : m), Number(account.lastTxId ?? 0))
-        if (maxId > Number(account.lastTxId ?? 0)) {
-          await models.moneroAccount.updateMany({
-            where: { id: account.id, OR: [{ lastTxId: null }, { lastTxId: { lt: BigInt(maxId) } }] },
-            data: { lastTxId: BigInt(maxId) }
-          }).catch(() => {}) // best-effort: a lost advance only costs one fuller scan
-        }
+        const tx = await lookupTipTx(models, monero, account, paymentId)
         selfSend = shouldExcludeTip({ tipperId: tip.tipperId, postUserId: tip.post.userId, account, tx })
       }
       if (direct || selfSend) {
@@ -214,6 +198,22 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     }
 
     if (tip.state === 'DETECTED' && confirmations >= REQUIRED_CONFIRMATIONS) {
+      // Self-send re-check before the credit: the 0-conf scan could not see
+      // spent_outputs for the mempool tx (fail-open), but the tx is mined now,
+      // so the evidence exists. This is the last gate — confirmFinalizer races
+      // us for this claim and runs the same check, so whichever claims first,
+      // a wash tip is never credited. Unscannable accounts still fail open.
+      const excluded = await excludeDetectedTipIfSelfSend({ models, monero, tip, confirmations })
+      if (excluded) {
+        if (tip.webhookEventId) {
+          try {
+            await monero.deleteWebhook(tip.webhookEventId)
+          } catch (err) {
+            console.warn(`webhook: lws deleteWebhook failed (best-effort): ${err && err.message}`)
+          }
+        }
+        return res.status(200).end()
+      }
       await models.$transaction(async (tx) => {
         // Atomic conditional claim: only the first claimer (us or the confirmFinalizer
         // backstop, or a retried lws callback) wins. A retried callback for an already-
@@ -250,6 +250,25 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     }
 
     if (tip.state === 'DETECTED') {
+      // First mined sighting: the row still carries no height, so no callback
+      // has re-run the self-send check since the 0-conf scan failed open. Run
+      // it now (the tx is mined — spent_outputs exist) to cut the provisional
+      // wash-credit window from ~REQUIRED_CONFIRMATIONS blocks to ~1. Later
+      // intermediate callbacks (height already on the row) skip the rescan;
+      // the N-conf branch re-checks regardless as the final gate.
+      if (tip.height == null && height != null) {
+        const excluded = await excludeDetectedTipIfSelfSend({ models, monero, tip, confirmations, height })
+        if (excluded) {
+          if (tip.webhookEventId) {
+            try {
+              await monero.deleteWebhook(tip.webhookEventId)
+            } catch (err) {
+              console.warn(`webhook: lws deleteWebhook failed (best-effort): ${err && err.message}`)
+            }
+          }
+          return res.status(200).end()
+        }
+      }
       const data = { confirmations }
       if (height != null) data.height = height
       if (txHash) data.txHash = txHash

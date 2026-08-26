@@ -14,7 +14,8 @@
 # Idempotent: safe to re-run on a clean DB (deletes nothing). Deletes ONLY
 # test-identifiable rows:
 #   * observations with test txHash prefixes (rdfee / rdtip / rddv /
-#     dist-test-tip- / dist-test-downvote-)
+#     dist-test-tip- / dist-test-downvote- / cs / cf — curatorShares and
+#     confirmFinalizer fixtures)
 #   * distributions: the test's "prior" shape (1e12 pool, 0 distributed,
 #     COMPLETE), any distribution with a fake-sent payout (txHash = 'ab'*32,
 #     the test signer), and any distribution whose Earn/payouts reference test
@@ -44,10 +45,13 @@ CREATE TEMP TABLE _fee_payins AS
 -- the test txHash prefixes, plus any account owned by a test (empty-name)
 -- user — a test-created tip may carry a random-looking txHash, so the
 -- recipient-account ownership is the reliable test signal. Real accounts are
--- owned by named users and are never matched here.
+-- owned by named users and are never matched here. The cs/cf prefixes cover
+-- the curatorShares and confirmFinalizer live-DB fixtures ('cs'/'cf' + digits
+-- — impossible in real 64-char hex tx hashes).
 CREATE TEMP TABLE _tip_accounts AS
   SELECT DISTINCT "recipientAccountId" AS id FROM "ObservedTip"
   WHERE "txHash" LIKE 'rdtip%' OR "txHash" LIKE 'dist-test-tip-%'
+    OR "txHash" LIKE 'cs%' OR "txHash" LIKE 'cf%'
   UNION
   SELECT DISTINCT t."recipientAccountId" FROM "ObservedTip" t
   JOIN "MoneroAccount" a ON a.id = t."recipientAccountId"
@@ -86,10 +90,13 @@ WHERE "distributionId" IN (SELECT id FROM _test_dists)
 DELETE FROM "RewardDistribution" WHERE id IN (SELECT id FROM _test_dists);
 
 -- Observation fixtures by txHash prefix, plus any tip whose recipient account
--- is a test account (delete before those accounts go, or the FK aborts).
+-- is a test account (delete before those accounts go, or the FK aborts). The
+-- cs/cf tips must go BEFORE the users delete too — their Items cascade on the
+-- user delete and ObservedTip_postId_fkey (RESTRICT) blocks it otherwise.
 DELETE FROM "FeeObservation" WHERE "txHash" LIKE 'rdfee%';
 DELETE FROM "ObservedTip"
 WHERE "txHash" LIKE 'rdtip%' OR "txHash" LIKE 'dist-test-tip-%'
+   OR "txHash" LIKE 'cs%' OR "txHash" LIKE 'cf%'
    OR "recipientAccountId" IN (SELECT id FROM _tip_accounts);
 DELETE FROM "ObservedDownvote" WHERE "txHash" LIKE 'rddv%' OR "txHash" LIKE 'dist-test-downvote-%';
 

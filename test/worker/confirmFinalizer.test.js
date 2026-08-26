@@ -38,6 +38,8 @@ const FEE_CONFIG = { bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }
 let feeConfigSnapshot = null
 
 afterAll(async () => {
+  // AbuseSignal rows FK-reference ObservedTip (RESTRICT) — delete before the tips.
+  await prisma.abuseSignal.deleteMany({ where: { tipId: { in: created.tips } } })
   await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } })
   await prisma.observedDownvote.deleteMany({ where: { id: { in: created.downvotes } } })
   await prisma.observedSubFee.deleteMany({ where: { id: { in: created.subFees } } })
@@ -247,6 +249,52 @@ test('idempotent: running twice does not double-bump the author denorm', async (
   const after = await readTip(tip.id)
   expect(after.state).toBe('CONFIRMED')
   expect((await readUser(authorId)).stackedPiconeros).toBe(7_000_000n)
+})
+
+test('a mature DETECTED wash tip (self-send from the recipient own wallet) is EXCLUDED, reversed, and never credited', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const tipperId = await createUser(); created.users.push(tipperId)
+  const postId = await createRoot(authorId, 'wash-target'); created.items.push(postId)
+  // The account must be scannable (view key present) for the confirm-time
+  // self-send re-check to run its lws lookup; the lws mock supplies the proof.
+  const account = await seedAccountWithViewKey()
+  const tip = await seedTip({ postId, piconeros: 5_000_000n, height: 200, recipientAccountId: account.id })
+  // Post-detection state: an attributed tipper whose delta was applied at
+  // DETECTED (the 0-conf scan failed open — spent_outputs do not exist for
+  // mempool txs). Mirror exactly what applyTipDetected would have done.
+  await prisma.observedTip.update({ where: { id: tip.id }, data: { tipperId, rankPiconeros: 3_500_000n } })
+  await prisma.itemUserAgg.create({ data: { userId: tipperId, itemId: postId, tipPiconeros: 5_000_000n } })
+  await prisma.item.update({ where: { id: postId }, data: { upvotes: 1, piconeros: 5_000_000n, tipRankPiconeros: 3_500_000n, weightedVotes: 1.0 } })
+
+  // The lws scan returns the tip tx with a spent output from the recipient
+  // account's own primary subaddress (0,0) — a literal self-send.
+  const washLws = {
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: tip.txHash, height: 200, payment_id: tip.paymentId, piconeros: 5_000_000n, spent_outputs: [{ sender: { maj_i: 0, min_i: 0 } }] }]
+    })
+  }
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(209), lwsClient: washLws })
+
+  const after = await readTip(tip.id)
+  expect(after.state).toBe('EXCLUDED')
+  expect(after.exclusionReason).toBe('SELF_SEND')
+  // the author was never credited
+  expect((await readUser(authorId)).stackedPiconeros).toBe(0n)
+  // the detection-applied ranking effects were reversed (exact inverse)
+  const item = await prisma.item.findUnique({ where: { id: postId } })
+  expect(item.upvotes).toBe(0)
+  expect(item.piconeros).toBe(0n)
+  expect(item.tipRankPiconeros).toBe(0n)
+  const agg = await prisma.itemUserAgg.findUnique({ where: { itemId_userId: { itemId: postId, userId: tipperId } } })
+  expect(agg.tipPiconeros).toBe(0n)
+  // the abuse signal was written transactionally with the exclusion
+  const signal = await prisma.abuseSignal.findUnique({ where: { tipId: tip.id } })
+  expect(signal.kind).toBe('SELF_SEND_EXCLUDED')
+  expect(signal.subjectUserId).toBe(authorId)
+  expect(signal.actorUserId).toBe(tipperId)
+  // one scan per tip (incremental, pid found, no fallback)
+  expect(washLws.getAddressTxs).toHaveBeenCalledTimes(1)
 })
 
 test('a DETECTED ObservedDownvote becomes CONFIRMED at 10 confirmations', async () => {

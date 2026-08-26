@@ -7,6 +7,7 @@ import { bountyFeePiconeros } from '@/api/monero/bounties'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { createReorgDetector } from '@/lib/reorgDetector'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
+import { excludeDetectedTipIfSelfSend } from '@/api/monero/selfTip'
 
 // confirmFinalizer — matures provisional tips (Task 7 / spec §5.5, Q5).
 //
@@ -96,7 +97,13 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
   // confirmed (height set) on a later indexer poll.
   const tips = await models.observedTip.findMany({
     where: { state: 'DETECTED', height: { not: null } },
-    include: { post: { select: { userId: true } }, recipientAccount: { select: { label: true } } },
+    // recipientAccount fields feed the confirm-time self-send re-check
+    // (excludeDetectedTipIfSelfSend): viewKey/status gate the lws scan,
+    // subaddresses feed isSelfSend, id anchors the cursor advance.
+    include: {
+      post: { select: { userId: true } },
+      recipientAccount: { select: { id: true, label: true, address: true, status: true, viewKey: true, lastTxId: true, subaddresses: { select: { majorIndex: true, minorIndex: true } } } }
+    },
     take: SCAN_BATCH_SIZE
   })
 
@@ -104,6 +111,23 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
   for (const tip of tips) {
     const confirmations = chainHeight - tip.height + 1
     if (confirmations < REQUIRED_CONFIRMATIONS) continue
+
+    // Self-send re-check before the credit (the 0-conf gap): lws cannot see
+    // spent_outputs for the tx while it sat in the mempool, so the detection-
+    // time check can have failed open. The tx is mined now (height is set), so
+    // the evidence exists — this is the last gate before stackedPiconeros.
+    // The webhook N-conf callback races us for the claim and runs the same
+    // check, so a wash tip is excluded regardless of which claimer wins. An
+    // lws failure skips the tip this run (fail closed on the credit path);
+    // recurrence is cron-owned, so the next tick retries.
+    let excluded = false
+    try {
+      excluded = await excludeDetectedTipIfSelfSend({ models, monero: lws, tip, confirmations })
+    } catch (err) {
+      console.warn(`confirmFinalizer: self-send recheck failed for tip ${tip.id}: ${err && err.message}`)
+      continue
+    }
+    if (excluded) continue
 
     // Resolve the author via the tipped post. The ObservedTip.postId FK is
     // ON DELETE RESTRICT (non-nullable), so the Item cannot be deleted while
