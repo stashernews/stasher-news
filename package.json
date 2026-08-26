@@ -57,7 +57,7 @@
     "canonical-json": "0.0.4",
     "classnames": "^2.5.1",
     "clipboard-copy": "^4.0.1",
-    "cookie": "^1.0.1",
+    "cookie": "^2.0.1",
     "copy-webpack-plugin": "^13.0.1",
     "cross-fetch": "^4.0.0",
     "csv-parser": "^3.0.0",
