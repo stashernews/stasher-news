@@ -77,10 +77,14 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
           UPDATE "ItemUserAgg"
           SET "tipPiconeros" = GREATEST("ItemUserAgg"."tipPiconeros" - ${piconeros}::BIGINT, 0), updated_at = now()
           WHERE "userId" = ${tipperId}::INTEGER AND "itemId" = ${postId}::INTEGER
+          RETURNING "tipPiconeros",
+            ("tipPiconeros" = 0)::INTEGER AS last_vote,
+            LOG(("tipPiconeros" + ${piconeros}::BIGINT)::FLOAT / GREATEST("tipPiconeros", 1)::FLOAT) AS log_sats
         ),`
 
-  // ---- territory + trust lookup (attributed ADD only) ----
-  const trust = (tipperId == null || !isAdd)
+  // ---- territory + trust lookup (attributed ADD and SUB — the SUB
+  // weightedVotes give-back reads zapper) ----
+  const trust = (tipperId == null)
     ? Prisma.empty
     : Prisma.sql`
         territory AS (
@@ -118,14 +122,14 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
     : Prisma.empty
 
   // ---- upvotes / weightedVotes: unchanged semantics ----
-  const needZap = isAdd && tipperId != null
+  const needZap = tipperId != null
   const upvotesSet = isAdd
     ? (tipperId == null
         ? Prisma.sql`"upvotes" = "Item"."upvotes"`
         : Prisma.sql`"upvotes" = "Item"."upvotes" + zap.first_vote`)
     : (tipperId == null
         ? Prisma.sql`"upvotes" = "Item"."upvotes"`
-        : Prisma.sql`"upvotes" = "Item"."upvotes" - 1`)
+        : Prisma.sql`"upvotes" = "Item"."upvotes" - zap.last_vote`)
 
   // anon SUB: give back the collective anon bucket the anon ADD incremented
   const anonBucketSet = (!isAdd && tipperId == null)
@@ -134,8 +138,18 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
     : Prisma.empty
   const weightedSet = needZap
     ? Prisma.sql`,
-        "weightedVotes" = "Item"."weightedVotes" + zapper."zapTrust" * zap.log_sats,
-        "subWeightedVotes" = "Item"."subWeightedVotes" + zapper."subZapTrust" * zap.log_sats`
+        "weightedVotes" = "Item"."weightedVotes" ${sign} zapper."zapTrust" * zap.log_sats,
+        "subWeightedVotes" = "Item"."subWeightedVotes" ${sign} zapper."subZapTrust" * zap.log_sats`
+    : Prisma.empty
+
+  // attributed SUB joins the give-back zap (last_vote, log_sats) and zapper
+  // (trust weights) into item_tipped; anon SUB stays standalone. If the
+  // ItemUserAgg row is missing (pre-migration drift), zap returns zero rows
+  // and the whole attributed SUB no-ops — the same posture as
+  // reverseDownvotePenalty; the forward ADD upserts the row, so a legit
+  // reversal always finds it.
+  const subFrom = (!isAdd && tipperId != null)
+    ? Prisma.sql`FROM zap, zapper`
     : Prisma.empty
 
   // ---- the capped-delta SET terms ----
@@ -210,7 +224,8 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
           UPDATE "Item"
           SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
               ${tipRankSet},
-              ${upvotesSet}${anonBucketSet}
+              ${upvotesSet}${weightedSet}${anonBucketSet}
+          ${subFrom}
           WHERE "Item".id = ${postId}::INTEGER
           RETURNING "Item".*
         )`
@@ -251,7 +266,8 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
   // different WITH list, not just different fragments.
   // attributed ADD: trust, zapper, zap, rank_calc (reads zap), item_tipped
   // (reads zap/zapper/rank_calc), ancestors.
-  // SUB: trust/zap/attrRankCalc are all empty -> WITH item_tipped, ancestors.
+  // SUB: attributed composes trust + zap + item_tipped-with-FROM (the
+  // weightedVotes/last_vote give-back); anon SUB stays item_tipped alone.
   if (isAnonAdd) {
     return Prisma.sql`
       WITH ${itemTippedAnon} ${anonRankCalc}
@@ -292,12 +308,21 @@ export async function applyTipDetected (postId, tipperId, piconeros, tx) {
 // reverseStaleDetections sweep. rankPiconeros is the delta the detection
 // applied (ObservedTip.rankPiconeros) — subtract it EXACTLY; fallback to the
 // raw amount only for pre-migration rows where it is null. tipperId selects
-// the correct inverse: attributed tips give back one upvote and their
+// the correct inverse: attributed tips give back one upvote (only when the reversal returns their cumulative to zero) and their
 // ItemUserAgg.tipPiconeros; anonymous tips leave upvotes untouched (the ADD
 // path never incremented them) and give back the collective anon bucket.
 export async function reverseTip (postId, tipperId, piconeros, rankPiconeros = null, tx) {
+  // parentId picks zapPostTrust vs zapCommentTrust for the weightedVotes
+  // give-back — the same read applyTipDetected does forward. Anon needs no
+  // trust lookup.
+  let isComment = false
+  if (tipperId != null) {
+    const q = Prisma.sql`SELECT "parentId" FROM "Item" WHERE id = ${postId}::INTEGER`
+    const rows = tx ? await tx.$queryRaw(q) : await prisma.$queryRaw(q)
+    isComment = rows?.[0]?.parentId != null
+  }
   const cfg = { rankDelta: rankPiconeros ?? piconeros }
-  const sql = tipDeltaSql(postId, tipperId, piconeros, SUB, false, cfg)
+  const sql = tipDeltaSql(postId, tipperId, piconeros, SUB, isComment, cfg)
   if (tx) {
     await tx.$executeRaw(sql)
     return

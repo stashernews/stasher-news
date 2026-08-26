@@ -69,7 +69,7 @@ async function createComment (userId, rootId, title) {
 function readItem (id) {
   return prisma.item.findUnique({
     where: { id },
-    select: { piconeros: true, ranktop: true, commentPiconeros: true, upvotes: true, tipRankPiconeros: true, anonTipPiconeros: true, commentTipRankPiconeros: true }
+    select: { piconeros: true, ranktop: true, commentPiconeros: true, upvotes: true, weightedVotes: true, subWeightedVotes: true, tipRankPiconeros: true, anonTipPiconeros: true, commentTipRankPiconeros: true }
   })
 }
 
@@ -145,10 +145,11 @@ test('reverseTip subtracts piconeros, lowers ranktop, and decrements upvotes', a
 
   await applyTipDetected(p, tipper, 5000000n)
   const before = await readItem(p)
-  await reverseTip(p, tipper, 2000000n)
+  // full reversal: cumulative hits zero -> last_vote=1 -> upvote give-back
+  await reverseTip(p, tipper, 5000000n)
   const after = await readItem(p)
 
-  expect(before.piconeros - after.piconeros).toBe(2000000n)
+  expect(before.piconeros - after.piconeros).toBe(5000000n)
   expect(after.ranktop).toBeLessThan(before.ranktop)
   expect(before.upvotes - after.upvotes).toBe(1)
 })
@@ -191,6 +192,86 @@ test('applyTipDetected bumps weightedVotes/subWeightedVotes by zapTrust x LOG(ti
   const logSats = Math.log10(1_000_000_000)
   expect(after.weightedVotes - before.weightedVotes).toBeCloseTo(0.5 * logSats, 6)
   expect(after.subWeightedVotes - before.subWeightedVotes).toBeCloseTo(0.25 * logSats, 6)
+})
+
+test('reverseTip gives back weightedVotes/subWeightedVotes exactly (round-trip)', async () => {
+  const poster = await createUser(); created.users.push(poster)
+  const tipper = await createUser(30); created.users.push(tipper) // factor 1.0 -> exact integer rank delta
+  const rows = await prisma.$queryRaw`
+    INSERT INTO "Item" ("userId", title) VALUES (${poster}::int, ${'weighted-reverse-post'})
+    RETURNING id::int AS id`
+  const postId = rows[0].id
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree, "subNames" = ARRAY['meta']::CITEXT[] WHERE id = ${postId}::int`
+  created.items.push(postId)
+  await prisma.userSubTrust.create({
+    data: { subName: 'meta', userId: tipper, zapPostTrust: 0.5, subZapPostTrust: 0.25 }
+  })
+  const before = await readItem(postId)
+  const delta = await applyTipDetected(postId, tipper, 1_000_000_000n) // first tip: LOG10(1e9)=9
+  expect(delta).toBe(1_000_000_000n)
+  await reverseTip(postId, tipper, 1_000_000_000n, delta)
+  const after = await readItem(postId)
+  expect(after.weightedVotes).toBeCloseTo(before.weightedVotes, 6)
+  expect(after.subWeightedVotes).toBeCloseTo(before.subWeightedVotes, 6)
+  expect(after.upvotes).toBe(before.upvotes) // first_vote=1 forward, last_vote=1 back
+})
+
+test('reversing a non-first tip leaves upvotes; reversing the cumulative to zero gives it back', async () => {
+  const poster = await createUser(); created.users.push(poster)
+  const tipper = await createUser(30); created.users.push(tipper)
+  const rows = await prisma.$queryRaw`
+    INSERT INTO "Item" ("userId", title) VALUES (${poster}::int, ${'upvote-exact-post'})
+    RETURNING id::int AS id`
+  const postId = rows[0].id
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree, "subNames" = ARRAY['meta']::CITEXT[] WHERE id = ${postId}::int`
+  created.items.push(postId)
+  await prisma.userSubTrust.create({
+    data: { subName: 'meta', userId: tipper, zapPostTrust: 0.5, subZapPostTrust: 0.25 }
+  })
+  const before = await readItem(postId)
+  const d1 = await applyTipDetected(postId, tipper, 1_000_000_000n) // first_vote=1 -> upvotes 1
+  const afterFirst = await readItem(postId)
+  const d2 = await applyTipDetected(postId, tipper, 2_000_000_000n) // first_vote=0 -> upvotes stays 1
+  const afterSecond = await readItem(postId)
+  await reverseTip(postId, tipper, 2_000_000_000n, d2) // cumulative back to 1e9 -> last_vote=0
+  const afterReverseSecond = await readItem(postId)
+  expect((await readItem(postId)).upvotes).toBe(1)
+  await reverseTip(postId, tipper, 1_000_000_000n, d1) // cumulative to 0 -> last_vote=1
+  const afterReverseFirst = await readItem(postId)
+  expect((await readItem(postId)).upvotes).toBe(0)
+
+  // weightedVotes/subWeightedVotes exactness at each reversal step: first tip
+  // 1e9 -> LOG(1e9 / GREATEST(0, 1)) = LOG10(1e9); second tip 2e9 on a 1e9
+  // cumulative -> LOG(3e9 / GREATEST(1e9, 1)) = LOG10(3). The SUB give-back
+  // recovers the same log_sats, so a partial reversal (second tip) lands back
+  // on the after-first-tip value and the full reversal lands on the baseline.
+  const logFirst = Math.log10(1_000_000_000)
+  const logSecond = Math.log10(3)
+  expect(afterFirst.weightedVotes - before.weightedVotes).toBeCloseTo(0.5 * logFirst, 6)
+  expect(afterFirst.subWeightedVotes - before.subWeightedVotes).toBeCloseTo(0.25 * logFirst, 6)
+  expect(afterSecond.weightedVotes - before.weightedVotes).toBeCloseTo(0.5 * logFirst + 0.5 * logSecond, 6)
+  expect(afterSecond.subWeightedVotes - before.subWeightedVotes).toBeCloseTo(0.25 * logFirst + 0.25 * logSecond, 6)
+  expect(afterReverseSecond.weightedVotes).toBeCloseTo(afterFirst.weightedVotes, 6)
+  expect(afterReverseSecond.subWeightedVotes).toBeCloseTo(afterFirst.subWeightedVotes, 6)
+  expect(afterReverseFirst.weightedVotes).toBeCloseTo(before.weightedVotes, 6)
+  expect(afterReverseFirst.subWeightedVotes).toBeCloseTo(before.subWeightedVotes, 6)
+})
+
+test('comment-tip reversal subtracts with zapCommentTrust (round-trip on a comment)', async () => {
+  const poster = await createUser(); created.users.push(poster)
+  const tipper = await createUser(30); created.users.push(tipper)
+  const root = await createRoot(poster, 'weighted-reverse-root'); created.items.push(root)
+  const comment = await createComment(poster, root, 'weighted-reverse-comment'); created.items.push(comment)
+  await prisma.userSubTrust.create({
+    data: { subName: 'meta', userId: tipper, zapCommentTrust: 0.75, subZapCommentTrust: 0.375 }
+  })
+  const before = await readItem(comment)
+  const delta = await applyTipDetected(comment, tipper, 1_000_000_000n)
+  expect((await readItem(comment)).weightedVotes).toBeCloseTo(before.weightedVotes + 0.75 * 9, 6)
+  await reverseTip(comment, tipper, 1_000_000_000n, delta)
+  const after = await readItem(comment)
+  expect(after.weightedVotes).toBeCloseTo(before.weightedVotes, 6)
+  expect(after.subWeightedVotes).toBeCloseTo(before.subWeightedVotes, 6)
 })
 
 test('anonymous tips (no tipperId) leave weightedVotes untouched (no per-user attribution)', async () => {
@@ -335,14 +416,16 @@ test('reverseTip subtracts the stored rank delta exactly', async () => {
    parameterizes interpolated values, so numeric amounts NEVER appear in
    the SQL text — amount assertions run against the captured values. */
 describe('reverseTip', () => {
-  const capture = () => {
+  const capture = (parentRows = []) => {
     const calls = []
     const tx = {
       $executeRaw: async (sql) => {
         const text = Array.isArray(sql) ? sql.join('') : (sql.text ?? String(sql))
         const vals = Array.isArray(sql?.values) ? [...sql.values] : []
         calls.push({ text, vals })
-      }
+      },
+      // reverseTip's parentId read (trust-column pick); [] -> post, not comment
+      $queryRaw: async () => parentRows
     }
     return { tx, calls }
   }
@@ -351,7 +434,7 @@ describe('reverseTip', () => {
     const { tx, calls } = capture()
     await reverseTip(42, 999, 1000000000n, 700000000n, tx)
     const { text, vals } = calls[0]
-    expect(text).toContain('"upvotes" = "Item"."upvotes" - 1')
+    expect(text).toContain('"upvotes" = "Item"."upvotes" - zap.last_vote')
     // no digits after the minus: the amount is a bound parameter
     expect(text).toContain('"tipPiconeros" = GREATEST("ItemUserAgg"."tipPiconeros" - ')
     expect(vals).toContain(1000000000n)
@@ -377,5 +460,32 @@ describe('reverseTip', () => {
     await reverseTip(42, 999, 1000000000n, 123456789n, tx)
     // parameterized: the exact delta travels as a bound value, not SQL text
     expect(calls[0].vals).toContain(123456789n)
+  })
+
+  test('attributed inverse gives back weightedVotes/subWeightedVotes via zap.log_sats and zapper trust', async () => {
+    const { tx, calls } = capture()
+    await reverseTip(42, 999, 1000000000n, 700000000n, tx)
+    const { text } = calls[0]
+    expect(text).toContain('"weightedVotes" = "Item"."weightedVotes" - zapper."zapTrust" * zap.log_sats')
+    expect(text).toContain('"subWeightedVotes" = "Item"."subWeightedVotes" - zapper."subZapTrust" * zap.log_sats')
+    expect(text).toContain('("tipPiconeros" = 0)::INTEGER AS last_vote')
+    expect(text).toContain(')::FLOAT / GREATEST("tipPiconeros", 1)::FLOAT) AS log_sats')
+    expect(text).toContain('FROM zap, zapper')
+    expect(text).toContain('"zapPostTrust"')
+    expect(text).not.toContain('"zapCommentTrust"')
+  })
+
+  test('comment tips reverse with zapCommentTrust (parentId read picks the column)', async () => {
+    const { tx, calls } = capture([{ parentId: 1 }])
+    await reverseTip(42, 999, 1000000000n, 700000000n, tx)
+    expect(calls[0].text).toContain('"zapCommentTrust"')
+    expect(calls[0].text).not.toContain('"zapPostTrust"')
+  })
+
+  test('anonymous inverse still touches no weighted columns', async () => {
+    const { tx, calls } = capture()
+    await reverseTip(42, null, 1000000000n, 700000000n, tx)
+    expect(calls[0].text).not.toContain('weightedVotes')
+    expect(calls[0].text).not.toContain('FROM zap')
   })
 })
