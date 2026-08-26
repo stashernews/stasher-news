@@ -640,7 +640,7 @@ export default {
           ${SELECT}
           FROM "Item"
           ${payInJoinFilter(me)}
-          WHERE url ~* $1
+          ${whereClause('url ~* $1', activeOrMine(me))}
           ORDER BY created_at DESC
           LIMIT 3`
       }, similar)
