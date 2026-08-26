@@ -37,6 +37,7 @@ import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
 import { abandonFeeItems } from './abandonFeeItems'
+import { reverseStaleDetections } from './reverseStaleDetections'
 import { reconcileOwnerFeeLegs } from './reconcileOwnerFeeLegs'
 import { healthProbe } from './healthProbe'
 import { dbBackup } from './dbBackup'
@@ -219,6 +220,14 @@ async function work () {
   // FEE_ITEM_ABANDON_DAYS (1 day). Recurrence is cron-owned (pgboss.schedule
   // row abandonFeeItems, hourly) — no self-requeue.
   await boss.work('abandonFeeItems', { includeMetadata: true }, jobWrapper(abandonFeeItems))
+
+  // reverseStaleDetections: flips DETECTED-without-height observations older
+  // than STALE_DETECTED_EXPIRY_MS (48h) to REORGED and reverses their
+  // provisional effects (rank, upvotes, boost, downvote penalty, fee-gated
+  // item liveness) — closes the 0-conf double-spend window (audit A-1).
+  // Recurrence is cron-owned (pgboss.schedule row reverseStaleDetections,
+  // every 10 min) — no self-requeue.
+  await boss.work('reverseStaleDetections', { includeMetadata: true }, jobWrapper(reverseStaleDetections))
 
   // reconcileOwnerFeeLegs: hourly backstop for owner-routed fee legs whose
   // lws webhook callback was missed — re-observes receipts via lws and replays

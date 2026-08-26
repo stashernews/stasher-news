@@ -441,6 +441,25 @@ test('retried callback for an already-EXCLUDED tip is a 200 no-op + best-effort 
   expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-4')
 })
 
+test('a callback for a REORGED tip is a 200 no-op with a best-effort webhook delete', async () => {
+  const tip = { id: 8, postId: 10, tipperId: 99, state: 'REORGED', paymentId: 'abc123', piconeros: 1000000000n, webhookEventId: 'w-reorged', post: { userId: 99 } }
+  const models = mockModels({ observedTip: { findFirst: jest.fn().mockResolvedValue(tip) } })
+  const monero = mockMonero()
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 12, tx_info: { tx_hash: 'late', block: 999, amount: 1000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // the sweep already tried the delete once; the late callback retries it
+  expect(monero.deleteWebhook).toHaveBeenCalledTimes(1)
+  expect(monero.deleteWebhook).toHaveBeenCalledWith('w-reorged')
+  // nothing advanced or flipped: no state write, no transaction, and the
+  // fall-through bounty/downvote lookups are never reached
+  expect(models.observedTip.update).not.toHaveBeenCalled()
+  expect(models.$transaction).not.toHaveBeenCalled()
+  expect(models.observedBounty.findFirst).not.toHaveBeenCalled()
+})
+
 test('lws scan failure during the self-send check fails closed (non-200, lws will retry)', async () => {
   const ACCT = { label: 'author', ownerUserId: 99, status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) }, subaddresses: [] }
   const tip = { id: 5, postId: 10, tipperId: null, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-5', post: { userId: 99 }, recipientAccount: ACCT }

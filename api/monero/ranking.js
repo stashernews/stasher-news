@@ -55,12 +55,14 @@ function ageFactorSql (cfg) {
 function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
   const isAdd = sign === ADD
 
-  // ---- unchanged: per-user attribution upsert (attributed only) ----
-  // (RETURNING also exposes userId/tipPiconeros post-upsert — rank_calc
-  // derives the capped delta from them; first_vote/log_sats are unchanged.)
+  // ADD: the attribution upsert. SUB: the exact give-back (decrement the
+  // cumulative the ADD upserted so future rank_calc "before" values are exact;
+  // GREATEST(...,0) guards pre-migration drift). tipperId == null (anon) has
+  // no ItemUserAgg row in either direction.
   const zap = tipperId == null
     ? Prisma.empty
-    : Prisma.sql`
+    : isAdd
+      ? Prisma.sql`
         zap AS (
           INSERT INTO "ItemUserAgg" ("userId", "itemId", "tipPiconeros")
           VALUES (${tipperId}::INTEGER, ${postId}::INTEGER, ${piconeros}::BIGINT)
@@ -70,9 +72,15 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
             ("tipPiconeros" = ${piconeros}::BIGINT)::INTEGER AS first_vote,
             LOG("tipPiconeros"::FLOAT / GREATEST("tipPiconeros" - ${piconeros}, 1)::FLOAT) AS log_sats
         ),`
+      : Prisma.sql`
+        zap AS (
+          UPDATE "ItemUserAgg"
+          SET "tipPiconeros" = GREATEST("ItemUserAgg"."tipPiconeros" - ${piconeros}::BIGINT, 0), updated_at = now()
+          WHERE "userId" = ${tipperId}::INTEGER AND "itemId" = ${postId}::INTEGER
+        ),`
 
-  // ---- unchanged: territory + trust lookup (attributed only) ----
-  const trust = tipperId == null
+  // ---- territory + trust lookup (attributed ADD only) ----
+  const trust = (tipperId == null || !isAdd)
     ? Prisma.empty
     : Prisma.sql`
         territory AS (
@@ -115,7 +123,15 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
     ? (tipperId == null
         ? Prisma.sql`"upvotes" = "Item"."upvotes"`
         : Prisma.sql`"upvotes" = "Item"."upvotes" + zap.first_vote`)
-    : Prisma.sql`"upvotes" = "Item"."upvotes" - 1`
+    : (tipperId == null
+        ? Prisma.sql`"upvotes" = "Item"."upvotes"`
+        : Prisma.sql`"upvotes" = "Item"."upvotes" - 1`)
+
+  // anon SUB: give back the collective anon bucket the anon ADD incremented
+  const anonBucketSet = (!isAdd && tipperId == null)
+    ? Prisma.sql`,
+              "anonTipPiconeros" = "Item"."anonTipPiconeros" - ${piconeros}::BIGINT`
+    : Prisma.empty
   const weightedSet = needZap
     ? Prisma.sql`,
         "weightedVotes" = "Item"."weightedVotes" + zapper."zapTrust" * zap.log_sats,
@@ -194,7 +210,7 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
           UPDATE "Item"
           SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
               ${tipRankSet},
-              ${upvotesSet}
+              ${upvotesSet}${anonBucketSet}
           WHERE "Item".id = ${postId}::INTEGER
           RETURNING "Item".*
         )`
@@ -272,13 +288,16 @@ export async function applyTipDetected (postId, tipperId, piconeros, tx) {
   return rows?.[0]?.rank_delta ?? 0n
 }
 
-// Inverse for reorg reconciliation. No production caller yet — the future
-// reorg reconciler consumes this. rankPiconeros is the delta the detection
+// Inverse for reorg/stale-DETECTED reconciliation, consumed by the
+// reverseStaleDetections sweep. rankPiconeros is the delta the detection
 // applied (ObservedTip.rankPiconeros) — subtract it EXACTLY; fallback to the
-// raw amount only for pre-migration rows where it is null.
-export async function reverseTip (postId, piconeros, rankPiconeros = null, tx) {
+// raw amount only for pre-migration rows where it is null. tipperId selects
+// the correct inverse: attributed tips give back one upvote and their
+// ItemUserAgg.tipPiconeros; anonymous tips leave upvotes untouched (the ADD
+// path never incremented them) and give back the collective anon bucket.
+export async function reverseTip (postId, tipperId, piconeros, rankPiconeros = null, tx) {
   const cfg = { rankDelta: rankPiconeros ?? piconeros }
-  const sql = tipDeltaSql(postId, null, piconeros, SUB, false, cfg)
+  const sql = tipDeltaSql(postId, tipperId, piconeros, SUB, false, cfg)
   if (tx) {
     await tx.$executeRaw(sql)
     return

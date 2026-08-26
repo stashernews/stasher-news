@@ -158,6 +158,30 @@ export async function applyBoostDetected (models, payIn, piconeros) {
     WHERE "Item".id = ancestors.id`
 }
 
+// Inverse of applyBoostDetected for the reverseStaleDetections sweep (audit
+// A-1): give back the boost weight an unconfirmed 0-conf receipt bumped.
+// GREATEST(...,0) floors guard against pre-migration drift.
+export async function reverseBoostDetected (models, payIn, piconeros) {
+  const row = await models.itemPayIn.findUnique({ where: { payInId: payIn.id } })
+  if (!row?.itemId) return
+  await models.$executeRaw`
+    WITH item_unboosted AS (
+      UPDATE "Item"
+      SET boost = GREATEST(boost - ${piconeros}::BIGINT, 0)
+      WHERE id = ${row.itemId}::INTEGER
+      RETURNING *
+    )
+    UPDATE "Item"
+    SET "commentBoost" = GREATEST("Item"."commentBoost" - ${piconeros}::BIGINT, 0)
+    FROM (
+      SELECT "Item".id
+      FROM "Item", item_unboosted
+      WHERE "Item".path @> item_unboosted.path AND "Item".id <> item_unboosted.id
+      ORDER BY "Item".id
+    ) AS ancestors
+    WHERE "Item".id = ancestors.id`
+}
+
 // Attribute a primary-address output carrying a payment_id to a downvote. Looks
 // up the payment_id in the DownvotePidMap reverse map; if found, idempotently
 // records an ObservedDownvote (DETECTED) and applies the LOG-scaled ranking penalty

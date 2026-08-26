@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { makeDownvoteAddress, reverseMapPaymentId } from '@/api/monero/downvote'
+import { makeDownvoteAddress, reverseMapPaymentId, reverseDownvotePenalty } from '@/api/monero/downvote'
 import { generateDownvotePaymentId, generateTipPaymentId } from '@/api/monero/paymentId'
 import { getInitial } from '@/api/payIn/types/downZap'
 
@@ -118,4 +118,24 @@ describe('downZap getInitial webhook registration', () => {
     ).rejects.toThrow('lws down')
     expect(models.downvotePidMap.create).not.toHaveBeenCalled()
   })
+})
+
+// Group D — reverseDownvotePenalty (stale-detection reversal, D3-corrected)
+
+test('reverseDownvotePenalty subtracts weight, downPiconeros, and the ancestor rollup', async () => {
+  const calls = []
+  const models = {
+    $executeRaw: async (...args) => {
+      const q = args[0]
+      calls.push({ sql: Array.isArray(q) ? q.join('') : q.text, vals: args.slice(1) })
+      return 1
+    }
+  }
+  await reverseDownvotePenalty(models, { id: 42, parentId: null }, 999, 500000000n)
+  const { sql, vals } = calls[0]
+  expect(sql).toContain('"weightedDownVotes" = "weightedDownVotes" - zapper."zapTrust" * zap.log_sats')
+  expect(sql).toContain('"downPiconeros" = "downPiconeros" - ')
+  expect(sql).toContain('"commentDownPiconeros" = "commentDownPiconeros" - ')
+  expect(sql).toContain('"downvotePiconeros" = GREATEST("ItemUserAgg"."downvotePiconeros" - ')
+  expect(vals).toContain(500000000n)
 })

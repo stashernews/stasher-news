@@ -87,3 +87,52 @@ export async function applyDownvotePenalty (models, item, userId, piconeros) {
     ) AS ancestors
     WHERE "Item".id = ancestors.id`
 }
+
+// Inverse of applyDownvotePenalty for the reverseStaleDetections sweep (audit
+// A-1). The forward applied zapTrust * LOG(after/before) where after = before +
+// piconeros; after the give-back below the stored cumulative equals "before",
+// so the RETURNING recomputes the SAME log factor and subtracts it exactly
+// (exact under no interleaving; concurrent same-item downvotes interleave LOG
+// accumulation in both directions — best-effort, same posture as tips).
+export async function reverseDownvotePenalty (models, item, userId, piconeros) {
+  const itemId = item.id
+  const isComment = item.parentId != null
+  const trustCol = isComment ? Prisma.sql`"zapCommentTrust"` : Prisma.sql`"zapPostTrust"`
+  const subTrustCol = isComment ? Prisma.sql`"subZapCommentTrust"` : Prisma.sql`"subZapPostTrust"`
+
+  await models.$executeRaw`
+    WITH territory AS (
+      SELECT COALESCE(r."subNames"[1], i."subNames"[1], 'meta')::CITEXT as "subName"
+      FROM "Item" i
+      LEFT JOIN "Item" r ON r.id = i."rootId"
+      WHERE i.id = ${itemId}::INTEGER
+    ), zapper AS (
+      SELECT
+        COALESCE(${trustCol}, 0) as "zapTrust",
+        COALESCE(${subTrustCol}, 0) as "subZapTrust"
+      FROM territory
+      LEFT JOIN "UserSubTrust" ust ON ust."subName" = territory."subName"
+        AND ust."userId" = ${userId}::INTEGER
+    ), zap AS (
+      UPDATE "ItemUserAgg"
+      SET "downvotePiconeros" = GREATEST("ItemUserAgg"."downvotePiconeros" - ${piconeros}::BIGINT, 0), updated_at = now()
+      WHERE "userId" = ${userId}::INTEGER AND "itemId" = ${itemId}::INTEGER
+      RETURNING LOG(("downvotePiconeros" + ${piconeros}::BIGINT)::FLOAT / GREATEST("downvotePiconeros", 1)::FLOAT) AS log_sats
+    ), item_undownzapped AS (
+      UPDATE "Item"
+      SET "weightedDownVotes" = "weightedDownVotes" - zapper."zapTrust" * zap.log_sats,
+          "subWeightedDownVotes" = "subWeightedDownVotes" - zapper."subZapTrust" * zap.log_sats,
+          "downPiconeros" = "downPiconeros" - ${piconeros}::BIGINT
+      FROM zap, zapper
+      WHERE "Item".id = ${itemId}::INTEGER
+      RETURNING "Item".*
+    )
+    UPDATE "Item"
+    SET "commentDownPiconeros" = "commentDownPiconeros" - ${piconeros}::BIGINT
+    FROM (
+      SELECT "Item".id FROM "Item", item_undownzapped
+      WHERE "Item".path @> item_undownzapped.path AND "Item".id <> item_undownzapped.id
+      ORDER BY "Item".id
+    ) AS ancestors
+    WHERE "Item".id = ancestors.id`
+}

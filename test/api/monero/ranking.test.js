@@ -145,7 +145,7 @@ test('reverseTip subtracts piconeros, lowers ranktop, and decrements upvotes', a
 
   await applyTipDetected(p, tipper, 5000000n)
   const before = await readItem(p)
-  await reverseTip(p, 2000000n)
+  await reverseTip(p, tipper, 2000000n)
   const after = await readItem(p)
 
   expect(before.piconeros - after.piconeros).toBe(2000000n)
@@ -323,8 +323,59 @@ test('reverseTip subtracts the stored rank delta exactly', async () => {
   const delta = await applyTipDetected(p, tipper, 10_000_000_000n) // factor 1.0 x 1e10
   expect(delta).toBe(10_000_000_000n)
   const before = await readItem(p)
-  await reverseTip(p, 10_000_000_000n, delta)
+  await reverseTip(p, tipper, 10_000_000_000n, delta)
   const after = await readItem(p)
   expect(after.tipRankPiconeros).toBe(0n)
   expect(before.piconeros - after.piconeros).toBe(10_000_000_000n)
+})
+
+/* reverseTip — stale-DETECTED reversal SQL shape (audit A-1).
+   These assert the GENERATED SQL via a mocked tx (pure capture — no DB):
+   the inverse must match the ADD path branch-for-branch. Prisma
+   parameterizes interpolated values, so numeric amounts NEVER appear in
+   the SQL text — amount assertions run against the captured values. */
+describe('reverseTip', () => {
+  const capture = () => {
+    const calls = []
+    const tx = {
+      $executeRaw: async (sql) => {
+        const text = Array.isArray(sql) ? sql.join('') : (sql.text ?? String(sql))
+        const vals = Array.isArray(sql?.values) ? [...sql.values] : []
+        calls.push({ text, vals })
+      }
+    }
+    return { tx, calls }
+  }
+
+  test('attributed inverse decrements upvotes and ItemUserAgg.tipPiconeros', async () => {
+    const { tx, calls } = capture()
+    await reverseTip(42, 999, 1000000000n, 700000000n, tx)
+    const { text, vals } = calls[0]
+    expect(text).toContain('"upvotes" = "Item"."upvotes" - 1')
+    // no digits after the minus: the amount is a bound parameter
+    expect(text).toContain('"tipPiconeros" = GREATEST("ItemUserAgg"."tipPiconeros" - ')
+    expect(vals).toContain(1000000000n)
+    // the attributed ADD path never increments the anon bucket, so its
+    // inverse must not decrement it
+    expect(text).not.toContain('anonTipPiconeros" = "Item"."anonTipPiconeros" -')
+    expect(text).not.toContain('+ zap.first_vote')
+  })
+
+  test('anonymous inverse leaves upvotes alone and decrements the anon bucket only', async () => {
+    const { tx, calls } = capture()
+    await reverseTip(42, null, 1000000000n, 700000000n, tx)
+    const { text } = calls[0]
+    // upvotes untouched (no - 1 — the attributed SUB branch's literal text)
+    expect(text).toContain('"upvotes" = "Item"."upvotes"')
+    expect(text).not.toContain('"upvotes" = "Item"."upvotes" - 1')
+    expect(text).toContain('"anonTipPiconeros" = "Item"."anonTipPiconeros" - ')
+    expect(text).not.toContain('"tipPiconeros" = GREATEST')
+  })
+
+  test('the stored rank delta is subtracted exactly', async () => {
+    const { tx, calls } = capture()
+    await reverseTip(42, 999, 1000000000n, 123456789n, tx)
+    // parameterized: the exact delta travels as a bound value, not SQL text
+    expect(calls[0].vals).toContain(123456789n)
+  })
 })

@@ -87,6 +87,20 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
       return res.status(200).end()
     }
 
+    if (tip.state === 'REORGED') {
+      // Terminal: the reverseStaleDetections sweep reversed this tip (double-spend
+      // or mempool eviction). Retried/late callbacks are no-ops; best-effort
+      // webhook delete (the sweep already tried once).
+      if (tip.webhookEventId) {
+        try {
+          await monero.deleteWebhook(tip.webhookEventId)
+        } catch (err) {
+          console.warn(`webhook: lws deleteWebhook failed (best-effort): ${err && err.message}`)
+        }
+      }
+      return res.status(200).end()
+    }
+
     if (tip.state === 'PENDING') {
       const piconeros = BigInt(amount || '0')
       // Self-tip exclusion (spec §2.3): direct self-tip is a free check from
