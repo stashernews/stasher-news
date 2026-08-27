@@ -6,19 +6,13 @@ sub: meta
 
 # Stasher News Content Guidelines
 
-Stasher News is a place for stashers to connect and share interesting ideas.
-
-If there was one Stasher News principle to live by, it would be to follow your curiosity and share content that fascinates you.
+Stasher News is a place for stashers to connect and share interesting ideas, news, content, memes.
 
 Right now, much of the conversation on Stasher News revolves around Monero and related topics, but there are also dozens of new topics covered on different turfs.
 
 This guide is designed to share best practices for posting content so you can get the most out of your experience here.
 
 ## What To Share on Stasher News
-
-It's worth repeating the central idea from the previous section here.
-
-If you're not sure what to share, follow your curiosity and share content that you find fascinating.
 
 You can share [interesting links](/post?type=link), [original posts](/post?type=discussion), [polls](/post?type=poll), [bounties](/post?type=bounty) or [job listings](/~jobs/post). You can also add comments to any type of post to have in-depth discussions with other stashers.
 
@@ -66,18 +60,16 @@ When responding to other stashers, consider using full sentences and appropriate
 
 ## What Not To Share on Stasher News
 
-Instead of explicitly telling stashers what they can and can't share, Monero is the tool that the Stasher News community uses to signal which content is (or is not) valued.
+Monero is the tool that the Stasher News community uses to signal which content is (or is not) valued.
 
 If you regularly stash XMR for your content, consider it a signal that other stashers enjoy what you're sharing. If your content is often ignored, consider it a signal that stashers aren't finding it valuable.
 
+What to absolutely never share on Stasher:
+
+high-risk visuals that, in Stasher News' sole determination, harm the platform (irrespective of legality in the user’s jurisdiction), including without limitation gore (open wounds, deceased human or animal bodies), repulsive content (vomit, defecation, diseases such as nail fungus), terrorist symbols, and any content advocating terrorism/murder (e.g. “Kill all …”); such content in posts or accounts shall result in immediate removal and may result in account ban.
+
 ## Content That Gets Ignored
 
-Generally speaking, referral links and repetitive content tend to be ignored by the Stasher News community.
+Generally speaking, referral links, repetitive, unoriginal, or poor quality content tend to be ignored by the Stasher News community.
 
-Because posting and commenting are gated by fees — posts cost 0.001 XMR until a stasher has stacked 0.01 XMR and been around for 7 days, after which the first 5 posts each month are free and later ones cost 0.001 XMR, and comments cost 0.001 XMR beyond 5 per month (15 once established) — anyone who is regularly posting content that the community ignores has a financial and social incentive to either share more relevant content or avoid posting at all.
-
-## Connect with Stashers
-
-Stashing XMR and seeing your post at the top of the page is always fun, but the best part about Stasher News is connecting and sharing ideas with our global community of stashers.
-
-The daily discussion thread is a great place to introduce yourself to the community and to share whatever is on your mind. Think of this thread as a lounge or social club where you can share freely without being bound by the constraint of topic-based discussions.
+Because posting and commenting are gated by fees. Anyone who is regularly posting content that the community ignores has a financial and social incentive to either share more relevant content or avoid posting at all.
