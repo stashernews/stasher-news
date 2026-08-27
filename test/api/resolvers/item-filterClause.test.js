@@ -63,7 +63,7 @@ describe('filterClause with BigInt filters', () => {
       userLoader: { load: async () => null },
       subLoader: { load: async () => null }
     })
-    expect(clause).toContain('>= -100000000000')
+    expect(clause).toContain('>= -25000000000')
   })
 
   test('territory lit stays territory-authoritative even when the user set -∞', async () => {

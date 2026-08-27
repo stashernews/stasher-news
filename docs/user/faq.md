@@ -309,7 +309,7 @@ Yes. If you see content that you think should not be on Stasher News, you can cl
 
 Downvoting content is a form of negative feedback that reduces the visibility of the specific item. Downvote payments fund the weekly curator rewards pool.
 
-By default, nothing is hidden from your feeds — your filter starts at the 'wild west' end (show all). If you move the 'posts xmr filter' or 'comments xmr filter' slider in your [settings](/settings) up from 'wild west', items downvoted below your threshold become outlawed: posts drop out of your feeds and comments collapse to the bottom. Turfs and the logged-out front page are stricter: they only hide posts downvoted below -0.1 XMR net investment, and outlawed items always remain reachable by direct link.
+By default, your posts and comments filters start at -0.025 XMR: a post or comment whose net investment (cost + tips + boost - downvotes) sinks below that — roughly a dozen minimum downvotes — becomes outlawed: posts drop out of your feeds and comments collapse to the bottom. The 'posts xmr filter' and 'comments xmr filter' sliders in your [settings](/settings) set your own threshold, from 'wild west' at the far left (-0.1, show everything, even heavily downvoted content) up to 0.01 at the right. Turfs use their own filter floors, and outlawed items always remain reachable by direct link.
 
 ---
 

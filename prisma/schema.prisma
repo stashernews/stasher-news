@@ -40,8 +40,8 @@ model User {
   noteMentions            Boolean              @default(true)
   noteItemMentions        Boolean              @default(true)
   photoId                 Int?
-  postsPiconerosFilter    BigInt?
-  commentsPiconerosFilter BigInt?
+  postsPiconerosFilter    BigInt?              @default(-25000000000)
+  commentsPiconerosFilter BigInt?              @default(-25000000000)
   freeCommentCount        Int                  @default(0)
   freeCommentResetAt      DateTime?
   freePostCount           Int                  @default(0)

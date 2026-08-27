@@ -156,13 +156,14 @@ test('User and Sub filter fields are BigInt piconero filters', () => {
   }
   check('User', ['postsPiconerosFilter', 'commentsPiconerosFilter'])
   check('Sub', ['postsPiconerosFilter'])
-  // Pin the defaults: User filters default to NULL (show-all), Sub turf filter
-  // defaults to -0.1 XMR (-100000000000 piconeros). A future schema edit must not
-  // silently re-add @default(-2000000000) or drop the Sub default.
+  // Pin the defaults: User filters default to -0.025 XMR (-25000000000
+  // piconeros), Sub turf filter defaults to -0.1 XMR (-100000000000
+  // piconeros). A future schema edit must not silently change or drop
+  // either default.
   const userModel = allModels.find(m => m.name === 'User')
   for (const name of ['postsPiconerosFilter', 'commentsPiconerosFilter']) {
     const f = userModel.fields.find(field => field.name === name)
-    expect(f.default).toBeUndefined()
+    expect(f.default).toBe('-25000000000')
   }
   const subModel = allModels.find(m => m.name === 'Sub')
   const subField = subModel.fields.find(field => field.name === 'postsPiconerosFilter')

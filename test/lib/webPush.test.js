@@ -13,6 +13,9 @@ const WEBPUSH_PATH = require.resolve('../../lib/webPush')
 jest.mock('../../api/models', () => ({
   pushSubscription: {
     findMany: jest.fn()
+  },
+  user: {
+    findUnique: jest.fn()
   }
 }))
 jest.mock('web-push', () => ({
@@ -93,4 +96,28 @@ test('sends with vapidDetails when VAPID is configured', async () => {
     publicKey: VALID_PUBKEY,
     privateKey: VALID_PRIVKEY
   })
+})
+
+test('meetsUserSatFilter applies the Number default when the user row is missing (BigInt-safe)', async () => {
+  process.env.NODE_ENV = 'production'
+  const { meetsUserSatFilter } = require(WEBPUSH_PATH)
+  require('../../api/models').user.findUnique.mockResolvedValue(null)
+
+  // Prisma rows carry BigInt monetary columns; the missing-row path compares
+  // them against the DEFAULT_* Number constant (-25000000000). The old code
+  // threw "Cannot mix BigInt and other types" here.
+  const aboveDefault = { title: 'a post', netInvestment: -1000000n }
+  await expect(meetsUserSatFilter(42, aboveDefault)).resolves.toBe(true)
+
+  const belowDefault = { title: 'a post', netInvestment: -30000000000n }
+  await expect(meetsUserSatFilter(42, belowDefault)).resolves.toBe(false)
+})
+
+test('meetsUserSatFilter compares against the user row BigInt filter', async () => {
+  process.env.NODE_ENV = 'production'
+  const { meetsUserSatFilter } = require(WEBPUSH_PATH)
+  require('../../api/models').user.findUnique.mockResolvedValue({ postsPiconerosFilter: 1000n })
+
+  await expect(meetsUserSatFilter(42, { title: 'p', netInvestment: 2000n })).resolves.toBe(true)
+  await expect(meetsUserSatFilter(42, { title: 'p', netInvestment: 999n })).resolves.toBe(false)
 })

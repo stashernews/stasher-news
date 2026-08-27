@@ -783,7 +783,10 @@ export function Range ({
           value={isAll ? sliderMin : field.value}
           onChange={(e) => {
             const val = Number(e.target.value)
-            if (allOption && val <= sliderMin) {
+            // anything below the valid min is the leftmost "all" position —
+            // comparing against the exact float sentinel (min - step) let
+            // browser jitter land invalid values in (sliderMin, min)
+            if (allOption && val < min) {
               helpers.setValue(null)
             } else {
               helpers.setValue(val)
