@@ -65,6 +65,7 @@ async function authMethods (user, args, { models, me }) {
   return {
     lightning: !!user.pubkey,
     email: !!(user.emailVerified && user.emailHash),
+    emailHint: user.emailHint,
     twitter: oauth.indexOf('twitter') >= 0,
     github: oauth.indexOf('github') >= 0,
     nostr: !!user.nostrAuthPubkey,
@@ -717,7 +718,7 @@ export default {
       } else if (authType === 'nostr') {
         user = await models.user.update({ where: { id: me.id }, data: { hideNostr: true, nostrAuthPubkey: null } })
       } else if (authType === 'email') {
-        user = await models.user.update({ where: { id: me.id }, data: { email: null, emailVerified: null, emailHash: null } })
+        user = await models.user.update({ where: { id: me.id }, data: { email: null, emailVerified: null, emailHash: null, emailHint: null } })
       } else {
         throw new GqlInputError('no such account')
       }

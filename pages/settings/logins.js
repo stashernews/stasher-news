@@ -25,14 +25,9 @@ import { AuthBanner } from '@/components/banners'
 import * as cookie from 'cookie'
 import { cookieOptions } from '@/lib/auth'
 
-export const getServerSideProps = getGetServerSideProps({ query: SETTINGS, authRequired: true })
+import { enabledAuthProviders } from '@/lib/authMethods'
 
-// sort to prevent hydration mismatch
-const getProviders = (authMethods) =>
-  Object.keys(authMethods).filter(k =>
-    k !== '__typename' && k !== 'apiKey' && k !== 'enabled' &&
-    (authMethods.enabled || []).includes(k)
-  ).sort()
+export const getServerSideProps = getGetServerSideProps({ query: SETTINGS, authRequired: true })
 
 export default function Logins ({ ssrData }) {
   const { me } = useMe()
@@ -118,12 +113,14 @@ function AuthMethods ({ methods, apiKeyEnabled }) {
   const router = useRouter()
   const toaster = useToast()
   const [err, setErr] = useState(authErrorMessage(router.query.error))
+  const [showEmailForm, setShowEmailForm] = useState(false)
   const [unlinkAuth] = useMutation(
     gql`
       mutation unlinkAuth($authType: String!) {
         unlinkAuth(authType: $authType) {
           lightning
           email
+          emailHint
           twitter
           github
           nostr
@@ -148,7 +145,7 @@ function AuthMethods ({ methods, apiKeyEnabled }) {
     }
   )
 
-  const providers = getProviders(methods)
+  const providers = enabledAuthProviders(methods)
 
   const unlink = async type => {
     // if there's only one auth method left
@@ -186,15 +183,31 @@ function AuthMethods ({ methods, apiKeyEnabled }) {
         if (provider === 'email') {
           return methods.email
             ? (
-              <div key={provider} className='mt-2 d-flex align-items-center'>
-                <Button
-                  variant='secondary' onClick={
-                    async () => {
-                      await unlink('email')
-                    }
-                  }
-                >Unlink Email
-                </Button>
+              <div key={provider} className='mt-2'>
+                <div className='d-flex align-items-center'>
+                  <span className='text-muted me-3'>
+                    {methods.emailHint ? `linked: ${methods.emailHint}` : 'an email is linked'}
+                  </span>
+                  {!showEmailForm && (
+                    <>
+                      <Button
+                        variant='secondary' onClick={
+                          async () => {
+                            await unlink('email')
+                          }
+                        }
+                      >Unlink Email
+                      </Button>
+                      <Button variant='secondary' className='ms-2' onClick={() => setShowEmailForm(true)}>Change email</Button>
+                    </>
+                  )}
+                </div>
+                {showEmailForm && (
+                  <div className='mt-2'>
+                    <EmailLinkForm callbackUrl='/settings/logins' />
+                    <Button variant='link' className='p-0' onClick={() => setShowEmailForm(false)}>cancel</Button>
+                  </div>
+                )}
               </div>
               )
             : <div key={provider} className='mt-2'><EmailLinkForm callbackUrl='/settings/logins' /></div>

@@ -20,6 +20,7 @@ model User {
   email                   String?              @unique(map: "users.email_unique")
   emailVerified           DateTime?            @map("email_verified")
   emailHash               String?              @unique(map: "users.email_hash_unique")
+  emailHint               String?
   checkedNotesAt          DateTime?
   foundNotesAt            DateTime?
   apiKeyHash              String?              @unique(map: "users.apikeyhash_unique") @db.Char(64)

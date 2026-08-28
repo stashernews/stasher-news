@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { bech32 } from 'bech32'
 import { NOSTR_MAX_RELAY_NUM, NOSTR_PUBKEY_BECH32, DEFAULT_CROSSPOSTING_RELAYS } from '@/lib/nostr'
 import { isNostrEnabled } from '@/lib/nostrFeatures'
+import { hasOnlyOneAuthMethod } from '@/lib/authMethods'
 import { settingsSchema, filterXmrValidator } from '@/lib/validate'
 import { SUPPORTED_CURRENCIES } from '@/lib/currency'
 import PageLoading from '@/components/page-loading'
@@ -33,12 +34,7 @@ function bech32encode (hexString) {
   return bech32.encode('npub', bech32.toWords(Buffer.from(hexString, 'hex')))
 }
 
-// Show alert message if user only has one auth method activated
-export const hasOnlyOneAuthMethod = (authMethods) => {
-  const providers = Object.keys(authMethods).filter(k => k !== '__typename' && k !== 'apiKey' && k !== 'enabled')
-  const activatedAuths = providers.filter(provider => !!authMethods[provider])
-  return activatedAuths.length <= 1
-}
+export { hasOnlyOneAuthMethod }
 
 export function SettingsHeader () {
   const router = useRouter()

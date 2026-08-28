@@ -111,6 +111,7 @@ export default gql`
     github: Boolean!
     twitter: Boolean!
     email: Boolean!
+    emailHint: String
     apiKey: Boolean
     enabled: [String!]!
   }

@@ -10,7 +10,7 @@ import { PrismaAdapter } from '@auth/prisma-adapter'
 import { getToken, encode as encodeJWT } from 'next-auth/jwt'
 import { schnorr } from '@noble/curves/secp256k1'
 import { notifyReferral } from '@/lib/webPush'
-import { hashEmail } from '@/lib/crypto'
+import { hashEmail, maskEmail } from '@/lib/crypto'
 import { multiAuthMiddleware, setMultiAuthCookies, cookieOptions } from '@/lib/auth'
 import { isAuthProviderEnabled } from '@/lib/authProviderEnv'
 import { getDomainMapping } from '@/lib/domains'
@@ -338,6 +338,7 @@ export const getAuthOptions = (req, res) => ({
       if (data.email) {
         const { email } = data
         data.emailHash = hashEmail({ email })
+        data.emailHint = maskEmail({ email })
         delete data.email
         // data.email used to be used for name of new accounts. since it's missing, let's generate a new name
         data.name = data.emailHash.substring(0, 10)
@@ -427,7 +428,10 @@ export const getAuthOptions = (req, res) => ({
             try {
               await tx.user.update({
                 where: { id: linkUserId },
-                data: { emailHash: hashEmail({ email: identifier }) }
+                data: {
+                  emailHash: hashEmail({ email: identifier }),
+                  emailHint: maskEmail({ email: identifier })
+                }
               })
             } catch (error) {
               if (error.code === 'P2002') {
