@@ -1,4 +1,5 @@
 import { $applyNodeReplacement, createState, $getState, $setState, DecoratorNode } from 'lexical'
+import { canonicalizeMediaUrl } from '@/lib/url'
 
 // kind and status can change over time, so we need to store them in states
 const kindState = createState('kind', {
@@ -49,6 +50,9 @@ function $convertMediaElement (domNode) {
   } else {
     return null
   }
+
+  // never let a signed imgproxy preview url enter editor state via DOM paste
+  src = canonicalizeMediaUrl(src)
 
   const node = $createMediaNode({ src, alt, title, width, height, srcSet, bestResSrc, maxWidth, autolink })
   $setState(node, kindState, kind)

@@ -2,6 +2,7 @@ import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
 import { uploadFees } from '../../resolvers/upload'
 import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
+import { canonicalizeItemText } from '@/lib/url'
 import { notifyItemMention, notifyMention } from '@/lib/webPush'
 import * as MEDIA_UPLOAD from './mediaUpload'
 import { getItem } from '@/api/resolvers/item'
@@ -62,6 +63,9 @@ export async function getInitial (models, { id, uploadIds = [], bio, subNames },
 
 export async function onBegin (tx, payInId, args) {
   const { id, uploadIds = [], options: pollOptions = [], subNames = [], ...data } = args
+  // never persist signed imgproxy preview urls: decode them to their embedded
+  // source url (canonical https://<host>/uploads/N) so text survives key rotations
+  if (data.text) data.text = canonicalizeItemText(data.text)
   const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
 
   const old = await tx.item.findUnique({
@@ -79,7 +83,7 @@ export async function onBegin (tx, payInId, args) {
   // updateMany is the intersection of the old and new
   const difference = (a = [], b = [], key = 'userId') => a.filter(x => !b.find(y => y[key] === x[key]))
 
-  const { userNames, itemIds } = extractMentions(args.text)
+  const { userNames, itemIds } = extractMentions(data.text)
   const mentions = await getMentions(tx, { names: userNames, userId: args.userId })
   const itemMentions = await getItemMentions(tx, { itemIds, userId: args.userId })
   const itemUploads = uploadIds.map(id => ({ uploadId: id }))

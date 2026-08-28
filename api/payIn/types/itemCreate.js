@@ -2,6 +2,7 @@ import { ANON_COMMENT_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ANON_POST_FEE_MUL
 import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
 import { getItemMentions, getMentions, performBotBehavior, getSubs, countNonOwnedSubs } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
+import { canonicalizeItemText } from '@/lib/url'
 import { GqlInputError } from '@/lib/error'
 import { getItem } from '@/api/resolvers/item'
 import { getTempImgproxyUrls } from '../lib/upload'
@@ -338,6 +339,9 @@ export async function validateBeforeCreate (tx, payInProspect, payInArgs, { me }
 
 export async function onBegin (tx, payInId, args) {
   const { parentId, uploadIds = [], options: pollOptions = [], subNames = [], ...data } = args
+  // never persist signed imgproxy preview urls: decode them to their embedded
+  // source url (canonical https://<host>/uploads/N) so text survives key rotations
+  if (data.text) data.text = canonicalizeItemText(data.text)
   const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
 
   // StasherNews posting-fee gate: a PayIn that reserved a rewards-wallet fee
@@ -350,7 +354,7 @@ export async function onBegin (tx, payInId, args) {
   const feeRequired = payIn.moneroSubaddressMajor != null || payIn.moneroPaymentId != null
   const feeStatus = feeRequired ? 'PENDING_FEE' : 'FEE_NOT_REQUIRED'
 
-  const { userNames, itemIds } = extractMentions(args.text)
+  const { userNames, itemIds } = extractMentions(data.text)
   const mentions = await getMentions(tx, { names: userNames, userId: payIn.userId })
   const itemMentions = await getItemMentions(tx, { itemIds, userId: payIn.userId })
 

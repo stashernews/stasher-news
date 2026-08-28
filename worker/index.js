@@ -12,6 +12,7 @@ import { computeStreaks, checkStreak } from './streak'
 import { nip57 } from './nostr'
 import fetch from 'cross-fetch'
 import { imgproxy } from './imgproxy'
+import { imgproxyResign, findSignatureMismatch } from './imgproxyResign'
 import { deleteItem } from './ephemeralItems'
 import { deleteUnusedImages } from './deleteUnusedImages'
 import { territoryBilling } from './territory'
@@ -126,6 +127,14 @@ async function work () {
   }
   if (isServiceEnabled('images')) {
     await boss.work('imgproxy', { includeMetadata: true }, jobWrapper(imgproxy))
+    await boss.work('imgproxyResign', { includeMetadata: true }, jobWrapper(imgproxyResign))
+    // IMGPROXY_KEY/SALT rotation check: keys are read at module import, so a
+    // rotation always implies a restart — verifying a sample of stored paths
+    // here catches it exactly once, immediately, with no stored fingerprint.
+    if (await findSignatureMismatch(models)) {
+      logInfo('imgproxy key rotation detected: enqueueing backlog re-sign')
+      await boss.send('imgproxyResign', {}, { ...BOSS_RETRY, singletonKey: 'imgproxyResign' })
+    }
     await boss.work('deleteUnusedImages', { includeMetadata: true }, jobWrapper(deleteUnusedImages))
     // daily unused-image sweep; self-requeues on a 24h startAfter. Seed on
     // fresh installs (deferred 24h) so a brand-new stack lands a first run,
