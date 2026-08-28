@@ -24,7 +24,10 @@ const { payBounty, reclaimBounty, rolloverBounty } = bountyResolver.Mutation
 const prisma = new PrismaClient()
 
 // 95-char stagenet-prefixed placeholder addresses (unique per [address, network]).
-const WINNER_ADDR = '5' + '2'.repeat(94)
+// NOTE: keep distinct from other real-DB suites' literals (bountyFunding uses
+// '5'+'1'/'2'×94) — jest runs suites in parallel workers against the shared
+// dev DB, and an identical literal collides on the (address, network) unique key.
+const WINNER_ADDR = '5' + '6'.repeat(94)
 const AUTHOR_ADDR = '5' + '4'.repeat(94)
 
 // Deterministic fee config: min 0.01 XMR / 1%. With a 1e11 piconeros bounty the

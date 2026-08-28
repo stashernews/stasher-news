@@ -23,5 +23,13 @@ module.exports = createJestConfig({
   // require('uuid') to a CJS shim. See test/helpers/uuid-shim.js.
   moduleNameMapper: {
     '^uuid$': '<rootDir>/test/helpers/uuid-shim.js'
-  }
+  },
+  // The real-DB integration suites (rewardsDistributor, curatorShares, paySub,
+  // bountyFunding/Lifecycle, confirmFinalizer, ...) assume they are the SOLE
+  // writer against the live dev DB (global count assertions like
+  // payIn.count(), deterministic fixture addresses/hashes that collide across
+  // suites). Jest's default parallel workers run them concurrently, producing
+  // rotating 1-2-suite flakes on every full run (each suite green in
+  // isolation). Serialize: ~46s total vs ~10s flaky.
+  maxWorkers: 1
 })

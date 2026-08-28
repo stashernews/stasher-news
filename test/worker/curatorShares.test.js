@@ -18,6 +18,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { computeCuratorShares } from '@/worker/curatorShares'
+import { USER_ID } from '@/lib/constants'
 
 const prisma = new PrismaClient()
 
@@ -34,7 +35,44 @@ let seed
 const POOL = 10_000_000_000n // 1e10 piconeros (~0.00001 XMR-scale test pool)
 let periodStart, periodEnd
 
+// Self-healing purge of residue from a prior INTERRUPTED run of this test
+// (mirrors rewardsDistributor.test.js's purgePriorResidue). afterAll deletes by
+// the in-memory `created` lists, which are empty/incomplete if the process was
+// killed, a parallel suite's teardown raced, or beforeAll threw after partial
+// seeding. The orphaned deterministic fixtures (cs% tips, 7-then-94-fours
+// accounts, titled posts) then collide with the next run's seeding on the
+// (address, network) / (txHash) unique keys. Deletes by STABLE patterns only;
+// idempotent on a fresh DB. User 616 (real seed user `stasher`) is never deleted.
+async function purgePriorResidue () {
+  const priorTips = await prisma.observedTip.findMany({
+    where: { txHash: { startsWith: 'cs' }, paymentId: { startsWith: 'cstest' } },
+    select: { tipperId: true, postId: true }
+  })
+  const tipperIds = [...new Set(priorTips.map(t => t.tipperId).filter(Boolean))]
+  const testPostIds = [...new Set(priorTips.map(t => t.postId).filter(Boolean))]
+  const priorAuthorIds = (await prisma.item.findMany({
+    where: { title: { in: ['top post', 'mid post', 'low post', 'normal handicap control post', 'staff handicapped post'] } },
+    select: { userId: true }
+  })).map(i => i.userId)
+  const testUserIds = [...new Set([...tipperIds, ...priorAuthorIds])].filter(id => id !== HANDICAP_USER_ID)
+
+  // FK-safe order: tips -> item aggregates/items -> accounts -> users.
+  await prisma.observedTip.deleteMany({ where: { txHash: { startsWith: 'cs' }, paymentId: { startsWith: 'cstest' } } })
+  for (const id of testPostIds) {
+    await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
+    await prisma.item.deleteMany({ where: { id } })
+  }
+  await prisma.item.deleteMany({
+    where: { title: { in: ['top post', 'mid post', 'low post', 'normal handicap control post', 'staff handicapped post'] } }
+  })
+  await prisma.$executeRaw`DELETE FROM "MoneroAccount" WHERE address ~ '^74{94}[0-9]+$'`
+  if (testUserIds.length) await prisma.user.deleteMany({ where: { id: { in: testUserIds } } })
+}
+
 beforeAll(async () => {
+  // Self-heal any residue from a prior interrupted run before seeding anew.
+  await purgePriorResidue()
+
   // A wide window around "now" so freshly seeded rows fall inside it.
   periodStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
   periodEnd = new Date(Date.now() + 24 * 60 * 60 * 1000)
@@ -264,10 +302,12 @@ test('each share carries per-type earns that sum exactly to the share', async ()
 
 // HANDICAP_IDS restore (A-09 Task 1): staff users 616/4502 get a 0.5x curator
 // proportion. Two identical posts with identical tips; the handicapped one's
-// curator share must be exactly half the other's. User 616 is the real seed
-// account `stasher` in the dev DB, so the insert tracks it for teardown
-// only if it truly creates the row — the pre-existing user is never deleted.
-const HANDICAP_USER_ID = 616
+// curator share must be exactly half the other's. Uses USER_ID.sn (4502), NOT
+// 616: on a dev DB with real activity user 616 can carry genuine recent tips
+// inside the period window, which breaks the exact 0.5 ratio (observed
+// 2026-08-28: two real 1e9 tips). The insert tracks the user for teardown
+// only if it truly creates the row — a pre-existing user is never deleted.
+const HANDICAP_USER_ID = USER_ID.sn
 
 test('staff curators (HANDICAP_IDS) get a 0.5x curator proportion', async () => {
   const inserted = await prisma.$queryRaw`
