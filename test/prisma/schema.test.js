@@ -31,7 +31,8 @@ const EXPECTED_MODELS = [
   'PlatformFeeConfig',
   'ObservedBounty',
   'BountyPidMap',
-  'BountyPayment'
+  'BountyPayment',
+  'AuthChallenge'
 ]
 
 const REMOVED_MODELS = [
@@ -238,4 +239,16 @@ test('PlatformFeeConfig has the A-13 bounty fee fields', () => {
   expect(byName.bountyFeePct.default).toBe(1)
   expect(byName.bountyExpiryDays.type).toBe('Int')
   expect(byName.bountyExpiryDays.default).toBe(30)
+})
+
+test('User and AuthChallenge have the recovery-phrase auth fields', () => {
+  const userFields = fieldsOf('User')
+  expect(userFields).toContain('phrasePubkey')
+  const fields = fieldsOf('AuthChallenge')
+  for (const c of ['id', 'createdAt', 'k1', 'pubkey']) {
+    expect(fields).toContain(c)
+  }
+  // k1 is a fixed-width 64-char hex column (32 bytes)
+  const k1 = allModels.find(m => m.name === 'AuthChallenge').fields.find(f => f.name === 'k1')
+  expect(k1.type).toBe('String')
 })

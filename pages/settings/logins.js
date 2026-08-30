@@ -18,6 +18,7 @@ import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
 import { authErrorMessage } from '@/components/login'
 import { NostrAuth } from '@/components/nostr-auth'
+import PhraseLinkButton from '@/components/phrase-link-button'
 import { useToast } from '@/components/toast'
 import { useMe } from '@/components/me'
 import { SettingsHeader, hasOnlyOneAuthMethod } from './index'
@@ -88,7 +89,7 @@ function UnlinkObstacle ({ onClose, type, unlinkAuth }) {
         schema={lastAuthRemovalSchema}
         onSubmit={async () => {
           try {
-            await unlinkAuth({ variables: { authType: type } })
+            await unlinkAuth({ variables: { authType: type, lastAuthConfirm: true } })
             router.push('/settings/logins')
             onClose()
             toaster.success('unlinked auth method')
@@ -116,14 +117,16 @@ function AuthMethods ({ methods, apiKeyEnabled }) {
   const [showEmailForm, setShowEmailForm] = useState(false)
   const [unlinkAuth] = useMutation(
     gql`
-      mutation unlinkAuth($authType: String!) {
-        unlinkAuth(authType: $authType) {
+      mutation unlinkAuth($authType: String!, $lastAuthConfirm: Boolean) {
+        unlinkAuth(authType: $authType, lastAuthConfirm: $lastAuthConfirm) {
           lightning
           email
           emailHint
           twitter
           github
           nostr
+          phrase
+          phraseFingerprint
         }
       }`, {
       update (cache, { data: { unlinkAuth } }) {
@@ -213,6 +216,15 @@ function AuthMethods ({ methods, apiKeyEnabled }) {
             : <div key={provider} className='mt-2'><EmailLinkForm callbackUrl='/settings/logins' /></div>
         } else if (provider === 'nostr') {
           return <NostrLinkButton key='nostr' status={methods[provider]} unlink={async () => await unlink(provider)} />
+        } else if (provider === 'phrase') {
+          return (
+            <PhraseLinkButton
+              key='phrase'
+              status={methods.phrase}
+              fingerprint={methods.phraseFingerprint}
+              unlink={async () => await unlink(provider)}
+            />
+          )
         } else {
           return (
             <LoginButton

@@ -43,7 +43,7 @@ export default gql`
     setPhoto(photoId: ID!): Int!
     upsertBio(text: String!, sendProtocolId: Int): PayIn!
     setWalkthrough(tipPopover: Boolean, upvotePopover: Boolean): Boolean
-    unlinkAuth(authType: String!): AuthMethods!
+    unlinkAuth(authType: String!, lastAuthConfirm: Boolean): AuthMethods!
     subscribeUserPosts(id: ID): User
     subscribeUserComments(id: ID): User
     toggleMute(id: ID): User
@@ -112,6 +112,8 @@ export default gql`
     twitter: Boolean!
     email: Boolean!
     emailHint: String
+    phrase: Boolean!
+    phraseFingerprint: String
     apiKey: Boolean
     enabled: [String!]!
   }

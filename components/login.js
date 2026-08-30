@@ -8,11 +8,14 @@ import { NostrAuthWithExplainer } from './nostr-auth'
 import LoginButton, { LoginWithNymButton } from './login-button'
 import { emailSchema } from '@/lib/validate'
 import { OverlayTrigger, Tooltip } from 'react-bootstrap'
+import Button from 'react-bootstrap/Button'
 import * as cookie from 'cookie'
 import { cookieOptions, MULTI_AUTH_ANON, MULTI_AUTH_POINTER } from '@/lib/auth'
 import Link from 'next/link'
 import useCookie from './use-cookie'
 import { AccountChooser } from './account'
+import PhraseLoginForm from './phrase-login-form'
+import { COPY } from '@/lib/rebrand-copy'
 
 export function EmailLoginForm ({ text, callbackUrl, multiAuth }) {
   const disabled = multiAuth
@@ -50,6 +53,11 @@ const authErrorMessages = {
   OAuthAccountNotLinked: 'This auth method is linked to another account. To link to this account first unlink the other account.',
   EmailSignin: 'Failed to send email. Make sure you entered your email address correctly.',
   CredentialsSignin: 'Could not authenticate. Try again or choose a different method.',
+  // thrown by pubkeyAuth when the signature is valid but no account claims
+  // the phrase/nostr key in login mode (phrase space is unenumerable, so no
+  // anti-enumeration theater)
+  PhraseNoAccount: 'no account matches this phrase. sign up first?',
+  NostrNoAccount: 'no account matches this key.',
   default: 'Auth failed. Try again or choose a different method.'
 }
 
@@ -104,9 +112,22 @@ export default function Login ({ providers, callbackUrl, multiAuth, error, text,
   [providers, multiAuth])
 
   const nostrEnabled = Object.values(providers || {}).some(p => p.id === 'nostr')
+  const phraseEnabled = Object.values(providers || {}).some(p => p.id === 'phrase')
 
   if (router.query.type === 'nostr' && nostrEnabled) {
     return <NostrAuthWithExplainer callbackUrl={callbackUrl} text={text} multiAuth={multiAuth} />
+  }
+
+  if (router.query.type === 'phrase' && phraseEnabled) {
+    return (
+      <div className={styles.login}>
+        {Header && <Header />}
+        {errorMessage &&
+          <Alert variant='danger' onClose={() => setErrorMessage(undefined)} dismissible>{errorMessage}</Alert>}
+        <PhraseLoginForm callbackUrl={callbackUrl} multiAuth={multiAuth} />
+        {Footer && <Footer />}
+      </div>
+    )
   }
 
   return (
@@ -159,6 +180,23 @@ export default function Login ({ providers, callbackUrl, multiAuth, error, text,
                 }}
                 text={`${text || 'Login'} with`}
               />
+            )
+          case 'Phrase':
+            return (
+              <Button
+                key={provider.id}
+                className={`mt-2 ${styles.providerButton}`}
+                variant='outline-primary'
+                onClick={() => {
+                  if (signin) {
+                    const { nodata, ...query } = router.query
+                    router.push({ pathname: router.pathname, query: { ...query, type: 'phrase' } })
+                  } else {
+                    router.push({ pathname: '/signup/phrase', query: { callbackUrl } })
+                  }
+                }}
+              >{signin ? COPY.phraseLoginButton : COPY.phraseSignupButton}
+              </Button>
             )
           default:
             return (

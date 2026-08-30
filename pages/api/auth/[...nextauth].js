@@ -15,7 +15,9 @@ import { multiAuthMiddleware, setMultiAuthCookies, cookieOptions } from '@/lib/a
 import { isAuthProviderEnabled } from '@/lib/authProviderEnv'
 import { getDomainMapping } from '@/lib/domains'
 import { isSafeRedirectPath, parseSafeHost } from '@/lib/safe-url'
-import { checkEmailSendAllowance } from '@/lib/auth-send-limiter'
+import { checkEmailSendAllowance, checkPubkeySignupAllowance } from '@/lib/auth-send-limiter'
+import { consumeChallenge } from '@/api/resolvers/phrase'
+import { verifyChallengeSignature } from '@/lib/recoveryPhrase'
 import { BECH32_CHARSET } from '@/lib/constants'
 import { COPY } from '@/lib/rebrand-copy'
 import { NodeNextRequest } from 'next/dist/server/base-http/node'
@@ -196,6 +198,17 @@ function getCallbacks (req, res) {
   }
 }
 
+// login-mode dead end with a distinguishable signal: the signature checked
+// out but no account claims this pubkey. the phrase space is unenumerable,
+// so there is no anti-enumeration reason to hide it. next-auth carries the
+// message to the client via the error param of its credentials redirect.
+class NoAccountError extends Error {
+  constructor (pubkeyColumnName) {
+    super(pubkeyColumnName === 'phrasePubkey' ? 'PhraseNoAccount' : 'NostrNoAccount')
+    this.name = 'NoAccountError'
+  }
+}
+
 async function pubkeyAuth (credentials, req, res, pubkeyColumnName) {
   const { k1, pubkey } = credentials
 
@@ -203,42 +216,53 @@ async function pubkeyAuth (credentials, req, res, pubkeyColumnName) {
   const multiAuth = typeof req.body.multiAuth === 'string' ? req.body.multiAuth === 'true' : !!req.body.multiAuth
 
   try {
-    // does the given challenge (k1) exist in our db?
-    const lnauth = await prisma.lnAuth.findUnique({ where: { k1 } })
+    // atomically consume the challenge: exactly one concurrent answer wins.
+    // (the caller verified a signature over k1 with this pubkey, which binds them)
+    if (!(await consumeChallenge(prisma, k1))) return null
 
-    // delete challenge to prevent replay attacks
-    await prisma.lnAuth.delete({ where: { k1 } })
+    // does the pubkey already exist in our db?
+    let user = await prisma.user.findUnique({ where: { [pubkeyColumnName]: pubkey } })
 
-    // does the given pubkey match the one for which we verified the signature?
-    if (lnauth.pubkey === pubkey) {
-      // does the pubkey already exist in our db?
-      let user = await prisma.user.findUnique({ where: { [pubkeyColumnName]: pubkey } })
+    // make following code aware of cookie pointer for account switching
+    req = await multiAuthMiddleware(req, res)
+    // token will be undefined if we're not logged in at all or if we switched to anon
+    const token = await getToken({ req })
+    if (!user) {
+      // we have not seen this pubkey before
 
-      // make following code aware of cookie pointer for account switching
-      req = await multiAuthMiddleware(req, res)
-      // token will be undefined if we're not logged in at all or if we switched to anon
-      const token = await getToken({ req })
-      if (!user) {
-        // we have not seen this pubkey before
-
-        // only update our pubkey if we're logged in (token exists)
-        // and we're not currently trying to add a new account
-        if (token?.id && !multiAuth) {
-          user = await prisma.user.update({ where: { id: token.id }, data: { [pubkeyColumnName]: pubkey } })
-        } else {
-          // create a new user only if we're trying to sign up
-          if (new NodeNextRequest(req).cookies.signin) return null
-          user = await prisma.user.create({ data: { name: pubkey.slice(0, 10), [pubkeyColumnName]: pubkey } })
+      // only update our pubkey if we're logged in (token exists)
+      // and we're not currently trying to add a new account
+      if (token?.id && !multiAuth) {
+        user = await prisma.user.update({ where: { id: token.id }, data: { [pubkeyColumnName]: pubkey } })
+      } else {
+        // create a new user only if we're trying to sign up
+        if (new NodeNextRequest(req).cookies.signin) {
+          // login mode: throw the distinct, mapped client error instead of
+          // the generic CredentialsSignin (mapping in components/login.js)
+          throw new NoAccountError(pubkeyColumnName)
         }
+        // phrase/nostr signups cost an attacker nothing — brake bot farms
+        if (!checkPubkeySignupAllowance({ headers: req.headers })) return null
+        user = await prisma.user.create({ data: { name: pubkey.slice(0, 10), [pubkeyColumnName]: pubkey } })
       }
-
-      return user
     }
+
+    return user
   } catch (error) {
+    // the no-account signal must bypass this catch to reach the client;
+    // every other failure stays generic (null -> CredentialsSignin)
+    if (error instanceof NoAccountError) throw error
     console.log(error)
   }
 
   return null
+}
+
+async function phraseAuth ({ k1, pubkey, sig }) {
+  if (!verifyChallengeSignature({ k1, pubkey, sig })) {
+    throw new Error('invalid challenge signature')
+  }
+  return { k1, pubkey }
 }
 
 async function nostrEventAuth (event) {
@@ -267,13 +291,27 @@ async function nostrEventAuth (event) {
 
   const pubkey = e.pubkey
   const k1 = e.tags[0][1]
-  await prisma.lnAuth.update({ data: { pubkey }, where: { k1 } })
 
   return { k1, pubkey }
 }
 
 /** @type {import('next-auth/providers').Provider[]} */
 const getProviders = (req, res) => [
+  ...(isAuthProviderEnabled('phrase')
+    ? [CredentialsProvider({
+        id: 'phrase',
+        name: 'Phrase',
+        credentials: {
+          k1: { label: 'k1', type: 'text' },
+          pubkey: { label: 'pubkey', type: 'text' },
+          sig: { label: 'sig', type: 'text' }
+        },
+        authorize: async (credentials, req) => {
+          const creds = await phraseAuth(credentials)
+          return await pubkeyAuth(creds, req, res, 'phrasePubkey')
+        }
+      })]
+    : []),
   ...(isAuthProviderEnabled('nostr')
     ? [CredentialsProvider({
         id: 'nostr',

@@ -55,6 +55,7 @@ model User {
   referrerId              Int?
   nostrPubkey             String?
   nostrAuthPubkey         String?              @unique(map: "users.nostrAuthPubkey_unique")
+  phrasePubkey            String?              @unique(map: "users.phrasePubkey_unique") @db.Char(64)
   nostrCrossposting       Boolean              @default(false)
   noteBadges              Boolean              @default(true)
   streak                  Int?
@@ -810,6 +811,17 @@ model VerificationToken {
 
   @@unique([identifier, token])
   @@map("verification_requests")
+}
+
+// single-use challenge-response nonce for phrase (and future nostr) auth.
+// k1 = randomBytes(32).hex, consumed atomically within 5 minutes of creation.
+model AuthChallenge {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+  k1        String   @unique @db.Char(64)
+  pubkey    String?
+
+  @@map("auth_challenges")
 }
 
 model Bookmark {

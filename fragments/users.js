@@ -94,6 +94,8 @@ export const SETTINGS_FIELDS = gql`
         twitter
         email
         emailHint
+        phrase
+        phraseFingerprint
         apiKey
         enabled
       }

@@ -25,6 +25,12 @@ describe('isAuthProviderEnabled', () => {
     expect(isAuthProviderEnabled('nostr', { NOSTR_AUTH: '1' })).toBe(true)
   })
 
+  it('enables phrase only when the flag is present and non-empty', () => {
+    expect(isAuthProviderEnabled('phrase', {})).toBe(false)
+    expect(isAuthProviderEnabled('phrase', { PHRASE_AUTH: '' })).toBe(false)
+    expect(isAuthProviderEnabled('phrase', { PHRASE_AUTH: '1' })).toBe(true)
+  })
+
   it('returns false for unknown kinds', () => {
     expect(isAuthProviderEnabled('lightning', {})).toBe(false)
   })
@@ -38,6 +44,10 @@ describe('enabledAuthMethods', () => {
 
   it('returns only nostr when only the flag is set', () => {
     expect(enabledAuthMethods({ NOSTR_AUTH: '1' })).toEqual(['nostr'])
+  })
+
+  it('includes phrase last when enabled', () => {
+    expect(enabledAuthMethods({ NOSTR_AUTH: '1', PHRASE_AUTH: '1' })).toEqual(['nostr', 'phrase'])
   })
 
   it('returns an empty array when nothing is configured', () => {

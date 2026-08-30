@@ -18,6 +18,7 @@ import payIn from './payIn'
 import monero from './monero'
 import rewardsWallet from './rewardsWallet'
 import bounty from './bounty'
+import phrase from './phrase'
 
 const common = gql`
   type Query {
@@ -39,4 +40,4 @@ const common = gql`
 `
 
 export default [common, user, item, message, notifications, invite,
-  sub, upload, growth, rewards, referrals, price, admin, blockHeight, domain, payIn, monero, rewardsWallet, bounty]
+  sub, upload, growth, rewards, referrals, price, admin, blockHeight, domain, payIn, monero, rewardsWallet, bounty, phrase]

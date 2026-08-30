@@ -14,6 +14,7 @@ import { processCrop } from '@/lib/imgproxy'
 import { payInTypesSql } from '../payIn/lib/sql'
 import { Prisma } from '@prisma/client'
 import { enabledAuthMethods } from '@/lib/authProviderEnv'
+import { phraseFingerprint } from '@/lib/recoveryPhrase'
 import { isVerifiedBadgeEnabled } from '@/lib/verified-badge-flag'
 
 const contributors = new Set()
@@ -41,15 +42,31 @@ function clampNameSimilarity (similarity = DEFAULT_NAME_SIMILARITY) {
   return Math.max(0, Math.min(threshold, 1))
 }
 
-async function authMethods (user, args, { models, me }) {
+// linked-login booleans shared by the authMethods resolver and unlinkAuth's
+// last-method guard. Keep the key set in sync with AUTH_METHOD_KEYS in
+// lib/authMethods.js and the AuthMethods GraphQL type.
+function authMethodLinks (user, oauthProviders) {
+  return {
+    lightning: !!user.pubkey,
+    email: !!(user.emailVerified && user.emailHash),
+    twitter: oauthProviders.indexOf('twitter') >= 0,
+    github: oauthProviders.indexOf('github') >= 0,
+    nostr: !!user.nostrAuthPubkey,
+    phrase: !!user.phrasePubkey
+  }
+}
+
+export async function authMethods (user, args, { models, me }) {
   const enabled = enabledAuthMethods()
 
   if (!me || me.id !== user.id) {
     return {
       lightning: false,
+      email: false,
       twitter: false,
       github: false,
       nostr: false,
+      phrase: false,
       enabled
     }
   }
@@ -60,15 +77,12 @@ async function authMethods (user, args, { models, me }) {
     }
   })
 
-  const oauth = accounts.map(a => a.provider)
+  const links = authMethodLinks(user, accounts.map(a => a.provider))
 
   return {
-    lightning: !!user.pubkey,
-    email: !!(user.emailVerified && user.emailHash),
+    ...links,
     emailHint: user.emailHint,
-    twitter: oauth.indexOf('twitter') >= 0,
-    github: oauth.indexOf('github') >= 0,
-    nostr: !!user.nostrAuthPubkey,
+    phraseFingerprint: user.phrasePubkey ? phraseFingerprint(user.phrasePubkey) : null,
     apiKey: user.apiKeyEnabled ? !!user.apiKeyHash : null,
     enabled
   }
@@ -694,36 +708,58 @@ export default {
 
       return await models.user.update({ where: { id: me.id }, data: { apiKeyHash: null } })
     },
-    unlinkAuth: async (parent, { authType }, { models, me, userLoader }) => {
+    unlinkAuth: async (parent, { authType, lastAuthConfirm = false }, { models, me }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
       assertApiKeyNotPermitted({ me })
 
-      let user
-      if (authType === 'twitter' || authType === 'github') {
-        user = await userLoader.load(me.id)
-        const account = await models.account.findFirst({ where: { userId: me.id, provider: authType } })
-        if (!account) {
+      // Serializable: two concurrent unlinks of the last two methods must not
+      // both pass the count on stale reads (the loser aborts with P2034, the
+      // client retries and then sees the correct count). Same idiom as
+      // api/monero/selfTip.js.
+      return await models.$transaction(async (tx) => {
+        const user = await tx.user.findUnique({ where: { id: me.id } })
+        if (!user) {
+          throw new GqlAuthenticationError()
+        }
+
+        // same semantics as the client's last-method count: platform-enabled ∩ linked
+        const accounts = await tx.account.findMany({ where: { userId: me.id } })
+        const links = authMethodLinks(user, accounts.map(a => a.provider))
+        const enabled = enabledAuthMethods()
+        const remaining = enabled.filter(k => links[k] && k !== authType)
+
+        if (!lastAuthConfirm && links[authType] && enabled.includes(authType) && remaining.length === 0) {
+          throw new GqlInputError('unlinking your last auth method will permanently lock you out of this account. if you really want this, pass lastAuthConfirm: true')
+        }
+
+        let updated
+        if (authType === 'twitter' || authType === 'github') {
+          const account = await tx.account.findFirst({ where: { userId: me.id, provider: authType } })
+          if (!account) {
+            throw new GqlInputError('no such account')
+          }
+          await tx.account.delete({ where: { id: account.id } })
+          if (authType === 'twitter') {
+            updated = await tx.user.update({ where: { id: me.id }, data: { hideTwitter: true, twitterId: null } })
+          } else {
+            updated = await tx.user.update({ where: { id: me.id }, data: { hideGithub: true, githubId: null } })
+          }
+        } else if (authType === 'lightning') {
+          updated = await tx.user.update({ where: { id: me.id }, data: { pubkey: null } })
+        } else if (authType === 'nostr') {
+          updated = await tx.user.update({ where: { id: me.id }, data: { hideNostr: true, nostrAuthPubkey: null } })
+        } else if (authType === 'phrase') {
+          updated = await tx.user.update({ where: { id: me.id }, data: { phrasePubkey: null } })
+        } else if (authType === 'email') {
+          updated = await tx.user.update({ where: { id: me.id }, data: { email: null, emailVerified: null, emailHash: null, emailHint: null } })
+        } else {
           throw new GqlInputError('no such account')
         }
-        await models.account.delete({ where: { id: account.id } })
-        if (authType === 'twitter') {
-          await models.user.update({ where: { id: me.id }, data: { hideTwitter: true, twitterId: null } })
-        } else {
-          await models.user.update({ where: { id: me.id }, data: { hideGithub: true, githubId: null } })
-        }
-      } else if (authType === 'lightning') {
-        user = await models.user.update({ where: { id: me.id }, data: { pubkey: null } })
-      } else if (authType === 'nostr') {
-        user = await models.user.update({ where: { id: me.id }, data: { hideNostr: true, nostrAuthPubkey: null } })
-      } else if (authType === 'email') {
-        user = await models.user.update({ where: { id: me.id }, data: { email: null, emailVerified: null, emailHash: null, emailHint: null } })
-      } else {
-        throw new GqlInputError('no such account')
-      }
 
-      return await authMethods(user, undefined, { models, me })
+        return await authMethods(updated, undefined, { models: tx, me })
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     },
     subscribeUserPosts: async (parent, { id }, { me, models }) => {
       if (!me) {

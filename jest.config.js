@@ -22,7 +22,14 @@ module.exports = createJestConfig({
   // (ERR_REQUIRE_ESM). No first-party code imports uuid, so redirect every
   // require('uuid') to a CJS shim. See test/helpers/uuid-shim.js.
   moduleNameMapper: {
-    '^uuid$': '<rootDir>/test/helpers/uuid-shim.js'
+    '^uuid$': '<rootDir>/test/helpers/uuid-shim.js',
+    // @noble/hashes v2 is ESM-only (type:module) and jest 29's CJS sandbox
+    // cannot require it. Redirect only the specifiers lib/recoveryPhrase.js
+    // imports to a CJS shim (same pattern as the uuid shim). Transitive users
+    // of @noble/hashes 1.x (@noble/curves, @scure/bip39) resolve to their own
+    // dual builds via nested deps and are unaffected.
+    '^@noble/hashes/sha2\\.js$': '<rootDir>/test/helpers/noble-hashes-shim.js',
+    '^@noble/hashes/utils\\.js$': '<rootDir>/test/helpers/noble-hashes-shim.js'
   },
   // The real-DB integration suites (rewardsDistributor, curatorShares, paySub,
   // bountyFunding/Lifecycle, confirmFinalizer, ...) assume they are the SOLE

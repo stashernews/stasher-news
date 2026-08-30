@@ -24,12 +24,22 @@ jest.mock('../../../lib/lexical/server/html', () => ({
 const { UserPrivates, Mutation } = userResolvers
 
 function ctx (meId, accounts = []) {
+  const models = {
+    $transaction: async (fn) => fn(models),
+    account: {
+      findMany: async () => accounts,
+      findFirst: async ({ where }) => accounts.find(
+        a => a.userId === where.userId && a.provider === where.provider),
+      delete: async ({ where }) => {}
+    },
+    user: {
+      findUnique: async (id) => ({ id: meId, emailVerified: new Date(), emailHash: 'hash' }),
+      update: async ({ data }) => ({ id: 1, email: 'stale@example.com', emailVerified: new Date('2020-01-01'), emailHash: 'stalehash', emailHint: 'stale***@example.com', ...data })
+    }
+  }
   return {
     me: meId == null ? null : { id: meId },
-    models: {
-      account: { findMany: async () => accounts },
-      user: { update: async ({ data }) => ({ id: 1, email: 'stale@example.com', emailVerified: new Date('2020-01-01'), emailHash: 'stalehash', emailHint: 'stale***@example.com', ...data }) }
-    },
+    models,
     userLoader: {
       load: async (id) => ({ id, pubkey: null, nostrAuthPubkey: null, emailVerified: new Date(), emailHash: 'hash', emailHint: 'j***@gmail.com', apiKeyEnabled: false, apiKeyHash: null })
     }
@@ -46,12 +56,13 @@ describe('UserPrivates.authMethods', () => {
   test('returns no emailHint for non-self viewers', async () => {
     const methods = await UserPrivates.authMethods({ id: 2, emailHint: 'j***@gmail.com' }, {}, ctx(1))
     expect(methods.emailHint).toBeUndefined()
+    expect(methods.email).toBe(false)
   })
 })
 
 describe('Mutation.unlinkAuth(email)', () => {
   test('clears emailHint along with email, emailVerified and emailHash', async () => {
-    const result = await Mutation.unlinkAuth(null, { authType: 'email' }, ctx(1))
+    const result = await Mutation.unlinkAuth(null, { authType: 'email', lastAuthConfirm: true }, ctx(1))
     expect(result.emailHint).toBeNull()
     expect(result.email).toBe(false)
   })

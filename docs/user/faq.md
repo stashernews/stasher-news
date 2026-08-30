@@ -8,7 +8,7 @@ sub: meta
 
 _To quickly browse through this FAQ page, click the chapters icon in the top-right corner. This will let you scroll through all chapters or search for a particular topic within this page._
 
-last updated: August 10, 2026
+last updated: August 30, 2026
 
 ---
 
@@ -360,6 +360,23 @@ A stasher's trust is a private signal that weights their tips and downvotes, and
 ### Can I see my trust scores?
 
 No. All trust scores are private, and even if it weren't confusing to see them, it'd make trust an easier target for manipulation.
+
+---
+
+## Logins
+
+---
+
+### Can I sign up without an email address?
+
+Yes. On the signup page, click 'Sign up without Email'. You get a 12-word recovery phrase: write it down on paper and keep it somewhere safe. The site makes you prove you saved the words before it creates your account. From then on, 'Log in without Email' on the login page asks for those twelve words instead of an email. Typing them with odd capitalization or extra spaces is fine.
+
+Two things to know:
+
+- The phrase is NOT a wallet seed. It holds no funds and unlocks nothing but this account. Never type a real wallet seed into any website, including this one.
+- If you lose the phrase and have no other login linked (email or GitHub), the account is unrecoverable. There is no reset and no backup. The void keeps it.
+
+Already have an account? Add a phrase in [Settings → Logins](/settings/logins) with 'Add recovery phrase'. You can 'Replace phrase' or 'Unlink phrase' there too. Removing your last way in asks you to type a confirmation first, and the server enforces that step — it cannot happen by accident or through the API.
 
 ---
 
