@@ -49,3 +49,9 @@ media.stasher.news {
 	encode zstd gzip
 	reverse_proxy imgproxy:8080
 }
+
+# www -> apex. www.stasher.news resolves in DNS but had no site block, so
+# www visitors got no certificate and no serve path. 301 preserves path+query.
+www.stasher.news {
+	redir https://stasher.news{uri} permanent
+}
