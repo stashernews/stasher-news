@@ -2,7 +2,7 @@
 -- to post (posting requires a territory: see subSelectSchemaMembers in lib/validate.js
 -- which enforces subNames.min(1) and validates each sub's existence + postTypes).
 --
--- Set: bitcoin, tech, meta, jobs, monero. This replaces upstream's DEFAULT_SUBS
+-- Set: bitcoin, tech, stasher (the platform meta turf), jobs, monero. This replaces upstream's DEFAULT_SUBS
 -- (bitcoin, nostr, tech, meta, jobs): 'nostr' is dropped and 'monero' added to
 -- match StasherNews. lib/constants.js DEFAULT_SUBS is updated to mirror this set.
 --
@@ -34,7 +34,7 @@ SELECT
 FROM (VALUES
   ('bitcoin'),
   ('tech'),
-  ('meta'),
+  ('stasher'),
   ('jobs'),
   ('monero')
 ) AS v(name)

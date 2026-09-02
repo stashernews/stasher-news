@@ -205,7 +205,7 @@ async function main () {
 
   const meta = await client.query({
     query: ITEMS,
-    variables: { sort: 'top', when: 'custom', from, to, sub: 'meta' }
+    variables: { sort: 'top', when: 'custom', from, to, sub: 'stasher' }
   })
 
   const ama = await client.query({
@@ -244,11 +244,11 @@ ${top.data.items.items.map((item, i) =>
 
 -------
 
-##### Top meta
+##### Top stasher
 ${meta.data.items.items.slice(0, 10).map((item, i) =>
   `- [${item.title}](https://stasher.news/items/${item.id})\n`).join('')}
 
-[**all of this week's meta**](https://stasher.news/~meta/top/posts/week)
+[**all of this week's stasher**](https://stasher.news/~stasher/top/posts/week)
 
 -------
 

@@ -7,7 +7,7 @@
 // risks silent breakage. getInitial/onPaid here are dead code for the tip path.
 // Phase 4's DOWNVOTE is a separate payIn type that targets the rewards wallet.
 
-import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
+import { META_SUB, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { piconerosToXmr } from '@/lib/format'
 import { notifyZapped } from '@/lib/webPush'
 import { Prisma } from '@prisma/client'
@@ -97,7 +97,7 @@ export async function onPaid (tx, payInId) {
   // if we use trust again, we'll need an approach to this for multiple territories
   await tx.$queryRaw`
     WITH territory AS (
-      SELECT COALESCE(r."subNames"[1], i."subNames"[1], 'meta')::CITEXT as "subName"
+      SELECT COALESCE(r."subNames"[1], i."subNames"[1], ${META_SUB}::CITEXT) as "subName"
       FROM "Item" i
       LEFT JOIN "Item" r ON r.id = i."rootId"
       WHERE i.id = ${item.id}::INTEGER

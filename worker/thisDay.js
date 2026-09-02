@@ -1,7 +1,7 @@
 import { datePivot } from '@/lib/time'
 import gql from 'graphql-tag'
 import { numWithUnits, abbrNum, piconerosToXmr } from '@/lib/format'
-import { USER_ID } from '@/lib/constants'
+import { META_SUB, USER_ID } from '@/lib/constants'
 import { autoPost } from './weeklyPosts'
 
 export async function thisDay ({ models, apollo, boss }) {
@@ -36,7 +36,7 @@ ${topSubs(days)}`
     data: {
       text,
       title: `This Day on SN: ${date}`,
-      subName: 'meta',
+      subName: META_SUB,
       userId: USER_ID.sn
     },
     models,

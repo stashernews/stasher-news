@@ -1,6 +1,7 @@
 import { makeIntegratedAddress } from './integratedAddress'
 import { generateDownvotePaymentId } from './paymentId'
 import { Prisma } from '@prisma/client'
+import { META_SUB } from '@/lib/constants'
 
 // Downvote address + payment_id reverse lookup (spec §3.3).
 //
@@ -52,7 +53,7 @@ export async function applyDownvotePenalty (models, item, userId, piconeros) {
 
   await models.$executeRaw`
     WITH territory AS (
-      SELECT COALESCE(r."subNames"[1], i."subNames"[1], 'meta')::CITEXT as "subName"
+      SELECT COALESCE(r."subNames"[1], i."subNames"[1], ${META_SUB}::CITEXT) as "subName"
       FROM "Item" i
       LEFT JOIN "Item" r ON r.id = i."rootId"
       WHERE i.id = ${itemId}::INTEGER
@@ -102,7 +103,7 @@ export async function reverseDownvotePenalty (models, item, userId, piconeros) {
 
   await models.$executeRaw`
     WITH territory AS (
-      SELECT COALESCE(r."subNames"[1], i."subNames"[1], 'meta')::CITEXT as "subName"
+      SELECT COALESCE(r."subNames"[1], i."subNames"[1], ${META_SUB}::CITEXT) as "subName"
       FROM "Item" i
       LEFT JOIN "Item" r ON r.id = i."rootId"
       WHERE i.id = ${itemId}::INTEGER

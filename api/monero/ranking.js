@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import prisma from '@/api/models'
+import { META_SUB } from '@/lib/constants'
 
 // Ranking side-effects of an observed Monero tip (capped rank terms, spec §4).
 //
@@ -88,7 +89,7 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
     ? Prisma.empty
     : Prisma.sql`
         territory AS (
-          SELECT COALESCE(r."subNames"[1], i."subNames"[1], 'meta')::CITEXT AS "subName"
+          SELECT COALESCE(r."subNames"[1], i."subNames"[1], ${META_SUB}::CITEXT) AS "subName"
           FROM "Item" i
           LEFT JOIN "Item" r ON r.id = i."rootId"
           WHERE i.id = ${postId}::INTEGER

@@ -380,12 +380,12 @@ beforeAll(async () => {
   await createPayoutAccount(c2)
   // c3: intentionally no MoneroAccount(ownerUserId: c3) -> excluded from payouts.
 
-  // Real path (merged rewards plan Task 2): give c1 territory trust in 'meta'
+  // Real path (merged rewards plan Task 2): give c1 territory trust in 'stasher'
   // and apply a detected tip so Item.weightedVotes is bumped via
   // zapTrust × LOG(tipPiconeros) — exactly what the webhook receiver does on a
   // live tip. This is what makes the post qualify for curator rewards.
   await prisma.userSubTrust.create({
-    data: { subName: 'meta', userId: c1, zapPostTrust: 1.0, subZapPostTrust: 1.0 }
+    data: { subName: 'stasher', userId: c1, zapPostTrust: 1.0, subZapPostTrust: 1.0 }
   })
   await applyTipDetected(postId, c1, 1_000_000_000n)
 

@@ -198,7 +198,7 @@ test('recovers a PENDING self-send (anon tip from the author registered wallet) 
     $transaction: async (fn) => {
       const txdb = {
         $executeRaw: async () => 1,
-        $queryRaw: async () => [{ subName: 'meta' }],
+        $queryRaw: async () => [{ subName: 'stasher' }],
         abuseSignal: { create: async ({ data }) => { signalData = data } }
       }
       await fn(txdb)
@@ -207,7 +207,7 @@ test('recovers a PENDING self-send (anon tip from the author registered wallet) 
   const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => { applied = true } })
   expect(out.excluded).toBe(1)
   expect(applied).toBe(false)
-  expect(signalData).toMatchObject({ kind: 'SELF_SEND_EXCLUDED', subName: 'meta' })
+  expect(signalData).toMatchObject({ kind: 'SELF_SEND_EXCLUDED', subName: 'stasher' })
 })
 
 test('a normal recovered tip still detects (exclusion check passes it through)', async () => {

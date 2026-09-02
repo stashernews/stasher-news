@@ -162,18 +162,18 @@ test('applyTipDetected bumps weightedVotes/subWeightedVotes by zapTrust x LOG(ti
   const poster = await createUser(); created.users.push(poster)
   const tipper = await createUser(); created.users.push(tipper)
 
-  // Root post in the 'meta' territory (set explicitly; COALESCE would fall
-  // back to 'meta' anyway).
+  // Root post in the 'stasher' territory (set explicitly; COALESCE would fall
+  // back to 'stasher' anyway).
   const rows = await prisma.$queryRaw`
     INSERT INTO "Item" ("userId", title) VALUES (${poster}::int, ${'weighted-tip-post'})
     RETURNING id::int AS id`
   const postId = rows[0].id
-  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree, "subNames" = ARRAY['meta']::CITEXT[] WHERE id = ${postId}::int`
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree, "subNames" = ARRAY['stasher']::CITEXT[] WHERE id = ${postId}::int`
   created.items.push(postId)
 
-  // Seed territory trust for the tipper in 'meta'.
+  // Seed territory trust for the tipper in 'stasher'.
   await prisma.userSubTrust.create({
-    data: { subName: 'meta', userId: tipper, zapPostTrust: 0.5, subZapPostTrust: 0.25 }
+    data: { subName: 'stasher', userId: tipper, zapPostTrust: 0.5, subZapPostTrust: 0.25 }
   })
 
   const before = await prisma.item.findUnique({
@@ -201,10 +201,10 @@ test('reverseTip gives back weightedVotes/subWeightedVotes exactly (round-trip)'
     INSERT INTO "Item" ("userId", title) VALUES (${poster}::int, ${'weighted-reverse-post'})
     RETURNING id::int AS id`
   const postId = rows[0].id
-  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree, "subNames" = ARRAY['meta']::CITEXT[] WHERE id = ${postId}::int`
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree, "subNames" = ARRAY['stasher']::CITEXT[] WHERE id = ${postId}::int`
   created.items.push(postId)
   await prisma.userSubTrust.create({
-    data: { subName: 'meta', userId: tipper, zapPostTrust: 0.5, subZapPostTrust: 0.25 }
+    data: { subName: 'stasher', userId: tipper, zapPostTrust: 0.5, subZapPostTrust: 0.25 }
   })
   const before = await readItem(postId)
   const delta = await applyTipDetected(postId, tipper, 1_000_000_000n) // first tip: LOG10(1e9)=9
@@ -223,10 +223,10 @@ test('reversing a non-first tip leaves upvotes; reversing the cumulative to zero
     INSERT INTO "Item" ("userId", title) VALUES (${poster}::int, ${'upvote-exact-post'})
     RETURNING id::int AS id`
   const postId = rows[0].id
-  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree, "subNames" = ARRAY['meta']::CITEXT[] WHERE id = ${postId}::int`
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(postId)}::ltree, "subNames" = ARRAY['stasher']::CITEXT[] WHERE id = ${postId}::int`
   created.items.push(postId)
   await prisma.userSubTrust.create({
-    data: { subName: 'meta', userId: tipper, zapPostTrust: 0.5, subZapPostTrust: 0.25 }
+    data: { subName: 'stasher', userId: tipper, zapPostTrust: 0.5, subZapPostTrust: 0.25 }
   })
   const before = await readItem(postId)
   const d1 = await applyTipDetected(postId, tipper, 1_000_000_000n) // first_vote=1 -> upvotes 1
@@ -263,7 +263,7 @@ test('comment-tip reversal subtracts with zapCommentTrust (round-trip on a comme
   const root = await createRoot(poster, 'weighted-reverse-root'); created.items.push(root)
   const comment = await createComment(poster, root, 'weighted-reverse-comment'); created.items.push(comment)
   await prisma.userSubTrust.create({
-    data: { subName: 'meta', userId: tipper, zapCommentTrust: 0.75, subZapCommentTrust: 0.375 }
+    data: { subName: 'stasher', userId: tipper, zapCommentTrust: 0.75, subZapCommentTrust: 0.375 }
   })
   const before = await readItem(comment)
   const delta = await applyTipDetected(comment, tipper, 1_000_000_000n)

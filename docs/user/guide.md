@@ -1,7 +1,7 @@
 ---
 title: Stasher News Content Guidelines
 id: 81862
-sub: meta
+sub: stasher
 ---
 
 # Stasher News Content Guidelines

@@ -54,7 +54,7 @@ function leg (overrides = {}) {
   return {
     id: 1,
     paymentId: 'a1b2c3d4e5f6a7b8',
-    subName: 'meta',
+    subName: 'stasher',
     ownerUserId: 7,
     amountPiconeros: 1500000000000n,
     webhookEventId: 'evt_1',

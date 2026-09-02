@@ -13,6 +13,7 @@ import { useRouter } from 'next/router'
 import Info from '@/components/info'
 import Link from 'next/link'
 import { emailSchema, lastAuthRemovalSchema } from '@/lib/validate'
+import { META_SUB } from '@/lib/constants'
 import PageLoading from '@/components/page-loading'
 import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
@@ -331,7 +332,7 @@ I estimate that I will call the GraphQL API this many times (rough estimate is f
 
 ... (you can leave empty if unknown)
 `)
-  const metaLink = encodeURI(`/~meta/post?type=discussion&title=${subject}&text=${body}`)
+  const apiRequestLink = encodeURI(`/~${META_SUB}/post?type=discussion&title=${subject}&text=${body}`)
   const mailto = `mailto:hello@stasher.news?subject=${subject}&body=${body}`
   const telegramLink = 'https://t.me/k00bideh'
   const simplexLink = 'https://simplex.chat/contact#/?v=1-2&smp=smp%3A%2F%2F6iIcWT_dF2zN_w5xzZEY7HI2Prbh3ldP07YTyDexPjE%3D%40smp10.simplex.im%2FxNnPk9DkTbQJ6NckWom9mi5vheo_VPLm%23%2F%3Fv%3D1-2%26dh%3DMCowBQYDK2VuAyEAnFUiU0M8jS1JY34LxUoPr7mdJlFZwf3pFkjRrhprdQs%253D%26srv%3Drb2pbttocvnbrngnwziclp2f4ckjq65kebafws6g4hy22cdaiv5dwjqd.onion'
@@ -367,7 +368,7 @@ I estimate that I will call the GraphQL API this many times (rough estimate is f
               <li>you can currently only generate API keys if we enabled it for your account</li>
               <li>
                 you can{' '}
-                <Link target='_blank' href={metaLink} rel='noreferrer'>create a post in ~meta</Link> to request access
+                <Link target='_blank' href={apiRequestLink} rel='noreferrer'>create a post in ~stasher</Link> to request access
                 or reach out to us via
                 <ul>
                   <li><Link target='_blank' href={mailto} rel='noreferrer'>email</Link></li>

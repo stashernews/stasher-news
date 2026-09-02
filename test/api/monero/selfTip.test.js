@@ -58,12 +58,12 @@ describe('shouldExcludeTip', () => {
 describe('resolveItemSubName', () => {
   test('COALESCEs root.subNames[1] over item.subNames[1], null when absent', async () => {
     const queue = [
-      [{ subName: 'meta' }], // first call: root lookup hit
+      [{ subName: 'stasher' }], // first call: root lookup hit
       [{}], // second call: no subNames anywhere (undefined -> null)
       [] // third call: item not found
     ]
     const handle = { $queryRaw: async () => queue.shift() ?? [] }
-    expect(await resolveItemSubName(1, handle)).toBe('meta')
+    expect(await resolveItemSubName(1, handle)).toBe('stasher')
     expect(await resolveItemSubName(2, handle)).toBe(null)
     expect(await resolveItemSubName(3, handle)).toBe(null)
   })

@@ -1,5 +1,5 @@
 import * as math from 'mathjs'
-import { USER_ID } from '@/lib/constants'
+import { META_SUB, USER_ID } from '@/lib/constants'
 import { Prisma } from '@prisma/client'
 import { initialTrust, GLOBAL_SEEDS } from '@/api/payIn/lib/territory'
 
@@ -175,8 +175,8 @@ function trustGivenGraph (graph, seeds = GLOBAL_SEEDS) {
 // "subNames" @> ARRAY[...] filters and api/payIn/lib/item.js's ANY() join) —
 // cross-posted items contribute their tip/burn edges to EVERY turf they live
 // in. Legacy turf-less items (NULL/empty subNames — the posting path requires
-// >= 1 turf) attribute to ~meta, a real seeded ACTIVE territory, preserving
-// the old COALESCE(subNames[1], 'meta') fallback. cardinality(NULL) is NULL,
+// >= 1 turf) attribute to ~stasher (META_SUB), a real seeded ACTIVE territory,
+// preserving the old COALESCE(subNames[1], 'meta') fallback. cardinality(NULL) is NULL,
 // hence the COALESCE(..., 0). GIN-indexable via Item_subNames_idx.
 // The comment branch MUST emit its JOIN "Item" root BEFORE the predicate —
 // the predicate reads root."subNames", so the alias is only in scope after
@@ -185,11 +185,11 @@ function subMatchClause (subName, postTrust) {
   return postTrust
     ? Prisma.sql`(
         "Item"."subNames" @> ARRAY[${subName}]::CITEXT[]
-        OR (COALESCE(cardinality("Item"."subNames"), 0) = 0 AND ${subName}::CITEXT = 'meta')
+        OR (COALESCE(cardinality("Item"."subNames"), 0) = 0 AND ${subName}::CITEXT = ${META_SUB}::CITEXT)
       )`
     : Prisma.sql`JOIN "Item" root ON "Item"."rootId" = root.id AND (
         COALESCE(root."subNames", "Item"."subNames") @> ARRAY[${subName}]::CITEXT[]
-        OR (COALESCE(cardinality(root."subNames"), cardinality("Item"."subNames"), 0) = 0 AND ${subName}::CITEXT = 'meta')
+        OR (COALESCE(cardinality(root."subNames"), cardinality("Item"."subNames"), 0) = 0 AND ${subName}::CITEXT = ${META_SUB}::CITEXT)
       )`
 }
 async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS) {

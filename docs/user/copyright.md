@@ -1,7 +1,7 @@
 ---
 title: Stasher News Copyright Policy
 id: 338453
-sub: meta
+sub: stasher
 ---
 
 # Stasher News Copyright Policy

@@ -1,11 +1,11 @@
 import pay from '@/api/payIn'
-import { BOSS_RETRY, USER_ID } from '@/lib/constants'
+import { BOSS_RETRY, META_SUB, USER_ID } from '@/lib/constants'
 import { datePivot } from '@/lib/time'
 import gql from 'graphql-tag'
 
 export async function autoPost ({ data: item, models, apollo, boss }) {
   return await pay('ITEM_CREATE',
-    { subNames: ['meta'], ...item, userId: USER_ID.sn, apiKey: true },
+    { subNames: [META_SUB], ...item, userId: USER_ID.sn, apiKey: true },
     {
       me: { id: USER_ID.sn },
       custodialOnly: true

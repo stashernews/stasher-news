@@ -1,7 +1,7 @@
 ---
 title: Stasher News Terms of Service
 id: 338393
-sub: meta
+sub: stasher
 ---
 
 # Stasher News Terms of Service

@@ -16,6 +16,7 @@ import useDarkMode from './dark-mode'
 import ActionTooltip from './action-tooltip'
 import { useAnimationEnabled } from '@/components/animation'
 import { useLiveCommentsToggle } from './use-live-comments'
+import { META_SUB } from '@/lib/constants'
 
 const RssPopover = (
   <Popover>
@@ -34,8 +35,8 @@ const RssPopover = (
           monero
         </a>
         <span className='mx-2 text-muted'> \ </span>
-        <a href='/~meta/rss' className='nav-link p-0 d-inline-flex'>
-          meta
+        <a href={`/~${META_SUB}/rss`} className='nav-link p-0 d-inline-flex'>
+          {META_SUB}
         </a>
         <span className='mx-2 text-muted'> \ </span>
         <a href='/~jobs/rss' className='nav-link p-0 d-inline-flex'>

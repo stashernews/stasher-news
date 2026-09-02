@@ -1,7 +1,7 @@
 ---
 title: Stasher News Privacy Policy
 id: 338369
-sub: meta
+sub: stasher
 ---
 
 # Stasher News Privacy Policy

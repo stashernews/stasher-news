@@ -10,8 +10,8 @@ const BANNED_VOCAB = /\bsats?\b|\bzaps?\b|\blightning\b|stacker news inc|outer\.
 
 describe('deploy_user_documentation front matter', () => {
   it('parses title, id, and sub', () => {
-    const content = '---\ntitle: Frequently Asked Questions\nid: 349\nsub: meta\n---\n\n# body\n'
-    expect(parseFrontMatter(content)).toEqual({ title: 'Frequently Asked Questions', id: '349', sub: 'meta' })
+    const content = '---\ntitle: Frequently Asked Questions\nid: 349\nsub: stasher\n---\n\n# body\n'
+    expect(parseFrontMatter(content)).toEqual({ title: 'Frequently Asked Questions', id: '349', sub: 'stasher' })
   })
 })
 
@@ -20,7 +20,7 @@ describe('user documentation docs', () => {
     const doc = readDoc(name)
     expect(doc.title).toBeTruthy()
     expect(Number(doc.id)).toBe(EXPECTED_IDS[name])
-    expect(doc.sub).toBe('meta')
+    expect(doc.sub).toBe('stasher')
     expect(doc.text.trim().length).toBeGreaterThan(0)
   })
 
@@ -54,7 +54,7 @@ describe('upsertDoc', () => {
   it('creates a PAID ITEM_CREATE payIn when none exists', async () => {
     const prisma = makeMockPrisma()
     const upsert = createUpsertDoc(prisma)
-    await upsert({ id: 349, title: 't', sub: 'meta', text: 'body' })
+    await upsert({ id: 349, title: 't', sub: 'stasher', text: 'body' })
 
     expect(prisma.item.upsert).toHaveBeenCalled()
     expect(prisma.itemSub.upsert).toHaveBeenCalled()
@@ -72,7 +72,7 @@ describe('upsertDoc', () => {
     const prisma = makeMockPrisma()
     prisma.tx.itemPayIn.findFirst.mockResolvedValue({ id: 5 })
     const upsert = createUpsertDoc(prisma)
-    await upsert({ id: 349, title: 't', sub: 'meta', text: 'body' })
+    await upsert({ id: 349, title: 't', sub: 'stasher', text: 'body' })
 
     expect(prisma.tx.payIn.create).not.toHaveBeenCalled()
     expect(prisma.tx.itemPayIn.create).not.toHaveBeenCalled()

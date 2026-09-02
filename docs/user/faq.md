@@ -1,7 +1,7 @@
 ---
 title: Frequently Asked Questions
 id: 349
-sub: meta
+sub: stasher
 ---
 
 # Stasher News FAQ
