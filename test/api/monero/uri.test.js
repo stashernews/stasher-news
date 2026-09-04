@@ -17,6 +17,15 @@ test('piconerosToXmrDecimal rejects non-BigInt input', () => {
   expect(() => piconerosToXmrDecimal('1000')).toThrow(/BigInt/)
 })
 
+test('piconerosToXmrDecimal maxDecimals truncates toward zero and trims trailing zeros', () => {
+  expect(piconerosToXmrDecimal(1_234_567_890_123n, 3)).toBe('1.234')
+  expect(piconerosToXmrDecimal(4_163_900_000n, 3)).toBe('0.004') // 0.004163 XMR -> nav rewards readout
+  expect(piconerosToXmrDecimal(1_200_000_000_000n, 3)).toBe('1.2') // trailing zeros trimmed
+  expect(piconerosToXmrDecimal(999_900_000_000n, 3)).toBe('0.999') // truncates, never rounds up
+  expect(piconerosToXmrDecimal(-1_234_567_890_123n, 3)).toBe('-1.234')
+  expect(piconerosToXmrDecimal(1_234_000_000_000n)).toBe('1.234') // default 12 unchanged
+})
+
 test('buildMoneroUri emits a Cake-compatible single-destination URI with XMR decimal tx_amount', () => {
   const uri = buildMoneroUri(
     [{ address: STAGENET_PRIMARY, amount: 1_500_000_000n }],

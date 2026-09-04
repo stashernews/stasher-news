@@ -125,7 +125,7 @@ export function NavRewards () {
   return (
     <Nav.Item className='navRewards d-none d-md-flex align-items-center gap-2'>
       <Link href='/rewards' className='nav-link p-0 navRewardsAmount'>
-        {piconerosToXmr(BigInt(total))} in {time && <DaysHoursCountdown className='navRewardsTimer' date={time} />}
+        {piconerosToXmr(BigInt(total), 3)} in {time && <DaysHoursCountdown className='navRewardsTimer' date={time} />}
       </Link>
     </Nav.Item>
   )

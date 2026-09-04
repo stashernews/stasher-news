@@ -9,11 +9,16 @@
 
 const PICONEROS_PER_XMR = 10n ** 12n
 
-/** BigInt piconeros -> decimal XMR string (trimmed of trailing zeros). */
-export function piconerosToXmrDecimal (piconeros) {
+/** BigInt piconeros -> decimal XMR string (trimmed of trailing zeros).
+ * maxDecimals caps precision by truncating toward zero (never rounds up). */
+export function piconerosToXmrDecimal (piconeros, maxDecimals = 12) {
   if (typeof piconeros !== 'bigint') throw new Error('piconerosToXmrDecimal: amount must be a BigInt')
   const neg = piconeros < 0n
-  const n = neg ? -piconeros : piconeros
+  let n = neg ? -piconeros : piconeros
+  if (maxDecimals < 12) {
+    const factor = 10n ** BigInt(12 - maxDecimals)
+    n = n / factor * factor
+  }
   const whole = n / PICONEROS_PER_XMR
   const frac = n % PICONEROS_PER_XMR
   let s
