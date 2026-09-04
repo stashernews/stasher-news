@@ -23,7 +23,7 @@ const prisma = new PrismaClient()
 const DOCS_DIR = path.join(process.cwd(), 'docs/user')
 // ids are baked into next.config.js rewrites + lib/constants.js ADMIN_ITEMS
 const DOCS = ['faq.md', 'guide.md', 'tos.md', 'privacy.md', 'copyright.md']
-// must be in SN_ADMIN_IDS (lib/constants.js); defaults to USER_ID.untraceable (616)
+// must be in SN_ADMIN_IDS (lib/constants.js); defaults to USER_ID.stasher (616)
 const AUTHOR_ID = Number(process.env.SN_DOCS_AUTHOR_ID ?? 616)
 
 export function parseFrontMatter (content) {

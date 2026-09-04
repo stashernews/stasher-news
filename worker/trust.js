@@ -2,6 +2,7 @@ import * as math from 'mathjs'
 import { META_SUB, USER_ID } from '@/lib/constants'
 import { Prisma } from '@prisma/client'
 import { initialTrust, GLOBAL_SEEDS } from '@/api/payIn/lib/territory'
+import { resolveTrustSeeds } from '@/lib/founderNyms'
 
 const MAX_DEPTH = 40
 const MAX_TRUST = 1
@@ -19,22 +20,24 @@ const IRRELEVANT_CUMULATIVE_TRUST = 0.001 // if a user has less than this amount
 // one with global seeds and one with subName seeds
 export async function trust ({ boss, models }) {
   console.time('trust')
+  // Founder nyms -> ids once per run (nightly); missing nyms resolve away.
+  const globalSeeds = await resolveTrustSeeds(models)
   const territories = await models.sub.findMany({
     where: {
       status: 'ACTIVE'
     }
   })
   for (const territory of territories) {
-    const seeds = GLOBAL_SEEDS.includes(territory.userId) ? GLOBAL_SEEDS : GLOBAL_SEEDS.concat(territory.userId)
+    const seeds = globalSeeds.includes(territory.userId) ? globalSeeds : globalSeeds.concat(territory.userId)
     try {
       console.timeLog('trust', `getting post graph for ${territory.name}`)
       const postGraph = await getGraph(models, territory.name, true, seeds)
       console.timeLog('trust', `getting comment graph for ${territory.name}`)
       const commentGraph = await getGraph(models, territory.name, false, seeds)
       console.timeLog('trust', `computing global post trust for ${territory.name}`)
-      const vGlobalPost = await trustGivenGraph(postGraph)
+      const vGlobalPost = await trustGivenGraph(postGraph, globalSeeds)
       console.timeLog('trust', `computing global comment trust for ${territory.name}`)
-      const vGlobalComment = await trustGivenGraph(commentGraph)
+      const vGlobalComment = await trustGivenGraph(commentGraph, globalSeeds)
       console.timeLog('trust', `computing sub post trust for ${territory.name}`)
       const vSubPost = await trustGivenGraph(postGraph, [territory.userId])
       console.timeLog('trust', `computing sub comment trust for ${territory.name}`)
@@ -61,7 +64,7 @@ export async function trust ({ boss, models }) {
 
       if (results.length === 0) {
         console.timeLog('trust', `no results for ${territory.name} - adding seeds`)
-        results = initialTrust({ name: territory.name, userId: territory.userId })
+        results = await initialTrust(models, { name: territory.name, userId: territory.userId })
       }
 
       await storeTrust(models, territory.name, results)

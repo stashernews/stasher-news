@@ -1,9 +1,14 @@
 import { USER_ID } from '@/lib/constants'
+import { nymsToIds, TRUST_SEED_NYMS } from '@/lib/founderNyms'
 
-export const GLOBAL_SEEDS = [USER_ID.untraceable]
+// Static fallback — the migration-guaranteed platform account. Runtime seed
+// resolution lives in lib/founderNyms.js (founder nyms are name-resolved).
+export const GLOBAL_SEEDS = [USER_ID.stasher]
 
-export function initialTrust ({ name, userId }) {
-  const results = GLOBAL_SEEDS.map(id => ({
+export async function initialTrust (models, { name, userId }) {
+  const resolved = await nymsToIds(models, TRUST_SEED_NYMS)
+  const seeds = resolved.length > 0 ? resolved : GLOBAL_SEEDS
+  const results = seeds.map(id => ({
     subName: name,
     userId: id,
     zapPostTrust: 1,
@@ -12,7 +17,7 @@ export function initialTrust ({ name, userId }) {
     subZapCommentTrust: 1
   }))
 
-  if (!GLOBAL_SEEDS.includes(userId)) {
+  if (!seeds.includes(userId)) {
     results.push({
       subName: name,
       userId,

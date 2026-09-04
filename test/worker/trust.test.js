@@ -2,7 +2,7 @@
 
 // Integration test for worker/trust.js — verifies the trust graph reads from the
 // live P2P observation tables (ObservedTip / ObservedDownvote), NOT the dead
-// PayIn/ItemPayIn tables. The nightly trust job (pgboss 'trust', 0 2 * * * America/Chicago)
+// PayIn/ItemPayIn tables. The nightly trust job (pgboss 'trust', 0 2 * * * UTC)
 // consumes this graph to populate UserSubTrust per ACTIVE territory; Task 2 of the
 // merged plan consumes UserSubTrust.zapPostTrust/etc. to weight live tips.
 //
@@ -25,13 +25,13 @@ import { USER_ID } from '@/lib/constants'
 
 const prisma = new PrismaClient()
 
-// The global trust seed is the stasher user (USER_ID.untraceable = 616). For GLOBAL
+// The global trust seed is the stasher user (USER_ID.stasher = 616). For GLOBAL
 // trust (zapPostTrust) to reach a curator, the seed must itself tip — the random
 // walk restarts at the seed each iteration, so only nodes the seed "follows" accrue
 // trust. This is exactly what the brief's RED note describes: before the rewire the
 // seeded user contributed no edges (the dead PayIn table had no rows), so the
 // curator's zapPostTrust stayed 0.
-const SEED_USER = USER_ID.untraceable // 616
+const SEED_USER = USER_ID.stasher // 616
 
 const AMOUNT_A = 1_000_000_000_000n // aId tips 1 XMR (-> confidence(1,1,Z) ≈ 0.207)
 const AMOUNT_C = 2_000_000_000_000n // cId tips 2 XMR (-> confidence(0.5,1.5,Z) ≈ 0.036)
@@ -330,7 +330,7 @@ test('records seed trust for the territory (unconditional random-walk seed injec
   const rows = await prisma.userSubTrust.findMany({ where: { subName: territoryName } })
   expect(rows.length).toBeGreaterThan(0)
   const userIds = rows.map(r => r.userId)
-  expect(userIds).toContain(USER_ID.untraceable) // 616 — global seed, injected unconditionally
+  expect(userIds).toContain(USER_ID.stasher) // 616 — global seed, injected unconditionally
 })
 
 test('derives non-zero zapPostTrust for a confirmed-tip curator from the observation tables', async () => {

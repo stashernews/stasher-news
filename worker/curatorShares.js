@@ -1,5 +1,5 @@
 import createPrisma from '@/lib/create-prisma'
-import { USER_ID } from '@/lib/constants'
+import { nymsToIds, HANDICAP_NYMS } from '@/lib/founderNyms'
 
 // computeCuratorShares — the share-computation core of StasherNews' weekly
 // rewardsDistributor (Phase 4 Task 7 / design spec §5). It ports Stacker.news'
@@ -16,8 +16,8 @@ import { USER_ID } from '@/lib/constants'
 //
 // What was kept: NTILE(100) percentile cutoff, the "islands" contiguous-zap
 // dedupe, the power(sum, 0.25) quad-root diminishing returns, the
-// 1/LN(rank + e - 1) early-tipper boost, the HANDICAP_IDS / HANDICAP_ZAP_MULT
-// 0.5x curator multiplier (staff users weigh half; restored per A-09), the
+// 1/LN(rank + e - 1) early-tipper boost, the HANDICAP_NYMS / HANDICAP_ZAP_MULT
+// 0.5x curator multiplier (staff/founder users weigh half; restored per A-09), the
 // per-partition (post vs comment) normalization split by EACH_ZAP_PORTION, and
 // the per-user total_proportion roll-up.
 //
@@ -46,11 +46,12 @@ const EACH_ZAP_PORTION = 2.0
 // cancel — so only this HAVING dust filter is unit-sensitive.
 const ZAP_THRESHOLD_PICONEROS = 100_000_000n
 
-// SN-parity HANDICAP_IDS (restored per A-09): staff accounts get a 0.5x curator
-// multiplier (their curation still counts, but at half weight). The fork keeps
-// the upstream ids — stasher (616) and sn (4502) — and deliberately does
-// NOT handicap anon (never reaches curator attribution anyway).
-const HANDICAP_IDS = [USER_ID.untraceable, USER_ID.sn]
+// SN-parity handicap (restored per A-09): staff/founder accounts get a 0.5x
+// curator multiplier (their curation still counts, but at half weight). Ids
+// are resolved at compute time from HANDICAP_NYMS (lib/founderNyms.js):
+// 'stasher' (616) and 'sn' (4502) are migration-guaranteed; 'untraceable'
+// (the founder's personal account) resolves once it exists. Anon is
+// deliberately NOT handicapped (never reaches curator attribution anyway).
 const HANDICAP_ZAP_MULT = 0.5
 
 // Apportion a curator's share across their earn types by typeProportion
@@ -104,6 +105,7 @@ export async function computeCuratorShares (periodStart, periodEnd, poolPiconero
 }
 
 async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout, topN) {
+  const handicapIds = await nymsToIds(models, HANDICAP_NYMS)
   // Per-curator raw proportions from the ported CTE. Each row is
   // { curatorId: number, total_proportion: number, earns: string (json_agg text) }.
   const prospects = await models.$queryRaw`
@@ -170,7 +172,7 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
       item_zapper_ratios AS (
         SELECT "userId",
           sum((2 * early_multiplier + 1) * zapped_proportion * proportion)
-            * CASE WHEN "userId" = ANY(${HANDICAP_IDS}) THEN ${HANDICAP_ZAP_MULT} ELSE 1 END AS item_zapper_proportion,
+            * CASE WHEN "userId" = ANY(${handicapIds}::int[]) THEN ${HANDICAP_ZAP_MULT} ELSE 1 END AS item_zapper_proportion,
           "parentId" IS NULL AS "isPost"
         FROM (
           SELECT *,

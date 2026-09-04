@@ -66,7 +66,7 @@ export async function onBegin (tx, payInId, { billingType, uploadIds, ...data })
   })
 
   await tx.userSubTrust.createMany({
-    data: initialTrust({ name: sub.name, userId: sub.userId })
+    data: await initialTrust(tx, { name: sub.name, userId: sub.userId })
   })
 
   await scheduleTerritoryBilling(tx, sub.name, sub.billPaidUntil)

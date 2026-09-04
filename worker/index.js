@@ -153,7 +153,7 @@ async function work () {
   await boss.work('payWeeklyPostBounty', { includeMetadata: true }, jobWrapper(payWeeklyPostBounty))
   await boss.work('repin-*', { includeMetadata: true }, jobWrapper(repin))
   await boss.work('trust', { includeMetadata: true }, jobWrapper(trust))
-  // trust recomputes nightly via the pgboss.schedule row (0 2 * * * America/Chicago).
+  // trust recomputes nightly via the pgboss.schedule row (0 2 * * * UTC).
   // Self-seed on fresh installs (deferred 24h) so a brand-new stack lands a first run
   // without waiting on the cron, mirroring the rewardsDistributor deferred-seed pattern.
   if (await boss.getQueueSize('trust') === 0) {

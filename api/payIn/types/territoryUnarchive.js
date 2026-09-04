@@ -114,7 +114,7 @@ export async function onBegin (tx, payInId, { name, billingType, uploadIds, ...d
     }
   })
 
-  const trust = initialTrust({ name: updatedSub.name, userId: updatedSub.userId })
+  const trust = await initialTrust(tx, { name: updatedSub.name, userId: updatedSub.userId })
   for (const t of trust) {
     await tx.userSubTrust.upsert({
       where: {
