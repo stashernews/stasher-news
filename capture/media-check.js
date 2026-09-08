@@ -1,5 +1,5 @@
 import { filetypemime } from 'magic-bytes.js'
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { timingSafeEqual } from 'node:crypto'
 import { Agent, fetch as undiciFetch, setGlobalDispatcher } from 'undici'
 import { assertPublicHost, ssrfSafeLookup, ssrfEnforced } from './ssrf.js'
 
