@@ -60,15 +60,29 @@ test('throws in production when NEXT_PUBLIC_URL points at localhost', () => {
 
 test('throws in production when IMGPROXY_KEY equals the committed dev value', () => {
   // read the committed dev value the same way the PROD_MUST_DIFFER mechanism does
-  const devKey = require('fs').readFileSync('.env.development', 'utf8').match(/^IMGPROXY_KEY=(\w+)$/m)[1]
+  // (the committed lines may be commented out — the placeholder is the guard value)
+  const devKey = require('fs').readFileSync('.env.development', 'utf8').match(/^#?\s*IMGPROXY_KEY=(\w+)$/m)[1]
   const env = { ...GOOD, IMGPROXY_KEY: devKey }
   expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/IMGPROXY_KEY/)
 })
 
 test('throws in production when IMGPROXY_SALT equals the committed dev value', () => {
   // read the committed dev value the same way the PROD_MUST_DIFFER mechanism does
-  const devSalt = require('fs').readFileSync('.env.development', 'utf8').match(/^IMGPROXY_SALT=(\w+)$/m)[1]
+  const devSalt = require('fs').readFileSync('.env.development', 'utf8').match(/^#?\s*IMGPROXY_SALT=(\w+)$/m)[1]
   const env = { ...GOOD, IMGPROXY_SALT: devSalt }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/IMGPROXY_SALT/)
+})
+
+test('throws in production when IMGPROXY_KEY equals the leaked pre-release dev value', () => {
+  // the old committed dev values were dropped from .env.development for the
+  // public release but live on in git history — a prod boot carrying them
+  // must still fail validation
+  const env = { ...GOOD, IMGPROXY_KEY: '73b5187ddbc1db70c74164dbcac1f40376413e2c0eedf55b70f10bd7abbe4240' }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/IMGPROXY_KEY/)
+})
+
+test('throws in production when IMGPROXY_SALT equals the leaked pre-release dev value', () => {
+  const env = { ...GOOD, IMGPROXY_SALT: 'd0f1305e990d1c15b03c1989ac6c72f6a1c6d58b0a855894b7844b18f271671c' }
   expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/IMGPROXY_SALT/)
 })
 
