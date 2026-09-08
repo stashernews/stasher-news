@@ -4,7 +4,7 @@ import { applyTipDetected } from '@/api/monero/ranking'
 import { shouldExcludeTip, resolveItemSubName } from '@/api/monero/selfTip'
 import { RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
 import { alert } from '@/lib/alert'
-import { moneroPendingTips } from '@/lib/metrics'
+import { moneroPendingTips, moneroTipsRecoveredTotal, moneroTipsExpiredTotal } from '@/lib/metrics'
 
 // reconcilePendingTips — recover tips stranded in PENDING by a missed 0-conf webhook.
 //
@@ -27,7 +27,13 @@ import { moneroPendingTips } from '@/lib/metrics'
 // exhaustive for the account (the job is infrequent + state-filtered to PENDING, so the
 // cost is bounded by the number of accounts with stranded tips, not all accounts).
 
-const STUCK_ALERT_THRESHOLD = Number(process.env.RECONCILE_STUCK_ALERT_THRESHOLD) || 10
+// Alert tiers: recoveries ARE missed webhooks (unpaid checkouts can never be
+// recovered — nothing on chain to find), so the operator page fires on the
+// post-scan recovered count, never on the raw PENDING pool. Small batches are
+// a blip (deploy window with exhausted lws retries); large batches mean a
+// systemic webhook outage.
+const RECONCILE_RECOVERED_WARN = Number(process.env.RECONCILE_RECOVERED_WARN) || 1
+const RECONCILE_RECOVERED_CRITICAL = Number(process.env.RECONCILE_RECOVERED_CRITICAL) || 10
 
 export async function runReconcilePendingTipsOnce ({
   models, lwsClient: client = lwsClient, apply = applyTipDetected
@@ -42,17 +48,6 @@ export async function runReconcilePendingTipsOnce ({
   })
   moneroPendingTips.set(eligible.length)
   if (eligible.length === 0) return { recovered: 0, expired: 0, excluded: 0 }
-
-  if (eligible.length >= STUCK_ALERT_THRESHOLD) {
-    const oldestMs = eligible.reduce((m, t) => {
-      const ts = new Date(t.detectedAt).getTime()
-      return ts < m ? ts : m
-    }, now)
-    const oldestAgeMin = Math.max(0, Math.round((now - oldestMs) / 60000))
-    alert('critical', 'stuck pending tips',
-      `${eligible.length} tips PENDING past reconcile age (oldest ${oldestAgeMin}m); webhook backlog suspected`,
-      { dedupeKey: 'stuck-pending' })
-  }
 
   // Group stranded tips by the author account whose address lws must scan.
   const byAccount = new Map()
@@ -146,6 +141,14 @@ export async function runReconcilePendingTipsOnce ({
         expired += 1
       }
     }
+  }
+  moneroTipsRecoveredTotal.inc(recovered)
+  moneroTipsExpiredTotal.inc(expired)
+  if (recovered >= RECONCILE_RECOVERED_WARN) {
+    const level = recovered >= RECONCILE_RECOVERED_CRITICAL ? 'critical' : 'warn'
+    alert(level, 'missed tip webhooks',
+      `${recovered} tips recovered by reconciliation scan — webhooks missed`,
+      { dedupeKey: 'missed-tip-webhooks' })
   }
   return { recovered, expired, excluded }
 }

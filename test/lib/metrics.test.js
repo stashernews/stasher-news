@@ -9,6 +9,8 @@ import {
   moneroRewardsWalletBalancePiconeros,
   moneroDistributionStatus,
   moneroWebhooksReceivedTotal,
+  moneroTipsRecoveredTotal,
+  moneroTipsExpiredTotal,
   moneroJobDurationSeconds,
   moneroLwsUp,
   moneroMonerodUp,
@@ -23,6 +25,8 @@ const ALL_NAMES = [
   'monero_rewards_wallet_balance_piconeros',
   'monero_distribution_status',
   'monero_webhooks_received_total',
+  'monero_tips_recovered_total',
+  'monero_tips_expired_total',
   'monero_job_duration_seconds',
   'monero_lws_up',
   'monero_monerod_up',
@@ -51,7 +55,7 @@ test('every required metric is registered', async () => {
 test('every metric is exported as a prom-client metric instance', () => {
   const metrics = [
     moneroPendingTips, moneroRewardsWalletBalancePiconeros, moneroDistributionStatus,
-    moneroWebhooksReceivedTotal, moneroJobDurationSeconds, moneroLwsUp,
+    moneroWebhooksReceivedTotal, moneroTipsRecoveredTotal, moneroTipsExpiredTotal, moneroJobDurationSeconds, moneroLwsUp,
     moneroMonerodUp, moneroMonerodHeight, moneroReorgsTotal,
     moneroOpsPendingPiconeros, workerPgjobsFailedTotal
   ]
@@ -72,6 +76,13 @@ test('counter increments accumulate (.inc and .inc(n))', async () => {
   moneroReorgsTotal.inc()
   moneroReorgsTotal.inc(4)
   expect(await valueOf('monero_reorgs_total')).toBe(6)
+})
+
+test('tip outcome counters accumulate (.inc(n))', async () => {
+  moneroTipsRecoveredTotal.inc(3)
+  moneroTipsExpiredTotal.inc()
+  expect(await valueOf('monero_tips_recovered_total')).toBe(3)
+  expect(await valueOf('monero_tips_expired_total')).toBe(1)
 })
 
 test('histogram observes per label and emits bucket/sum/count series', async () => {
