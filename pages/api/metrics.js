@@ -17,8 +17,10 @@ import { safeEqual } from '@/lib/domains/auth'
 // docs/ops/mainnet-launch.md and docs/ops/security-review.md.
 //
 // On every GET it refreshes the DB-backed gauges (pending tips, latest
-// distribution status, pg-boss failed count, ops earmark) and the in-process
-// health gauges, then returns the registry in Prometheus exposition format.
+// distribution status, pg-boss failed count, ops earmark) and the
+// HealthSnapshot-backed health gauges (lws/monerod/height + rewards wallet
+// balance, written by the worker process into row id=1), then returns the
+// registry in Prometheus exposition format.
 
 export default async function handler (req, res) {
   if (req.method !== 'GET') {
@@ -36,8 +38,8 @@ export default async function handler (req, res) {
   res.setHeader('Cache-Control', 'no-store')
   try {
     await collectDBBackedMetrics(models)
+    await collectHealthGauges(models)
   } catch { /* retain stale values; never 500 the scrape */ }
-  collectHealthGauges()
   res.setHeader('Content-Type', register.contentType)
   res.status(200).end(await register.metrics())
 }

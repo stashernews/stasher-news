@@ -1,5 +1,16 @@
 /* eslint-env jest */
-import { runHealthProbeOnce, __resetStallState } from '@/worker/healthProbe'
+import { runHealthProbeOnce, healthProbe, persistHealthSnapshot, __resetStallState } from '@/worker/healthProbe'
+import { logWarn } from '../../lib/logger'
+
+// next/jest's SWC transform rewrites `@/` in import statements but NOT in
+// jest.mock() specifiers, so the logger mock uses the repo-convention relative
+// path that resolves to the same module (mirrors test/api/monero/rewards.test.js).
+jest.mock('../../lib/logger', () => ({
+  __esModule: true,
+  logInfo: jest.fn(),
+  logWarn: jest.fn(),
+  logError: jest.fn()
+}))
 
 // The probe checks the two services independently: lws via the admin
 // /list_accounts endpoint and monerod directly via JSON-RPC get_info.
@@ -106,4 +117,45 @@ test('monerod outage rebaselines the stall window so recovery is not misread as 
   const res = await runHealthProbeOnce({ ...o, daemonClient: monerodUp(5000), now: () => threshold * 2 + 1 })
   expect(res.stalled).toBe(false)
   expect(alertCalls(o.alert, 'monerod stalled')).toHaveLength(0)
+})
+
+// --- healthProbe() job wrapper: the HealthSnapshot persist seam (worker -> DB
+// -> app bridge). The wrapper runs the probe, then upserts row id=1 through the
+// injectable persist fn; a persist failure is logged, never fails the job. ---
+
+const wrapperOpts = () => ({
+  lwsClient: lwsUp(),
+  daemonClient: monerodUp(1000),
+  alert: jest.fn(),
+  setStatus: jest.fn(),
+  now: () => 0
+})
+
+test('healthProbe persists the probe result through the injectable persist seam', async () => {
+  const persist = jest.fn().mockResolvedValue(undefined)
+  await healthProbe({ persist, ...wrapperOpts() })
+  expect(persist).toHaveBeenCalledTimes(1)
+  expect(persist).toHaveBeenCalledWith({ lwsOk: true, monerodOk: true, height: 1000, stalled: false })
+})
+
+test('healthProbe persists a degraded result exactly as the probe returned it', async () => {
+  const persist = jest.fn().mockResolvedValue(undefined)
+  await healthProbe({ persist, ...wrapperOpts(), lwsClient: lwsDown(), daemonClient: monerodUp(500) })
+  expect(persist).toHaveBeenCalledWith({ lwsOk: false, monerodOk: true, height: 500, stalled: false })
+})
+
+test('a persist failure never fails the healthProbe job (logged, swallowed)', async () => {
+  const persist = jest.fn().mockRejectedValue(new Error('db down'))
+  await expect(healthProbe({ persist, ...wrapperOpts() })).resolves.toBeUndefined()
+  expect(logWarn).toHaveBeenCalledWith(expect.stringContaining('HealthSnapshot persist failed'), expect.any(Error))
+})
+
+test('persistHealthSnapshot upserts row id=1 with the probe fields (balance columns untouched)', async () => {
+  const models = { healthSnapshot: { upsert: jest.fn().mockResolvedValue({}) } }
+  await persistHealthSnapshot(models, { lwsOk: false, monerodOk: true, height: 77, stalled: false })
+  expect(models.healthSnapshot.upsert).toHaveBeenCalledWith({
+    where: { id: 1 },
+    create: { id: 1, lws: false, monerod: true, height: 77, stalled: false },
+    update: { lws: false, monerod: true, height: 77, stalled: false }
+  })
 })

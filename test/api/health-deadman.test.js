@@ -1,5 +1,6 @@
 /* eslint-env jest */
 import { evaluateDeadman, deadmanAlerts, WORKER_STALE_MS, BACKUP_STALE_MS } from '@/lib/deadman'
+import { HEALTH_STALE_MS } from '@/lib/metrics'
 import handler, { __resetDeadmanThrottle } from '@/pages/api/health'
 import { alert } from '@/lib/alert'
 
@@ -9,7 +10,10 @@ import { alert } from '@/lib/alert'
 jest.mock('../../api/models', () => ({
   __esModule: true,
   default: {
-    $queryRaw: jest.fn()
+    $queryRaw: jest.fn(),
+    healthSnapshot: {
+      findUnique: jest.fn()
+    }
   }
 }))
 jest.mock('../../lib/alert', () => ({
@@ -54,6 +58,8 @@ beforeEach(() => {
     }
     return [{ failed: 0, pending: 0, oldestPending: null }] // checkQueue shape
   })
+  // default: no HealthSnapshot row yet (lws/monerod stay null)
+  models.healthSnapshot.findUnique.mockResolvedValue(null)
 })
 
 describe('evaluateDeadman (pure)', () => {
@@ -173,5 +179,58 @@ describe('GET /api/health deadman wiring', () => {
     expect(sawArchive).toBe(true)
     expect(alert).toHaveBeenCalledWith('critical', 'nightly backup missing', expect.any(String), { dedupeKey: 'dbBackup-silent' })
     expect(res.body.deadman).toMatchObject({ backupStale: true })
+  })
+})
+
+describe('GET /api/health monero snapshot reads', () => {
+  test('a fresh HealthSnapshot row surfaces the probe lws/monerod booleans', async () => {
+    models.healthSnapshot.findUnique.mockResolvedValueOnce({
+      id: 1,
+      lws: true,
+      monerod: true,
+      height: 3100000,
+      stalled: false,
+      updatedAt: new Date()
+    })
+    const res = resStub()
+    await handler({ method: 'GET' }, res)
+    expect(models.healthSnapshot.findUnique).toHaveBeenCalledWith({ where: { id: 1 } })
+    expect(res.statusCode).toBe(200)
+    expect(res.body.lws).toBe(true)
+    expect(res.body.monerod).toBe(true)
+  })
+
+  test('a stale (older than HEALTH_STALE_MS) row reads as null — probe unseen semantics', async () => {
+    models.healthSnapshot.findUnique.mockResolvedValueOnce({
+      id: 1,
+      lws: true,
+      monerod: true,
+      height: 3100000,
+      stalled: false,
+      updatedAt: new Date(Date.now() - HEALTH_STALE_MS - 1000)
+    })
+    const res = resStub()
+    await handler({ method: 'GET' }, res)
+    expect(res.body.lws).toBeNull()
+    expect(res.body.monerod).toBeNull()
+    expect(res.statusCode).toBe(200)
+  })
+
+  test('a missing row reads as null and the healthcheck still passes', async () => {
+    const res = resStub()
+    await handler({ method: 'GET' }, res)
+    expect(res.body.lws).toBeNull()
+    expect(res.body.monerod).toBeNull()
+    expect(res.statusCode).toBe(200)
+    expect(res.body.ok).toBe(true)
+  })
+
+  test('a snapshot read failure never breaks /api/health', async () => {
+    models.healthSnapshot.findUnique.mockRejectedValueOnce(new Error('db down'))
+    const res = resStub()
+    await handler({ method: 'GET' }, res)
+    expect(res.statusCode).toBe(200)
+    expect(res.body.lws).toBeNull()
+    expect(res.body.monerod).toBeNull()
   })
 })

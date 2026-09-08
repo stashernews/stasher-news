@@ -9,6 +9,10 @@
 # pre-existing. caddy_data/caddy_config stay unguarded deliberately (TLS certs
 # are re-issuable by Let's Encrypt).
 #
+# `stashernews_os` (search profile) is the one exception to "already exists":
+# it must be created manually before the first guarded `up` with the search
+# profile active — docker volume create stashernews_os (minio precedent).
+#
 # Dev-mode hotswap note: the base docker-compose.yml alone runs dev watch
 # commands and has NO wipe guard — always include this fragment on the VPS,
 # even while iterating in dev mode.
@@ -36,4 +40,7 @@ volumes:
     external: true
   wal_archive:
     name: stashernews_wal_archive
+    external: true
+  os:
+    name: stashernews_os
     external: true

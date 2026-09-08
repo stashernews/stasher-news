@@ -4,6 +4,7 @@ import { alert } from '@/lib/alert'
 import { setHealthStatus } from '@/lib/healthStatus'
 import { logWarn } from '@/lib/logger'
 import { moneroLwsUp, moneroMonerodUp, moneroMonerodHeight } from '@/lib/metrics'
+import createPrisma from '@/lib/create-prisma'
 
 // healthProbe (Task D4) — periodic lws + monerod health probe.
 //
@@ -11,9 +12,11 @@ import { moneroLwsUp, moneroMonerodUp, moneroMonerodHeight } from '@/lib/metrics
 // probes the two services INDEPENDENTLY — lws via the admin /list_accounts
 // endpoint and monerod directly via JSON-RPC get_info (api/monero/daemonClient,
 // the same proven path confirmFinalizer and bounties use) — publishes the
-// snapshot to lib/healthStatus (consumed by /api/health and the D7 gauges), and
-// fires a debounced critical alert when either service is down or the chain
-// height stops advancing.
+// snapshot to lib/healthStatus, persists it to the HealthSnapshot row (the
+// worker -> DB -> app bridge: the app process reads that row in /api/health and
+// /api/metrics, since this process-local singleton is invisible across
+// containers), and fires a debounced critical alert when either service is down
+// or the chain height stops advancing.
 //
 // The probes are independent because lws does NOT proxy monerod state in the
 // deployed build: GET /daemon_status returns 404 (see
@@ -104,7 +107,34 @@ export async function runHealthProbeOnce ({
   return { lwsOk, monerodOk, height, stalled }
 }
 
-export async function healthProbe () {
+export async function healthProbe ({ persist = (result) => persistHealthSnapshot(undefined, result), ...probeOpts } = {}) {
   // Recurrence is cron-owned (pgboss.schedule row healthProbe); no self-requeue.
-  await runHealthProbeOnce()
+  const result = await runHealthProbeOnce(probeOpts)
+  try {
+    await persist(result)
+  } catch (err) {
+    // The bridge write is best-effort: the in-process singleton + worker-side
+    // gauges are already updated, and a failed persist must never fail the job
+    // (the next 60s cycle retries; the app side just reads a stale row until
+    // then, which its staleness window already handles).
+    logWarn('healthProbe: HealthSnapshot persist failed — app-side gauges stale until the next cycle', err)
+  }
+}
+
+// The worker -> DB leg of the bridge: upsert HealthSnapshot row id=1 with the
+// probe result. Exported for tests; `models` is injectable there — production
+// memoizes one Prisma client for the worker process lifetime (the probe fires
+// every 60s, so per-call client create/disconnect would churn connections).
+// The balance columns are owned by the rewards signer (setBalanceGauge) and are
+// deliberately left untouched here.
+let snapshotModels = null
+export async function persistHealthSnapshot (models, { lwsOk, monerodOk, height, stalled }) {
+  // NB: create-prisma destructures its (optional) options param without an
+  // outer default, so it must be called with an explicit empty object.
+  const db = models || (snapshotModels ||= createPrisma({}))
+  await db.healthSnapshot.upsert({
+    where: { id: 1 },
+    create: { id: 1, lws: lwsOk, monerod: monerodOk, height, stalled },
+    update: { lws: lwsOk, monerod: monerodOk, height, stalled }
+  })
 }

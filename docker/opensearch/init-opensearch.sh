@@ -916,7 +916,9 @@ ensure_neural_index "$dense_model_id"
 SEED_FILE="/usr/share/opensearch/seed-embeddings.gz"
 DENSE_MARKER="---DENSE_EMBEDDINGS_FLOAT16_BASE64---"
 
-if [ -f "$SEED_FILE" ]; then
+if [ "${OS_ENABLE_SEED:-0}" != "1" ] || [ "${NODE_ENV:-development}" = "production" ]; then
+  echo "Seed import is a dev-only convenience (needs OS_ENABLE_SEED=1 and non-production NODE_ENV); skipping seed import."
+elif [ -f "$SEED_FILE" ]; then
   doc_count=$(curl -sS -ku "${OS_USER}:${OS_PASS}" \
     "${OS_URL}/${INDEX_NAME}/_count" 2>/dev/null \
     | sed -nE 's/.*"count"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')

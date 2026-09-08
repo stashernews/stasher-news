@@ -253,9 +253,10 @@ services:
     env_file: *env_file
     environment:
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD}
+      - NODE_ENV=${NODE_ENV:-development}
       - plugins.security.disabled=true
       - discovery.type=single-node
-      - "_JAVA_OPTIONS=-Xms2g -Xmx2g"
+      - "_JAVA_OPTIONS=${OPENSEARCH_JAVA_OPTS:--Xms2g -Xmx2g}"
     ports:
       - 127.0.0.1:9200:9200 # REST API
       - 127.0.0.1:9600:9600 # Performance Analyzer

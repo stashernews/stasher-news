@@ -1649,6 +1649,25 @@ model RewardPayout {
   @@index([distributionId])
 }
 
+// Single-row (id=1) cross-process health bridge. The worker process is the only
+// one that can observe lws/monerod/chain health (worker/healthProbe.js) and the
+// rewards wallet's post-send balance (api/monero/rewards.js setBalanceGauge),
+// while /api/metrics and /api/health run in the app process — this row is what
+// carries their observations across. Readers apply the staleness window
+// (lib/metrics.js HEALTH_STALE_MS, 5 min vs the probe's 60s cadence): missing/
+// stale rows read as "not known up" / null. No seed row — the first upsert
+// creates id=1 (fixed default, no serial sequence involved).
+model HealthSnapshot {
+  id               Int       @id @default(1)
+  lws              Boolean?
+  monerod          Boolean?
+  height           Int       @default(0)
+  stalled          Boolean   @default(false)
+  balancePiconeros BigInt?
+  balanceUpdatedAt DateTime?
+  updatedAt        DateTime  @updatedAt
+}
+
 // Downvote payment_id reverse map (created at URI-generation time).
 model DownvotePidMap {
   paymentId      String    @id

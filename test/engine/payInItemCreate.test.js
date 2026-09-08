@@ -162,7 +162,10 @@ test('onPaid creates timestampItem + imgproxy pgboss jobs without throwing', asy
 
   const jobs = await prisma.$queryRaw`
     SELECT name FROM pgboss.job WHERE data->>'id' = ${String(itemId)}`
-  const names = jobs.map(r => r.name).sort()
+  // The restored search triggers (20260908000000_restore_search_index_triggers)
+  // enqueue indexItem jobs on every Item insert/update — filter them out; this
+  // regression is about timestampItem + imgproxy only.
+  const names = jobs.map(r => r.name).filter(n => n !== 'indexItem').sort()
   expect(names).toEqual(['imgproxy', 'timestampItem'])
 })
 

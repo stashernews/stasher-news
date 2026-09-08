@@ -12,7 +12,7 @@
 //   docker exec -u apprunner app npx jest test/api/monero/rewards.test.js
 
 import { sendPayouts, resolveRewardsRestoreHeight, ensureFeeAccounts, planAccountSends } from '@/api/monero/rewards'
-import { logInfo, logError } from '../../../lib/logger'
+import { logInfo, logError, logWarn } from '../../../lib/logger'
 
 // D1 migrated rewards.js from console.* to the pino logger (lib/logger.js), so
 // CRITICAL/relayed logs no longer hit console.error/console.log. Mock the logger
@@ -48,11 +48,15 @@ const makeOutgoing = (hash, address, amount) => ({
 })
 
 // In-memory rewardPayout store: update() mutates + returns the row, mirroring
-// Prisma's shape so sendPayouts can be driven without a database.
+// Prisma's shape so sendPayouts can be driven without a database. The
+// healthSnapshot upsert is a jest.fn so tests can assert the balance bridge
+// write (and make it reject to prove the payout flow swallows persist errors).
 function makeFakeModels (rows) {
   const store = new Map(rows.map(r => [r.id, { ...r }]))
+  const healthUpsert = jest.fn().mockResolvedValue({})
   return {
     store,
+    healthUpsert,
     rewardPayout: {
       async findMany ({ where } = {}) {
         return [...store.values()].filter(r =>
@@ -66,7 +70,8 @@ function makeFakeModels (rows) {
         Object.assign(row, data)
         return { ...row }
       }
-    }
+    },
+    healthSnapshot: { upsert: healthUpsert }
   }
 }
 
@@ -592,4 +597,32 @@ test('reconciliation ignores outgoing txs already recorded on SENT payouts — n
   expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0, unpersisted: 0 }) // sent fresh
   expect(wallet.calls).toHaveLength(1) // actually sent this time
   expect(models.store.get(1).txHash).not.toBe('ef'.repeat(32))
+})
+
+// --- HealthSnapshot balance bridge: setBalanceGauge additionally persists the
+// post-send unlocked balance to the single-row snapshot so the app process can
+// serve monero_rewards_wallet_balance_piconeros from /api/metrics. ---
+
+test('sendPayouts persists the post-send unlocked balance to the HealthSnapshot row', async () => {
+  const p1 = makePayout({ id: 1, recipientAddress: '5BRIDGE' })
+  const models = makeFakeModels([p1])
+  const wallet = makeFakeWallet() // unlocked: 1_000_000_000_000_000n on account 0
+  await sendPayouts([p1], { models, wallet })
+  const expected = 1_000_000_000_000_000n - 1_000_000_000n
+  expect(models.healthUpsert).toHaveBeenCalledWith({
+    where: { id: 1 },
+    create: { id: 1, balancePiconeros: expected, balanceUpdatedAt: expect.any(Date) },
+    update: { balancePiconeros: expected, balanceUpdatedAt: expect.any(Date) }
+  })
+})
+
+test('a HealthSnapshot balance persist failure never throws into the payout flow', async () => {
+  const p1 = makePayout({ id: 1, recipientAddress: '5BRIDGE' })
+  const models = makeFakeModels([p1])
+  models.healthUpsert.mockRejectedValue(new Error('db down'))
+  const wallet = makeFakeWallet()
+  const summary = await sendPayouts([p1], { models, wallet })
+  expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0, unpersisted: 0 }) // payout flow unaffected
+  await new Promise(resolve => setImmediate(resolve)) // flush the fire-and-forget catch
+  expect(logWarn).toHaveBeenCalledWith(expect.stringContaining('HealthSnapshot balance persist failed'), expect.any(Error))
 })

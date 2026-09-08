@@ -3,6 +3,7 @@ import {
   register,
   collectDBBackedMetrics,
   collectHealthGauges,
+  HEALTH_STALE_MS,
   __resetMetricsForTests,
   moneroPendingTips,
   moneroRewardsWalletBalancePiconeros,
@@ -16,7 +17,6 @@ import {
   moneroOpsPendingPiconeros,
   workerPgjobsFailedTotal
 } from '@/lib/metrics'
-import { setHealthStatus, __resetHealthStatus } from '@/lib/healthStatus'
 
 const ALL_NAMES = [
   'monero_pending_tips',
@@ -34,7 +34,6 @@ const ALL_NAMES = [
 
 beforeEach(() => {
   __resetMetricsForTests()
-  __resetHealthStatus()
 })
 
 test('registry content type is the Prometheus exposition format', () => {
@@ -88,19 +87,93 @@ test('histogram observes per label and emits bucket/sum/count series', async () 
   expect(countLine.endsWith(' 2')).toBe(true)
 })
 
-test('collectHealthGauges maps healthStatus booleans to 0/1 gauges', async () => {
-  setHealthStatus({ lws: true, monerod: false, height: 0 })
-  collectHealthGauges()
+// HealthSnapshot-shaped row as Prisma returns it (BigInt balance, Date stamps).
+function snapshotRow (overrides = {}) {
+  return {
+    id: 1,
+    lws: true,
+    monerod: true,
+    height: 3100000,
+    stalled: false,
+    balancePiconeros: 1234567890n,
+    balanceUpdatedAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides
+  }
+}
+
+function modelsWithRow (row) {
+  return { healthSnapshot: { findUnique: jest.fn().mockResolvedValue(row) } }
+}
+
+test('HEALTH_STALE_MS is the exported 5-minute staleness window', () => {
+  expect(HEALTH_STALE_MS).toBe(5 * 60 * 1000)
+})
+
+test('collectHealthGauges maps a fresh HealthSnapshot row to the gauges', async () => {
+  const models = modelsWithRow(snapshotRow({ lws: true, monerod: true, height: 3100000 }))
+  await collectHealthGauges(models)
+  expect(models.healthSnapshot.findUnique).toHaveBeenCalledWith({ where: { id: 1 } })
   expect(await valueOf('monero_lws_up')).toBe(1)
+  expect(await valueOf('monero_monerod_up')).toBe(1)
+  expect(await valueOf('monero_monerod_height')).toBe(3100000)
+})
+
+test('collectHealthGauges maps a fresh lws-down row to lws 0 without zeroing monerod', async () => {
+  await collectHealthGauges(modelsWithRow(snapshotRow({ lws: false, monerod: true, height: 3100000 })))
+  expect(await valueOf('monero_lws_up')).toBe(0)
+  expect(await valueOf('monero_monerod_up')).toBe(1)
+  expect(await valueOf('monero_monerod_height')).toBe(3100000)
+})
+
+test('collectHealthGauges zeroes the gauges when the row is stale (older than HEALTH_STALE_MS)', async () => {
+  const stale = new Date(Date.now() - HEALTH_STALE_MS - 1000)
+  await collectHealthGauges(modelsWithRow(snapshotRow({ lws: true, monerod: true, updatedAt: stale })))
+  expect(await valueOf('monero_lws_up')).toBe(0)
   expect(await valueOf('monero_monerod_up')).toBe(0)
   expect(await valueOf('monero_monerod_height')).toBe(0)
 })
 
-test('collectHealthGauges reflects an advancing chain height', async () => {
-  setHealthStatus({ lws: true, monerod: true, height: 42 })
-  collectHealthGauges()
-  expect(await valueOf('monero_monerod_up')).toBe(1)
-  expect(await valueOf('monero_monerod_height')).toBe(42)
+test('collectHealthGauges zeroes the gauges when the row is missing', async () => {
+  await collectHealthGauges(modelsWithRow(null))
+  expect(await valueOf('monero_lws_up')).toBe(0)
+  expect(await valueOf('monero_monerod_up')).toBe(0)
+  expect(await valueOf('monero_monerod_height')).toBe(0)
+})
+
+test('collectHealthGauges is a safe-baseline no-op without models and resolves', async () => {
+  await expect(collectHealthGauges(undefined)).resolves.toBeUndefined()
+  await expect(collectHealthGauges(null)).resolves.toBeUndefined()
+  expect(await valueOf('monero_lws_up')).toBe(0)
+  expect(await valueOf('monero_monerod_up')).toBe(0)
+  expect(await valueOf('monero_monerod_height')).toBe(0)
+})
+
+test('collectHealthGauges zeroes the gauges (never throws) when the snapshot read fails', async () => {
+  const models = { healthSnapshot: { findUnique: jest.fn().mockRejectedValue(new Error('db down')) } }
+  await expect(collectHealthGauges(models)).resolves.toBeUndefined()
+  expect(await valueOf('monero_lws_up')).toBe(0)
+  expect(await valueOf('monero_monerod_up')).toBe(0)
+  expect(await valueOf('monero_monerod_height')).toBe(0)
+})
+
+test('collectHealthGauges bridges the rewards wallet balance from a row that has one', async () => {
+  await collectHealthGauges(modelsWithRow(snapshotRow({ balancePiconeros: 987654321n })))
+  expect(await valueOf('monero_rewards_wallet_balance_piconeros')).toBe(987654321)
+})
+
+test('collectHealthGauges keeps serving a last-known balance even when the balance reading is old', async () => {
+  // The signer only writes the balance on payout/sweep runs (weekly cadence);
+  // ageing it out on HEALTH_STALE_MS would read "hot wallet empty" for most of
+  // the week, so the balance keeps last-known semantics.
+  const old = new Date(Date.now() - HEALTH_STALE_MS - 1000)
+  await collectHealthGauges(modelsWithRow(snapshotRow({ balanceUpdatedAt: old, updatedAt: new Date() })))
+  expect(await valueOf('monero_rewards_wallet_balance_piconeros')).toBe(1234567890)
+})
+
+test('collectHealthGauges leaves the balance gauge at baseline when the row has no balance reading', async () => {
+  await collectHealthGauges(modelsWithRow(snapshotRow({ balancePiconeros: null, balanceUpdatedAt: null })))
+  expect(await valueOf('monero_rewards_wallet_balance_piconeros')).toBe(0)
 })
 
 test('collectDBBackedMetrics sets pending tips from observedTip.count', async () => {

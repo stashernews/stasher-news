@@ -299,7 +299,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
   skipped += recon.skipped
   unpersisted += recon.unpersisted
   sentPiconeros += recon.reconciled.reduce((acc, p) => acc + p.piconeros, 0n)
-  setBalanceGauge(totalUnlocked - sentPiconeros)
+  setBalanceGauge(models, totalUnlocked - sentPiconeros)
   return { sent, failed, skipped, unpersisted }
 }
 
@@ -534,8 +534,22 @@ async function consolidateFeeAccounts (w) {
   }
 }
 
-function setBalanceGauge (unlocked) {
+function setBalanceGauge (models, unlocked) {
   try { moneroRewardsWalletBalancePiconeros.set(Number(unlocked)) } catch { /* NaN/overflow — skip */ }
+  // HealthSnapshot bridge leg: fire-and-forget the balance into row id=1 so the
+  // app process can serve monero_rewards_wallet_balance_piconeros from
+  // /api/metrics (the prom-client gauge is process-local to this worker). The
+  // call sites are un-awaited and a persist failure must never throw into the
+  // payout/sweep flow — catch + logWarn, best-effort by contract.
+  try {
+    models?.healthSnapshot?.upsert({
+      where: { id: 1 },
+      create: { id: 1, balancePiconeros: unlocked, balanceUpdatedAt: new Date() },
+      update: { balancePiconeros: unlocked, balanceUpdatedAt: new Date() }
+    }).catch(err => logWarn('rewards signer: HealthSnapshot balance persist failed', err))
+  } catch (err) {
+    logWarn('rewards signer: HealthSnapshot balance persist failed', err)
+  }
 }
 
 // Sweep the weekly ops earmark from the hot rewards wallet to offline cold
@@ -662,7 +676,7 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
 
   const txHash = hashes.join(',')
   logInfo({ distributionId: distribution.id, txHash, swept: swept.toString() }, 'sweepOpsEarmark: ops sweep relayed')
-  setBalanceGauge(totalUnlocked - swept)
+  setBalanceGauge(models, totalUnlocked - swept)
   try {
     await models.rewardDistribution.update({
       where: { id: distribution.id },

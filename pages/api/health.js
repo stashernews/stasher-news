@@ -1,5 +1,6 @@
 import models from '@/api/models'
 import { evaluateDeadman, deadmanAlerts } from '@/lib/deadman'
+import { HEALTH_STALE_MS } from '@/lib/metrics'
 
 async function checkDb () {
   try {
@@ -39,6 +40,24 @@ export function __resetDeadmanThrottle () {
   lastDeadmanCheck = 0
 }
 
+// lws/monerod reachability is read from the HealthSnapshot bridge row that the
+// healthProbe worker upserts every 60s cycle: populated booleans when the row
+// is fresh, null when the row is missing/stale (the original "probe unseen"
+// semantics — worker liveness itself remains deadman's job) or when the read
+// fails. They run their own compose healthchecks and do not gate this
+// container's health.
+async function checkMoneroServices () {
+  try {
+    const row = await models.healthSnapshot.findUnique({ where: { id: 1 } })
+    if (!row || Date.now() - new Date(row.updatedAt).getTime() >= HEALTH_STALE_MS) {
+      return { lws: null, monerod: null }
+    }
+    return { lws: row.lws ?? null, monerod: row.monerod ?? null }
+  } catch {
+    return { lws: null, monerod: null }
+  }
+}
+
 async function checkDeadman (now = Date.now()) {
   if (now - lastDeadmanCheck < DEADMAN_MIN_INTERVAL_MS) return null
   lastDeadmanCheck = now
@@ -76,12 +95,7 @@ export default async function handler (req, res) {
   const db = await checkDb()
   const queue = await checkQueue()
   const deadman = await checkDeadman()
-
-  // lws/monerod reachability is reported null until the healthProbe worker (D4)
-  // / metrics gauges (D7) populate them. They run their own compose healthchecks
-  // and do not gate this container's health.
-  const lws = null
-  const monerod = null
+  const { lws, monerod } = await checkMoneroServices()
 
   const ok = db
   res.status(ok ? 200 : 503).json({ ok, db, lws, monerod, queue, deadman })
