@@ -8,7 +8,7 @@ sub: stasher
 
 _To quickly browse through this FAQ page, click the chapters icon in the top-right corner. This will let you scroll through all chapters or search for a particular topic within this page._
 
-last updated: August 30, 2026
+last updated: September 8, 2026
 
 ---
 
@@ -90,7 +90,7 @@ Stasher News is non-custodial: the platform never holds your money, and all paym
 
 ### How do I attach a wallet?
 
-Click [here](/settings/wallet) or click on your name and select 'wallets'. You'll be asked for your Monero address and your private view key.
+Click [here](/settings/wallet) or click on your name and select 'wallets'. You'll be asked for your Monero address and your private view key. Use your wallet's primary address — integrated addresses (payment id embedded) and subaddresses are not supported. And it must be the *private* view key: wallets also show a public view key, and only the private one lets us watch for incoming tips.
 
 ---
 

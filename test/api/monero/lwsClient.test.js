@@ -274,11 +274,12 @@ describe('addAccount', () => {
       if (url.endsWith('/list_accounts')) return jsonRes(200, { active: [{ address: ADDR, scan_height: 100 }], inactive: [] })
       return jsonRes(200, {})
     })
-    const client = makeClient(t)
+    const client = makeClient(t, { maxRetries: 3 })
     const out = await client.addAccount(ADDR, VIEWKEY_HEX)
     expect(out).toBeUndefined()
-    expect(t.calls.some(c => c.url === ADMIN_URL + '/add_account')).toBe(true)
-    expect(t.calls.some(c => c.url === ADMIN_URL + '/list_accounts')).toBe(true)
+    // no retry burst: the deterministic add_account 500 is not retried
+    expect(t.calls.filter(c => c.url === ADMIN_URL + '/add_account')).toHaveLength(1)
+    expect(t.calls.filter(c => c.url === ADMIN_URL + '/list_accounts')).toHaveLength(1)
   })
 
   test('a 500 from add_account for an address NOT in list_accounts is re-thrown (real error, not idempotent)', async () => {
@@ -287,8 +288,26 @@ describe('addAccount', () => {
       if (url.endsWith('/list_accounts')) return jsonRes(200, { active: [], inactive: [] })
       return jsonRes(200, {})
     })
-    const client = makeClient(t)
+    const client = makeClient(t, { maxRetries: 3 })
     await expect(client.addAccount(ADDR, VIEWKEY_HEX)).rejects.toThrow(/returned HTTP 500/)
+    // exactly one add_account attempt, then one list_accounts probe
+    expect(t.calls).toHaveLength(2)
+    expect(t.calls[0].url).toBe(ADMIN_URL + '/add_account')
+    expect(t.calls[1].url).toBe(ADMIN_URL + '/list_accounts')
+  })
+
+  test('does NOT retry a 500 on add_account (deterministic validation failure), unlike other 5xx', async () => {
+    const t = recordingTransport(({ url }) => {
+      if (url.endsWith('/add_account')) {
+        // always 500: proves the failure path terminates after one attempt
+        return jsonRes(500, {})
+      }
+      if (url.endsWith('/list_accounts')) return jsonRes(200, { active: [{ address: ADDR }], inactive: [] })
+      return jsonRes(200, {})
+    })
+    const client = makeClient(t, { maxRetries: 3 })
+    await client.addAccount(ADDR, VIEWKEY_HEX)
+    expect(t.calls.filter(c => c.url === ADMIN_URL + '/add_account')).toHaveLength(1)
   })
 
   test('idempotent: an existing INACTIVE account is re-activated via modify_account_status', async () => {

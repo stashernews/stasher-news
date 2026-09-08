@@ -3,6 +3,9 @@ import { encryptViewKey } from '../monero/viewkey'
 import { makeIntegratedAddress } from '../monero/integratedAddress'
 import { generateTipPaymentId } from '../monero/paymentId'
 import { buildMoneroUri } from '../monero/uri'
+import { isPrimaryAddress } from '../monero/primaryAddress'
+import { classifyViewKey } from '../monero/viewKeyCheck'
+import { LwsHttpError } from '../monero/lwsClient'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
@@ -188,13 +191,50 @@ export default {
       if (!addrOk) {
         throw new GqlInputError(`invalid Monero address for ${process.env.MONERO_NETWORK || 'stagenet'}`)
       }
-      const vkOk = await MoneroUtils.isValidPrivateViewKey(viewKey)
-      if (!vkOk) throw new GqlInputError('invalid Monero private view key')
+      // lws add_account accepts PRIMARY addresses only: its parser rejects
+      // subaddress and integrated variants with the same error::bad_address
+      // as a wrong network (monero-lws src/db/string.cpp). monero-ts accepts
+      // all three classes, so screen the network byte before calling lws.
+      if (!isPrimaryAddress(address, net.prisma)) {
+        throw new GqlInputError('integrated (payment id) and subaddress addresses are not accepted, use your wallet\'s primary address')
+      }
+      // Pair the view key with the address. monero-ts isValidPrivateViewKey is
+      // FORMAT-ONLY — it accepts any 64-hex string, so a pasted PUBLIC view
+      // key used to register "successfully" and the account silently never
+      // detected a tip. classifyViewKey derives the public view key from the
+      // candidate and compares it with the one embedded in the address.
+      const vkClass = classifyViewKey(address, viewKey)
+      if (vkClass === 'public') {
+        throw new GqlInputError('that is your public view key - paste the private view key from your wallet\'s security/settings screen')
+      }
+      if (vkClass === 'mismatch') {
+        throw new GqlInputError('this view key does not match that address - make sure the address and view key come from the same wallet')
+      }
+      if (vkClass !== 'ok') {
+        throw new GqlInputError('invalid Monero private view key')
+      }
 
       // 2. lws admin registration FIRST (plaintext view key over TLS — spec §5).
       //    addAccount is idempotent on address: re-registering a wallet that was
-      //    previously unregistered (lws INACTIVE) reactivates it.
-      await monero.addAccount(address, viewKey)
+      //    previously unregistered (lws INACTIVE) reactivates it. A 500 escaping
+      //    the client's idempotency fallback means lws rejected the address
+      //    outright (it is absent from list_accounts) — a deterministic
+      //    input-class failure, surfaced as a user-facing input error instead
+      //    of an unexpected 500. Transient/infra errors (timeouts, 429, a 500
+      //    from the fallback's list_accounts probe) still propagate as unexpected.
+      try {
+        await monero.addAccount(address, viewKey)
+      } catch (err) {
+        // Only an add_account 500 is a deterministic address rejection: the
+        // client's idempotency fallback consumed the already-registered case,
+        // so a 500 escaping here means lws refused THIS address. A 500 from
+        // the fallback's list_accounts probe (or any other endpoint) is an
+        // infra fault and stays unexpected.
+        if (err instanceof LwsHttpError && err.status === 500 && err.url.includes('/add_account')) {
+          throw new GqlInputError(`the indexer rejected this address, make sure it is your wallet's primary address for ${process.env.MONERO_NETWORK || 'stagenet'}`)
+        }
+        throw err
+      }
 
       // 3. Persist locally in a transaction (atomic). encryptViewKey (Task 2)
       //    returns the spread-safe AES-256-GCM envelope; the plaintext is

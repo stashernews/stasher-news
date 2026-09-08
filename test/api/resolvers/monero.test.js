@@ -18,6 +18,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import resolvers from '@/api/resolvers/monero'
+import { LwsHttpError } from '@/api/monero/lwsClient'
 import { sweepFakeRewardsWallets } from '../../helpers/sweepRewardsWallets'
 
 process.env.VIEWKEY_MASTER_KEY = Buffer.from('a'.repeat(32)).toString('base64')
@@ -28,6 +29,16 @@ const prisma = new PrismaClient()
 
 const STAGENET_ADDR = '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
 const STAGENET_VIEWKEY = '5580e0440c77c9b720950defd0bcfbd87b6a10f098ed345fac290c7f48b3c60e'
+// Checksum-valid fixtures (see test/api/monero/primaryAddress.test.js). Both
+// PASS MoneroUtils.isValidAddress(·, STAGENET) — only the class byte differs.
+const STAGENET_INTEG = '5JAfPMqsvw2JfTsaZvHyWFadMp3GTVNPL2jU66DV47BZGUEAUBzpkVvSZ1uaziDT2mgXZAymK9U9aNhSxc63ARKahkXrmRbwLFY3pV5qUc'
+const STAGENET_SUB = '76xWgnfS349P5LUqFTQx3DWMgUHcXutpY3ZyHsnz2vx3HiWVj6NKwmsjBnH3MbnpDcDGUkzYAawcG9CaUamznCrfPCyVgd1'
+const MAINNET_PRIMARY = '4B9ryEY64fSPjveaDX3dwhcyeYcYtemZ2gHfxg7VeLyR7SS4BbZfgzdVRH46NzB2DpHdhVkegdoP1hG8iWL3HZkQC5WyT1H'
+// View-key pairing fixtures: PUB is the public view key embedded in
+// STAGENET_ADDR (base58xmr-decoded bytes[33:65] — base58xmr.decode verified),
+// OTHER_PRIV is a different stagenet wallet's private view key.
+const STAGENET_PUB_VK = '4c86a16498b9c45073b1cd0368d852e3f4e82c7afcda732b5e69c0e97dd5b40b'
+const OTHER_PRIV_VK = '3852db1c09acb1178a484e28d878bb3539f9e10f94d8a7649927f235a35d930a'
 
 function makeMockLws () {
   return {
@@ -159,6 +170,96 @@ describe('Mutation.registerMoneroAccount', () => {
       viewKey: 'garbage-not-a-view-key',
       privacyMode: 'AUTO_INDEX'
     }, { me: { id: userId }, models: prisma, monero: lws })).rejects.toThrow(/invalid monero private view key/i)
+    expect(lws.addAccount).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ['integrated', STAGENET_INTEG],
+    ['subaddress', STAGENET_SUB]
+  ])('rejects a same-network %s address before the lws call (class gap regression)', async (kind, address) => {
+    const userId = await createUser()
+    const lws = makeMockLws()
+    await expect(resolvers.Mutation.registerMoneroAccount(null, {
+      address,
+      viewKey: STAGENET_VIEWKEY,
+      privacyMode: 'AUTO_INDEX'
+    }, { me: { id: userId }, models: prisma, monero: lws }))
+      .rejects.toThrow(/use your wallet's primary address/i)
+
+    expect(lws.addAccount).not.toHaveBeenCalled()
+    expect(await prisma.moneroAccount.count({ where: { ownerUserId: userId } })).toBe(0)
+  })
+
+  test('network check fires before the class check (wrong-network primary gets the network message)', async () => {
+    const userId = await createUser()
+    const lws = makeMockLws()
+    await expect(resolvers.Mutation.registerMoneroAccount(null, {
+      address: MAINNET_PRIMARY,
+      viewKey: STAGENET_VIEWKEY,
+      privacyMode: 'AUTO_INDEX'
+    }, { me: { id: userId }, models: prisma, monero: lws }))
+      .rejects.toThrow(/invalid monero address for stagenet/i)
+    expect(lws.addAccount).not.toHaveBeenCalled()
+  })
+
+  test('converts an lws add_account HTTP 500 into a user-facing input error (defense in depth)', async () => {
+    const userId = await createUser()
+    const lws = makeMockLws()
+    // Post-validation a 500 escaping the client's idempotency fallback means
+    // lws rejected the address outright (absent from list_accounts).
+    lws.addAccount = jest.fn().mockRejectedValue(new LwsHttpError('https://lws/admin/add_account', 500))
+
+    await expect(resolvers.Mutation.registerMoneroAccount(null, {
+      address: STAGENET_ADDR,
+      viewKey: STAGENET_VIEWKEY,
+      privacyMode: 'AUTO_INDEX'
+    }, { me: { id: userId }, models: prisma, monero: lws }))
+      .rejects.toThrow(/the indexer rejected this address/i)
+
+    expect(await prisma.moneroAccount.count({ where: { ownerUserId: userId } })).toBe(0)
+  })
+
+  test('propagates a list_accounts 500 from the idempotency fallback as unexpected (not an input error)', async () => {
+    const userId = await createUser()
+    const lws = makeMockLws()
+    // addAccount's fallback probes list_accounts; a 500 from THAT endpoint
+    // is an infra fault, not an address verdict — it must not be masked as
+    // a user-facing input error.
+    lws.addAccount = jest.fn().mockRejectedValue(new LwsHttpError('https://lws/admin/list_accounts', 500))
+
+    await expect(resolvers.Mutation.registerMoneroAccount(null, {
+      address: STAGENET_ADDR,
+      viewKey: STAGENET_VIEWKEY,
+      privacyMode: 'AUTO_INDEX'
+    }, { me: { id: userId }, models: prisma, monero: lws }))
+      .rejects.toThrow(/returned HTTP 500/)
+    expect(await prisma.moneroAccount.count({ where: { ownerUserId: userId } })).toBe(0)
+  })
+
+  test('rejects a PUBLIC view key with a specific message (was: silent registration, tips never detected)', async () => {
+    const userId = await createUser()
+    const lws = makeMockLws()
+    await expect(resolvers.Mutation.registerMoneroAccount(null, {
+      address: STAGENET_ADDR,
+      viewKey: STAGENET_PUB_VK,
+      privacyMode: 'AUTO_INDEX'
+    }, { me: { id: userId }, models: prisma, monero: lws }))
+      .rejects.toThrow(/public view key/i)
+
+    expect(lws.addAccount).not.toHaveBeenCalled()
+    expect(await prisma.moneroAccount.count({ where: { ownerUserId: userId } })).toBe(0)
+  })
+
+  test("rejects another wallet's private view key (pairing mismatch)", async () => {
+    const userId = await createUser()
+    const lws = makeMockLws()
+    await expect(resolvers.Mutation.registerMoneroAccount(null, {
+      address: STAGENET_ADDR,
+      viewKey: OTHER_PRIV_VK,
+      privacyMode: 'AUTO_INDEX'
+    }, { me: { id: userId }, models: prisma, monero: lws }))
+      .rejects.toThrow(/does not match that address/i)
+
     expect(lws.addAccount).not.toHaveBeenCalled()
   })
 

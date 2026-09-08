@@ -38,6 +38,10 @@ function networkName () {
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]+$/
 function heuristicCheckAddress (address) {
   if (!address) return 'required'
+  // 106 chars = integrated address (payment id embedded) — instant feedback
+  // for the exact class monero-lws rejects; subaddresses (95 chars) can't be
+  // distinguished from primaries client-side, the server screens those.
+  if (address.length === 106) return 'this is an integrated address (payment id embedded), use your wallet\'s primary address'
   if (address.length < 90 || address.length > 110) return 'address looks truncated or malformed'
   if (!BASE58.test(address)) return 'address contains invalid characters'
   return null
@@ -169,6 +173,7 @@ function WalletWizard () {
             <Input
               label={`primary monero address (${networkName()})`} name='address'
               placeholder='paste your wallet primary address' required autoFocus groupClassName='mb-3'
+              hint={<small className='text-muted'>primary address only — integrated (payment id) and subaddress addresses are not supported.</small>}
             />
             <Input
               label='private view key' name='viewKey' type='password'

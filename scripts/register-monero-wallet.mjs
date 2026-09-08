@@ -4,6 +4,7 @@
 //   usage: node scripts/register-monero-wallet.mjs <nym> <address> <viewKey>
 import { MoneroUtils, MoneroNetworkType } from 'monero-ts'
 import { encryptViewKey } from '../api/monero/viewkey.js'
+import { isPrimaryAddress } from '../api/monero/primaryAddress.js'
 import { lwsClient } from '../api/monero/lwsClient.js'
 import { PrismaClient } from '@prisma/client'
 
@@ -23,6 +24,9 @@ async function main () {
   const netType = MoneroNetworkType[NET]
   if (!await MoneroUtils.isValidAddress(address, netType)) {
     throw new Error(`invalid Monero address for ${NET}`)
+  }
+  if (!isPrimaryAddress(address, NET)) {
+    throw new Error('integrated (payment id) and subaddress addresses are not accepted, use the wallet\'s primary address')
   }
   if (!await MoneroUtils.isValidPrivateViewKey(viewKey)) {
     throw new Error('invalid Monero private view key')

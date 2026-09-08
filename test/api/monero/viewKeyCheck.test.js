@@ -1,0 +1,41 @@
+/* eslint-env jest */
+
+// View-key ↔ address pairing. monero-ts isValidPrivateViewKey is FORMAT-ONLY
+// (accepts any 64-hex string), so a pasted PUBLIC view key registers and the
+// account silently never detects a tip. classifyViewKey derives the public
+// view key from the candidate scalar (ed25519 base point, little-endian
+// scalar) and compares it with the public view key embedded in the address.
+//
+// Fixtures: a real stagenet keypair generated with monero-ts MoneroWalletKeys
+// (the pub value is also the one embedded at address bytes[33:65] — proven).
+
+import { classifyViewKey } from '@/api/monero/viewKeyCheck'
+
+const STAGENET_ADDR = '5BKXWphnRok2bLzqaC2JU2MipbwVbtypWBVAft5sZdLD7wnYjhHQSDyFpsewcRYvD3JiDZvkGJAy1b99Sn51dnHZMKkEBLw'
+const PRIV_VK = '6617cc3f79383992ae7ee2c68ba526bf599a7e5cbe195459b4b059b3fff47a05'
+const PUB_VK = '84d657bfc5c40c58a2a2673ab11a6669e28c4db6cf7aaccc1cc3c2cacc56f4b4'
+const OTHER_PRIV_VK = '3852db1c09acb1178a484e28d878bb3539f9e10f94d8a7649927f235a35d930a'
+
+describe('classifyViewKey', () => {
+  test("accepts the address's own private view key", () => {
+    expect(classifyViewKey(STAGENET_ADDR, PRIV_VK)).toBe('ok')
+  })
+
+  test("flags the address's PUBLIC view key as 'public' (the support-desk paste)", () => {
+    expect(classifyViewKey(STAGENET_ADDR, PUB_VK)).toBe('public')
+  })
+
+  test("flags another wallet's private view key as 'mismatch'", () => {
+    expect(classifyViewKey(STAGENET_ADDR, OTHER_PRIV_VK)).toBe('mismatch')
+  })
+
+  test("flags garbage and out-of-range scalars as 'invalid' (a foreign public key behaves the same)", () => {
+    expect(classifyViewKey(STAGENET_ADDR, 'ab'.repeat(32))).toBe('invalid')
+    expect(classifyViewKey(STAGENET_ADDR, 'ed'.repeat(31) + 'ff')).toBe('invalid')
+  })
+
+  test("flags non-hex / wrong-length strings as 'malformed'", () => {
+    expect(classifyViewKey(STAGENET_ADDR, 'garbage-not-a-view-key')).toBe('malformed')
+    expect(classifyViewKey(STAGENET_ADDR, PRIV_VK.slice(1))).toBe('malformed')
+  })
+})

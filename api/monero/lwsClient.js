@@ -35,7 +35,7 @@ const AMOUNT_FIELDS = ['total_received', 'total_sent', 'fee', 'amount', 'locked_
 
 // Redacted errors: reference the endpoint path + status/code only. The request
 // body (which carries the view key) is never attached to an error or logged.
-class LwsHttpError extends Error {
+export class LwsHttpError extends Error {
   constructor (url, status) {
     super(`monero-lws ${safePath(url)} returned HTTP ${status}`)
     this.name = 'LwsHttpError'
@@ -226,7 +226,7 @@ export function createLwsClient (options = {}) {
   // object directly; admin bodies are wrapped {auth, params}. Endpoints without
   // a body pass bodyObj = null and method = 'GET' — no body is serialized and
   // the transport does not write one.
-  async function request (url, bodyObj, { admin = false, method = 'POST' } = {}) {
+  async function request (url, bodyObj, { admin = false, method = 'POST', retry500 = true } = {}) {
     const hasBody = bodyObj != null
     const wrapped = admin ? { ...(adminAuth ? { auth: adminAuth } : {}), params: bodyObj } : bodyObj
     const body = hasBody ? JSON.stringify(stripUndefined(wrapped)) : undefined
@@ -252,6 +252,9 @@ export function createLwsClient (options = {}) {
       }
       clearTimeout(timer)
       if (res.ok) return parseJsonText(await res.text())
+      // Callers can opt out of retrying 500s (deterministic validation
+      // failures); 429 and other 5xx stay retryable.
+      if (res.status === 500 && !retry500) throw new LwsHttpError(url, res.status)
       if (isRetryableStatus(res.status) && attempt < maxRetries) continue
       throw new LwsHttpError(url, res.status)
     }
@@ -312,11 +315,14 @@ export function createLwsClient (options = {}) {
 
   /** Admin: register an account in ACTIVE state. Idempotent on lws 0.3 —
    *  add_account 500s (empty body) on an already-registered address, so a 500 is
-   *  followed by a list_accounts check: if the address is present it's treated as
-   *  success (re-activated if inactive); otherwise the 500 is re-thrown. */
+   *  followed by a single list_accounts check: if the address is present it's
+   *  treated as success (re-activated if inactive); otherwise the 500 is
+   *  re-thrown. The 500 is NOT retried at the transport layer (a parse
+   *  rejection is deterministic; the idempotency fallback covers the
+   *  genuinely-ambiguous already-registered case). */
   async function addAccount (address, viewKey) {
     try {
-      return await request(`${adminUrl}/add_account`, { address, key: viewKey }, { admin: true })
+      return await request(`${adminUrl}/add_account`, { address, key: viewKey }, { admin: true, retry500: false })
     } catch (err) {
       if (err instanceof LwsHttpError && err.status === 500) {
         const existing = (await listAccounts()).find(a => a.address === address)
