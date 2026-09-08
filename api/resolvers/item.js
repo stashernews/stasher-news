@@ -1243,8 +1243,11 @@ export default {
       if (!item.parentId) {
         return null
       }
+      // ?. — a hard-missing parent row must not 500 the ots page / preimage
+      // endpoint; a hashless parent yields null (standalone-stamped replies
+      // recompute exactly this preimage)
       const parent = await models.item.findUnique({ where: { id: item.parentId } })
-      return parent.otsHash
+      return parent?.otsHash ?? null
     },
     deleteScheduledAt: async (item, args, { me, models }) => {
       const meId = me?.id ?? USER_ID.anon
