@@ -30,15 +30,42 @@ const ITEM_SEARCH_FIELDS = gql`
     location
     remote
     upvotes
-    piconeros
-    credits
-    boost
     lastCommentAt
-    commentPiconeros
-    commentCredits
     path
     ncomments
   }`
+
+// Money columns are BigInt piconeros/credits in Prisma. They are unmapped in
+// the OpenSearch index (dynamic: false) and no query reads them, so they are
+// stripped from indexed docs — the client serializer uses JSON.stringify
+// semantics, and a single BigInt aborts the ENTIRE bulk request
+// (SerializationError: Do not know how to serialize a BigInt).
+const UNINDEXED_MONEY_FIELDS = [
+  'piconeros', 'credits', 'commentPiconeros', 'commentCredits',
+  'boost', 'commentBoost', 'cost', 'commentCost'
+]
+
+// Safety net against schema drift: convert any BigInt that slips through to a
+// JSON-safe value (Number when safe, else String).
+function bigintSafe (value) {
+  if (typeof value === 'bigint') {
+    return value <= Number.MAX_SAFE_INTEGER && value >= Number.MIN_SAFE_INTEGER
+      ? Number(value)
+      : value.toString()
+  }
+  if (Array.isArray(value)) return value.map(bigintSafe)
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, bigintSafe(v)]))
+  }
+  return value
+}
+
+function indexableDoc (doc) {
+  for (const field of UNINDEXED_MONEY_FIELDS) {
+    delete doc[field]
+  }
+  return bigintSafe(doc)
+}
 
 async function _indexItem (item, { models, updatedAt }) {
   console.log('indexing item', item.id)
@@ -108,7 +135,7 @@ async function _indexItem (item, { models, updatedAt }) {
       index: process.env.OPENSEARCH_INDEX,
       version: new Date(latestUpdatedAt).getTime(),
       versionType: 'external_gte',
-      body: itemcp
+      body: indexableDoc(itemcp)
     })
   } catch (e) {
     if (e?.meta?.statusCode === 409) {
@@ -142,6 +169,39 @@ export async function indexItem ({ data: { id, updatedAt }, apollo, models }) {
 
   // 2. index it with external version based on updatedAt
   await _indexItem(item, { models, updatedAt })
+}
+
+// Send a batch of { id, doc } as update ops. If the client rejects the whole
+// request (serializer error, connection, ...), retry each doc individually so
+// one bad document cannot abort the rest of the batch; unindexable docs are
+// logged and skipped.
+async function bulkIndexDocs (osIndex, docs) {
+  const action = id => ({ update: { _index: osIndex, _id: id } })
+  try {
+    return await search.bulk({
+      body: docs.flatMap(({ id, doc }) => [action(id), { doc }]),
+      pipeline: '_none'
+    })
+  } catch (e) {
+    console.error(`indexAllItems: bulk request failed wholesale (${e.message}); retrying docs individually`)
+    let skipped = 0
+    for (const { id, doc } of docs) {
+      try {
+        const res = await search.bulk({ body: [action(id), { doc }], pipeline: '_none' })
+        // updates 404 on docs not yet in the index — fall back to index
+        if (res.body?.items?.[0]?.update?.status === 404) {
+          await search.bulk({ body: [{ index: { _index: osIndex, _id: id } }, doc], pipeline: '_none' })
+        }
+      } catch (docErr) {
+        skipped++
+        console.error(`indexAllItems: skipping unindexable item ${id}:`, docErr.message)
+      }
+    }
+    if (skipped > 0) {
+      console.error(`indexAllItems: ${skipped}/${docs.length} docs skipped in fallback indexing`)
+    }
+    return { body: { errors: false, items: [] } }
+  }
 }
 
 export async function indexAllItems ({ models, boss }) {
@@ -201,17 +261,9 @@ export async function indexAllItems ({ models, boss }) {
           location: true,
           remote: true,
           upvotes: true,
-          boost: true,
           lastCommentAt: true,
           ncomments: true,
           rootId: true,
-          piconeros: true,
-          credits: true,
-          commentPiconeros: true,
-          commentCredits: true,
-          cost: true,
-          commentCost: true,
-          commentBoost: true,
           weightedVotes: true,
           weightedDownVotes: true,
           ranktop: true,
@@ -227,10 +279,6 @@ export async function indexAllItems ({ models, boss }) {
       const docs = items.map(item => {
         const doc = {
           ...item,
-          piconeros: item.piconeros,
-          credits: item.credits,
-          commentPiconeros: item.commentPiconeros,
-          commentCredits: item.commentCredits,
           wvotes: item.weightedVotes - item.weightedDownVotes,
           subNames: item.subNames?.length > 0
             ? item.subNames
@@ -252,18 +300,13 @@ export async function indexAllItems ({ models, boss }) {
         delete doc.Bookmark
         delete doc.root
 
-        return { id: item.id, doc }
+        return { id: item.id, doc: indexableDoc(doc) }
       })
 
       // Use update (NOT doc_as_upsert) to preserve seeded embedding fields.
       // doc_as_upsert triggers the default ingest pipeline even with pipeline=_none.
-      const updateBody = docs.flatMap(({ id, doc }) => [
-        { update: { _index: osIndex, _id: id } },
-        { doc }
-      ])
-
       console.log(`indexAllItems: sending ${items.length} items to opensearch`)
-      const result = await search.bulk({ body: updateBody, pipeline: '_none' })
+      const result = await bulkIndexDocs(osIndex, docs)
 
       if (result.body.errors) {
         // Collect 404s (new items not yet in the index) for fallback indexing
