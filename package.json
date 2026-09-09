@@ -87,11 +87,11 @@
     "micromark-extension-gfm": "^3.0.0",
     "micromark-extension-math": "^3.1.0",
     "monero-ts": "^0.11.12",
-    "next": "^16.2.11",
+    "next": "^16.3.3",
     "next-auth": "^4.24.15",
     "next-plausible": "^4.0.0",
     "next-seo": "^6.6.0",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "^9.1.1",
     "nostr": "^0.2.8",
     "nostr-tools": "^2.8.0",
     "nprogress": "^0.2.0",
@@ -168,8 +168,9 @@
     "uuid": "^14.0.0",
     "postcss": "^8.5.22",
     "@grpc/grpc-js": "^1.14.4",
-    "js-yaml": "^4.3.0",
-    "sharp": "^0.35.0",
+    "js-yaml": "^4.3.2",
+    "sharp": "^0.35.4",
+    "svgo": "^4.1.0",
     "@auth/core": "^0.41.3"
   }
 }
