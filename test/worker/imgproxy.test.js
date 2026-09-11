@@ -46,6 +46,13 @@ afterAll(() => {
   jest.restoreAllMocks()
 })
 
+// fake models.upload for the Upload-row video/image lookup (B1 fix)
+const uploadModels = rows => ({
+  upload: {
+    findUnique: async ({ where: { id } }) => (rows[id] ? { type: rows[id] } : null)
+  }
+})
+
 it('passes the public upload URL and probes the docker-rewritten origin', async () => {
   const { createImgproxyUrls } = await import('@/worker/imgproxy')
   const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
@@ -124,4 +131,48 @@ it('still passes known image hosts without a probe', async () => {
   const result = await createImgproxyUrls(6, '![img](https://i.imgur.com/abc.png)', {})
 
   expect(result['https://i.imgur.com/abc.png']['640w']).toMatch(/^\//)
+})
+
+it('flags video uploads as { video: true } without probing imgproxy or writing derivative keys', async () => {
+  const { createImgproxyUrls } = await import('@/worker/imgproxy')
+  const fetchMock = jest.spyOn(global, 'fetch')
+  fetchMock.mockClear()
+
+  const result = await createImgproxyUrls(7, '![v](https://stasher.news/uploads/4078)', {
+    models: uploadModels({ 4078: 'video/mp4' })
+  })
+
+  // exact shape: no dimensions, no format, no Nw derivative keys
+  expect(result['https://stasher.news/uploads/4078']).toEqual({ video: true })
+  // neither the /info probe nor a media-check happened
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it('still builds the full derivative ladder for image uploads', async () => {
+  const { createImgproxyUrls } = await import('@/worker/imgproxy')
+  jest.spyOn(global, 'fetch').mockResolvedValue({
+    json: async () => ({ width: 640, height: 360, format: 'jpeg', video_streams: [] })
+  })
+
+  const result = await createImgproxyUrls(8, '![img](https://stasher.news/uploads/123)', {
+    models: uploadModels({ 123: 'image/jpeg' })
+  })
+
+  expect(result['https://stasher.news/uploads/123'].dimensions).toEqual({ width: 640, height: 360 })
+  for (const res of ['640w', '960w', '1280w', '1600w', '1920w', '2560w']) {
+    expect(result['https://stasher.news/uploads/123'][res]).toMatch(/^\//)
+  }
+})
+
+it('falls through to the probe pipeline when the upload row is missing', async () => {
+  const { createImgproxyUrls } = await import('@/worker/imgproxy')
+  jest.spyOn(global, 'fetch').mockResolvedValue({
+    json: async () => ({ width: 100, height: 50, format: 'png', video_streams: [] })
+  })
+
+  const result = await createImgproxyUrls(9, '![img](https://stasher.news/uploads/9999)', {
+    models: uploadModels({}) // row deleted (deleteUnusedImages sweep)
+  })
+
+  expect(result['https://stasher.news/uploads/9999']['640w']).toMatch(/^\//)
 })

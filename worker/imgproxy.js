@@ -125,6 +125,21 @@ export const createImgproxyUrls = async (id, text, { models, forceFetch }) => {
       // backwards compatibility: we used to replace image urls with imgproxy urls
       url = decodeProxyUrl(url)
     }
+    // imgproxy OSS can't process videos (video thumbnails are Pro-only): /info
+    // answers 422 for every video source and the resize derivatives would be
+    // permanent 422s. The Upload row already knows the MIME type, so flag video
+    // uploads directly and skip both doomed calls — MediaNode then renders
+    // <video> from the original URL deterministically, with no media-check.
+    if (isInternalUploadUrl(url) && models?.upload) {
+      const uploadId = Number(new URL(url).pathname.match(/(\d+)\/?$/)?.[1])
+      const upload = Number.isInteger(uploadId)
+        ? await models.upload.findUnique({ where: { id: uploadId }, select: { type: true } })
+        : null
+      if (upload?.type?.startsWith('video/')) {
+        imgproxyUrls[url] = { video: true }
+        continue
+      }
+    }
     if (!(await isMediaURL(fetchUrl, { forceFetch }))) {
       continue
     }
