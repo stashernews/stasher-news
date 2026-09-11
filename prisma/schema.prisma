@@ -275,6 +275,9 @@ model Upload {
   height              Int?
   userId              Int
   paid                Boolean       @default(false)
+  // Salted hash of the uploader's client IP for anonymous uploads only.
+  // Never a raw IP: used solely for the anonymous outstanding-upload quota.
+  ipHash              String?
   user                User          @relation("Uploads", fields: [userId], references: [id], onDelete: Cascade)
   User                User[]
   ItemUpload          ItemUpload[]
@@ -284,6 +287,8 @@ model Upload {
 
   @@index([createdAt], map: "Upload.created_at_index")
   @@index([userId], map: "Upload.userId_index")
+  @@index([userId, paid, createdAt], map: "Upload.userId_paid_createdAt_index")
+  @@index([ipHash, paid, createdAt], map: "Upload.ipHash_paid_createdAt_index")
 }
 
 model Earn {

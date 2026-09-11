@@ -3,6 +3,7 @@ import { createPresignedPost } from '@/api/s3'
 import { GqlAuthenticationError, GqlAuthorizationError, GqlInputError } from '@/lib/error'
 import { rateLimit } from '@/lib/rate-limit'
 import { clientIp } from '@/lib/client-ip'
+import { assertUploadQuota } from '@/lib/upload-quota'
 import { Prisma } from '@prisma/client'
 
 export default {
@@ -54,13 +55,22 @@ export default {
         throw new GqlInputError(`image must be less than ${IMAGE_PIXELS_MAX} pixels`)
       }
 
+      // Free assets (avatars / territory branding) are created paid = true and
+      // are separately size-capped, so they must never be blocked by unrelated
+      // unpaid bytes.
+      const ip = clientIp(headers)
+      const { ipHash } = isFreeAsset
+        ? { ipHash: null }
+        : await assertUploadQuota({ models, me, ip, size })
+
       const fileParams = {
         type,
         size,
         width,
         height,
         userId: me?.id || USER_ID.anon,
-        paid: false
+        paid: false,
+        ipHash: me ? null : ipHash
       }
 
       if (isFreeAsset) {

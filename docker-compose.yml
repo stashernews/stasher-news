@@ -224,8 +224,9 @@ services:
       /bin/sh -c "
       mc alias set sn http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
       mc mb --ignore-existing sn/$${NEXT_PUBLIC_AWS_UPLOAD_BUCKET:-uploads} &&
-      mc anonymous set download sn/$${NEXT_PUBLIC_AWS_UPLOAD_BUCKET:-uploads} &&
-      echo 'minio uploads bucket ready'
+      printf '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::%s/*\"]}]}' \"$${NEXT_PUBLIC_AWS_UPLOAD_BUCKET:-uploads}\" > /tmp/anon-get.json &&
+      mc anonymous set-json /tmp/anon-get.json sn/$${NEXT_PUBLIC_AWS_UPLOAD_BUCKET:-uploads} &&
+      echo 'minio uploads bucket ready (anonymous GET only, no listing)'
       "
   # ACM emulation only (custom-domains dev flow). S3 moved to the minio
   # service above; localstack keeps no host port.
