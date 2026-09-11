@@ -393,11 +393,11 @@ test('stale pid map: PENDING_FUNDING with an EXPIRED BountyPidMap mints a FRESH 
   // only coexist with a stale pid (a live pid would be caught above), so
   // returning its dead address here would strand this re-entry for good — the
   // fresh mint must fire instead.
-  // Distinct Date.now() nonce for the fresh mint (deterministic payment id).
-  await new Promise(resolve => setTimeout(resolve, 10))
-
+  // The fresh mint's crypto-random 8-byte nonce yields a distinct payment id
+  // without a timestamp gap.
   const second = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero, me: { id: userId } })
 
+  expect(second.paymentId).toMatch(/^[0-9a-f]{16}$/)
   expect(second.paymentId).not.toBe(first.paymentId)
   expect(second.integratedAddress).not.toBe(first.integratedAddress)
   expect(second.feePiconeros).toBe(first.feePiconeros)

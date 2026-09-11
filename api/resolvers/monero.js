@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { MoneroUtils, MoneroNetworkType } from 'monero-ts'
 import { encryptViewKey } from '../monero/viewkey'
 import { makeIntegratedAddress } from '../monero/integratedAddress'
@@ -91,7 +92,10 @@ export async function initiateTipCore ({ postId, amount, models, monero, me, hea
     recipient = 'REWARDS'
   }
 
-  const nonce = Date.now()
+  // Random 8-byte hex nonce: Date.now() made (postId, nonce) enumerable when
+  // REWARDS_PID_KEY is known. The nonce is not persisted for tips; the derived
+  // paymentId is.
+  const nonce = randomBytes(8).toString('hex')
   const paymentId = generateTipPaymentId(id, nonce)
   const { integratedAddress } = makeIntegratedAddress(account.address, paymentId)
 

@@ -45,7 +45,7 @@ test('generateDownvotePaymentId differs from generateTipPaymentId for the same (
   expect(dv).not.toBe(tip)
 })
 
-describe('mainnet fail-closed on weak default REWARDS_PID_KEY', () => {
+describe('fail-closed on weak default REWARDS_PID_KEY (mainnet or production)', () => {
   const origKey = process.env.REWARDS_PID_KEY
   const origNet = process.env.MONERO_NETWORK
 
@@ -79,6 +79,32 @@ describe('mainnet fail-closed on weak default REWARDS_PID_KEY', () => {
     process.env.MONERO_NETWORK = 'mainnet'
     expect(generateTipPaymentId(42, 1)).toMatch(/^[0-9a-f]{16}$/)
     expect(generateDownvotePaymentId(42, 1)).toMatch(/^[0-9a-f]{16}$/)
+  })
+
+  test('production fails closed on the default key (any network)', () => {
+    const origNodeEnv = process.env.NODE_ENV
+    const origNetwork = process.env.MONERO_NETWORK
+    delete process.env.REWARDS_PID_KEY
+    process.env.NODE_ENV = 'production'
+    process.env.MONERO_NETWORK = 'stagenet'
+    try {
+      expect(() => generateTipPaymentId(1, 1)).toThrow(/REWARDS_PID_KEY/)
+    } finally {
+      process.env.NODE_ENV = origNodeEnv
+      process.env.MONERO_NETWORK = origNetwork
+    }
+  })
+
+  test('production accepts a non-default key', () => {
+    const orig = { NODE_ENV: process.env.NODE_ENV, REWARDS_PID_KEY: process.env.REWARDS_PID_KEY }
+    process.env.NODE_ENV = 'production'
+    process.env.REWARDS_PID_KEY = 'a-long-random-production-key'
+    try {
+      expect(generateTipPaymentId(1, 1)).toMatch(/^[0-9a-f]{16}$/)
+    } finally {
+      process.env.NODE_ENV = orig.NODE_ENV
+      process.env.REWARDS_PID_KEY = orig.REWARDS_PID_KEY
+    }
   })
 })
 

@@ -16,7 +16,8 @@ const GOOD = {
   IMGPROXY_KEY: '1'.repeat(64),
   IMGPROXY_SALT: '2'.repeat(64),
   OPENSEARCH_PASSWORD: 'real-opensearch-password',
-  CAPTURE_MEDIA_TOKEN: 'real-capture-token'
+  CAPTURE_MEDIA_TOKEN: 'real-capture-token',
+  REWARDS_PID_KEY: 'a-long-random-production-key'
 }
 
 test('passes in production when all required vars are set', () => {
@@ -92,6 +93,19 @@ test('throws in production when CAPTURE_MEDIA_TOKEN equals the committed dev val
   const devToken = require('fs').readFileSync('.env.development', 'utf8').match(/^CAPTURE_MEDIA_TOKEN=([\w-]+)$/m)[1]
   const env = { ...GOOD, CAPTURE_MEDIA_TOKEN: devToken }
   expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/CAPTURE_MEDIA_TOKEN/)
+})
+
+test('throws in production when REWARDS_PID_KEY is unset', () => {
+  const env = { ...GOOD }
+  delete env.REWARDS_PID_KEY
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/REWARDS_PID_KEY/)
+})
+
+test('throws in production when REWARDS_PID_KEY is the committed dev default', () => {
+  // the committed default lives in api/monero/paymentId.js (DEFAULT_PID_KEY),
+  // not in a tracked env file, so assert the literal guard value here
+  const env = { ...GOOD, REWARDS_PID_KEY: 'stashernews-dev-pid-key' }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/REWARDS_PID_KEY/)
 })
 
 test('throws in production when IMGPROXY_SALT is missing entirely', () => {

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { generateBountyPaymentId } from '../monero/paymentId'
 import { makeIntegratedAddress } from '../monero/integratedAddress'
 import { buildMoneroUri } from '../monero/uri'
@@ -100,7 +101,10 @@ export async function initiateBountyFundingCore ({ postId, models, monero, me })
     if (inflight) return buildFundingInfo(inflight.paymentId, inflight.piconeros)
   }
 
-  const nonce = Date.now()
+  // (BountyPidMap.nonce is a signed Postgres int8: the right shift keeps the
+  // value at most 2^63 − 1 so Prisma can persist it. A raw BigInt('0x'+hex)
+  // overflows half the time.)
+  const nonce = randomBytes(8).readBigUInt64BE() >> 1n
   const paymentId = generateBountyPaymentId(id, nonce)
 
   const webhook = await monero.addWebhook({
