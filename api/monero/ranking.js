@@ -5,7 +5,9 @@ import { META_SUB } from '@/lib/constants'
 // Ranking side-effects of an observed Monero tip (capped rank terms, spec §4).
 //
 // In addition to the true totals (`Item.piconeros`, ancestor
-// `commentPiconeros`), a detected tip bumps the CAPPED ranking terms the
+// `commentPiconeros`) and the notification surface (`Item.lastTipAt`, read by
+// the bell's Votification query and the hasNewNotes badge — ported from the
+// superseded zap.js onPaid), a detected tip bumps the CAPPED ranking terms the
 // `item_ranking` trigger reads:
 //   - attributed tipper: factor(age) x min(their cumulative tips, CAP)
 //     where factor = FLOOR + (1-FLOOR) x min(1, ageDays/RAMP), frozen at
@@ -180,6 +182,7 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
         item_tipped AS (
           UPDATE "Item"
           SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
+              "lastTipAt" = now(),
               "anonTipPiconeros" = "Item"."anonTipPiconeros" + ${piconeros}::BIGINT,
               "tipRankPiconeros" = "Item"."tipRankPiconeros" + ROUND((${cfg.anonTipRankFactor}::DOUBLE PRECISION *
                 (LEAST("Item"."anonTipPiconeros" + ${piconeros}::BIGINT, ${cfg.anonTipRankCapPiconeros}::BIGINT)
@@ -214,6 +217,7 @@ function tipDeltaSql (postId, tipperId, piconeros, sign, isComment, cfg) {
         item_tipped AS (
           UPDATE "Item"
           SET piconeros = "Item".piconeros ${sign} ${piconeros}::BIGINT,
+              "lastTipAt" = now(),
               ${tipRankSet},
               ${upvotesSet}${weightedSet}
           FROM zap, zapper, rank_calc
