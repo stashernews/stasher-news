@@ -6,12 +6,14 @@
 // The Prisma (`models` context) is stubbed so no DB is touched; received/sent/
 // balance are ledger-derived (CONFIRMED observations vs recorded payouts + ops
 // sweeps), NOT lws get_address_info (which misattributes other wallets' spends).
-// The view-key decrypt path is exercised for real: the fixture envelope is
-// produced by encryptViewKey under the same VIEWKEY_MASTER_KEY the resolver
-// decrypts with.
+// The published view key must be the address-embedded PUBLIC key, never the
+// stored private one: the fixture row still carries an encrypted private view
+// key (encryptViewKey under VIEWKEY_MASTER_KEY) so the assertions can prove it
+// is not leaked.
 
 import resolvers from '@/api/resolvers/rewardsWallet'
 import { encryptViewKey } from '@/api/monero/viewkey'
+import { publicViewKeyFromAddress } from '@/api/monero/viewKeyCheck'
 
 process.env.VIEWKEY_MASTER_KEY = Buffer.from('a'.repeat(32)).toString('base64')
 process.env.MONERO_NETWORK = 'stagenet'
@@ -73,7 +75,7 @@ function makeDistribution (overrides = {}) {
 }
 
 describe('Query.rewardsWalletInfo', () => {
-  test('returns a valid address, decrypted view key, and balance = ledger received - ledger sent', async () => {
+  test('returns a valid address, the embedded public view key, and balance = ledger received - ledger sent', async () => {
     const models = makeModels({
       downvotes: 600n,
       feeGroups: [{ feeType: 'POSTING', _sum: { piconeros: 400n } }],
@@ -84,8 +86,8 @@ describe('Query.rewardsWalletInfo', () => {
 
     expect(result.address).toBe(STAGENET_ADDR)
     expect(result.address).toMatch(/^[1-9A-HJ-NP-Za-km-z]{95}$/)
-    expect(result.viewKey).toBe(VIEW_KEY)
-    expect(result.viewKey).toMatch(/^[0-9a-f]{64}$/)
+    expect(result.viewKey).toBe(publicViewKeyFromAddress(STAGENET_ADDR))
+    expect(result.viewKey).not.toBe(VIEW_KEY)
     expect(result.network).toBe('STAGENET')
     expect(result.totalReceivedPiconeros).toBe(1000n)
     expect(result.totalSentPiconeros).toBe(250n)

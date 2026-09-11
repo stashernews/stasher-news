@@ -9,7 +9,7 @@
 // Fixtures: a real stagenet keypair generated with monero-ts MoneroWalletKeys
 // (the pub value is also the one embedded at address bytes[33:65] — proven).
 
-import { classifyViewKey } from '@/api/monero/viewKeyCheck'
+import { classifyViewKey, publicViewKeyFromAddress } from '@/api/monero/viewKeyCheck'
 
 const STAGENET_ADDR = '5BKXWphnRok2bLzqaC2JU2MipbwVbtypWBVAft5sZdLD7wnYjhHQSDyFpsewcRYvD3JiDZvkGJAy1b99Sn51dnHZMKkEBLw'
 const PRIV_VK = '6617cc3f79383992ae7ee2c68ba526bf599a7e5cbe195459b4b059b3fff47a05'
@@ -37,5 +37,13 @@ describe('classifyViewKey', () => {
   test("flags non-hex / wrong-length strings as 'malformed'", () => {
     expect(classifyViewKey(STAGENET_ADDR, 'garbage-not-a-view-key')).toBe('malformed')
     expect(classifyViewKey(STAGENET_ADDR, PRIV_VK.slice(1))).toBe('malformed')
+  })
+})
+
+describe('publicViewKeyFromAddress', () => {
+  test('returns the public view key embedded at address bytes[33:65] as lowercase hex', () => {
+    // PUB_VK is proven to be the address-embedded key by the 'public'
+    // classification fixture above — the helper must extract exactly it.
+    expect(publicViewKeyFromAddress(STAGENET_ADDR)).toBe(PUB_VK)
   })
 })

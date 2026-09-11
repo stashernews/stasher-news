@@ -1,4 +1,4 @@
-import { decryptViewKey } from '../monero/viewkey'
+import { publicViewKeyFromAddress } from '../monero/viewKeyCheck'
 import { piconerosToXmrDecimal } from '../monero/uri'
 import { GqlInputError } from '@/lib/error'
 
@@ -8,8 +8,9 @@ import { GqlInputError } from '@/lib/error'
 // receives all platform-bound revenue (downvotes, posting fees, territory fees).
 //
 // This resolver exposes — publicly, no auth — the wallet address, its PUBLIC
-// view key (Monero view keys are audit-by-design), the ledger-derived
-// received/sent/balance, and the rewards/ops earmark split. The split is
+// view key (address-embedded; derived from the address itself, never the
+// stored/encrypted private key), the ledger-derived received/sent/balance,
+// and the rewards/ops earmark split. The split is
 // accounting-level: the wallet holds one consolidated balance, so inflow is
 // partitioned by source × each source's allocation % (PlatformFeeConfig) and
 // then scaled PROPORTIONALLY against the live balance. By construction the two
@@ -93,8 +94,7 @@ export default {
     async rewardsWalletInfo (parent, args, { models }) {
       const network = (process.env.MONERO_NETWORK || 'stagenet').toUpperCase()
       const account = await models.moneroAccount.findFirst({
-        where: { label: 'platform_rewards', network },
-        include: { viewKey: true }
+        where: { label: 'platform_rewards', network }
       })
       if (!account) throw new GqlInputError('rewards wallet not registered')
 
@@ -149,7 +149,7 @@ export default {
 
       return {
         address: account.address,
-        viewKey: decryptViewKey(account.viewKey),
+        viewKey: publicViewKeyFromAddress(account.address),
         network,
         totalReceivedPiconeros: totalReceived,
         totalSentPiconeros: totalSent,

@@ -136,7 +136,7 @@ export default function Transparency ({ ssrData }) {
           <p className='text-center text-muted pb-4'>
             The platform rewards wallet is StasherNews's only custodial component.
             Downvotes, posting fees, and territory fees land here and fund weekly
-            curator payouts. Audit it independently — the view key is public by design.
+            curator payouts. Audit it independently — the public view key is published by design.
           </p>
 
           <div className='mb-4'>
@@ -150,8 +150,9 @@ export default function Transparency ({ ssrData }) {
             <small>
               Received, sent, and balance are ledger-derived from the platform's
               own records: confirmed observations in, recorded payouts and ops
-              sweeps out. Cross-check on-chain with the view key below — the
-              wallet's real on-chain history is independently verifiable.
+              sweeps out. The public view key is the wallet address's embedded
+              key and is shown for reference; it cannot decode transaction
+              amounts, so on-chain totals are reconciled against the address.
             </small>
           </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
@@ -268,9 +269,11 @@ export default function Transparency ({ ssrData }) {
           <div className='alert alert-light mt-4'>
             <h6>Verify independently</h6>
             <p className='mb-1'>
-              Anyone can audit this wallet. Paste the address <em>and</em> the public
-              view key above into any Monero block explorer to see every incoming
-              transaction and the live balance.
+              The wallet address is public and totals can be checked against the
+              chain. The public view key above is embedded in that address and
+              cannot decode incoming transaction amounts; independent
+              transaction-level auditing would require the private view key,
+              which the platform does not publish.
             </p>
             <p className='mb-0'>
               <a href={explorerFor(w.network)} target='_blank' rel='noreferrer'>
