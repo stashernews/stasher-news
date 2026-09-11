@@ -12,6 +12,7 @@ import { COMMENT_DEPTH_LIMIT } from '@/lib/constants'
 import { ApolloServerPluginLandingPageDisabled } from '@apollo/server/plugin/disabled'
 import { logWarn, logError } from '@/lib/logger'
 import { formatGraphqlError } from '@/lib/formatGraphqlError'
+import { apiKeyGuardPlugin } from '@/lib/apiKeyGuard'
 import { lexicalStateLoader } from '@/lib/lexical/server/loader'
 import { createUserLoader, createSubLoader } from '@/api/loaders'
 import { lwsClient } from '@/api/monero/lwsClient'
@@ -63,7 +64,7 @@ const apolloServer = new ApolloServer({
         }
       }
     }
-  }, ApolloServerPluginLandingPageDisabled()]
+  }, apiKeyGuardPlugin(), ApolloServerPluginLandingPageDisabled()]
 })
 
 const apolloHandler = startServerAndCreateNextHandler(apolloServer, {
