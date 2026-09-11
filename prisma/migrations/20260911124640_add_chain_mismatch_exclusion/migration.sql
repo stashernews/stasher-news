@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "AbuseSignalKind" ADD VALUE 'CHAIN_MISMATCH_EXCLUDED';
+
+-- AlterEnum
+ALTER TYPE "TipExclusionReason" ADD VALUE 'CHAIN_MISMATCH';

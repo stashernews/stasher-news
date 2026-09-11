@@ -367,7 +367,14 @@ export async function rewardsWalletObserver ({ models, detectReorg: detect = det
       if (typeof t.id === 'number' && t.id > maxId) maxId = t.id
     }
     if (txs.length > 0) {
-      await models.moneroAccount.update({ where: { id: account.id }, data: { lastTxId: BigInt(maxId) } })
+      // Forward-only, mirroring lookupTipTx's guard: two overlapping runs
+      // (slow fetch + fast successor) must never drag the watermark
+      // backwards. A regression is harmless by attribution idempotency, but
+      // the invariant is monotonic advance.
+      await models.moneroAccount.updateMany({
+        where: { id: account.id, OR: [{ lastTxId: null }, { lastTxId: { lt: BigInt(maxId) } }] },
+        data: { lastTxId: BigInt(maxId) }
+      })
     }
   }
   // Auto top-up: extend the fee subaddress pool when AVAILABLE dips below the

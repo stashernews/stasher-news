@@ -1416,6 +1416,7 @@ model ObservedTip {
 enum TipExclusionReason {
   DIRECT_SELF_TIP
   SELF_SEND
+  CHAIN_MISMATCH
 }
 
 // Deterministic self-tip abuse events (spec §3). One row per excluded
@@ -1424,6 +1425,7 @@ enum TipExclusionReason {
 enum AbuseSignalKind {
   SELF_TIP_EXCLUDED
   SELF_SEND_EXCLUDED
+  CHAIN_MISMATCH_EXCLUDED
 }
 
 model AbuseSignal {

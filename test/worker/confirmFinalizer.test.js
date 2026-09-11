@@ -297,6 +297,48 @@ test('a mature DETECTED wash tip (self-send from the recipient own wallet) is EX
   expect(washLws.getAddressTxs).toHaveBeenCalledTimes(1)
 })
 
+test('a mature DETECTED tip whose stored amount disagrees with the chain is EXCLUDED (CHAIN_MISMATCH), reversed, and never credited', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const tipperId = await createUser(); created.users.push(tipperId)
+  const postId = await createRoot(authorId, 'forged-amount-target'); created.items.push(postId)
+  const account = await seedAccountWithViewKey()
+  const tip = await seedTip({ postId, piconeros: 5_000_000n, height: 200, recipientAccountId: account.id })
+  // Post-detection state: the forged amount was applied at DETECTED (pre-
+  // verification webhook callback) — mirror exactly what applyTipDetected did.
+  await prisma.observedTip.update({ where: { id: tip.id }, data: { tipperId, rankPiconeros: 3_500_000n } })
+  await prisma.itemUserAgg.create({ data: { userId: tipperId, itemId: postId, tipPiconeros: 5_000_000n } })
+  await prisma.item.update({ where: { id: postId }, data: { upvotes: 1, piconeros: 5_000_000n, tipRankPiconeros: 3_500_000n, weightedVotes: 1.0 } })
+
+  // The chain carries only 1_000_000n for this payment id — the stored
+  // 5_000_000n is a forged pre-verification callback amount.
+  const forgedLws = {
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: tip.txHash, height: 200, payment_id: tip.paymentId, piconeros: 1_000_000n, spent_outputs: [] }]
+    })
+  }
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(209), lwsClient: forgedLws })
+
+  const after = await readTip(tip.id)
+  expect(after.state).toBe('EXCLUDED')
+  expect(after.exclusionReason).toBe('CHAIN_MISMATCH')
+  // the author was never credited with the forged amount
+  expect((await readUser(authorId)).stackedPiconeros).toBe(0n)
+  // the detection-applied ranking effects (forged delta) were reversed
+  const item = await prisma.item.findUnique({ where: { id: postId } })
+  expect(item.upvotes).toBe(0)
+  expect(item.piconeros).toBe(0n)
+  expect(item.tipRankPiconeros).toBe(0n)
+  const agg = await prisma.itemUserAgg.findUnique({ where: { itemId_userId: { itemId: postId, userId: tipperId } } })
+  expect(agg.tipPiconeros).toBe(0n)
+  // the abuse signal records both sides of the mismatch
+  const signal = await prisma.abuseSignal.findUnique({ where: { tipId: tip.id } })
+  expect(signal.kind).toBe('CHAIN_MISMATCH_EXCLUDED')
+  expect(signal.subjectUserId).toBe(authorId)
+  expect(signal.details.storedPiconeros).toBe('5000000')
+  expect(signal.details.onChainPiconeros).toBe('1000000')
+})
+
 test('a DETECTED ObservedDownvote becomes CONFIRMED at 10 confirmations', async () => {
   const authorId = await createUser(); created.users.push(authorId)
   const postId = await createRoot(authorId, 'downvote-confirm-target'); created.items.push(postId)

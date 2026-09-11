@@ -1,5 +1,10 @@
 /* eslint-env jest */
-import { isSelfSend, shouldExcludeTip, resolveItemSubName } from '@/api/monero/selfTip'
+import { isSelfSend, shouldExcludeTip, resolveItemSubName, lookupTipTx, chainMismatch, recheckDetectedTip } from '@/api/monero/selfTip'
+import { reverseTip } from '@/api/monero/ranking'
+// ranking's reverseTip is mocked at the module boundary (process.cwd()-absolute,
+// same pattern as webhook.test.js) so the exclusion transaction is assertable
+// without the ranking SQL graph. babel hoists jest.mock above the imports.
+jest.mock(`${process.cwd()}/api/monero/ranking`, () => ({ reverseTip: jest.fn() }))
 
 const ACCT = { id: 7, subaddresses: [{ majorIndex: 0, minorIndex: 1 }, { majorIndex: 0, minorIndex: 5 }] }
 
@@ -66,5 +71,172 @@ describe('resolveItemSubName', () => {
     expect(await resolveItemSubName(1, handle)).toBe('stasher')
     expect(await resolveItemSubName(2, handle)).toBe(null)
     expect(await resolveItemSubName(3, handle)).toBe(null)
+  })
+})
+
+describe('lookupTipTx cursor invariant (audit 2026-09-11 finding 1)', () => {
+  const txs = [
+    { id: 101, hash: 'a', payment_id: 'feeleg', piconeros: 1n },
+    { id: 102, hash: 'b', payment_id: 'dvx', piconeros: 2n }
+  ]
+  const monero = { getAddressTxs: jest.fn().mockResolvedValue({ transactions: txs }) }
+
+  test('NEVER advances lastTxId on the platform rewards account (observer watermark)', async () => {
+    const rewards = { id: 7, label: 'platform_rewards', lastTxId: 100n }
+    const models = { moneroAccount: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } }
+    const tx = await lookupTipTx(models, monero, rewards, 'dvx')
+    expect(tx.hash).toBe('b')
+    expect(models.moneroAccount.updateMany).not.toHaveBeenCalled()
+  })
+
+  test('still advances lastTxId forward-only on non-rewards accounts', async () => {
+    const author = { id: 8, label: null, lastTxId: 100n }
+    const models = { moneroAccount: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } }
+    await lookupTipTx(models, monero, author, 'dvx')
+    expect(models.moneroAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 8, OR: [{ lastTxId: null }, { lastTxId: { lt: 102n } }] },
+      data: { lastTxId: 102n }
+    })
+  })
+})
+
+describe('chainMismatch (audit 2026-09-11 finding 2)', () => {
+  const tip = { piconeros: 1000n, txHash: 'AA11' }
+  test('true when the stored amount disagrees with the chain tx', () => {
+    expect(chainMismatch(tip, { piconeros: 999n, hash: 'aa11' })).toBe(true)
+  })
+  test('true when both hashes are present and differ', () => {
+    expect(chainMismatch(tip, { piconeros: 1000n, hash: 'ff22' })).toBe(true)
+  })
+  test('false when amount and (case-insensitive) hash match', () => {
+    expect(chainMismatch(tip, { piconeros: 1000n, hash: 'aa11' })).toBe(false)
+  })
+  test('false when the stored hash is null (callbacks may omit tx_hash)', () => {
+    expect(chainMismatch({ piconeros: 1000n, txHash: null }, { piconeros: 1000n, hash: 'aa11' })).toBe(false)
+  })
+  test('false for a null tx (not found — caller fails open)', () => {
+    expect(chainMismatch(tip, null)).toBe(false)
+  })
+})
+
+describe('recheckDetectedTip', () => {
+  const account = { id: 7, label: 'author_acct', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) }, lastTxId: null, subaddresses: [] }
+  const baseTip = {
+    id: 42n,
+    postId: 3,
+    tipperId: 5,
+    post: { userId: 9 },
+    piconeros: 1000n,
+    txHash: 'aa11',
+    paymentId: 'abc',
+    rankPiconeros: 700n,
+    recipientAccount: account
+  }
+  let txHandle
+  function modelsWithClaim (claimed = 1) {
+    txHandle = null
+    return {
+      moneroAccount: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      $transaction: jest.fn(async (fn) => {
+        txHandle = {
+          $executeRaw: jest.fn().mockResolvedValue(claimed),
+          $queryRaw: jest.fn().mockResolvedValue([{ subName: null }]),
+          abuseSignal: { create: jest.fn().mockResolvedValue({}) }
+        }
+        return fn(txHandle)
+      })
+    }
+  }
+  const lws = (tx) => ({ getAddressTxs: jest.fn().mockResolvedValue({ transactions: tx == null ? [] : [tx] }) })
+
+  beforeEach(() => jest.clearAllMocks())
+
+  test('excludes CHAIN_MISMATCH, reverses the delta, and signals when the stored amount is forged', async () => {
+    const models = modelsWithClaim()
+    const ok = await recheckDetectedTip({
+      models,
+      monero: lws({ hash: 'aa11', payment_id: 'abc', piconeros: 999n, spent_outputs: [] }),
+      tip: baseTip,
+      confirmations: 10
+    })
+    expect(ok).toBe(true)
+    expect(reverseTip).toHaveBeenCalledWith(3, 5, 1000n, 700n, txHandle)
+    expect(txHandle.abuseSignal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        kind: 'CHAIN_MISMATCH_EXCLUDED',
+        piconeros: 1000n,
+        details: expect.objectContaining({
+          lateRecheck: true,
+          storedPiconeros: '1000',
+          onChainPiconeros: '999',
+          storedTxHash: 'aa11',
+          onChainTxHash: 'aa11'
+        })
+      })
+    })
+  })
+
+  test('passes (returns false) when stored amount and hash match the chain', async () => {
+    const models = modelsWithClaim()
+    const ok = await recheckDetectedTip({
+      models,
+      monero: lws({ hash: 'aa11', payment_id: 'abc', piconeros: 1000n, spent_outputs: [] }),
+      tip: baseTip,
+      confirmations: 10
+    })
+    expect(ok).toBe(false)
+    expect(models.$transaction).not.toHaveBeenCalled()
+  })
+
+  test('fails open when the tx cannot be found (retries next run)', async () => {
+    const models = modelsWithClaim()
+    const ok = await recheckDetectedTip({ models, monero: lws(null), tip: baseTip, confirmations: 10 })
+    expect(ok).toBe(false)
+    expect(models.$transaction).not.toHaveBeenCalled()
+  })
+
+  test('still excludes SELF_SEND when the spent outputs prove a wash tip', async () => {
+    const models = modelsWithClaim()
+    const ok = await recheckDetectedTip({
+      models,
+      monero: lws({ hash: 'aa11', payment_id: 'abc', piconeros: 1000n, spent_outputs: [{ sender: { maj_i: 0, min_i: 0 } }] }),
+      tip: baseTip,
+      confirmations: 10
+    })
+    expect(ok).toBe(true)
+    expect(txHandle.abuseSignal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ kind: 'SELF_SEND_EXCLUDED' })
+    })
+  })
+
+  test('still excludes DIRECT_SELF_TIP with no lws lookup', async () => {
+    const moneroFake = { getAddressTxs: jest.fn() }
+    const ok = await recheckDetectedTip({ models: modelsWithClaim(), monero: moneroFake, tip: { ...baseTip, tipperId: 9 }, confirmations: 10 })
+    expect(ok).toBe(true)
+    expect(moneroFake.getAddressTxs).not.toHaveBeenCalled()
+  })
+
+  test('skips unscannable accounts entirely (documented fail-open posture)', async () => {
+    const moneroFake = { getAddressTxs: jest.fn() }
+    const ok = await recheckDetectedTip({
+      models: modelsWithClaim(),
+      monero: moneroFake,
+      tip: { ...baseTip, recipientAccount: { ...account, viewKey: null } },
+      confirmations: 10
+    })
+    expect(ok).toBe(false)
+    expect(moneroFake.getAddressTxs).not.toHaveBeenCalled()
+  })
+
+  test('returns false when another claimer won the EXCLUDED transition', async () => {
+    const models = modelsWithClaim(0)
+    const ok = await recheckDetectedTip({
+      models,
+      monero: lws({ hash: 'aa11', payment_id: 'abc', piconeros: 999n, spent_outputs: [] }),
+      tip: baseTip,
+      confirmations: 10
+    })
+    expect(ok).toBe(false)
+    expect(reverseTip).not.toHaveBeenCalled()
   })
 })

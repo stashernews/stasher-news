@@ -55,8 +55,12 @@ function mockModels (overrides = {}) {
     // Self-send scan cursor: the tip branch advances MoneroAccount.lastTxId
     // forward-only via updateMany (best-effort, guarded WHERE). Base stub so
     // any scan that sees newer numeric tx ids can advance without throwing.
+    // findFirst defaults to null so the C6 fee/downvote receipt verifications
+    // skip (no account -> unscannable -> fail-open) unless a test overrides
+    // it with a scannable account expecting chain binding.
     moneroAccount: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue(null),
       ...overrides.moneroAccount
     },
     // Bounty branch models (A-13): default to "no matching bounty payment id"
@@ -159,6 +163,19 @@ function mockMonero (overrides = {}) {
     getAddressTxs: jest.fn().mockResolvedValue({ transactions: [] }),
     ...overrides
   }
+}
+
+// A monero client whose lws scan reports exactly the receipt the callback
+// claims: same tx hash (default 'deadbeef', the body most tests send) and the
+// same piconeros. C4's chain verification requires this binding for any
+// scannable account that expects a credit; spread/override spent_outputs when
+// a self-send fixture needs real spend evidence.
+function verifiedMonero (paymentId, piconeros, hash = 'deadbeef') {
+  return mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash, payment_id: paymentId, piconeros: BigInt(piconeros), spent_outputs: [] }]
+    })
+  })
 }
 
 function mockRes () {
@@ -513,6 +530,51 @@ test('flips DETECTED -> CONFIRMED at REQUIRED_CONFIRMATIONS, bumps stackedPicone
     data: { stackedPiconeros: { increment: 1000000000n } }
   }))
   expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-1')
+})
+
+test('an N-conf callback for a legacy DETECTED row with a forged stored amount is EXCLUDED (CHAIN_MISMATCH), not credited', async () => {
+  // Pre-verification-webhook row: the STORED 999n was attacker-supplied and
+  // no callback ever carried it. The callback amount (1000) matches the
+  // chain tx — C4 passes — so only the stored-vs-chain binding in
+  // recheckDetectedTip can catch it (audit 2026-09-11, finding 2).
+  const tip = {
+    id: 2,
+    postId: 10,
+    state: 'DETECTED',
+    paymentId: 'forged',
+    piconeros: 999n,
+    txHash: 'deadbeef',
+    height: 2172600,
+    webhookEventId: null,
+    tipperId: 5,
+    post: { userId: 99 },
+    recipientAccount: { id: 3, label: 'author', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) }, lastTxId: null, subaddresses: [] }
+  }
+  const userUpdate = jest.fn().mockResolvedValue({})
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const txAbuseSignalCreate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
+    userUpdate,
+    execRaw,
+    txAbuseSignalCreate
+  })
+  const monero = verifiedMonero('forged', 1000n)
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'forged', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // no CONFIRMED flip, no stacked bump — the forged row was excluded instead
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  const sqls = execRaw.mock.calls.map(sqlOf)
+  expect(sqls.some(sql => sql.includes("state = 'CONFIRMED'"))).toBe(false)
+  expect(userUpdate).not.toHaveBeenCalled()
+  expect(txAbuseSignalCreate).toHaveBeenCalledWith({
+    data: expect.objectContaining({ kind: 'CHAIN_MISMATCH_EXCLUDED', piconeros: 999n })
+  })
+  // verification + re-check share ONE lws lookup (prefetchedTx)
+  expect(monero.getAddressTxs).toHaveBeenCalledTimes(1)
 })
 
 test('does NOT bump author stackedPiconeros when the recipient is the rewards wallet (wallet-less tip)', async () => {
@@ -959,11 +1021,10 @@ test('N-conf CONFIRMED callback on a clean mined tip confirms normally (re-check
     execRaw,
     txAbuseSignalCreate
   })
-  const monero = mockMonero({
-    getAddressTxs: jest.fn().mockResolvedValue({
-      transactions: [{ id: 60, hash: 'deadbeef', height: 2172600, payment_id: 'clean1', piconeros: 1000000000n, spent_outputs: [{ sender: { maj_i: 4, min_i: 2 } }] }]
-    })
-  })
+  // chain reports exactly the receipt the callback claims (hash + amount), so
+  // C4 verification passes and the single lookup is threaded into the
+  // self-send re-check (one getAddressTxs call — asserted below).
+  const monero = verifiedMonero('clean1', 1000000000)
   const res = mockRes()
   await handleWebhook({
     body: { payment_id: 'clean1', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
@@ -1035,9 +1096,124 @@ test('N-conf self-send re-check fails closed on lws errors (non-200, lws retries
   const models = mockModels({ observedTip: { findFirst: jest.fn().mockResolvedValue(tip) } })
   const monero = mockMonero({ getAddressTxs: jest.fn().mockRejectedValue(new Error('lws down')) })
   const res = mockRes()
-  await expect(handleWebhook({
+  // C4 verification runs before the exclusion re-check and converts the
+  // transient lws failure into a structured 503 instead of an unhandled throw.
+  await handleWebhook({
     body: { payment_id: 'wash3', event: 'tx-confirmation', confirmations: 10, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
-  }, res, models, monero)).rejects.toThrow(/lws down/)
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(503) // lws retries the callback
+})
+
+// ---- C4: verify tip receipts against the chain before crediting ----
+
+test('tip branch: rejects a callback whose amount does not match the chain (no credit)', async () => {
+  const tip = { id: 1, postId: 10, tipperId: null, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: scannableAccount() }
+  const txUpdate = jest.fn().mockResolvedValue({ ...tip, state: 'DETECTED' })
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const models = mockModels({ observedTip: { findFirst: jest.fn().mockResolvedValue(tip) }, txUpdate, execRaw })
+  const monero = mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: 'deadbeef', payment_id: 'abc123', piconeros: 999n, spent_outputs: [] }]
+    })
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(execRaw).not.toHaveBeenCalled() // no DETECTED claim, no ranking delta
+  expect(alert).toHaveBeenCalledWith('warn', 'webhook receipt rejected', expect.stringContaining('amount_mismatch'), expect.anything())
+})
+
+test('0-conf (mempool) callback verifies against the chain and still detects', async () => {
+  const tip = { id: 1, postId: 10, tipperId: null, state: 'PENDING', paymentId: 'mempool1', piconeros: 0n, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: scannableAccount() }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const queryRaw = jest.fn().mockResolvedValue([{ rank_delta: 700000000n }])
+  const models = mockModels({ observedTip: { findFirst: jest.fn().mockResolvedValue(tip) }, execRaw, queryRaw })
+  // mempool-shaped: hash present, no height, no spent_outputs. A tx_not_found
+  // verdict here would be a 200 no-op (detection deferred to the next callback
+  // / reconcilePendingTips backstop) — never a credit while unverified.
+  const monero = mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: 'deadbeef', payment_id: 'mempool1', piconeros: 1000n }]
+    })
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'mempool1', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', amount: 1000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(execRaw).toHaveBeenCalled() // DETECTED claim still runs
+})
+
+// ---- C5: verify bounty receipts against the chain before bounty writes ----
+
+test('bounty branch: rejects a callback whose amount does not match the chain (no receipt, pid map not consumed)', async () => {
+  const bounty = { id: 7, postId: 5, state: 'PENDING', paymentId: 'bn123', webhookEventId: 'evt-b', recipientAccount: scannableAccount() }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const txPidMapUpdate = jest.fn().mockResolvedValue({})
+  const models = mockModels({
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5, userId: 2 }) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
+    execRaw,
+    txPidMapUpdate
+  })
+  const monero = mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: 'deadbeef', payment_id: 'bn123', piconeros: 1n, spent_outputs: [] }]
+    })
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bn123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 15000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(execRaw).not.toHaveBeenCalled()
+  expect(txPidMapUpdate).not.toHaveBeenCalled()
+})
+
+test('bounty branch: returns 503 when the lws lookup fails (lws retries)', async () => {
+  const bounty = { id: 7, postId: 5, state: 'PENDING', paymentId: 'bn123', webhookEventId: 'evt-b', recipientAccount: scannableAccount() }
+  const models = mockModels({
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue({ paymentId: 'bn123', postId: 5, userId: 2 }) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) }
+  })
+  const monero = mockMonero({ getAddressTxs: jest.fn().mockRejectedValue(new Error('lws down')) })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bn123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 15000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(503)
+})
+
+test('bounty sub-conf branch: rejects a callback whose amount does not match the chain (no receipt recorded)', async () => {
+  // A DETECTED bounty with confirmations < REQUIRED: these callbacks write
+  // ObservedBountyReceipt rows and overwrite the row's txHash/height/
+  // confirmations, feeding the cumulative sum that gates the FUNDED flip — a
+  // fabricated-amount replay must be rejected before either write (C5.1).
+  const bounty = { id: 11, postId: 8, state: 'DETECTED', paymentId: 'bn789', txHash: 'f00d1234', webhookEventId: 'evt-d', recipientAccount: scannableAccount() }
+  const bountyUpdate = jest.fn().mockResolvedValue({})
+  const txReceiptAggregate = jest.fn().mockResolvedValue({ _sum: { piconeros: null } })
+  const models = mockModels({
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue(null) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty), update: bountyUpdate },
+    txReceiptAggregate
+  })
+  const monero = mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: 'f00d1234', payment_id: 'bn789', piconeros: 1n, spent_outputs: [] }]
+    })
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bn789', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'f00d1234', block: 2172800, amount: 11000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  // recordBountyReceipt never ran (no receipt-fold transaction at all)
+  expect(models.$transaction).not.toHaveBeenCalled()
+  expect(txReceiptAggregate).not.toHaveBeenCalled()
+  // the bounty row's txHash/height/confirmations were not overwritten
+  expect(bountyUpdate).not.toHaveBeenCalled()
 })
 
 // ---- downvote branch (dv: namespace via DownvotePidMap) ----
@@ -1090,6 +1266,41 @@ test('expired or consumed pid map is a 200 no-op (claim UPDATE matched 0 rows)',
 
   expect(models.$queryRaw).not.toHaveBeenCalled() // no insert, no penalty
   expect(res.status).toHaveBeenCalledWith(200)
+})
+
+test('downvote 0-conf verification does NOT advance the observer cursor on the rewards account (starvation regression, audit finding 1)', async () => {
+  // lws hands the verification lookup BOTH an unattributed fee tx (id 101)
+  // and the downvote (id 102). Pre-fix, lookupTipTx advanced
+  // MoneroAccount.lastTxId to 102 here and rewardsWalletObserver — the ONLY
+  // attributor for fee-subaddress outputs — never saw tx 101 again.
+  const rewards = {
+    id: 9,
+    label: 'platform_rewards',
+    address: 'R',
+    status: 'ACTIVE',
+    viewKey: { ciphertext: Buffer.alloc(0) },
+    lastTxId: 100n,
+    subaddresses: []
+  }
+  const models = mockModels({
+    downvotePidMap: { findUnique: jest.fn().mockResolvedValue({ ...dvMap, paymentId: 'dvx', webhookEventId: null }) },
+    observedDownvote: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
+    moneroAccount: { findFirst: jest.fn().mockResolvedValue(rewards), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+  })
+  const monero = mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [
+        { id: 101, hash: 'feee', payment_id: null, piconeros: 1n },
+        { id: 102, hash: 'd7553c14', payment_id: 'dvx', piconeros: 1000000000n }
+      ]
+    })
+  })
+  const res = mockRes()
+
+  await handleWebhook({ body: { payment_id: 'dvx', confirmations: 0, tx_info: { tx_hash: 'd7553c14', amount: '1000000000' } } }, res, models, monero)
+
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(models.moneroAccount.updateMany).not.toHaveBeenCalled() // the watermark stays observer-owned
 })
 
 test('N-conf callback on an existing DETECTED row backfills height WITHOUT pid-map liveness (item-2808 lesson)', async () => {
@@ -1148,6 +1359,29 @@ test('0-conf race vs poll-insert: pid-map claim wins but the ObservedDownvote in
   expect(models.observedDownvote.update).not.toHaveBeenCalled()
   expect(monero.deleteWebhook).not.toHaveBeenCalled()
   expect(res.status).toHaveBeenCalledWith(200)
+})
+
+test('downvote branch: rejects a callback whose amount does not match the chain (pid map not consumed)', async () => {
+  // C6: the verdict must be computed BEFORE the claimedMap UPDATE — a rejected
+  // callback must not consume the DownvotePidMap, or the downvote is lost (the
+  // poll backstop keys attribution on the map). Downvotes pay the rewards
+  // PRIMARY address, so verification runs against the platform_rewards wallet.
+  const REWARDS_ACCOUNT = { id: 2047, label: 'platform_rewards', status: 'ACTIVE', address: 'REWARDS', viewKey: { ciphertext: Buffer.alloc(0) }, lastTxId: null, subaddresses: [] }
+  const models = mockModels({
+    downvotePidMap: { findUnique: jest.fn().mockResolvedValue(dvMap) },
+    observedDownvote: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
+    moneroAccount: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findFirst: jest.fn().mockResolvedValue(REWARDS_ACCOUNT) }
+  })
+  models.$executeRaw = jest.fn().mockResolvedValue(1)
+  const monero = mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: 'd7553c1400000000000000000000000000000000000000000000000000000000', payment_id: dvMap.paymentId, piconeros: 1n, spent_outputs: [] }]
+    })
+  })
+  const res = mockRes()
+  await handleWebhook({ body: dvBody(), headers: {} }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(models.$executeRaw).not.toHaveBeenCalled() // map not consumed, no insert
 })
 
 // ---- fee: branch (owner-routed turf fees via PayIn.moneroPaymentId) ----
@@ -1293,6 +1527,25 @@ describe('fee: branch (owner-routed turf fees)', () => {
     // the cumulative gate still runs on the conflict path (observer self-heal
     // semantics — a stranded PENDING_FEE item re-flips idempotently)
     expect(flipPendingToLive).toHaveBeenCalledWith(models, expect.objectContaining({ id: 101 }), 1000000000000n)
+  })
+
+  test('rejects a callback whose amount does not match the chain (no receipt recorded)', async () => {
+    // C6: a token-holding replay with a fabricated amount must never seed a
+    // receipt nor open the cumulative gate. The owner account comes from the
+    // pid map (ownerFeeLeg creates a map row for every owner-routed leg).
+    const OWNER_ACCOUNT = { id: 55, label: 'author', status: 'ACTIVE', address: 'OWNER', viewKey: { ciphertext: Buffer.alloc(0) }, lastTxId: null, subaddresses: [] }
+    const { models, inserted } = feeModels({ mapRow: { ownerUserId: 42, subName: 'test' } })
+    models.moneroAccount.findFirst = jest.fn().mockResolvedValue(OWNER_ACCOUNT)
+    const monero = mockMonero({
+      getAddressTxs: jest.fn().mockResolvedValue({
+        transactions: [{ id: 1, hash: 'tx1', payment_id: pid, piconeros: 1n, spent_outputs: [] }]
+      })
+    })
+    const res = mockRes()
+    await handleWebhook({ body: { payment_id: pid, confirmations: 0, tx_info: { tx_hash: 'tx1', amount: '500000000000' } }, headers: {} }, res, models, monero)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(inserted).toHaveLength(0)
+    expect(flipPendingToLive).not.toHaveBeenCalled()
   })
 
   test('payment on an abandoned fee leg (payIn deleted, map row remains) records a null-payInId receipt and pages operators', async () => {
