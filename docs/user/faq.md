@@ -297,12 +297,6 @@ To donate XMR directly to the Stasher News rewards pool, or to see the rewards t
 
 ---
 
-### Someone tipped me 100 XMR but I only received 70 XMR. Why?
-
-This no longer happens. Tips are delivered peer-to-peer: 100% of a tip goes to its author and nothing is taken from tips along the way.
-
----
-
 ### Is there an equivalent to downvotes?
 
 Yes. If you see content that you think should not be on Stasher News, you can click the `...` next to the post or comment and select 'downvote', or use the downvote arrow next to the tip button. A modal lets you choose a downvote amount between 0.0001 and 0.025 XMR.
