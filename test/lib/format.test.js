@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid, formatDaysHours } from '@/lib/format'
+import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, piconerosToSats, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid, formatDaysHours } from '@/lib/format'
 
 describe('piconerosToXmrDecimal re-export', () => {
   it('is re-exported from lib/format (settings + tip modal import it from here)', () => {
@@ -144,5 +144,29 @@ describe('formatDaysHours', () => {
     expect(formatDaysHours(0)).toBe('<1h')
     expect(formatDaysHours(-5)).toBe('<1h')
     expect(formatDaysHours(NaN)).toBe('<1h')
+  })
+})
+
+describe('piconerosToSats', () => {
+  it('converts piconeros to the legacy-sat units of the fee-button accumulator (1 sat = 1000 piconeros)', () => {
+    expect(piconerosToSats(0n)).toBe(0)
+    expect(piconerosToSats(1_000_000_000n)).toBe(1_000_000) // 0.001 XMR -> 1e6 sats
+    expect(piconerosToSats(2_000_000_000n)).toBe(2_000_000) // the bug-A upload fee (2 fee units)
+  })
+
+  it('accepts numbers as well as BigInts (GraphQL BigInt fields reach the client as numbers)', () => {
+    expect(piconerosToSats(2000000000)).toBe(2000000)
+  })
+
+  it('truncates sub-sat piconeros', () => {
+    expect(piconerosToSats(1_999n)).toBe(1)
+  })
+
+  it('reproduces the fee-button display end to end: a 2e9-piconero upload fee renders as 0.002 XMR, not 2 XMR', () => {
+    // regression for the 1000x upload-fee display bug (2026-09-11): the upload
+    // fee modifier fed raw piconeros into the sat-unit accumulator, which the
+    // fee button displays after a x1000 back-conversion (legacySatsToPiconeros)
+    const total = piconerosToSats(2_000_000_000n) // bug A shipped: Number(2e9) — 1000x
+    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.002 XMR')
   })
 })

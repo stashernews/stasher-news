@@ -21,7 +21,7 @@ import { useLazyQuery } from '@apollo/client/react'
 import { useFeeButton } from '@/components/fee-button'
 import { FileUpload } from '@/components/file-upload'
 import useDebounceCallback from '@/components/use-debounce-callback'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToSats, piconerosToXmr } from '@/lib/format'
 import { AWS_S3_URL_REGEXP } from '@/lib/constants'
 import { getDragSelection } from '@/lib/lexical/utils/dom'
 import styles from '@/lib/lexical/theme/editor.module.css'
@@ -276,12 +276,13 @@ function useLexicalUploadFees (editor) {
 
   const handleUploadFeesData = useCallback(({ data }) => {
     const { totalFeesPiconeros } = data.uploadFees
-    const totalFees = Number(totalFeesPiconeros)
+    const totalFees = piconerosToSats(totalFeesPiconeros)
     merge({
       uploadFees: {
         term: `+ ${piconerosToXmr(BigInt(totalFeesPiconeros))}`,
         label: 'upload fee',
         op: '+',
+        // fee-button accumulator totals in legacy sats (1 sat = 1000 piconeros)
         modifier: cost => cost + totalFees,
         omit: !totalFees
       }
