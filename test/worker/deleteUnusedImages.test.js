@@ -1,13 +1,15 @@
 /* eslint-env jest */
 
 // Integration test for the unused-image cleanup worker (Task 3 of the upload-fee
-// plan). Seeds Upload rows with past created_at timestamps and runs
-// deleteUnusedImages directly (no pg-boss), asserting only the old, unreferenced
-// uploads are deleted — 7 days for registered users, 24 hours for anons —
-// regardless of the paid flag, while recent or referenced uploads survive.
-// References cover every real attachment path: the ItemUpload join table (the
-// path posts/comments actually use), Item.uploadId (job listings), the
-// SubBranding.logoId and faviconId (territory logos/favicons) and users.photoId.
+// plan; 2026-09-12 tightened). Seeds Upload rows with past created_at timestamps
+// and runs deleteUnusedImages directly (no pg-boss), asserting only the old,
+// unreferenced uploads are deleted — 24 hours for everyone — regardless of the
+// paid flag, while recent or referenced uploads survive. "Referenced" now means
+// attached to LIVE content: media whose only attachment is a soft-deleted
+// (abandoned) item is swept too. References cover every real attachment path:
+// the ItemUpload join table (the path posts/comments actually use), Item.uploadId
+// (job listings), the SubBranding.logoId and faviconId (territory logos/favicons)
+// and users.photoId.
 //
 // S3 is stubbed (deleteObjects returns its input keys) so the test is hermetic:
 // with NODE_ENV=test the real @/api/s3 targets Amazon S3 with the localstack
@@ -70,7 +72,7 @@ async function createItem (userId, { uploadId = null } = {}) {
 //   - 'logo': SubBranding.logoId — territory logos
 //   - 'favicon': SubBranding.faviconId — territory favicons
 //   - 'photo': users.photoId — user profile photos
-async function seedUpload ({ userId, ageMs, paid = false, reference = null }) {
+async function seedUpload ({ userId, ageMs, paid = false, reference = null, abandoned = false }) {
   const upload = await prisma.upload.create({
     data: {
       userId,
@@ -84,8 +86,10 @@ async function seedUpload ({ userId, ageMs, paid = false, reference = null }) {
   if (reference === 'itemUpload') {
     const item = await createItem(userId)
     await prisma.itemUpload.create({ data: { itemId: item.id, uploadId: upload.id } })
+    if (abandoned) await prisma.item.update({ where: { id: item.id }, data: { deletedAt: new Date() } })
   } else if (reference === 'itemUploadId') {
-    await createItem(userId, { uploadId: upload.id })
+    const item = await createItem(userId, { uploadId: upload.id })
+    if (abandoned) await prisma.item.update({ where: { id: item.id }, data: { deletedAt: new Date() } })
   } else if (reference === 'logo') {
     const sub = await prisma.sub.create({
       data: {
@@ -116,19 +120,23 @@ async function seedUpload ({ userId, ageMs, paid = false, reference = null }) {
   return upload
 }
 
-test('deleteUnusedImages deletes old unreferenced uploads (7d registered / 24h anon) regardless of paid, keeping recent and referenced ones, and self-requeues', async () => {
+test('deleteUnusedImages deletes unreferenced uploads after 24h for everyone and media whose only attachment is an abandoned (soft-deleted) item, keeping recent and live-referenced ones, and self-requeues', async () => {
   const userId = await createUser()
 
-  const oldUnpaid = await seedUpload({ userId, ageMs: 8 * DAY_MS })
-  // an old upload that paid the fee: freed from the paid-gate so it is swept too
+  // 25h-old unreferenced upload: past the 24h window (was 7 days) -> swept
+  const oldEnough = await seedUpload({ userId, ageMs: 25 * 60 * 60 * 1000 })
+  // an old upload that paid the fee: unreferenced, so it is swept too
   const oldPaid = await seedUpload({ userId, ageMs: 8 * DAY_MS, paid: true })
-  const recent = await seedUpload({ userId, ageMs: DAY_MS })
-  // old uploads survive when referenced through ANY attachment path
+  const recent = await seedUpload({ userId, ageMs: 12 * 60 * 60 * 1000 })
+  // old uploads survive when referenced through ANY attachment path to LIVE content
   const refItemUpload = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'itemUpload' })
   const refItemUploadId = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'itemUploadId' })
   const refLogo = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'logo' })
   const refFavicon = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'favicon' })
   const refPhoto = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'photo' })
+  // a soft-deleted (abandoned) item no longer pins its media: swept via both paths
+  const refDeletedItemUpload = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'itemUpload', abandoned: true })
+  const refDeletedItemUploadId = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'itemUploadId', abandoned: true })
   // anon uploads are deleted after 24h instead of 7d
   const oldAnon = await seedUpload({ userId: USER_ID.anon, ageMs: 2 * DAY_MS })
 
@@ -137,7 +145,7 @@ test('deleteUnusedImages deletes old unreferenced uploads (7d registered / 24h a
 
   const remaining = await prisma.upload.findMany({
     where: {
-      id: { in: [oldUnpaid.id, oldPaid.id, recent.id, refItemUpload.id, refItemUploadId.id, refLogo.id, refFavicon.id, refPhoto.id, oldAnon.id] }
+      id: { in: [oldEnough.id, oldPaid.id, recent.id, refItemUpload.id, refItemUploadId.id, refLogo.id, refFavicon.id, refPhoto.id, refDeletedItemUpload.id, refDeletedItemUploadId.id, oldAnon.id] }
     },
     select: { id: true }
   })

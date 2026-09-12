@@ -1,19 +1,26 @@
 import { deleteObjects } from '@/api/s3'
-import { USER_ID } from '@/lib/constants'
 import { alert } from '@/lib/alert'
 import { logError } from '@/lib/logger'
 
 export async function deleteUnusedImages ({ models, boss }) {
-  // delete unused images in database and S3 after 7 days for stackers or 24 hours for anons
+  // delete unused media in database and S3 24 hours after upload, for stackers
+  // and anons alike. "Unused" = attached to no LIVE content: attachments via a
+  // soft-deleted (abandoned) item no longer pin the upload, so media from
+  // fee-abandoned or deleted posts is reaped too. Paid flag is irrelevant —
+  // unattached media has no content to protect.
   const unpaidImages = await models.$queryRaw`
     SELECT id
     FROM "Upload"
     WHERE NOT EXISTS (SELECT * FROM users WHERE "photoId" = "Upload".id)
-      AND NOT EXISTS (SELECT * FROM "Item" WHERE "uploadId" = "Upload".id)
-      AND NOT EXISTS (SELECT * FROM "ItemUpload" WHERE "uploadId" = "Upload".id)
+      AND NOT EXISTS (SELECT * FROM "Item" WHERE "uploadId" = "Upload".id AND "deletedAt" IS NULL)
+      AND NOT EXISTS (
+        SELECT *
+        FROM "ItemUpload"
+        JOIN "Item" ON "Item".id = "ItemUpload"."itemId"
+        WHERE "ItemUpload"."uploadId" = "Upload".id AND "Item"."deletedAt" IS NULL)
       AND NOT EXISTS (SELECT * FROM "SubBranding" WHERE "logoId" = "Upload".id)
       AND NOT EXISTS (SELECT * FROM "SubBranding" WHERE "faviconId" = "Upload".id)
-      AND created_at < date_trunc('hour', now() - CASE WHEN "userId" = ${USER_ID.anon} THEN interval '24 hours' ELSE interval '7 days' END)`
+      AND created_at < date_trunc('hour', now() - interval '24 hours')`
 
   const s3Keys = unpaidImages.map(({ id }) => id)
   if (s3Keys.length === 0) {

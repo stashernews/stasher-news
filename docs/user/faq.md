@@ -186,7 +186,7 @@ Upload fees are applied when you submit your post or comment.
 
 ### Are media uploads stored forever?
 
-Yes, if it was used in a post or comment. **Uploads that haven't been used within 7 days in a post or comment are deleted** (24 hours for anonymous uploads).
+Yes, if it was used in a live post or comment. **Unattached uploads are deleted 24 hours after upload** (for accounts and anonymous uploads alike), and media from posts that were deleted or abandoned for non-payment is reaped with the next daily sweep.
 
 ---
 
