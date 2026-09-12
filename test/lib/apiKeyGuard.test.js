@@ -1,6 +1,7 @@
 /* eslint-env jest */
 import { API_KEY_BLOCKED_MUTATIONS, apiKeyGuardPlugin, isApiKeyBlocked } from '@/lib/apiKeyGuard'
 import { GqlAuthorizationError } from '@/lib/error'
+import typeDefs from '@/api/typeDefs'
 
 const SENSITIVE = [
   'act',
@@ -13,6 +14,65 @@ const SENSITIVE = [
   'savePushSubscription', 'deletePushSubscription', 'setPhoto', 'cropPhoto',
   'updateNoteId'
 ]
+
+// Every Mutation field the schema declares, minus the `_` sentinel the common
+// typeDefs use to keep the root types non-empty.
+function schemaMutationNames () {
+  const names = new Set()
+  for (const doc of typeDefs) {
+    for (const def of doc.definitions) {
+      const isMutation = (def.kind === 'ObjectTypeDefinition' || def.kind === 'ObjectTypeExtension') &&
+        def.name.value === 'Mutation'
+      if (!isMutation) continue
+      for (const f of def.fields || []) names.add(f.name.value)
+    }
+  }
+  names.delete('_')
+  return names
+}
+
+// The reviewed classification of every mutation an API key MAY call. The deny
+// list in lib/apiKeyGuard.js cannot catch a NEW sensitive mutation by itself,
+// so this test makes an unclassified mutation a loud failure instead: adding a
+// mutation to the schema breaks these tests until it lands in
+// API_KEY_BLOCKED_MUTATIONS (credentials/identity/wallets/money) or here
+// (content, moderation, notifications, preferences — the intended API-key use
+// cases). Keep the two lists disjoint and both anchored to the schema.
+const REVIEWED_NON_SENSITIVE = new Set([
+  // content creation / moderation
+  'bookmarkItem', 'deleteItem', 'deleteMessage', 'pinItem', 'upsertBio',
+  'upsertBounty', 'upsertComment', 'upsertDiscussion', 'upsertJob',
+  'upsertLink', 'upsertPoll', 'upsertSubBranding',
+  // uploads (quota-capped, paid on publish)
+  'getSignedPOST',
+  // notifications / preferences
+  'createMessage', 'onAirToggle', 'setWalkthrough', 'subscribeItem',
+  'subscribeUserComments', 'subscribeUserPosts', 'toggleMute',
+  'toggleMuteSub', 'toggleSubSubscription', 'updateCommentsViewAt'
+])
+
+describe('schema consistency (new mutations must be classified)', () => {
+  test('every blocked name is a real Mutation field (a typo would silently disable its block)', () => {
+    const schema = schemaMutationNames()
+    for (const name of API_KEY_BLOCKED_MUTATIONS) {
+      expect(schema.has(name)).toBe(true)
+    }
+  })
+
+  test('every schema mutation is classified as blocked or reviewed-non-sensitive', () => {
+    const unclassified = [...schemaMutationNames()]
+      .filter(name => !API_KEY_BLOCKED_MUTATIONS.has(name) && !REVIEWED_NON_SENSITIVE.has(name))
+    expect(unclassified).toEqual([])
+  })
+
+  test('the block list and the reviewed allow list are disjoint and schema-anchored', () => {
+    const schema = schemaMutationNames()
+    for (const name of REVIEWED_NON_SENSITIVE) {
+      expect(API_KEY_BLOCKED_MUTATIONS.has(name)).toBe(false)
+      expect(schema.has(name)).toBe(true)
+    }
+  })
+})
 
 describe('isApiKeyBlocked', () => {
   test('blocks every sensitive mutation for an API-key session', () => {

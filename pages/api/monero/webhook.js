@@ -96,6 +96,20 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   const { payment_id: paymentId, confirmations = 0, tx_info: txInfo = {} } = body
   const { tx_hash: txHash, block: height, amount } = txInfo
 
+  // Parses the callback amount; on garbage/zero/negative, alerts (deduped per
+  // payment id), answers 200 no-op and returns null. A malformed amount never
+  // becomes valid on an lws retry, so the delivery is acknowledged instead of
+  // spun in a 503 retry loop.
+  function parseOrReject () {
+    const piconeros = parsePiconeros(amount)
+    if (piconeros == null) {
+      alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
+      res.status(200).end()
+      return null
+    }
+    return piconeros
+  }
+
   if (!paymentId) return res.status(200).end()
 
   const tip = await models.observedTip.findFirst({
@@ -139,11 +153,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     }
 
     if (tip.state === 'PENDING') {
-      const piconeros = parsePiconeros(amount)
-      if (piconeros == null) {
-        alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
-        return res.status(200).end()
-      }
+      const piconeros = parseOrReject()
+      if (piconeros == null) return
       // Self-tip exclusion (spec §2.3): direct self-tip is a free check from
       // data in hand; the self-send check scans the recipient account via lws
       // (tip callbacks are low-frequency). Fail closed on lws errors: a non-200
@@ -247,11 +258,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     }
 
     if (tip.state === 'DETECTED' && confirmations >= REQUIRED_CONFIRMATIONS) {
-      const piconeros = parsePiconeros(amount)
-      if (piconeros == null) {
-        alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
-        return res.status(200).end()
-      }
+      const piconeros = parseOrReject()
+      if (piconeros == null) return
       // Chain verification before the credit (C4): re-bind the callback to the
       // lws-reported tx. The verified tx is threaded into the confirm-time
       // re-check so the branch costs one lws lookup per callback. The credit
@@ -391,11 +399,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     })
     if (!pidMap) return res.status(200).end()
 
-    const piconeros = parsePiconeros(amount)
-    if (piconeros == null) {
-      alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
-      return res.status(200).end()
-    }
+    const piconeros = parseOrReject()
+    if (piconeros == null) return
     // Chain verification before the PENDING -> DETECTED claim (C5): bind the
     // callback amount/txHash to the lws-reported tx on the ESCROW account —
     // a token-holding replay with a fabricated amount must never seed a
@@ -429,11 +434,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   }
 
   if (bounty?.state === 'DETECTED' && confirmations >= REQUIRED_CONFIRMATIONS) {
-    const piconeros = parsePiconeros(amount)
-    if (piconeros == null) {
-      alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
-      return res.status(200).end()
-    }
+    const piconeros = parseOrReject()
+    if (piconeros == null) return
     // Chain verification before the cumulative funding transaction (C5): the
     // top-up sum gates the FUNDED flip, so every receipt feeding it must be
     // bound to the lws-reported tx — same fail-open skip for unscannable
@@ -467,11 +469,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   }
 
   if (bounty?.state === 'DETECTED') {
-    const piconeros = parsePiconeros(amount)
-    if (piconeros == null) {
-      alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
-      return res.status(200).end()
-    }
+    const piconeros = parseOrReject()
+    if (piconeros == null) return
     // Chain verification before the sub-conf receipt (C5.1): these callbacks
     // feed the same cumulative sum that gates the FUNDED flip, so a replayed
     // callback with a fabricated amount must never seed a receipt nor
@@ -500,11 +499,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   // escrow holds it but the funding is dead. Record the receipt (ledger
   // visibility) and page the operators — manual reconciliation required.
   if (bounty?.state === 'EXPIRED') {
-    const piconeros = parsePiconeros(amount)
-    if (piconeros == null) {
-      alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
-      return res.status(200).end()
-    }
+    const piconeros = parseOrReject()
+    if (piconeros == null) return
     // Chain verification before the abandoned-bounty receipt (C5): even a
     // ledger-visibility row must carry a chain-verified amount, or a replayed
     // callback could fabricate escrow balances for manual reconciliation.
@@ -539,11 +535,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   // Fetched once here and shared — no duplicate lookup in the abandoned path.
   const feeMapRow = await models.subFeePidMap.findUnique({ where: { paymentId } })
   if (feePayIn) {
-    const piconeros = parsePiconeros(amount)
-    if (piconeros == null) {
-      alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
-      return res.status(200).end()
-    }
+    const piconeros = parseOrReject()
+    if (piconeros == null) return
     // Chain verification before the receipt insert (C6): bind the callback
     // amount/txHash to the lws-reported tx on the OWNER's account — a
     // token-holding replay with a fabricated amount must never seed a receipt
@@ -568,11 +561,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   // above). No map row: fall through to the downvote dispatch below, so
   // unknown pids keep their 200 no-op (lws retry hygiene).
   if (feeMapRow) {
-    const piconeros = parsePiconeros(amount)
-    if (piconeros == null) {
-      alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
-      return res.status(200).end()
-    }
+    const piconeros = parseOrReject()
+    if (piconeros == null) return
     // Chain verification before the abandoned-leg receipt (C6): even a
     // ledger-visibility row must carry a chain-verified amount, or a replayed
     // callback could fabricate balances for manual reconciliation. Same owner
@@ -636,11 +626,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   // Reject an untrusted amount BEFORE claiming the pid map: a rejected
   // callback must not consume the map (the poll backstop or a corrected
   // re-delivery still needs it to attribute the downvote).
-  const piconeros = parsePiconeros(amount)
-  if (piconeros == null) {
-    alert('warn', 'webhook rejected invalid amount', `${paymentId}: amount=${JSON.stringify(amount)}`, { dedupeKey: `webhook-bad-amount-${paymentId}` })
-    return res.status(200).end()
-  }
+  const piconeros = parseOrReject()
+  if (piconeros == null) return
 
   // Chain verification BEFORE the map claim (C6): a rejected callback must
   // not consume the DownvotePidMap, or the downvote is lost (the poll
