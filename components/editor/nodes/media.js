@@ -279,7 +279,13 @@ export function MediaOrLink ({ linkFallback = true, editable, mediaRef, ...props
     [showCarousel, bestResSrc])
 
   const handleError = useCallback((err) => {
-    console.error('Error loading media', err)
+    // onError hands us a bare Event; the MediaError on the target element names
+    // the real cause (network vs decode vs unsupported src)
+    console.error('Error loading media', {
+      src: err?.target?.currentSrc || err?.target?.src,
+      code: err?.target?.error?.code,
+      message: err?.target?.error?.message
+    })
     if (onProxyError()) return
     removeMedia(bestResSrc)
     setError(true)

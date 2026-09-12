@@ -63,7 +63,7 @@ export const FileUpload = forwardRef(({ children, className, onSelect, onUpload,
       element.onload = onload
       element.onloadeddata = onload
 
-      element.onerror = reject
+      element.onerror = () => reject(mediaElementLoadError(element))
       element.src = window.URL.createObjectURL(file)
 
       // iOS Force the video to load metadata
@@ -96,7 +96,7 @@ export const FileUpload = forwardRef(({ children, className, onSelect, onUpload,
               if (file.type === 'video/quicktime') {
                 toaster.danger(`upload of '${file.name}' failed: codec might not be supported, check video settings`)
               } else {
-                toaster.danger(`upload of '${file.name}' failed: ` + e.message || e.toString?.())
+                toaster.danger(`upload of '${file.name}' failed: ` + uploadErrorMessage(e))
               }
               continue
             }
@@ -116,6 +116,21 @@ export const FileUpload = forwardRef(({ children, className, onSelect, onUpload,
     </>
   )
 })
+
+// The media element preload rejects via element.onerror, which hands us a bare
+// Event with no .message — translate it so the toast names the real cause
+// (e.g. the browser cannot decode the video's codec) instead of "undefined".
+export function mediaElementLoadError (element) {
+  return element?.tagName === 'VIDEO'
+    ? new Error('browser could not decode this video — its codec is likely unsupported by this browser')
+    : new Error('browser could not load this file')
+}
+
+// Toast message extraction: prefer .message, fall back to toString. The `+`
+// precedence in the old inline form silently disabled the fallback entirely.
+export function uploadErrorMessage (e) {
+  return e?.message || (typeof e?.toString === 'function' ? e.toString() : String(e))
+}
 
 export async function uploadToS3 ({ file, signedPost, fetchImpl = fetch, mediaUrl = MEDIA_URL }) {
   if (!signedPost?.fields) {
