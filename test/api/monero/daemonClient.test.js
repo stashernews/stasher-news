@@ -113,12 +113,60 @@ describe('configuration', () => {
   })
 })
 
+// ---- getTransactions --------------------------------------------------------
+
+describe('getTransactions', () => {
+  test('POSTs to the plain /get_transactions endpoint with decode_as_json and returns extras', async () => {
+    const t = recordingTransport(() => jsonRes(200, {
+      txs: [{
+        tx_hash: 'abc123',
+        as_json: JSON.stringify({ version: 2, extra: [1, 2, 3, 4] })
+      }],
+      missed_txs: []
+    }))
+    const client = makeClient(t)
+    const out = await client.getTransactions(['abc123', 'missing'])
+    expect(t.calls[0].url).toBe(`${MONEROD_URL}/get_transactions`)
+    expect(JSON.parse(t.calls[0].opts.body)).toEqual({ txs_hashes: ['abc123', 'missing'], decode_as_json: true })
+    expect(out).toEqual([{ hash: 'abc123', extra: Buffer.from([1, 2, 3, 4]) }])
+  })
+
+  test('normalizes a hex-string extra (older monerod builds) to a Buffer', async () => {
+    const t = recordingTransport(() => jsonRes(200, {
+      txs: [{ tx_hash: 'abc', as_json: JSON.stringify({ extra: 'deadbeef' }) }]
+    }))
+    const client = makeClient(t)
+    const out = await client.getTransactions(['abc'])
+    expect(out[0].extra).toEqual(Buffer.from('deadbeef', 'hex'))
+  })
+
+  test('omits txs with unparseable as_json rather than throwing', async () => {
+    const t = recordingTransport(() => jsonRes(200, {
+      txs: [
+        { tx_hash: 'bad', as_json: '{not json' },
+        { tx_hash: 'none' },
+        { tx_hash: 'good', as_json: JSON.stringify({ extra: [9] }) }
+      ]
+    }))
+    const client = makeClient(t)
+    const out = await client.getTransactions(['bad', 'none', 'good'])
+    expect(out).toEqual([{ hash: 'good', extra: Buffer.from([9]) }])
+  })
+
+  test('throws a DaemonHttpError on a non-2xx status', async () => {
+    const t = recordingTransport(() => jsonRes(500, {}))
+    const client = makeClient(t)
+    await expect(client.getTransactions(['abc'])).rejects.toThrow(/HTTP 500/)
+  })
+})
+
 // ---- module surface --------------------------------------------------------
 
 describe('module surface', () => {
-  test('exports a singleton daemonClient with getBlockHashByHeight', () => {
+  test('exports a singleton daemonClient with getBlockHashByHeight and getTransactions', () => {
     expect(daemon.daemonClient).toBeDefined()
     expect(typeof daemon.daemonClient.getBlockHashByHeight).toBe('function')
+    expect(typeof daemon.daemonClient.getTransactions).toBe('function')
   })
 
   test('createDaemonClient builds a real transport when none is injected (no throw)', () => {

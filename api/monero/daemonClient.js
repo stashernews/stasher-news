@@ -151,7 +151,52 @@ export function createDaemonClient (options = {}) {
     return height
   }
 
-  return { getBlockHashByHeight, getHeight, rpc }
+  /**
+   * Fetch raw transactions by hash via the plain (non-json_rpc)
+   * /get_transactions endpoint, returning each tx's extra blob. Only the
+   * extra is surfaced — the caller (reconcilePendingTips' wrong-pid
+   * fallback) needs the tx public key(s) + encrypted payment id, not the
+   * full serialization. decode_as_json hands back the parsed tx as a JSON
+   * string; monerod serializes `extra` as a byte array (older builds: hex
+   * string) — both are normalized to a Buffer. Restricted RPC permits this
+   * endpoint (verified against the stack's --restricted-rpc monerod).
+   * Mempool txs are returned too (in_pool). Missed hashes are omitted.
+   * @param {string[]} hashes
+   * @returns {Promise<Array<{hash: string, extra: Buffer}>>}
+   */
+  async function getTransactions (hashes) {
+    const base = requireUrl()
+    const body = JSON.stringify({ txs_hashes: hashes, decode_as_json: true })
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), timeoutMs)
+    let res
+    try {
+      res = await transport(`${base}/get_transactions`, { method: 'POST', body, signal: ac.signal })
+    } finally {
+      clearTimeout(timer)
+    }
+    if (!res.ok) throw new DaemonHttpError(res.status)
+    const json = parseJsonText(await res.text())
+    const txs = Array.isArray(json && json.txs) ? json.txs : []
+    const out = []
+    for (const tx of txs) {
+      if (!tx || !tx.tx_hash) continue
+      let extra = null
+      if (typeof tx.as_json === 'string' && tx.as_json) {
+        try {
+          const parsed = JSON.parse(tx.as_json)
+          if (Array.isArray(parsed.extra)) extra = Buffer.from(parsed.extra)
+          else if (typeof parsed.extra === 'string') extra = Buffer.from(parsed.extra, 'hex')
+        } catch {
+          // unparseable as_json: omit the tx (caller treats as not-found)
+        }
+      }
+      if (extra != null) out.push({ hash: tx.tx_hash, extra })
+    }
+    return out
+  }
+
+  return { getBlockHashByHeight, getHeight, getTransactions, rpc }
 }
 
 // Singleton: constructed once at module load from MONEROD_URL. The worker

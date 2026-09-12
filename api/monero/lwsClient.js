@@ -340,6 +340,20 @@ export function createLwsClient (options = {}) {
     return request(`${adminUrl}/modify_account_status`, { status, addresses }, { admin: true })
   }
 
+  /** Admin: roll the given accounts back to `height` and re-scan them.
+   * Rolls back the accounts' stored output/spend rows above `height`
+   * (storage::rescan -> change_height -> rollback_outputs/spends) so the
+   * next scan pass re-inserts them from the chain. WRONG-PID REPAIR
+   * (docs/ops/lws-pid-misattribution.md): rescan the RECIPIENT address
+   * ONLY — during the re-scan just that account is below tip, so IT
+   * decrypts the tx's encrypted payment id with its own derivation and
+   * the re-stored row carries the CORRECT pid (webhooks + get_address_txs
+   * agree again). Rescanning sender AND recipient TOGETHER replays the
+   * shared-derivation bug: whichever account scans first wins again. */
+  async function rescanAccounts (addresses, height) {
+    return request(`${adminUrl}/rescan`, { height, addresses }, { admin: true })
+  }
+
   // ---- webhook management (spec §4.3) --------------------------------------
   // lws pushes tx-confirmation callbacks at 0-conf (detection) and at each
   // confirmation up to the requested ceiling. Registration + cleanup are admin
@@ -377,6 +391,7 @@ export function createLwsClient (options = {}) {
     listAccounts,
     addAccount,
     modifyAccountStatus,
+    rescanAccounts,
     addWebhook,
     deleteWebhook,
     deleteAddressWebhooks,
