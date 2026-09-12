@@ -159,11 +159,11 @@ export async function getInitial (models, args, { me }) {
 
   if (args.parentId) {
     // StasherNews comment fee (spec §6.2): comments are free while the author has
-    // freebies left (15/month for all users); beyond the quota each comment costs
-    // the flat comment fee (postingFeeFloorPiconeros) to the platform rewards
-    // wallet, observed by the rewardsWalletObserver like the posting fee. The fee
-    // is FLAT — it never scales with the root post's turfs. Anon comments
-    // pay the comment fee x ANON_COMMENT_FEE_MULTIPLIER.
+    // freebies left (2/day low-rep, 5/day established, resetting 00:00 UTC); beyond
+    // the quota each comment costs the flat comment fee (postingFeeFloorPiconeros)
+    // to the platform rewards wallet, observed by the rewardsWalletObserver like
+    // the posting fee. The fee is FLAT — it never scales with the root post's
+    // turfs. Anon comments pay the comment fee x ANON_COMMENT_FEE_MULTIPLIER.
     if (me.id === USER_ID.anon) {
       // anon has no freebie quota and pays the comment fee x ANON_COMMENT_FEE_MULTIPLIER.
       // No spam escalation: ANON_ITEM_SPAM_INTERVAL '0' -> item_spam returns 0.

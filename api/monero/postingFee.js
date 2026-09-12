@@ -10,7 +10,7 @@
 
 import { buildMoneroUri } from '@/api/monero/uri'
 import { moneroUriAddress, moneroUriAmountPiconeros } from '@/lib/format'
-import { FREE_COMMENTS_LOW_REP, FREE_COMMENTS_PER_MONTH, FREE_POSTS_PER_MONTH } from '@/lib/constants'
+import { FREE_COMMENTS_PER_DAY, FREE_COMMENTS_PER_DAY_LOW_REP, FREE_POSTS_PER_MONTH } from '@/lib/constants'
 
 const DAY_MS = 86_400_000
 
@@ -26,10 +26,10 @@ export function postingFeePiconeros (config) {
   return config.postingFeeFloorPiconeros
 }
 
-/** Monthly free-comment quota for the user's current tier (5 low-rep, 15 established). */
+/** Daily free-comment quota for the user's current tier (2 low-rep, 5 established). */
 export function freeCommentsQuota (user, config) {
   if (!user) return 0
-  return canPostFree(user, config) ? FREE_COMMENTS_PER_MONTH : FREE_COMMENTS_LOW_REP
+  return canPostFree(user, config) ? FREE_COMMENTS_PER_DAY : FREE_COMMENTS_PER_DAY_LOW_REP
 }
 
 /** Monthly free-post quota (5 established, 0 low-rep — low-rep users pay per post). */
@@ -39,14 +39,11 @@ export function freePostsQuota (user, config) {
 }
 
 /**
- * How many free comments the user has left this month (resets monthly).
- * `config` selects the tier via `canPostFree`; until all callers pass it
- * (Tasks 3/4 update itemCreate + the user resolver), the no-config call
- * preserves the pre-tier 15-flat behavior as a behavioral bridge.
+ * How many free comments the user has left today (window resets 00:00 UTC).
  */
 export function commentsFreeLeft (user, config) {
   if (!user) return 0
-  const quota = config ? freeCommentsQuota(user, config) : FREE_COMMENTS_PER_MONTH
+  const quota = freeCommentsQuota(user, config)
   if (user.freeCommentResetAt && new Date() >= new Date(user.freeCommentResetAt)) {
     return quota
   }

@@ -271,7 +271,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
 
     // Freebies: there's only a base cost (no extra line items), the item type
     // allows freebies (comments/bios), and — for comments — the user has free
-    // comments left this month. Posting free is the default; the user's balance
+    // comments left today. Posting free is the default; the user's balance
     // is irrelevant because the platform is non-custodial with no credits,
     // so there is no "can't afford" gate.
     const freeCommentsLeft = me?.privates?.freeCommentsLeft ?? 0
@@ -313,7 +313,7 @@ function FreebieDialog ({ freeCommentsLeft, freePostsLeft }) {
       <ul className='mt-2'>
         <li>Free items are visible like any other, and earn real XMR tips.</li>
         {freeCommentsLeft !== null && (
-          <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left this month.</li>
+          <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left today.</li>
         )}
         {freePostsLeft !== null && (
           <li>You have {freePostsLeft} free post{freePostsLeft !== 1 ? 's' : ''} left this month.</li>

@@ -8,8 +8,15 @@ export function getNextMonthStart () {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0))
 }
 
+// Get the next 00:00 UTC midnight (start of tomorrow's daily window)
+export function getNextDayStart () {
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0))
+}
+
 /**
  * Increment user's free comment counter after creating a freebie comment.
+ * The free-comment window is daily (resets 00:00 UTC).
  * Self-contained: fetches user + config inside the tx so the tier cap is
  * computed at increment time (a graduation between getInitial and onPaid is
  * handled correctly — the larger established quota is used).
@@ -39,7 +46,7 @@ export async function incrementFreeCommentCount (tx, { item, userId }) {
         },
         data: {
           freeCommentCount: 1,
-          freeCommentResetAt: getNextMonthStart()
+          freeCommentResetAt: getNextDayStart()
         }
       })
     } else {
