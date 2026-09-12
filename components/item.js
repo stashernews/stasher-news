@@ -13,7 +13,7 @@ import ImageIcon from '@/svgs/image-fill.svg'
 import VideoIcon from '@/svgs/video-on-fill.svg'
 import { piconerosToXmr } from '@/lib/format'
 import ItemInfo from './item-info'
-import { CardMedia } from './card-media'
+import { CardMedia, hasVideoUpload } from './card-media'
 import { XPreviewCard } from './x-preview'
 import { commentsViewedAt } from '@/lib/new-comments'
 import { useRouter } from 'next/router'
@@ -93,7 +93,7 @@ export default function Item ({
   const router = useRouter()
 
   const media = mediaType({ url: item.url, imgproxyUrls: item.imgproxyUrls })
-  const MediaIcon = media === 'video' ? VideoIcon : ImageIcon
+  const hasVideo = hasVideoUpload(item.imgproxyUrls)
   const { me } = useMe()
   const showXPreview = !!item.xPreview && me?.privates?.showImagesAndVideos !== false
 
@@ -127,7 +127,9 @@ export default function Item ({
                     <BountyIcon className={`${styles.bountyIcon} ${item.bountyPaidTo?.length ? 'fill-success' : 'fill-grey'}`} height={16} width={16} />
                   </ActionTooltip>
                 </span>}
-              {media && <span className={styles.icon}><MediaIcon className='fill-grey ms-2' height={16} width={16} /></span>}
+              {hasVideo
+                ? <span className={styles.icon}><VideoIcon className='fill-grey ms-2' height={16} width={16} /></span>
+                : media === 'image' && <span className={styles.icon}><ImageIcon className='fill-grey ms-2' height={16} width={16} /></span>}
             </Link>
             {item.url && !media && !showXPreview && <ItemLink url={item.url} rel={item.rel} />}
           </div>

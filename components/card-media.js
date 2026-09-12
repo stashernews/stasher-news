@@ -36,6 +36,14 @@ export function previewDisabled (me, entry) {
   return false
 }
 
+// true when any upload referenced by the post is a video — whether it is the
+// post's link (url) or embedded in the body. Deliberately independent of the
+// media-visibility settings: the video indicator is just an icon and loads no
+// media, so it stays visible even when the user hides images/videos.
+export function hasVideoUpload (imgproxyUrls) {
+  return Object.values(imgproxyUrls ?? {}).some(entry => entry?.video)
+}
+
 export function CardMedia ({ item, onClick }) {
   const { me } = useMe()
   const key = pickUploadKey(item?.imgproxyUrls, item?.url)

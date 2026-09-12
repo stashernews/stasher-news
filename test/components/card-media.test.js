@@ -2,7 +2,7 @@
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { parseHTML } from 'linkedom'
-import { pickUploadKey, buildPreview, previewDisabled, CardMedia } from '@/components/card-media'
+import { pickUploadKey, buildPreview, previewDisabled, hasVideoUpload, CardMedia } from '@/components/card-media'
 
 // call-time env read lets us set it here deterministically
 beforeAll(() => {
@@ -87,6 +87,19 @@ describe('buildPreview', () => {
     expect(buildPreview({ '640w': '/x', video: true }, { imgproxyUrl: 'https://cdn.test' }).isVideo).toBe(true)
     expect(buildPreview({}, { imgproxyUrl: 'https://cdn.test' })).toBeNull()
     expect(buildPreview(undefined, { imgproxyUrl: 'https://cdn.test' })).toBeNull()
+  })
+})
+
+describe('hasVideoUpload', () => {
+  it('is true when any entry is a video (link post or embedded upload)', () => {
+    expect(hasVideoUpload({ 'https://media.test/uploads/1': { video: true } })).toBe(true)
+    expect(hasVideoUpload({ 'https://media.test/uploads/1': { dimensions: { width: 720, height: 1280 }, video: true } })).toBe(true)
+  })
+
+  it('is false for image-only entries and empty input', () => {
+    expect(hasVideoUpload({ 'https://media.test/uploads/1': { '640w': '/x', video: false } })).toBe(false)
+    expect(hasVideoUpload({ 'https://media.test/uploads/1': {} })).toBe(false)
+    expect(hasVideoUpload(undefined)).toBe(false)
   })
 })
 
