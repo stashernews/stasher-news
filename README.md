@@ -5,9 +5,7 @@
 </p>
 
 
-- Stasher News is digital cash content curation
-- What You See is What We Ship (look ma, I invented an initialism)
-- 100% FOSS
+- Stasher News is a fork of Stacker News for Monero.
 - Non-custodial Monero payments: tips, posting fees, rewards
 - Next.js, postgres, graphql, and monerod + monero-lws
 
