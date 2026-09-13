@@ -9,6 +9,12 @@ jobs:
     env:
       DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stashernews"
       NODE_ENV: test
+      # createPresignedPost signs locally and never touches the network, but the
+      # AWS SDK's credential chain must still resolve — without any creds the
+      # upload.test.js getSignedPOST suite fails with CredentialsProviderError
+      AWS_ACCESS_KEY_ID: testing
+      AWS_SECRET_ACCESS_KEY: testing
+      NEXT_PUBLIC_AWS_UPLOAD_BUCKET: test-uploads
 
     steps:
       - name: Checkout
