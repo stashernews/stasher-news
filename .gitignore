@@ -35,6 +35,7 @@ yarn-error.log*
 docs/ops/
 docs/superpowers/
 docs/mockups/
+docs/security/
 AGENTS.md
 
 # local settings
