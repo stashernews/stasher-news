@@ -100,7 +100,10 @@ module.exports = withPlausibleProxy({ src: 'https://plausible.io/js/pa-EScEhWlTi
   // https://github.com/twbs/bootstrap/issues/40962
   sassOptions: {
     quietDeps: true,
-    silenceDeprecations: ['legacy-js-api', 'color-functions']
+    silenceDeprecations: ['legacy-js-api', 'color-functions'],
+    // dart-sass emits an @charset prologue that becomes a mid-file BOM in the
+    // bundled CSS, silently invalidating the rule that follows it (e.g. .sn-text)
+    charset: false
   },
   reactStrictMode: true,
   productionBrowserSourceMaps: true,
