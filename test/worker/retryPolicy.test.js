@@ -33,8 +33,7 @@
 //     failures. dbBackup rerun is harmless (overwrites same-night file);
 //     rewardsDistributor resumable per review.
 //   - Not audited, out of scope this pass (still default retryLimit 0):
-//     webhookCleanup, rotateViewKeys, search indexAllItems, deleteUnusedImages
-//     self-requeues.
+//     webhookCleanup, rotateViewKeys, search indexAllItems.
 import { BOSS_RETRY } from '@/lib/constants'
 import { datePivot } from '@/lib/time'
 

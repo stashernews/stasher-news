@@ -123,3 +123,30 @@ test('verifyS3Upload is ok with size-only when the remote reports no checksum', 
   const client = fakeS3Client({ ContentLength: 1, ChecksumSHA256: undefined })
   await expect(verifyS3Upload({ client, bucket: 'b', key: 'k', filePath: f })).resolves.toEqual({ ok: true })
 })
+
+// --- dedicated backup-provider credentials ----------------------------------
+
+describe('resolveBackupCredentials', () => {
+  const KEYS = ['BACKUP_S3_ACCESS_KEY_ID', 'BACKUP_S3_SECRET_ACCESS_KEY']
+  const saved = {}
+  beforeEach(() => { for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k] } })
+  afterEach(() => { for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k] } })
+
+  test('returns explicit credentials when both are set', async () => {
+    process.env.BACKUP_S3_ACCESS_KEY_ID = 'b2-key'
+    process.env.BACKUP_S3_SECRET_ACCESS_KEY = 'b2-secret'
+    const { resolveBackupCredentials } = await import('@/worker/dbBackup')
+    expect(resolveBackupCredentials()).toEqual({ accessKeyId: 'b2-key', secretAccessKey: 'b2-secret' })
+  })
+
+  test('returns undefined when neither is set — default AWS credential chain preserved (backup job unchanged)', async () => {
+    const { resolveBackupCredentials } = await import('@/worker/dbBackup')
+    expect(resolveBackupCredentials()).toBeUndefined()
+  })
+
+  test('throws when only one is set', async () => {
+    process.env.BACKUP_S3_ACCESS_KEY_ID = 'b2-key'
+    const { resolveBackupCredentials } = await import('@/worker/dbBackup')
+    expect(() => resolveBackupCredentials()).toThrow(/must be set together/)
+  })
+})

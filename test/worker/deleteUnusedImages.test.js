@@ -20,7 +20,8 @@
 // test/worker/rewardsWalletObserver.fee.test.js.
 
 import { PrismaClient } from '@prisma/client'
-import { USER_ID } from '@/lib/constants'
+import { USER_ID, BOSS_RETRY } from '@/lib/constants'
+import { deleteObjects } from '../../api/s3'
 import { deleteUnusedImages } from '@/worker/deleteUnusedImages'
 
 jest.mock('../../api/s3', () => ({
@@ -152,5 +153,18 @@ test('deleteUnusedImages deletes unreferenced uploads after 24h for everyone and
   const remainingIds = remaining.map(({ id }) => id).sort()
   expect(remainingIds).toEqual([recent.id, refItemUpload.id, refItemUploadId.id, refLogo.id, refFavicon.id, refPhoto.id].sort())
   // the daily sweep re-queues itself for the next run
-  expect(boss.send).toHaveBeenCalledWith('deleteUnusedImages', {}, { startAfter: 24 * 60 * 60 })
+  expect(boss.send).toHaveBeenCalledWith('deleteUnusedImages', {}, { ...BOSS_RETRY, startAfter: 24 * 60 * 60 })
+})
+
+test('a failing deleteObjects rejects the run — no DB deletion, no requeue — so pg-boss retries and alerts instead of reporting completed', async () => {
+  const userId = await createUser()
+  const orphan = await seedUpload({ userId, ageMs: 25 * 60 * 60 * 1000 })
+
+  deleteObjects.mockRejectedValueOnce(new Error('The AWS Access Key Id you provided does not exist in our records. (InvalidAccessKeyId)'))
+  const boss = { send: jest.fn() }
+  await expect(deleteUnusedImages({ models: prisma, boss })).rejects.toThrow(/InvalidAccessKeyId/)
+
+  // rows survive for the retry; the success-path-only requeue was not sent
+  expect(await prisma.upload.findUnique({ where: { id: orphan.id } })).not.toBeNull()
+  expect(boss.send).not.toHaveBeenCalled()
 })

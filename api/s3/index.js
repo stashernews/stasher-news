@@ -11,6 +11,24 @@ const Bucket = process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET
 // construction call has endpoint as a param.
 const s3ClientCache = new Map()
 
+// Dedicated media-store credentials. The media S3Client must never resolve
+// credentials from the default AWS chain: in the production worker the
+// env-file chain ends with the offsite-backup file whose generic
+// AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are the backup provider's keys —
+// the chain silently signed MinIO deletes with those (InvalidAccessKeyId,
+// 2026-09-13 incident). Self-hosted stores (custom endpoint) therefore
+// REQUIRE these vars; real AWS S3 (no endpoint) keeps the default chain so
+// mainnet can use AWS_* env vars or an IAM instance profile unchanged.
+function resolveMediaCredentials () {
+  const accessKeyId = process.env.MEDIA_AWS_ACCESS_KEY_ID
+  const secretAccessKey = process.env.MEDIA_AWS_SECRET_ACCESS_KEY
+  if (accessKeyId && secretAccessKey) return { accessKeyId, secretAccessKey }
+  if (accessKeyId || secretAccessKey) {
+    throw new Error('S3 media client: MEDIA_AWS_ACCESS_KEY_ID and MEDIA_AWS_SECRET_ACCESS_KEY must be set together')
+  }
+  return undefined
+}
+
 function getS3Client (endpoint) {
   // Warn if development is configured to use Amazon's S3 (no endpoint given)
   if (process.env.NODE_ENV === 'development' && !endpoint) {
@@ -28,13 +46,26 @@ function getS3Client (endpoint) {
   const cached = s3ClientCache.get(cacheKey)
   if (cached) return cached
 
+  let credentials
+  if (s3Endpoint) {
+    credentials = resolveMediaCredentials()
+    if (!credentials) {
+      throw new Error(
+        'S3 media client: custom media endpoint (MEDIA_URL_DOCKER/NEXT_PUBLIC_MEDIA_URL) is configured but ' +
+        'MEDIA_AWS_ACCESS_KEY_ID/MEDIA_AWS_SECRET_ACCESS_KEY are not set. The media client no longer reads ambient ' +
+        'AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY (the offsite-backup env shadows them with the backup provider keys). ' +
+        'Set MEDIA_AWS_* to the media store credentials (the MinIO root pair).')
+    }
+  }
+
   const client = new S3Client({
     region: bucketRegion,
     // Path-style whenever a custom endpoint is used: MinIO has no bucket
     // subdomains, so virtual-host style (http://uploads.minio:9000/...) is
     // unresolvable. Real AWS S3 (no endpoint) uses virtual-host style.
     forcePathStyle: Boolean(s3Endpoint),
-    ...(s3Endpoint && { endpoint: s3Endpoint })
+    ...(s3Endpoint && { endpoint: s3Endpoint }),
+    ...(credentials && { credentials })
   })
   s3ClientCache.set(cacheKey, client)
 
@@ -93,19 +124,21 @@ export async function deleteObjects (keys) {
   const deleted = []
   for (let i = 0; i < keys.length; i += batchSize) {
     const batch = keys.slice(i, i + batchSize)
-    try {
-      const params = {
-        Bucket,
-        Delete: {
-          Objects: batch.map(key => ({ Key: String(key) }))
-        }
+    const params = {
+      Bucket,
+      Delete: {
+        Objects: batch.map(key => ({ Key: String(key) }))
       }
-      const data = await client.send(new DeleteObjectsCommand(params))
-      const confirmed = data.Deleted?.map(({ Key }) => parseInt(Key, 10)) || []
-      deleted.push(...confirmed)
-    } catch (err) {
-      console.error(err)
     }
+    const data = await client.send(new DeleteObjectsCommand(params))
+    // S3 also reports per-object failures inside a 200 response (e.g.
+    // AccessDenied per key) — treat those as failures too, not silent skips.
+    if (data.Errors?.length) {
+      const detail = data.Errors.map(({ Key, Code }) => `${Key}:${Code}`).join(', ')
+      throw new Error(`deleteObjects: remote reported per-object errors: ${detail}`)
+    }
+    const confirmed = data.Deleted?.map(({ Key }) => parseInt(Key, 10)) || []
+    deleted.push(...confirmed)
   }
   return deleted
 }

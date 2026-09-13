@@ -71,16 +71,34 @@ export async function verifyS3Upload ({ client, bucket, key, filePath }) {
   return { ok: true }
 }
 
+// Dedicated backup-provider credentials. Explicit so the offsite env file can
+// carry the backup keys under their own names (BACKUP_S3_*) instead of the
+// generic AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY that the media client must
+// never see. When neither is set the client keeps the default AWS credential
+// chain, so existing deployments (VPS offsite file still using generic AWS_*)
+// keep working unchanged.
+export function resolveBackupCredentials () {
+  const accessKeyId = process.env.BACKUP_S3_ACCESS_KEY_ID
+  const secretAccessKey = process.env.BACKUP_S3_SECRET_ACCESS_KEY
+  if (accessKeyId && secretAccessKey) return { accessKeyId, secretAccessKey }
+  if (accessKeyId || secretAccessKey) {
+    throw new Error('dbBackup: BACKUP_S3_ACCESS_KEY_ID and BACKUP_S3_SECRET_ACCESS_KEY must be set together')
+  }
+  return undefined
+}
+
 // Build an S3 upload fn only when BACKUP_S3_BUCKET is configured; otherwise
 // undefined (runBackupOnce then skips the upload). Mirrors api/s3 dev handling:
 // forcePathStyle + optional localstack endpoint in development.
 function s3UploadIfConfigured () {
   const Bucket = process.env.BACKUP_S3_BUCKET
   if (!Bucket) return undefined
+  const credentials = resolveBackupCredentials()
   const client = new S3Client({
     region: process.env.BACKUP_S3_REGION || 'us-east-1',
     forcePathStyle: process.env.NODE_ENV === 'development',
-    ...(process.env.BACKUP_S3_ENDPOINT && { endpoint: process.env.BACKUP_S3_ENDPOINT })
+    ...(process.env.BACKUP_S3_ENDPOINT && { endpoint: process.env.BACKUP_S3_ENDPOINT }),
+    ...(credentials && { credentials })
   })
   const prefix = process.env.BACKUP_S3_PREFIX || 'backups/'
   return async (filePath) => {

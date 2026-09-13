@@ -35,7 +35,8 @@ fi
 
 presign_and_post() {
   # Runs inside the app container: presign with the same client shape as
-  # api/s3/index.js (path-style, docker-internal endpoint, default env creds),
+  # api/s3/index.js (path-style, docker-internal endpoint, MEDIA_AWS_* media
+  # credentials with legacy AWS_* fallback — never the default chain),
   # POST the multipart form exactly like the browser does, then print the
   # presigned URL used. Exit code non-zero on any failure.
   docker exec -i -u apprunner -w /app app node - "$KEY" "$SIZE" <<'EOF'
@@ -48,10 +49,16 @@ const size = parseInt(process.argv[3], 10)
 
 const endpoint = new URL(process.env.MEDIA_URL_DOCKER).origin
 const Bucket = process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET || 'uploads'
+const accessKeyId = process.env.MEDIA_AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID
+const secretAccessKey = process.env.MEDIA_AWS_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY
+if (!accessKeyId || !secretAccessKey) {
+  throw new Error('missing media S3 credentials: set MEDIA_AWS_ACCESS_KEY_ID/MEDIA_AWS_SECRET_ACCESS_KEY (or the legacy AWS_* pair)')
+}
 const client = new S3Client({
   region: 'us-east-1',
   forcePathStyle: true,
-  endpoint
+  endpoint,
+  credentials: { accessKeyId, secretAccessKey }
 })
 
 async function main () {

@@ -11,7 +11,11 @@ const ENV_KEYS = [
   'MEDIA_URL_DOCKER',
   'NEXT_PUBLIC_MEDIA_URL',
   'NEXT_PUBLIC_MEDIA_DOMAIN',
-  'NEXT_PUBLIC_AWS_UPLOAD_BUCKET'
+  'NEXT_PUBLIC_AWS_UPLOAD_BUCKET',
+  'MEDIA_AWS_ACCESS_KEY_ID',
+  'MEDIA_AWS_SECRET_ACCESS_KEY',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY'
 ]
 
 const savedEnv = {}
@@ -69,6 +73,8 @@ describe('createPresignedPost — endpoint selection', () => {
     process.env.NODE_ENV = 'development'
     process.env.NEXT_PUBLIC_MEDIA_URL = 'http://localhost:4566/uploads'
     process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+    process.env.MEDIA_AWS_ACCESS_KEY_ID = 'media-root-key'
+    process.env.MEDIA_AWS_SECRET_ACCESS_KEY = 'media-root-secret'
 
     const { createPresignedPost, S3Client } = await loadS3()
     const post = await createPresignedPost({ key: '1', type: 'image/png', size: 1024 })
@@ -77,6 +83,7 @@ describe('createPresignedPost — endpoint selection', () => {
     const [clientArgs] = S3Client.mock.calls[0]
     expect(clientArgs.endpoint).toBe('http://localhost:4566')
     expect(clientArgs.forcePathStyle).toBe(true)
+    expect(clientArgs.credentials).toEqual({ accessKeyId: 'media-root-key', secretAccessKey: 'media-root-secret' })
     expect(post.url).toBe('http://localhost:4566/uploads/1?X-Amz-Signature=test')
     expect(post.fields).toEqual({ key: '1' })
   })
@@ -86,6 +93,8 @@ describe('createPresignedPost — endpoint selection', () => {
     process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
     process.env.NEXT_PUBLIC_MEDIA_URL = 'https://stasher.news/uploads'
     process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+    process.env.MEDIA_AWS_ACCESS_KEY_ID = 'media-root-key'
+    process.env.MEDIA_AWS_SECRET_ACCESS_KEY = 'media-root-secret'
 
     const { createPresignedPost, S3Client } = await loadS3()
     const post = await createPresignedPost({ key: '123', type: 'image/png', size: 1024 })
@@ -94,6 +103,7 @@ describe('createPresignedPost — endpoint selection', () => {
     const [clientArgs] = S3Client.mock.calls[0]
     expect(clientArgs.endpoint).toBe('http://minio:9000') // getS3Client strips the path
     expect(clientArgs.forcePathStyle).toBe(true)
+    expect(clientArgs.credentials).toEqual({ accessKeyId: 'media-root-key', secretAccessKey: 'media-root-secret' })
     expect(post.url).toBe('https://stasher.news/uploads/123?X-Amz-Signature=test')
     expect(post.fields).toEqual({ key: '123' })
   })
@@ -103,6 +113,8 @@ describe('createPresignedPost — endpoint selection', () => {
     process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
     process.env.NEXT_PUBLIC_MEDIA_DOMAIN = 'm.stasher.news'
     process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+    process.env.MEDIA_AWS_ACCESS_KEY_ID = 'media-root-key'
+    process.env.MEDIA_AWS_SECRET_ACCESS_KEY = 'media-root-secret'
 
     const { createPresignedPost } = await loadS3()
     const post = await createPresignedPost({ key: '7', type: 'image/png', size: 1024 })
@@ -121,6 +133,7 @@ describe('createPresignedPost — endpoint selection', () => {
     const [clientArgs] = S3Client.mock.calls[0]
     expect(clientArgs.endpoint).toBeUndefined()
     expect(clientArgs.forcePathStyle).toBe(false)
+    expect(clientArgs.credentials).toBeUndefined()
     expect(post.url).toBe('https://snuploads.s3.us-east-1.amazonaws.com/9?X-Amz-Signature=test')
   })
 })
@@ -130,6 +143,8 @@ describe('deleteObjects — endpoint selection', () => {
     process.env.NODE_ENV = 'production'
     process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
     process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+    process.env.MEDIA_AWS_ACCESS_KEY_ID = 'media-root-key'
+    process.env.MEDIA_AWS_SECRET_ACCESS_KEY = 'media-root-secret'
 
     const { deleteObjects, S3Client, DeleteObjectsCommand } = await loadS3()
     const deleted = await deleteObjects([1, 2])
@@ -138,6 +153,7 @@ describe('deleteObjects — endpoint selection', () => {
     const [clientArgs] = S3Client.mock.calls[0]
     expect(clientArgs.endpoint).toBe('http://minio:9000')
     expect(clientArgs.forcePathStyle).toBe(true)
+    expect(clientArgs.credentials).toEqual({ accessKeyId: 'media-root-key', secretAccessKey: 'media-root-secret' })
     expect(DeleteObjectsCommand).toHaveBeenCalledWith({
       Bucket: 'uploads',
       Delete: { Objects: [{ Key: '1' }, { Key: '2' }] }
@@ -156,6 +172,81 @@ describe('deleteObjects — endpoint selection', () => {
     const [clientArgs] = S3Client.mock.calls[0]
     expect(clientArgs.endpoint).toBeUndefined()
     expect(clientArgs.forcePathStyle).toBe(false)
+    expect(clientArgs.credentials).toBeUndefined()
     expect(deleted).toEqual([1, 2])
+  })
+})
+
+describe('media credential selection', () => {
+  test('client gets dedicated MEDIA_AWS_* credentials, never ambient AWS_* (offsite-backup shadowing regression)', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
+    process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+    process.env.MEDIA_AWS_ACCESS_KEY_ID = 'media-root-key'
+    process.env.MEDIA_AWS_SECRET_ACCESS_KEY = 'media-root-secret'
+    process.env.AWS_ACCESS_KEY_ID = 'backup-provider-key'
+    process.env.AWS_SECRET_ACCESS_KEY = 'backup-provider-secret'
+
+    const { deleteObjects, S3Client } = await loadS3()
+    await deleteObjects([1])
+
+    const [clientArgs] = S3Client.mock.calls[0]
+    expect(clientArgs.credentials).toEqual({ accessKeyId: 'media-root-key', secretAccessKey: 'media-root-secret' })
+  })
+
+  test('self-hosted endpoint without MEDIA_AWS_* fails fast with a descriptive error', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
+    process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+
+    const { deleteObjects } = await loadS3()
+    await expect(deleteObjects([1])).rejects.toThrow(/MEDIA_AWS_ACCESS_KEY_ID/)
+  })
+
+  test('one-sided MEDIA_AWS_* config fails fast', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
+    process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+    process.env.MEDIA_AWS_ACCESS_KEY_ID = 'media-root-key'
+
+    const { createPresignedPost } = await loadS3()
+    await expect(createPresignedPost({ key: '1', type: 'image/png', size: 10 })).rejects.toThrow(/must be set together/)
+  })
+})
+
+describe('deleteObjects — failure loudness', () => {
+  test('a credential error from the store rejects instead of being swallowed', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
+    process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+    process.env.MEDIA_AWS_ACCESS_KEY_ID = 'media-root-key'
+    process.env.MEDIA_AWS_SECRET_ACCESS_KEY = 'media-root-secret'
+
+    const { deleteObjects } = await loadS3()
+    const { S3Client } = await import('@aws-sdk/client-s3')
+    S3Client.mockImplementationOnce(function () {
+      this.send = jest.fn(async () => {
+        throw new Error('The AWS Access Key Id you provided does not exist in our records. (InvalidAccessKeyId)')
+      })
+    })
+    await expect(deleteObjects([1, 2])).rejects.toThrow(/InvalidAccessKeyId/)
+  })
+
+  test('per-object errors inside a 200 response reject the whole call', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
+    process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+    process.env.MEDIA_AWS_ACCESS_KEY_ID = 'media-root-key'
+    process.env.MEDIA_AWS_SECRET_ACCESS_KEY = 'media-root-secret'
+
+    const { deleteObjects } = await loadS3()
+    const { S3Client } = await import('@aws-sdk/client-s3')
+    S3Client.mockImplementationOnce(function () {
+      this.send = jest.fn(async () => ({
+        Deleted: [{ Key: '1' }],
+        Errors: [{ Key: '2', Code: 'AccessDenied', Message: 'Access Denied' }]
+      }))
+    })
+    await expect(deleteObjects([1, 2])).rejects.toThrow(/AccessDenied/)
   })
 })
