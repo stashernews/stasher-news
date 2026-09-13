@@ -62,17 +62,26 @@ export function Back () {
 
   if (!back) return null
 
+  const handleClick = () => {
+    if (back) {
+      router.back()
+    } else {
+      router.push('/')
+    }
+  }
+
   return (
     <a
-      role='button' tabIndex='0' className='nav-link p-0 me-2' onClick={() => {
-        if (back) {
-          router.back()
-        } else {
-          router.push('/')
+      role='button' tabIndex={0} aria-label='back' className='nav-link p-0 me-2'
+      onClick={handleClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleClick()
         }
       }}
     >
-      <BackArrow className='theme me-1 me-md-2' width={24} height={24} />
+      <BackArrow aria-hidden='true' className='theme me-1 me-md-2' width={24} height={24} />
     </a>
   )
 }
@@ -94,8 +103,8 @@ export function BackOrBrand ({ className }) {
 
 export function SearchItem ({ prefix, className }) {
   return (
-    <Nav.Link as={Link} href='/search' eventKey='search' className={className}>
-      <SearchIcon className='theme' width={22} height={28} />
+    <Nav.Link as={Link} href='/search' eventKey='search' className={className} aria-label='search'>
+      <SearchIcon aria-hidden='true' className='theme' width={22} height={28} />
     </Nav.Link>
   )
 }
@@ -141,6 +150,7 @@ export function NavSelect ({ sub: subName, className, size }) {
       <SubSelect
         sub={sub} prependSubs={PREPEND_SUBS} appendSubs={APPEND_SUBS} noForm
         groupClassName='mb-0' size={size} className='navTopSelect'
+        aria-label={`location: ${sub}`}
       />
     </Nav.Item>
   )
@@ -151,9 +161,9 @@ export function NavNotifications ({ className }) {
 
   return (
     <>
-      <Nav.Link as={Link} href='/notifications' eventKey='notifications' className={className}>
+      <Nav.Link as={Link} href='/notifications' eventKey='notifications' className={className} aria-label='notifications'>
         <Indicator show={hasNewNotes} top='2px' right='0px' variant='danger'>
-          <NoteIcon height={28} width={20} className='theme' />
+          <NoteIcon aria-hidden='true' height={28} width={20} className='theme' />
         </Indicator>
       </Nav.Link>
     </>
