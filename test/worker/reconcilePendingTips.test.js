@@ -14,6 +14,12 @@ jest.mock(`${process.cwd()}/lib/alert`, () => ({
   alert: jest.fn()
 }))
 
+// The raw-decrypt fallback fixtures encrypt a recipient view key, which
+// requires VIEWKEY_MASTER_KEY. CI doesn't set one — provide a dummy (32
+// bytes, base64) so ensureLoaded() succeeds; these tests assert the
+// recovery flow, not key material (lwsClient.test.js pattern).
+process.env.VIEWKEY_MASTER_KEY = Buffer.from('a'.repeat(32)).toString('base64')
+
 beforeEach(() => { jest.clearAllMocks() })
 
 const STALE = new Date(Date.now() - (RECONCILE_PENDING_AGE_MS + 60_000))
