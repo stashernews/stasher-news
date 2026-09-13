@@ -36,22 +36,34 @@ const MODELS = { platformFeeConfig: { findUnique: async () => CONFIG } }
 beforeEach(() => __resetFeeConfigCacheForTests())
 
 describe('postingFeePrivatesFor', () => {
-  test('low-rep self-view reports the floor fee', async () => {
+  test('low-rep self-view with the free post available reports no fee', async () => {
     const result = await postingFeePrivatesFor(
       MODELS,
-      { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
+      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null },
       7
     )
     expect(result).toEqual({
-      postingFeeRequired: true,
-      postingFeePiconeros: 1_000_000_000n,
+      postingFeeRequired: false,
+      postingFeePiconeros: 0n,
       freePostThresholdPiconeros: 10_000_000_000n,
       freePostMinAgeDays: 7,
-      freePostsLeft: 0,
+      freePostsLeft: 1,
       freePostCount: 0,
-      freePostsQuota: 0,
+      freePostsQuota: 1,
       freeCommentsQuota: 2
     })
+  })
+
+  test('low-rep self-view with the free post used reports the floor fee', async () => {
+    const result = await postingFeePrivatesFor(
+      MODELS,
+      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 1, freePostResetAt: null },
+      7
+    )
+    expect(result.postingFeeRequired).toBe(true)
+    expect(result.postingFeePiconeros).toBe(1_000_000_000n)
+    expect(result.freePostsLeft).toBe(0)
+    expect(result.freePostsQuota).toBe(1)
   })
 
   test('established self-view reports no fee (free posts available)', async () => {
@@ -126,9 +138,9 @@ describe('tiered freebie quotas', () => {
     expect(freeCommentsQuota(lowRep, CFG)).toBe(2)
   })
 
-  test('freePostsQuota is 5 established, 0 low-rep', () => {
+  test('freePostsQuota is 5 established, 1 low-rep', () => {
     expect(freePostsQuota(established, CFG)).toBe(5)
-    expect(freePostsQuota(lowRep, CFG)).toBe(0)
+    expect(freePostsQuota(lowRep, CFG)).toBe(1)
   })
 
   test('commentsFreeLeft counts down within the tier and floors at zero', () => {
@@ -148,9 +160,10 @@ describe('tiered freebie quotas', () => {
     expect(commentsFreeLeft(null, CFG)).toBe(0)
   })
 
-  test('postsFreeLeft is quota minus used for established, 0 for low-rep, resets after reset date', () => {
+  test('postsFreeLeft is quota minus used per tier, resets after reset date', () => {
     expect(postsFreeLeft({ ...established, freePostCount: 2, freePostResetAt: null }, CFG)).toBe(3)
-    expect(postsFreeLeft({ ...lowRep, freePostCount: 0, freePostResetAt: null }, CFG)).toBe(0)
+    expect(postsFreeLeft({ ...lowRep, freePostCount: 0, freePostResetAt: null }, CFG)).toBe(1)
+    expect(postsFreeLeft({ ...lowRep, freePostCount: 1, freePostResetAt: null }, CFG)).toBe(0)
     const reset = { ...established, freePostCount: 5, freePostResetAt: new Date(Date.now() - 1000) }
     expect(postsFreeLeft(reset, CFG)).toBe(5)
   })

@@ -10,7 +10,7 @@
 
 import { buildMoneroUri } from '@/api/monero/uri'
 import { moneroUriAddress, moneroUriAmountPiconeros } from '@/lib/format'
-import { FREE_COMMENTS_PER_DAY, FREE_COMMENTS_PER_DAY_LOW_REP, FREE_POSTS_PER_MONTH } from '@/lib/constants'
+import { FREE_COMMENTS_PER_DAY, FREE_COMMENTS_PER_DAY_LOW_REP, FREE_POSTS_PER_MONTH, FREE_POSTS_LOW_REP } from '@/lib/constants'
 
 const DAY_MS = 86_400_000
 
@@ -32,10 +32,10 @@ export function freeCommentsQuota (user, config) {
   return canPostFree(user, config) ? FREE_COMMENTS_PER_DAY : FREE_COMMENTS_PER_DAY_LOW_REP
 }
 
-/** Monthly free-post quota (5 established, 0 low-rep — low-rep users pay per post). */
+/** Monthly free-post quota (5 established, 1 low-rep; past it users pay per post). */
 export function freePostsQuota (user, config) {
   if (!user) return 0
-  return canPostFree(user, config) ? FREE_POSTS_PER_MONTH : 0
+  return canPostFree(user, config) ? FREE_POSTS_PER_MONTH : FREE_POSTS_LOW_REP
 }
 
 /**
@@ -50,7 +50,7 @@ export function commentsFreeLeft (user, config) {
   return Math.max(0, quota - (user.freeCommentCount || 0))
 }
 
-/** How many free posts the user has left this month (0 for low-rep). */
+/** How many free posts the user has left this month (1 of the low-rep quota until used). */
 export function postsFreeLeft (user, config) {
   if (!user) return 0
   if (user.freePostResetAt && new Date() >= new Date(user.freePostResetAt)) {
@@ -103,7 +103,6 @@ export async function postingFeePrivatesFor (models, user, viewerId) {
   }
   const config = await getCachedPlatformFeeConfig(models)
   if (!config) return { ...POSTING_FEE_NO_FEE }
-  const established = canPostFree(user, config)
   const postsLeft = postsFreeLeft(user, config)
   const frontend = {
     freePostThresholdPiconeros: config.freePostThresholdPiconeros,
@@ -113,8 +112,9 @@ export async function postingFeePrivatesFor (models, user, viewerId) {
     freePostsQuota: freePostsQuota(user, config),
     freeCommentsQuota: freeCommentsQuota(user, config)
   }
-  // A post requires a fee when the user is low-rep OR has exhausted the free quota.
-  const postingFeeRequired = !established || postsLeft <= 0
+  // A post requires a fee once the user's free-post quota is exhausted
+  // (established 5/month, low-rep 1/month — postsFreeLeft tiers via quota).
+  const postingFeeRequired = postsLeft <= 0
   if (!postingFeeRequired) {
     return { ...POSTING_FEE_NO_FEE, ...frontend }
   }

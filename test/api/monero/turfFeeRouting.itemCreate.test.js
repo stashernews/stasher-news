@@ -76,12 +76,13 @@ function models ({ subOwnerHasWallet = true, premium = {}, parentSubs = null } =
         : null
     },
     subFeePidMap: { create: async ({ data }) => { mapCreated.push(data); return data } },
-    // low-rep author by default: never established, no free quota left unused
+    // low-rep author by default: never established, past their 1-post free quota
+    // (so post-branch tests exercise fee ROUTING, not the free-post path)
     user: {
       findUnique: async () => ({
         id: 7,
         freeCommentCount: 0,
-        freePostCount: 0,
+        freePostCount: 1,
         freeCommentResetAt: new Date(Date.now() + 86_400_000),
         stackedPiconeros: 0n,
         createdAt: new Date()

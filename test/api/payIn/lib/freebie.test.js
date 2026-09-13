@@ -52,10 +52,10 @@ test('incrementFreePostCount is a no-op for paid posts (PENDING_FEE)', async () 
   expect(tx.user.update).not.toHaveBeenCalled()
 })
 
-test('incrementFreePostCount is a no-op for low-rep users (quota 0)', async () => {
-  const tx = mkTx({ freePostCount: 0, freePostResetAt: null, stackedPiconeros: 0n, createdAt: new Date() })
+test('incrementFreePostCount increments for a low-rep user within the 1-post quota', async () => {
+  const tx = mkTx({ freePostCount: 0, freePostResetAt: new Date(Date.now() + 30 * 86_400_000), stackedPiconeros: 0n, createdAt: new Date() })
   await incrementFreePostCount(tx, { item: { freebie: false, parentId: null, feeStatus: 'FEE_NOT_REQUIRED' }, userId: 5 })
-  expect(tx.user.update).not.toHaveBeenCalled()
+  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freePostCount: { lt: 1 } }) }))
 })
 
 test('incrementFreePostCount increments for an established free post within quota', async () => {

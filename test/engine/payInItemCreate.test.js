@@ -204,9 +204,10 @@ test('getInitial returns a free prospect for comments — no fee subaddress draw
   expect(result).not.toHaveProperty('moneroUri')
 })
 
-test('getInitial returns a posting-fee URI for low-rep post authors', async () => {
+test('getInitial returns a posting-fee URI for low-rep post authors past their 1 free post', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
+  await prisma.$executeRaw`UPDATE users SET "freePostCount" = 1 WHERE id = ${userId}::int`
   const result = await getInitial(prisma, {}, { me: { id: userId } })
   expect(result.piconeros).toBe(0n)
   expect(result.moneroUri).toMatch(/^monero:/)
@@ -277,6 +278,7 @@ test('getInitial returns a x10 anon posting-fee URI for anonymous posts', async 
 test('getInitial escalates the posting fee x1.5 for a second root post within 10m', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
+  await prisma.$executeRaw`UPDATE users SET "freePostCount" = 1 WHERE id = ${userId}::int` // past the 1-post low-rep quota
   await createRootPost(userId) // 1 prior root post by this user -> item_spam(NULL, userId, '10m') = 1
   const result = await getInitial(prisma, {}, { me: { id: userId } })
   expect(result.moneroUri).toMatch(/^monero:/)
@@ -309,6 +311,7 @@ test('getInitial escalates the comment fee x1.5 for a repeat reply within 10m', 
 test('getInitial includes the upload fee in the posting-fee URI for a >10MB upload', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
+  await prisma.$executeRaw`UPDATE users SET "freePostCount" = 1 WHERE id = ${userId}::int` // past the 1-post low-rep quota
   const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 }) // >10MB -> 0.001 XMR
   const result = await getInitial(prisma, { uploadIds: [uploadId] }, { me: { id: userId } })
   expect(result.moneroUri).toMatch(/^monero:/)
@@ -320,6 +323,7 @@ test('getInitial includes the upload fee in the posting-fee URI for a >10MB uplo
 test('getInitial folds a 30MB upload fee (0.003 XMR) into the posting-fee URI', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
+  await prisma.$executeRaw`UPDATE users SET "freePostCount" = 1 WHERE id = ${userId}::int` // past the 1-post low-rep quota
   const uploadId = await createUpload(userId, { size: 30 * 1024 * 1024 }) // 30MB -> 3 blocks -> 0.003 XMR
   const result = await getInitial(prisma, { uploadIds: [uploadId] }, { me: { id: userId } })
   expect(result.moneroUri).toMatch(/^monero:/)
@@ -338,6 +342,7 @@ test('getInitial folds a 30MB upload fee (0.003 XMR) into the posting-fee URI', 
 test('pay("ITEM_CREATE", { uploadIds }) completes without flipping the upload; the observed fee (flipPendingToLive) marks it paid', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
+  await prisma.$executeRaw`UPDATE users SET "freePostCount" = 1 WHERE id = ${userId}::int` // past the 1-post low-rep quota
   const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 }) // >10MB -> upload fee
 
   const result = await pay(
@@ -425,15 +430,15 @@ describe('countNonOwnedSubs', () => {
 
 // --- turf-owner free posting: getInitial waives posting and comment fees ---
 describe('getInitial — turf-owner fee waiver', () => {
-  test('a low-rep owner posts free in their own turf (no fee URI)', async () => {
+  test('a low-rep owner posts free in their own turf even past their 1-post free quota', async () => {
     const userId = await createUser()
     await ensureFeeConfig()
+    await prisma.$executeRaw`UPDATE users SET "freePostCount" = 1 WHERE id = ${userId}::int` // quota exhausted: owner-free waiver is what keeps this free
     const turfName = `ownerpost-${userId}-${Date.now()}`
     await prisma.sub.create({
       data: { name: turfName, userId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
     })
     created.subs.push(turfName)
-    // user is fresh/low-rep: normally getInitial returns a posting-fee URI
     const result = await getInitial(prisma, { subNames: [turfName] }, { me: { id: userId } })
     expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
     expect(result).not.toHaveProperty('moneroUri')
@@ -467,6 +472,7 @@ describe('getInitial — turf-owner fee waiver', () => {
     const ownerId = await createUser()
     const otherId = await createUser()
     await ensureFeeConfig()
+    await prisma.$executeRaw`UPDATE users SET "freePostCount" = 1 WHERE id = ${otherId}::int` // past the 1-post low-rep quota
     const turfName = `notowner-${otherId}-${Date.now()}`
     await prisma.sub.create({
       data: { name: turfName, userId: ownerId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
@@ -481,6 +487,7 @@ describe('getInitial — turf-owner fee waiver', () => {
   test('a mixed multi-turf post (1 owned + 1 non-owned) charges a single posting fee', async () => {
     const ownerId = await createUser()
     await ensureFeeConfig()
+    await prisma.$executeRaw`UPDATE users SET "freePostCount" = 1 WHERE id = ${ownerId}::int` // past the 1-post low-rep quota
     const owned = `multi-owned-${ownerId}-${Date.now()}`
     const notOwned = `multi-other-${ownerId}-${Date.now()}`
     const otherId = await createUser()
@@ -497,6 +504,7 @@ describe('getInitial — turf-owner fee waiver', () => {
     const userId = await createUser()
     const otherId = await createUser()
     await ensureFeeConfig()
+    await prisma.$executeRaw`UPDATE users SET "freePostCount" = 1 WHERE id = ${userId}::int` // past the 1-post low-rep quota
     const a = `twofee-a-${userId}-${Date.now()}`
     const b = `twofee-b-${userId}-${Date.now()}`
     await prisma.sub.create({ data: { name: a, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })

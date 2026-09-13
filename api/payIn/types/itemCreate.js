@@ -7,7 +7,7 @@ import { GqlInputError } from '@/lib/error'
 import { getItem } from '@/api/resolvers/item'
 import { getTempImgproxyUrls } from '../lib/upload'
 import { incrementFreeCommentCount, incrementFreePostCount } from '../lib/freebie'
-import { canPostFree, postingFeePiconeros, commentsFreeLeft, postsFreeLeft } from '@/api/monero/postingFee'
+import { postingFeePiconeros, commentsFreeLeft, postsFreeLeft } from '@/api/monero/postingFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { resolveOwnerFeeRoute, postFeePiconerosForSubs, postFloorPiconerosForSubs, commentFeePiconerosForSubs, commentFloorPiconerosForSubs } from '@/api/monero/turfFeeRouting'
@@ -82,9 +82,10 @@ async function feeLegOrSubaddress (models, { subs, userId, fee, premiumPiconeros
 }
 
 export async function getInitial (models, args, { me }) {
-  // StasherNews posting-fee gate (spec §6.2, Q5). Posting is free for established
-  // users (stacked >= 1e10 piconeros AND age >= 7d); low-rep users pay a posting fee
-  // to the platform rewards wallet before their post goes live.
+  // StasherNews posting-fee gate (spec §6.2, Q5). Posting is free within the
+  // monthly quota (established 5/month: stacked >= 1e10 piconeros AND age >= 7d;
+  // low-rep 1/month); past the quota the user pays a posting fee to the platform
+  // rewards wallet before their post goes live.
   //
   // piconeros is 0 in BOTH cases — StasherNews does not charge custodial sats for
   // posting. The fee (when required) is on-chain Monero to a rewards-wallet fee
@@ -256,10 +257,9 @@ export async function getInitial (models, args, { me }) {
   const user = await models.user.findUnique({ where: { id: me.id } })
   if (!user) throw new GqlInputError('user not found')
 
-  const established = canPostFree(user, config)
   const postsLeft = postsFreeLeft(user, config)
 
-  if (established && postsLeft > 0) {
+  if (postsLeft > 0) {
     if (uploadFeesPiconeros > 0n) {
       const sub = await reserveFeeSubaddress(models, 'POSTING', { me })
       const moneroUri = buildMoneroUri(
@@ -283,7 +283,7 @@ export async function getInitial (models, args, { me }) {
     }
   }
 
-  // Low-rep user OR established user who has exhausted the free-post quota:
+  // User past their free-post quota (established 5/month, low-rep 1/month):
   // route the posting fee — owner-direct when it resolves to a single non-owned
   // turf with a registered owner wallet, else a rewards-wallet subaddress. The
   // post is created PENDING_FEE (invisible) until the fee is observed on-chain
