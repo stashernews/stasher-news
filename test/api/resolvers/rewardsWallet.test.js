@@ -10,10 +10,20 @@
 // stored private one: the fixture row still carries an encrypted private view
 // key (encryptViewKey under VIEWKEY_MASTER_KEY) so the assertions can prove it
 // is not leaked.
+//
+// The rewards/ops figures are the LITERAL current allocations, not a pro-rata
+// slice of the balance: rewards = the next distribution's pool (this cycle's
+// rewards-earmarked inflow + the latest rollover, via lib/rewardsPool.js — the
+// same computation /rewards uses), ops = the latest distribution's unswept ops
+// (opsAvailablePiconeros - opsSweptPiconeros, the monero_ops_pending_piconeros
+// definition). The cycle inflow comes from the shared function's $queryRaw;
+// the all-time aggregates only drive the ledger balance + inflowBreakdown.
 
 import resolvers from '@/api/resolvers/rewardsWallet'
 import { encryptViewKey } from '@/api/monero/viewkey'
 import { publicViewKeyFromAddress } from '@/api/monero/viewKeyCheck'
+import { piconerosToXmr } from '@/lib/format'
+import { collectDBBackedMetrics, register, __resetMetricsForTests } from '@/lib/metrics'
 
 process.env.VIEWKEY_MASTER_KEY = Buffer.from('a'.repeat(32)).toString('base64')
 process.env.MONERO_NETWORK = 'stagenet'
@@ -40,14 +50,49 @@ const CONFIG = {
   boostRewardsPct: 30
 }
 
-function makeModels ({ account = makeAccount(), downvotes = 0n, feeGroups = [], config = CONFIG, payoutsSent = 0n, opsSwept = 0n } = {}) {
+// `downvotes` / `feeGroups` / `payoutsSent` / `opsSweptTotal` are the ALL-TIME
+// ledger aggregates (they drive totalReceived/totalSent/balance and the
+// inflowBreakdown display). `lastDistribution` and `inflow` drive the LITERAL
+// allocations: the latest RewardDistribution row and this cycle's CONFIRMED
+// inflow returned by the shared pool query.
+function makeModels ({
+  account = makeAccount(),
+  downvotes = 0n,
+  feeGroups = [],
+  config = CONFIG,
+  payoutsSent = 0n,
+  opsSweptTotal = 0n,
+  lastDistribution = null,
+  inflow = {}
+} = {}) {
+  const inflowRow = {
+    downvote: 0n,
+    posting: 0n,
+    territory: 0n,
+    donate: 0n,
+    donateRaw: 0n,
+    boost: 0n,
+    walletlesstip: 0n,
+    bountyrollover: 0n,
+    bountyfee: 0n,
+    time: new Date('2026-09-21T00:00:00.000Z'),
+    ...inflow
+  }
   return {
     moneroAccount: { findFirst: jest.fn(async () => account) },
-    platformFeeConfig: { findUnique: jest.fn(async () => config) },
+    platformFeeConfig: {
+      findUnique: jest.fn(async () => config),
+      upsert: jest.fn(async () => config)
+    },
     observedDownvote: { aggregate: jest.fn(async () => ({ _sum: { piconeros: downvotes } })) },
     feeObservation: { groupBy: jest.fn(async () => feeGroups) },
     rewardPayout: { aggregate: jest.fn(async () => ({ _sum: { piconeros: payoutsSent } })) },
-    rewardDistribution: { aggregate: jest.fn(async () => ({ _sum: { opsSweptPiconeros: opsSwept } })) }
+    rewardDistribution: {
+      aggregate: jest.fn(async () => ({ _sum: { opsSweptPiconeros: opsSweptTotal } })),
+      findFirst: jest.fn(async () => lastDistribution)
+    },
+    observedTip: { count: jest.fn(async () => 0) },
+    $queryRaw: jest.fn(async () => [inflowRow])
   }
 }
 
@@ -99,7 +144,7 @@ describe('Query.rewardsWalletInfo', () => {
       downvotes: 600n,
       feeGroups: [{ feeType: 'POSTING', _sum: { piconeros: 400n } }],
       payoutsSent: 200n,
-      opsSwept: 50n
+      opsSweptTotal: 50n
     })
 
     const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
@@ -108,25 +153,169 @@ describe('Query.rewardsWalletInfo', () => {
     expect(result.balancePiconeros).toBe(750n)
   })
 
-  test('rewardsEarmark + opsEarmark === balance exactly (the split invariant)', async () => {
-    const feeGroups = [
-      { feeType: 'POSTING', _sum: { piconeros: 200n } },
-      { feeType: 'TERRITORY_CREATE', _sum: { piconeros: 150n } },
-      { feeType: 'TERRITORY_BILLING', _sum: { piconeros: 150n } }
-    ]
-    const models = makeModels({ downvotes: 100n, feeGroups, payoutsSent: 100n })
+  test('post-FAILED-sweep: rewards is the pool (rollover only) and ops is the full unswept amount; both literal, sum == balance', async () => {
+    // Worked production state (2026-09-14): dist #2 payouts all SENT, the ops
+    // sweep FAILED (opsSwept 0), no new confirmed inflow this cycle. The page
+    // must show the literal 7_516_894_999 / 252_159_000_000, not the old
+    // pro-rata slice (104_595_455_411 / 155_080_439_588).
+    //
+    // The all-time ledger mix is chosen so the OLD pro-rata code returns
+    // exactly production's misleading 104_595_455_411 / 155_080_439_588 for
+    // this stub (downvote 100% rewards, BOUNTY_FEE 100% ops, balance ==
+    // all-time inflow), making the regression pointed rather than incidental.
+    const lastDistribution = makeDistribution({
+      rolledOverPiconeros: 7_516_894_999n,
+      opsAvailablePiconeros: 252_159_000_000n,
+      opsSweptPiconeros: 0n,
+      opsSweepState: 'FAILED'
+    })
+    const models = makeModels({
+      downvotes: 104_595_455_411n,
+      feeGroups: [{ feeType: 'BOUNTY_FEE', _sum: { piconeros: 155_080_439_588n } }],
+      lastDistribution
+    })
 
     const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
-    expect(result.balancePiconeros).toBe(500n)
+    expect(result.rewardsEarmarkPiconeros).toBe(7_516_894_999n)
+    expect(result.opsEarmarkPiconeros).toBe(252_159_000_000n)
+    expect(result.nextPoolPiconeros).toBe(7_516_894_999n)
+    expect(result.pendingSweepPiconeros).toBe(252_159_000_000n)
+    expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
+    expect(result.balancePiconeros).toBe(259_675_894_999n)
+
+    // acceptance #1: the exact strings the transparency page renders
+    expect(piconerosToXmr(result.nextPoolPiconeros)).toBe('0.007516894999 XMR')
+    expect(piconerosToXmr(result.pendingSweepPiconeros)).toBe('0.252159 XMR')
+  })
+
+  test('fresh DB (no distributions): rewards = this cycle rewards earmark, ops = this cycle ops earmark', async () => {
+    // Before the first distribution the pool is just this cycle's earmark and
+    // nothing has ever been swept, so ops is the cycle's ops share.
+    const models = makeModels({
+      downvotes: 8_000_000_000n,
+      inflow: {
+        downvote: 1_000_000_000n,
+        posting: 1_000_000_000n,
+        territory: 2_000_000_000n,
+        donate: 4_000_000_000n,
+        donateRaw: 4_000_000_000n
+      }
+    })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    // downvote 100% + posting 70% + territory 30% + donation 100%
+    expect(result.rewardsEarmarkPiconeros).toBe(6_300_000_000n)
+    // raw cycle inflow 8e9 - rewards earmark 6.3e9
+    expect(result.opsEarmarkPiconeros).toBe(1_700_000_000n)
+    expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
+    expect(result.balancePiconeros).toBe(8_000_000_000n)
+  })
+
+  test('fresh DB: a DONATE routed 50% to the pool contributes its raw amount to the ops fallback, not the scaled one', async () => {
+    const models = makeModels({
+      downvotes: 4_000_000_000n,
+      inflow: { donate: 2_000_000_000n, donateRaw: 4_000_000_000n }
+    })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(result.rewardsEarmarkPiconeros).toBe(2_000_000_000n)
+    expect(result.opsEarmarkPiconeros).toBe(2_000_000_000n)
+    expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
+    expect(result.balancePiconeros).toBe(4_000_000_000n)
+  })
+
+  test('normal completed week: ops is 0 once the latest sweep landed; rewards is the new cycle inflow', async () => {
+    const lastDistribution = makeDistribution({
+      rolledOverPiconeros: 0n,
+      opsAvailablePiconeros: 10_000_000_000n,
+      opsSweptPiconeros: 10_000_000_000n,
+      opsSweepState: 'SWEPT'
+    })
+    const models = makeModels({
+      // ledger: received 17e9 - (5e9 payouts + 10e9 swept) = 2e9 balance
+      downvotes: 17_000_000_000n,
+      payoutsSent: 5_000_000_000n,
+      opsSweptTotal: 10_000_000_000n,
+      lastDistribution,
+      inflow: { downvote: 2_000_000_000n }
+    })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(result.rewardsEarmarkPiconeros).toBe(2_000_000_000n)
+    expect(result.opsEarmarkPiconeros).toBe(0n)
+    expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
+    expect(result.balancePiconeros).toBe(2_000_000_000n)
+  })
+
+  test('rollover week: the pool includes the prior distribution rolledOverPiconeros', async () => {
+    const lastDistribution = makeDistribution({
+      rolledOverPiconeros: 7_516_894_999n,
+      opsAvailablePiconeros: 3_000_000_000n,
+      opsSweptPiconeros: 1_000_000_000n
+    })
+    const models = makeModels({
+      downvotes: 11_516_894_999n,
+      opsSweptTotal: 1_000_000_000n,
+      lastDistribution,
+      inflow: { downvote: 1_000_000_000n }
+    })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(result.rewardsEarmarkPiconeros).toBe(8_516_894_999n)
+    expect(result.opsEarmarkPiconeros).toBe(2_000_000_000n)
+    expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
+    expect(result.balancePiconeros).toBe(10_516_894_999n)
+  })
+
+  test('pendingSweepPiconeros agrees with the monero_ops_pending_piconeros metric for the same distribution', async () => {
+    __resetMetricsForTests()
+    const lastDistribution = makeDistribution({
+      rolledOverPiconeros: 0n,
+      opsAvailablePiconeros: 252_159_000_000n,
+      opsSweptPiconeros: 12_159_000_000n
+    })
+    const models = makeModels({ downvotes: 240_000_000_000n, lastDistribution })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    await collectDBBackedMetrics(models)
+
+    expect(result.pendingSweepPiconeros).toBe(240_000_000_000n)
+    expect(await metricValue('monero_ops_pending_piconeros')).toBe(Number(result.pendingSweepPiconeros))
+  })
+
+  test('does not scale allocations pro-rata against the balance (literal-allocation regression)', async () => {
+    // All-time ledger: 600 received, 558 already paid => balance 42.
+    // The latest distribution rolled over 42 and swept everything, so the
+    // literal allocations are 42/0 — the old pro-rata math would have split
+    // 42 by the all-time 330/270 mix (23/19).
+    const feeGroups = [
+      { feeType: 'POSTING', _sum: { piconeros: 200n } },
+      { feeType: 'TERRITORY_CREATE', _sum: { piconeros: 300n } }
+    ]
+    const lastDistribution = makeDistribution({
+      rolledOverPiconeros: 42n,
+      opsAvailablePiconeros: 1n,
+      opsSweptPiconeros: 1n
+    })
+    const models = makeModels({ downvotes: 100n, feeGroups, payoutsSent: 558n, lastDistribution })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(result.balancePiconeros).toBe(42n)
+    expect(result.rewardsEarmarkPiconeros).toBe(42n)
+    expect(result.opsEarmarkPiconeros).toBe(0n)
     expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
   })
 
-  test('applies allocation percentages proportionally against the live balance', async () => {
+  test('splits all-time inflow by the allocation percentages for the inflowBreakdown display (unchanged)', async () => {
     // inflow: downvote 100 (100%), posting 200 (70%), territory 300 (30%)
     // rewardsNumerator = 100*100 + 200*70 + 300*30 = 33000 -> rewardsInflow 330
     // totalInflow = 600, opsInflow = 270
-    // balance = 600 (no sent) -> rewardsEarmark = 600*330/600 = 330, opsEarmark = 270
     const feeGroups = [
       { feeType: 'POSTING', _sum: { piconeros: 200n } },
       { feeType: 'TERRITORY_CREATE', _sum: { piconeros: 300n } }
@@ -135,8 +324,6 @@ describe('Query.rewardsWalletInfo', () => {
 
     const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
-    expect(result.rewardsEarmarkPiconeros).toBe(330n)
-    expect(result.opsEarmarkPiconeros).toBe(270n)
     expect(result.inflowBreakdown.rewardsPiconeros).toBe(330n)
     expect(result.inflowBreakdown.opsPiconeros).toBe(270n)
     expect(result.inflowBreakdown.totalPiconeros).toBe(600n)
@@ -148,9 +335,9 @@ describe('Query.rewardsWalletInfo', () => {
     expect(result.inflowBreakdown.territoryFeeRewardsPct).toBe(30)
   })
 
-  test('TIP_UNWALLETED is bucketed as wallet-less tips (NOT territory) and earmarked at walletlessTipRewardsPct', async () => {
+  test('TIP_UNWALLETED is bucketed as wallet-less tips (NOT territory) and split at walletlessTipRewardsPct', async () => {
     const feeGroups = [{ feeType: 'TIP_UNWALLETED', _sum: { piconeros: 4_000_000_000n } }]
-    const models = makeModels({ downvotes: 0n, feeGroups }) // no sent -> balance === inflow, so earmark === rewardsInflow
+    const models = makeModels({ downvotes: 0n, feeGroups })
 
     const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
 
@@ -162,8 +349,8 @@ describe('Query.rewardsWalletInfo', () => {
     expect(result.inflowBreakdown.opsPiconeros).toBe(1_200_000_000n)
   })
 
-  test('DONATE and BOOST are aggregated separately: DONATE 100% rewards, BOOST 30% rewards / 70% ops (A-14)', async () => {
-    // DONATE goes 100% to the pool: full inflow earmarked to rewards.
+  test('DONATE and BOOST are aggregated separately in the all-time breakdown: DONATE 100% rewards, BOOST 30% rewards / 70% ops (A-14)', async () => {
+    // DONATE goes 100% to the pool: full inflow counted to rewards.
     const donateModels = makeModels({
       downvotes: 0n,
       feeGroups: [{ feeType: 'DONATE', _sum: { piconeros: 4_000_000_000n } }]
@@ -173,8 +360,6 @@ describe('Query.rewardsWalletInfo', () => {
     expect(donateResult.inflowBreakdown.totalPiconeros).toBe(4_000_000_000n)
     expect(donateResult.inflowBreakdown.rewardsPiconeros).toBe(4_000_000_000n)
     expect(donateResult.inflowBreakdown.opsPiconeros).toBe(0n)
-    expect(donateResult.rewardsEarmarkPiconeros).toBe(4_000_000_000n)
-    expect(donateResult.opsEarmarkPiconeros).toBe(0n)
 
     // BOOST goes boostRewardsPct (30): 30% to rewards, 70% to ops — NOT 100%
     // rewards like DONATE.
@@ -187,11 +372,9 @@ describe('Query.rewardsWalletInfo', () => {
     expect(boostResult.inflowBreakdown.totalPiconeros).toBe(4_000_000_000n)
     expect(boostResult.inflowBreakdown.rewardsPiconeros).toBe(1_200_000_000n)
     expect(boostResult.inflowBreakdown.opsPiconeros).toBe(2_800_000_000n)
-    expect(boostResult.rewardsEarmarkPiconeros).toBe(1_200_000_000n)
-    expect(boostResult.opsEarmarkPiconeros).toBe(2_800_000_000n)
   })
 
-  test('a donation with donationRewardsPct=50 splits 50/50 into rewards and ops', async () => {
+  test('a donation with donationRewardsPct=50 splits 50/50 in the all-time breakdown', async () => {
     const models = makeModels({
       downvotes: 0n,
       feeGroups: [{ feeType: 'DONATE', donationRewardsPct: 50, _sum: { piconeros: 4_000_000_000n } }]
@@ -201,8 +384,6 @@ describe('Query.rewardsWalletInfo', () => {
     expect(result.inflowBreakdown.totalPiconeros).toBe(4_000_000_000n)
     expect(result.inflowBreakdown.rewardsPiconeros).toBe(2_000_000_000n)
     expect(result.inflowBreakdown.opsPiconeros).toBe(2_000_000_000n)
-    expect(result.rewardsEarmarkPiconeros).toBe(2_000_000_000n)
-    expect(result.opsEarmarkPiconeros).toBe(2_000_000_000n)
   })
 
   test('BOUNTY_ROLLOVER flows 100% to rewards; BOUNTY_FEE flows 0% to rewards but counts to the ledger (A-13 final)', async () => {
@@ -220,15 +401,13 @@ describe('Query.rewardsWalletInfo', () => {
 
     // Both physically arrived at the wallet, so both are ledger received.
     expect(result.totalReceivedPiconeros).toBe(5_000_000_000n)
-    // Rollover earmarks 100% to rewards; the fee earmarks 0% (ops).
+    // Rollover counts 100% to rewards; the fee 0% (ops).
     expect(result.inflowBreakdown.rewardsPiconeros).toBe(4_000_000_000n)
     expect(result.inflowBreakdown.opsPiconeros).toBe(1_000_000_000n)
     expect(result.inflowBreakdown.totalPiconeros).toBe(5_000_000_000n)
-    expect(result.rewardsEarmarkPiconeros).toBe(4_000_000_000n)
-    expect(result.opsEarmarkPiconeros).toBe(1_000_000_000n)
   })
 
-  test('zero confirmed inflow and zero sent puts the whole (zero) balance in ops earmark', async () => {
+  test('all-zero fresh DB: both literal allocations are zero', async () => {
     const models = makeModels({ downvotes: 0n, feeGroups: [] })
 
     const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
@@ -349,3 +528,17 @@ describe('Query.rewardDistributions', () => {
     expect(result[0].payouts[0].amountXmr).toBe('1')
   })
 })
+
+// Reads a gauge value out of the shared Prometheus registry exposition
+// (mirrors test/lib/metrics.test.js) so the ops allocation is pinned to the
+// monero_ops_pending_piconeros metric definition.
+async function metricValue (name) {
+  const exposition = await register.metrics()
+  const line = exposition.split('\n').find(l => {
+    if (!l.startsWith(name)) return false
+    const rest = l.slice(name.length)
+    return rest.startsWith(' ') || rest.startsWith('{')
+  })
+  if (!line) throw new Error(`metric ${name} not found in exposition`)
+  return Number(line.trim().split(/\s+/).pop())
+}

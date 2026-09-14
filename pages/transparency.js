@@ -20,8 +20,8 @@ const REWARDS_WALLET = gql`
       balancePiconeros
       balanceXmr
       balanceNeedsReconciliation
-      rewardsEarmarkPiconeros
-      opsEarmarkPiconeros
+      nextPoolPiconeros
+      pendingSweepPiconeros
       inflowBreakdown {
         downvotePiconeros
         postingFeePiconeros
@@ -166,17 +166,18 @@ export default function Transparency ({ ssrData }) {
             </div>
           )}
 
-          <h4 className='text-muted mt-4'>Earmark split</h4>
+          <h4 className='text-muted mt-4'>Current allocation</h4>
           <p className='text-muted'>
             <small>
-              The wallet holds one consolidated balance. The split below partitions it
-              by each inflow source's allocation %, scaled to the live balance — the two
-              halves always sum to the whole.
+              The wallet holds one consolidated balance. The two figures below are
+              what it is literally allocated to right now: the pool that pays out at
+              the next weekly distribution, and the platform's share still awaiting
+              its sweep to the ops wallet. The two always sum to the whole.
             </small>
           </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
-            <Stat label='Rewards earmark' value={piconerosToXmr(toBigInt(w.rewardsEarmarkPiconeros))} sub='funds curator payouts' />
-            <Stat label='Ops earmark' value={piconerosToXmr(toBigInt(w.opsEarmarkPiconeros))} sub='platform operations' />
+            <Stat label='Rewards allocation' value={piconerosToXmr(toBigInt(w.nextPoolPiconeros))} sub='pays out at the next distribution' />
+            <Stat label='Ops allocation' value={piconerosToXmr(toBigInt(w.pendingSweepPiconeros))} sub='awaiting sweep to cold storage' />
           </div>
 
           <h4 className='text-muted mt-4'>Confirmed inflow by source</h4>
@@ -198,10 +199,11 @@ export default function Transparency ({ ssrData }) {
               Recent weekly curator distributions. Each payout is a real on-chain
               Monero transaction from the rewards wallet — verify any tx hash on
               the explorer. Curator handles are shown as nyms; sub-threshold
-              shares roll over to the next period. The ops earmark is swept to the
-              ops wallet when the hot wallet has enough unlocked change; when it
-              doesn't (recent incoming outputs are still locked), the sweep is
-              deferred and the amount rolls into next week's opsAvailable.
+              shares roll over to the next period. The ops allocation is swept to
+              the ops wallet when the hot wallet has enough unlocked change; when
+              it doesn't (recent incoming outputs are still locked), the sweep is
+              deferred and the amount rolls into next week's opsAvailable — that
+              unswept amount is the "Ops allocation" figure shown above.
             </small>
           </p>
           {dists.length === 0

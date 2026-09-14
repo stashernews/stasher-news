@@ -1,6 +1,7 @@
 import { publicViewKeyFromAddress } from '../monero/viewKeyCheck'
 import { piconerosToXmrDecimal } from '../monero/uri'
 import { GqlInputError } from '@/lib/error'
+import { getNextRewardsPool } from '@/lib/rewardsPool'
 
 // StasherNews public transparency query for the platform rewards wallet
 // (spec §4.4, §6.4, §7.3). The rewards wallet is the ONLY custodial component:
@@ -10,12 +11,22 @@ import { GqlInputError } from '@/lib/error'
 // This resolver exposes — publicly, no auth — the wallet address, its PUBLIC
 // view key (address-embedded; derived from the address itself, never the
 // stored/encrypted private key), the ledger-derived received/sent/balance,
-// and the rewards/ops earmark split. The split is
-// accounting-level: the wallet holds one consolidated balance, so inflow is
-// partitioned by source × each source's allocation % (PlatformFeeConfig) and
-// then scaled PROPORTIONALLY against the live balance. By construction the two
-// earmarks sum to the balance exactly (opsEarmark is the floor remainder), so
-// the transparency page never shows rounding drift.
+// and the LITERAL rewards/ops allocations. The wallet holds one consolidated
+// balance; rather than pro-rating the all-time inflow mix against it (which
+// tracks history, not allocation), the two figures are the same authoritative
+// numbers the rest of the platform uses:
+//   - rewards = the next distribution's pool, from getNextRewardsPool — the
+//     exact value the /rewards page counts down to;
+//   - ops     = the latest distribution's unswept ops (opsAvailablePiconeros
+//     - opsSweptPiconeros) — the exact value of the
+//     monero_ops_pending_piconeros metric.
+// In every settled state the two sum to the ledger balance, so the page never
+// shows rounding drift. Two documented windows where rewards + ops < balance:
+// (1) while a distribution's payouts are still QUEUED/PENDING they are not yet
+// ledger-"sent", so the pair under-counts the balance by exactly those unpaid
+// payouts; (2) before the FIRST distribution ever runs, the pair is just the
+// trailing-7-day cycle's allocations, so older confirmed inflow (awaiting that
+// first weekly run) is not yet counted.
 //
 // IMPORTANT: received/sent/balance come from the DATABASE LEDGER, NOT from
 // lws's get_address_info. lws's total_sent/spent_outputs are unreliable for
@@ -60,10 +71,11 @@ function splitFeeGroups (groups) {
   return { postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, donateRewardsPiconeros, boostPiconeros, bountyRolloverPiconeros, bountyFeePiconeros }
 }
 
-// Proportional earmark against the LIVE consolidated balance. rewardsEarmark +
-// opsEarmark === balance holds by construction (opsEarmark = balance -
-// rewardsEarmark), independent of any floor in the inflow-side percentage split.
-function computeEarmarks (balance, sources, config) {
+// All-time CONFIRMED inflow split by the allocation percentages. This feeds
+// ONLY inflowBreakdown (a display of where historical inflow came from); the
+// literal current allocations are rewards = getNextRewardsPool().poolPiconeros
+// and ops = getNextRewardsPool().pendingSweepPiconeros.
+function splitAllTimeInflow (sources, config) {
   const { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, donateRewardsPiconeros, boostPiconeros, bountyRolloverPiconeros, bountyFeePiconeros } = sources
   const totalInflow =
     downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donatePiconeros + boostPiconeros + bountyRolloverPiconeros + bountyFeePiconeros
@@ -79,14 +91,7 @@ function computeEarmarks (balance, sources, config) {
   // BOUNTY_FEE has no numerator term: it physically arrived at this wallet but
   // was booked 100% ops at funding confirmation, so opsInflow absorbs it all.
   const rewardsInflow = rewardsNumerator / 100n
-  const opsInflow = totalInflow - rewardsInflow
-
-  const rewardsEarmark = totalInflow > 0n
-    ? balance * rewardsInflow / totalInflow
-    : 0n
-  const opsEarmark = balance - rewardsEarmark
-
-  return { rewardsEarmark, opsEarmark, totalInflow, rewardsInflow, opsInflow }
+  return { totalInflow, rewardsInflow, opsInflow: totalInflow - rewardsInflow }
 }
 
 export default {
@@ -119,11 +124,13 @@ export default {
       const totalReceived =
         downvotePiconeros + postingFeePiconeros + territoryFeePiconeros + walletlessTipPiconeros + donatePiconeros + boostPiconeros + bountyRolloverPiconeros + bountyFeePiconeros
 
-      // --- Ledger-derived sent: recorded payouts + ops sweeps. ---
-      // The wallet's only outflows are curator payouts and ops sweeps, both
-      // written to the DB before/after their on-chain tx. PENDING/FAILED
-      // payouts and NOT_SWEEPED amounts never left the wallet.
-      const [payoutAgg, sweepAgg] = await Promise.all([
+      // --- Ledger-derived sent + the literal allocations. ---
+      // getNextRewardsPool is the SAME computation /rewards uses for its pool,
+      // so the transparency rewards figure and the /rewards countdown cannot
+      // drift; it also returns the latest distribution's unswept ops, the
+      // monero_ops_pending_piconeros definition.
+      const [pool, payoutAgg, sweepAgg] = await Promise.all([
+        getNextRewardsPool(models),
         models.rewardPayout.aggregate({
           _sum: { piconeros: true },
           where: { state: { in: ['SENT', 'CONFIRMED'] } }
@@ -142,8 +149,14 @@ export default {
       const balance = totalReceived - totalSent
       const balanceNeedsReconciliation = balance < 0n
 
-      const earmarks = computeEarmarks(
-        balance,
+      // LITERAL current allocations (never a pro-rata slice of the balance):
+      //   rewards = the next distribution's pool (same value /rewards shows),
+      //   ops     = the latest distribution's unswept ops (same value the
+      //             monero_ops_pending_piconeros metric reports).
+      const rewardsAllocation = pool.poolPiconeros
+      const opsAllocation = pool.pendingSweepPiconeros
+
+      const allTime = splitAllTimeInflow(
         { downvotePiconeros, postingFeePiconeros, territoryFeePiconeros, walletlessTipPiconeros, donatePiconeros, donateRewardsPiconeros, boostPiconeros, bountyRolloverPiconeros, bountyFeePiconeros },
         config)
 
@@ -156,16 +169,18 @@ export default {
         balancePiconeros: balance,
         balanceXmr: piconerosToXmrDecimal(balance),
         balanceNeedsReconciliation,
-        rewardsEarmarkPiconeros: earmarks.rewardsEarmark,
-        opsEarmarkPiconeros: earmarks.opsEarmark,
+        rewardsEarmarkPiconeros: rewardsAllocation,
+        opsEarmarkPiconeros: opsAllocation,
+        nextPoolPiconeros: rewardsAllocation,
+        pendingSweepPiconeros: opsAllocation,
         inflowBreakdown: {
           downvotePiconeros,
           postingFeePiconeros,
           territoryFeePiconeros,
           walletlessTipPiconeros,
-          totalPiconeros: earmarks.totalInflow,
-          rewardsPiconeros: earmarks.rewardsInflow,
-          opsPiconeros: earmarks.opsInflow,
+          totalPiconeros: allTime.totalInflow,
+          rewardsPiconeros: allTime.rewardsInflow,
+          opsPiconeros: allTime.opsInflow,
           downvoteRewardsPct: config.downvoteRewardsPct,
           postingFeeRewardsPct: config.postingFeeRewardsPct,
           territoryFeeRewardsPct: config.territoryFeeRewardsPct,

@@ -53,6 +53,7 @@ function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null } =
     posting: 1000000000n,
     territory: 200000000000n,
     donate: 0n,
+    donateRaw: 0n,
     boost: 0n,
     walletlesstip: 0n,
     time: new Date('2026-08-07T00:00:00.000Z'),
@@ -115,11 +116,11 @@ describe('Query.rewards', () => {
     // in SQL so polling never sees a moving target.
     expect(sql.join('?')).toContain("date_trunc('week'")
     expect(sql.join('?')).toContain("interval '1 week'")
-    // the query binds only the inflow window start (periodStart, 8×: downvote,
-    // posting, territory, donate, boost, walletlesstip, bountyrollover, bountyfee)
-    // — no JS-computed time value. 1 strings array + 8 values = 9 args
+    // the query binds only the inflow window start (periodStart, 9×: downvote,
+    // posting, territory, donate, donateRaw, boost, walletlesstip, bountyrollover,
+    // bountyfee) — no JS-computed time value. 1 strings array + 9 values = 10 args
     // (regression guard against re-introducing a bound now+7d time).
-    expect(models.$queryRaw.mock.calls[0].length).toBe(9)
+    expect(models.$queryRaw.mock.calls[0].length).toBe(10)
   })
 
   test('drops zero-earmark sources', async () => {

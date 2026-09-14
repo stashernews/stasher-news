@@ -2,8 +2,7 @@ import { amountSchema, validateSchema } from '@/lib/validate'
 import { getItem } from './item'
 import { GqlInputError } from '@/lib/error'
 import pay from '../payIn'
-
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+import { getNextRewardsPool, rewardsFromInflow } from '@/lib/rewardsPool'
 
 let rewardCache
 
@@ -21,38 +20,6 @@ async function getCachedActiveRewards (staleIn, models) {
     return rewards // serve stale rewards
   }
   return await updateCachedRewards(models)
-}
-
-function toBigInt (v) {
-  if (v == null) return 0n
-  return BigInt(v)
-}
-
-// Rewards earmark per the PlatformFeeConfig allocation split (spec §6.4):
-// downvote 100% / posting 70% / turf 30% / boosts 30% / wallet-less tips 70%.
-// Donations go the payer-chosen % to the pool (default 100); bounty rollovers
-// (BOUNTY_ROLLOVER) go 100% to the pool; BOUNTY_FEE is 100% ops (booked at
-// funding, physically arrives with the rollover) so its pool share is 0.
-// BigInt division floors each source independently, matching
-// worker/rewardsDistributor.js.
-function rewardsFromInflow (inflow, time, config) {
-  const sourceShares = [
-    { name: 'downvote', piconeros: toBigInt(inflow.downvote) * BigInt(config.downvoteRewardsPct) / 100n },
-    { name: 'posting fee', piconeros: toBigInt(inflow.posting) * BigInt(config.postingFeeRewardsPct) / 100n },
-    { name: 'turf fee', piconeros: toBigInt(inflow.territory) * BigInt(config.territoryFeeRewardsPct) / 100n },
-    // donations go the payer-chosen % to the pool (default 100); boosts go boostRewardsPct% (default 30)
-    { name: 'donations', piconeros: toBigInt(inflow.donate) },
-    { name: 'boosts', piconeros: toBigInt(inflow.boost) * BigInt(config.boostRewardsPct) / 100n },
-    // wallet-less-author tips (TIP_UNWALLETED) go walletlessTipRewardsPct% to the pool
-    { name: 'wallet-less tips', piconeros: toBigInt(inflow.walletlesstip) * BigInt(config.walletlessTipRewardsPct) / 100n },
-    // bounty rollovers (BOUNTY_ROLLOVER, escrow -> rewards wallet) go 100% to the pool
-    { name: 'bounty rollovers', piconeros: toBigInt(inflow.bountyrollover) },
-    // BOUNTY_FEE is 100% ops (booked at funding, rides along the rollover) — pool share 0
-    { name: 'bounty fees', piconeros: 0n }
-  ]
-  const sources = sourceShares.filter(s => s.piconeros > 0n).map(s => ({ name: s.name, value: s.piconeros.toString() }))
-  const total = sourceShares.reduce((acc, s) => acc + s.piconeros, 0n)
-  return { total, time, sources }
 }
 
 // Sum CONFIRMED platform-wallet inflow by source over [periodStart, periodEnd).
@@ -74,32 +41,16 @@ async function inflowByPeriod (periodStart, periodEnd, models) {
 }
 
 async function getActiveRewards (models) {
-  const config = await models.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
-  const lastDistribution = await models.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
-  const periodStart = lastDistribution?.periodEnd ?? new Date(Date.now() - WEEK_MS)
-  const [{ downvote, posting, territory, donate, boost, walletlesstip, bountyrollover, bountyfee, time }] = await models.$queryRaw`
-    SELECT
-      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS downvote,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS posting,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros" * COALESCE("donationRewardsPct", 100) / 100) FROM "FeeObservation" WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS donate,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOOST' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS boost,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS walletlesstip,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOUNTY_ROLLOVER' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS bountyrollover,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOUNTY_FEE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart}), 0)::bigint AS bountyfee,
-      (date_trunc('week', now() AT TIME ZONE 'UTC') + interval '1 week') AT TIME ZONE 'UTC' AS time`
-
-  const { total, sources } = rewardsFromInflow({ downvote, posting, territory, donate, boost, walletlesstip, bountyrollover, bountyfee }, time, config)
+  const { poolPiconeros, rewardsInflowPiconeros, rolledOverPiconeros, time, sources } = await getNextRewardsPool(models)
   // The next distribution's pool = this cycle's rewards earmark + the prior
   // cycle's rollover (rewardsDistributor: poolPiconeros = rewardsInflow +
   // lastDistribution.rolledOverPiconeros). Surface the rollover as a source so
   // the pool shown on /rewards and the transparency countdown reflect what will
   // actually be distributed, not just this cycle's new inflow.
-  const rolledOver = toBigInt(lastDistribution?.rolledOverPiconeros)
-  if (rolledOver > 0n) {
-    return [{ total: total + rolledOver, time, sources: [...sources, { name: 'rolled over', value: rolledOver.toString() }] }]
+  if (rolledOverPiconeros > 0n) {
+    return [{ total: poolPiconeros, time, sources: [...sources, { name: 'rolled over', value: rolledOverPiconeros.toString() }] }]
   }
-  return [{ total, time, sources }]
+  return [{ total: rewardsInflowPiconeros, time, sources }]
 }
 
 async function getRewards (when, models) {

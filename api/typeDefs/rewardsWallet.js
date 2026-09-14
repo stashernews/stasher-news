@@ -3,8 +3,8 @@ import { gql } from 'graphql-tag'
 // StasherNews transparency surface: the public rewardsWalletInfo query (spec
 // §4.4, §6.4, §7.3). Exposes the platform rewards wallet address, its public
 // view key (embedded in the address; cannot decode transaction amounts), the
-// live balance, and the rewards/ops earmark split. No auth — this is a
-// public-good transparency query.
+// live balance, and the LITERAL rewards/ops allocations (next distribution pool
+// / pending ops sweep). No auth — this is a public-good transparency query.
 //
 // All monetary fields are BigInt piconeros (1e-12 XMR); balanceXmr is the same
 // balance rendered as a decimal XMR string for direct display.
@@ -32,8 +32,22 @@ export default gql`
     # lws reporting artifact (lws's total_sent/spent_outputs misattribute other
     # wallets' spends to this account, so lws is never used for the balance).
     balanceNeedsReconciliation: Boolean!
-    rewardsEarmarkPiconeros: BigInt!
-    opsEarmarkPiconeros: BigInt!
+    # Literal rewards allocation = the next distribution's pool: this cycle's
+    # rewards-earmarked CONFIRMED inflow + the latest distribution's rollover.
+    # Identical to the /rewards pool total (one shared computation,
+    # getNextRewardsPool) — NOT a pro-rata slice of the balance.
+    nextPoolPiconeros: BigInt!
+    # Literal ops allocation = funds awaiting the ops sweep:
+    # latest RewardDistribution.opsAvailablePiconeros - opsSweptPiconeros.
+    # Matches the monero_ops_pending_piconeros metric; before the first
+    # distribution it is this cycle's ops-earmarked inflow.
+    pendingSweepPiconeros: BigInt!
+    # Deprecated aliases of nextPoolPiconeros / pendingSweepPiconeros, kept so
+    # existing clients' queries keep validating. The old pro-rata semantics
+    # (tracking the all-time inflow mix rather than the actual allocation) were
+    # misleading; these now return the literal values.
+    rewardsEarmarkPiconeros: BigInt! @deprecated(reason: "Use nextPoolPiconeros — the value is now the literal allocation, not a pro-rata slice.")
+    opsEarmarkPiconeros: BigInt! @deprecated(reason: "Use pendingSweepPiconeros — the value is now the literal allocation, not a pro-rata slice.")
     inflowBreakdown: RewardsInflowBreakdown!
   }
 
