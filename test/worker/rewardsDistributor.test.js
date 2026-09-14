@@ -18,6 +18,9 @@
 // test/worker/rewardsWalletObserver.fee.test.js (live migrated database, FK-safe
 // teardown). Run via the app container:
 //   docker exec -u apprunner app npx jest test/worker/rewardsDistributor.test.js
+//
+// The ops-earmark sweep is NOT part of finalization (2026-09-14 decoupling):
+// worker/opsSweep.js owns it as a delayed one-shot enqueued by the handler.
 
 import { PrismaClient } from '@prisma/client'
 import { runDistributionOnce, finalizeDistribution } from '@/worker/rewardsDistributor'
@@ -216,28 +219,6 @@ async function seedDownvote (postId, piconeros, confirmedAt) {
 // patterns (txHash prefixes, the test item title, the prior-distribution shape),
 // chasing FK linkages, so every run starts from a clean slate. Idempotent:
 // deletes nothing on a fresh DB.
-// A PENDING distribution + one QUEUED payout for sweep-wiring tests (B4). Far
-// enough in the past to never collide with runDistributionOnce's week window.
-async function makeSweepTestDist (opsAvailable = 2_000_000_000n) {
-  const curatorId = await createUser()
-  const dist = await prisma.rewardDistribution.create({
-    data: {
-      periodStart: new Date(Date.now() - 31 * DAY),
-      periodEnd: new Date(Date.now() - 30 * DAY),
-      poolPiconeros: 1_000_000_000n,
-      distributedPiconeros: 1_000_000_000n,
-      rolledOverPiconeros: 0n,
-      opsAvailablePiconeros: opsAvailable,
-      payoutCount: 1,
-      status: 'PENDING'
-    }
-  })
-  created.distributions.push(dist.id)
-  const payout = await prisma.rewardPayout.create({
-    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
-  })
-  return { dist, payout }
-}
 
 async function purgePriorResidue () {
   // Capture linkages from prior-run fixtures BEFORE deleting them.
@@ -395,7 +376,7 @@ beforeAll(async () => {
   await seedTip({ postId, tipperId: c3, piconeros: 2_000_000_000_000n, confirmedAt: new Date(inPeriod.getTime() + 120000), recipientAccountId: recipientAccount.id })
 
   // --- Run the distribution (Task 9 signer stub injected) ---
-  result = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, sweepOpsEarmark: async () => ({ state: 'DISABLED' }) })
+  result = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
   created.distributions.push(result.id)
 
   // Genuine (non-fixture) confirmed inflow inside the distribution's period:
@@ -667,7 +648,7 @@ test('a FAILED distribution with QUEUED payouts is resumable to COMPLETE (Fix 2)
   const payout = await prisma.rewardPayout.create({
     data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
   })
-  await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, fakeSigner, async () => ({ state: 'DISABLED' }))
+  await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, fakeSigner)
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('COMPLETE')
   expect(updated.completedAt).toBeTruthy()
@@ -693,16 +674,13 @@ test('a signer SKIP (insufficient unlocked) leaves the distribution FAILED — n
   const payout = await prisma.rewardPayout.create({
     data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
   })
-  let sweepCalled = false
   await finalizeDistribution(
     prisma,
     { ...dist, payouts: [payout] },
-    async () => ({ sent: 0, failed: 0, skipped: 1 }),
-    async () => { sweepCalled = true; return { state: 'SWEPT' } })
+    async () => ({ sent: 0, failed: 0, skipped: 1 }))
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('FAILED')
   expect(updated.completedAt).toBeNull()
-  expect(sweepCalled).toBe(false) // sweep not attempted on an unsent batch
   const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
   expect(payoutAfter.state).toBe('QUEUED') // resumable
 })
@@ -733,8 +711,7 @@ test('a partial send (sent > 0, skipped > 0) also marks the distribution FAILED 
     async (rows, { models }) => {
       await models.rewardPayout.update({ where: { id: rows[0].id }, data: { state: 'SENT', txHash: 'ab'.repeat(32) } })
       return { sent: 1, failed: 0, skipped: 1 }
-    },
-    async () => ({ state: 'SWEPT' }))
+    })
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('FAILED')
   const p0 = await prisma.rewardPayout.findUnique({ where: { id: payouts[0].id } })
@@ -766,8 +743,7 @@ test('a signer hard-failure summary (failed > 0) marks the distribution FAILED t
     async (rows, { models }) => {
       await models.rewardPayout.update({ where: { id: rows[0].id }, data: { state: 'FAILED' } })
       return { sent: 0, failed: 1, skipped: 0 }
-    },
-    async () => ({ state: 'SWEPT' }))
+    })
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('FAILED')
 })
@@ -789,89 +765,18 @@ test('an unpersisted relay (sent>0, unpersisted>0) marks the distribution FAILED
   const payout = await prisma.rewardPayout.create({
     data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
   })
-  let sweepCalled = false
   await finalizeDistribution(
     prisma,
     { ...dist, payouts: [payout] },
-    async () => ({ sent: 1, failed: 0, skipped: 0, unpersisted: 1 }),
-    async () => { sweepCalled = true; return { state: 'SWEPT' } })
+    async () => ({ sent: 1, failed: 0, skipped: 0, unpersisted: 1 }))
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('FAILED')
   expect(updated.completedAt).toBeNull()
-  expect(sweepCalled).toBe(false) // sweep not attempted on an unrecorded batch
   const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
   expect(payoutAfter.state).toBe('QUEUED')
 })
 
-test('B4: a successful ops sweep (SWEPT) completes the distribution with opsSweepState=SWEPT', async () => {
-  const { dist, payout } = await makeSweepTestDist()
-  const sweepStub = async ({ distribution, models }) => {
-    await models.rewardDistribution.update({
-      where: { id: distribution.id },
-      data: { opsSweepState: 'SWEPT', opsSweepTxHash: 'cd'.repeat(32), opsSweptPiconeros: 2_000_000_000n }
-    })
-    return { state: 'SWEPT', txHash: 'cd'.repeat(32), swept: 2_000_000_000n }
-  }
-  await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, fakeSigner, sweepStub)
-  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
-  expect(updated.status).toBe('COMPLETE')
-  expect(updated.completedAt).toBeTruthy()
-  expect(updated.opsSweepState).toBe('SWEPT')
-  expect(updated.opsSweptPiconeros).toBe(2_000_000_000n)
-  expect(updated.opsSweepTxHash).toBe('cd'.repeat(32))
-})
-
-test('B4: a SKIPPED_LOCKED sweep still completes the distribution (deferred, not blocked)', async () => {
-  const { dist, payout } = await makeSweepTestDist()
-  const sweepStub = async ({ distribution, models }) => {
-    await models.rewardDistribution.update({
-      where: { id: distribution.id },
-      data: { opsSweepState: 'SKIPPED_LOCKED' }
-    })
-    return { state: 'SKIPPED_LOCKED' }
-  }
-  await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, fakeSigner, sweepStub)
-  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
-  expect(updated.status).toBe('COMPLETE')
-  expect(updated.opsSweepState).toBe('SKIPPED_LOCKED')
-})
-
-test('B4: a DISABLED sweep completes the distribution and leaves opsSweepState=NOT_SWEEPED (rollover)', async () => {
-  const { dist, payout } = await makeSweepTestDist()
-  const sweepStub = async () => ({ state: 'DISABLED' })
-  await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, fakeSigner, sweepStub)
-  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
-  expect(updated.status).toBe('COMPLETE')
-  expect(updated.opsSweepState).toBe('NOT_SWEEPED')
-})
-
-test('B4: a FAILED sweep does NOT complete the distribution (payouts sent, manual reconciliation)', async () => {
-  const { dist, payout } = await makeSweepTestDist()
-  const sweepStub = async ({ distribution, models }) => {
-    await models.rewardDistribution.update({
-      where: { id: distribution.id },
-      data: { opsSweepState: 'FAILED' }
-    })
-    return { state: 'FAILED' }
-  }
-  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-  try {
-    await finalizeDistribution(prisma, { ...dist, payouts: [payout] }, fakeSigner, sweepStub)
-  } finally {
-    errSpy.mockRestore()
-  }
-  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
-  expect(updated.status).toBe('FAILED')
-  expect(updated.opsSweepState).toBe('FAILED')
-  const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
-  expect(payoutAfter.state).toBe('SENT')
-})
-
-test('B4: a FAILED distribution with all payouts SENT reconciles to COMPLETE on the next run (sweep not re-attempted)', async () => {
-  // After a FAILED sweep (status=FAILED, opsSweepState=FAILED, payouts all SENT),
-  // the next run sees hasQueued===false and takes the !hasQueued reconciliation
-  // branch straight to COMPLETE — without re-attempting the sweep. opsSweepState
-  // stays FAILED (the unswept ops earmark rolls forward via opsRolledOver).
+test('a FAILED distribution with all payouts SENT reconciles to COMPLETE on the next run (finalize is sweep-agnostic)', async () => {
   const curatorId = await createUser()
   const dist = await prisma.rewardDistribution.create({
     data: {
@@ -891,18 +796,15 @@ test('B4: a FAILED distribution with all payouts SENT reconciles to COMPLETE on 
     data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'SENT', txHash: 'ab'.repeat(32) }
   })
   let signerCalled = false
-  let sweepCalled = false
   await finalizeDistribution(
     prisma,
     { ...dist, payouts: [payout] },
-    async () => { signerCalled = true; return { sent: 0, failed: 0, skipped: 0 } },
-    async () => { sweepCalled = true; return { state: 'SWEPT' } })
+    async () => { signerCalled = true; return { sent: 0, failed: 0, skipped: 0 } })
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('COMPLETE')
   expect(updated.completedAt).toBeTruthy()
-  expect(updated.opsSweepState).toBe('FAILED') // unchanged — sweep not re-attempted
+  expect(updated.opsSweepState).toBe('FAILED') // untouched — finalize never sweeps
   expect(signerCalled).toBe(false) // !hasQueued branch skips the signer
-  expect(sweepCalled).toBe(false) // and skips the sweep
 })
 
 test('a second run within the same week is idempotent (returns the existing distribution)', async () => {
@@ -941,8 +843,8 @@ test('referred curators produce a FOREVER_REFERRAL payout + Earn row for the ref
   await seedTip({ postId: post, tipperId: curator, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 1000), recipientAccountId: recipientAccount.id })
   await seedTip({ postId: post, tipperId: filler, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 61000), recipientAccountId: recipientAccount.id })
 
-  // stub signer: marks QUEUED -> SENT; the real ops sweep is never invoked
-  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, sweepOpsEarmark: async () => ({ state: 'DISABLED' }) })
+  // stub signer: marks QUEUED -> SENT; no sweep exists in the finalize path
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
   created.distributions.push(dist.id)
 
   const curatorPayout = dist.payouts.find(p => p.curatorId === curator)
@@ -1001,7 +903,7 @@ test('a referrer who is ALSO a paid curator gets exactly one FOREVER_REFERRAL Ea
   await seedTip({ postId: post, tipperId: curator, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 61000), recipientAccountId: recipientAccount.id })
   await seedTip({ postId: post, tipperId: filler, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 121000), recipientAccountId: recipientAccount.id })
 
-  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, sweepOpsEarmark: async () => ({ state: 'DISABLED' }) })
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
   created.distributions.push(dist.id)
 
   // --- Both payout-row kinds for the SAME user id: the overlap under test ---
@@ -1081,7 +983,7 @@ test('a previous weekly run whose periodEnd sits at this run\'s periodStart boun
   })
   created.distributions.push(boundary.id)
 
-  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, sweepOpsEarmark: async () => ({ state: 'DISABLED' }) })
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
   created.distributions.push(dist.id)
 
   expect(dist.id).not.toBe(boundary.id)

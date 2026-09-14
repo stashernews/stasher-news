@@ -589,7 +589,7 @@ async function relayAccountSweep (w, accountIndex, address, amount) {
     try {
       tx = await w.createTx({ accountIndex, address, amount: tryAmount, relay: false })
     } catch (err) {
-      if (isBalanceError(err)) continue // fee margin bit — decrement and rebuild
+      if (isBalanceError(err) || isRetryableSweepBuildError(err)) continue // fee/outputs margin — decrement and rebuild
       throw err
     }
     const txHash = toTxHash(tx.getHash())
@@ -608,6 +608,20 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
   const sweepEnabled = String(process.env.REWARDS_OPS_SWEEP_ENABLED ?? 'true') !== 'false'
   if (!sweepEnabled || !coldAddress) {
     return { state: 'DISABLED' }
+  }
+
+  // Partial-sweep re-drive guard (2026-09-14 review): a prior run on this row
+  // already relayed part of the earmark. Re-targeting opsAvailablePiconeros
+  // would over-sweep and overwrite opsSweptPiconeros with only this run's
+  // total — refuse; the remainder rolls into the next period via
+  // opsRolledOverPiconeros.
+  const alreadySwept = BigInt(distribution?.opsSweptPiconeros ?? 0)
+  if (alreadySwept > 0n) {
+    logError({
+      distributionId: distribution.id,
+      alreadySwept: alreadySwept.toString()
+    }, 'sweepOpsEarmark: partial sweep already relayed; refusing re-drive (remainder rolls over)')
+    return { state: 'FAILED' }
   }
 
   const w = wallet || await getRewardsWallet(models)
@@ -643,6 +657,12 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
     if (target <= 0n) break
     if (acc.unlocked <= 0n) continue
     const amount = acc.unlocked < target ? acc.unlocked : target
+    logInfo({
+      distributionId: distribution.id,
+      accountIndex: acc.accountIndex,
+      amount: amount.toString(),
+      unlocked: acc.unlocked.toString()
+    }, 'sweepOpsEarmark: attempting account sweep')
     try {
       const r = await relayAccountSweep(w, acc.accountIndex, coldAddress, amount)
       if (r) {
@@ -667,6 +687,11 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
   }
 
   if (hashes.length === 0) {
+    logWarn({
+      distributionId: distribution.id,
+      target: target.toString(),
+      totalUnlocked: totalUnlocked.toString()
+    }, 'sweepOpsEarmark: deferred — no spendable outputs (rolls into next period)')
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { opsSweepState: 'SKIPPED_LOCKED' }
@@ -720,4 +745,14 @@ function toTxHash (hash) {
 function isBalanceError (err) {
   const msg = String((err && err.message) || err).toLowerCase()
   return /not enough.*(money|unlocked)|failed to get unlocked balance|insufficient.*(balance|fund)/.test(msg)
+}
+
+// Sweep-only retryable check: wallet2's create_transactions_2 throws "tx not
+// possible" when it runs out of usable (unlocked) outputs to gather the
+// amount + final fee — a spendable-funds condition, not a hard config error.
+// Kept separate from isBalanceError so payout hard-error semantics are
+// unchanged.
+function isRetryableSweepBuildError (err) {
+  const msg = String((err && err.message) || err).toLowerCase()
+  return /tx not possible|transaction not possible/.test(msg)
 }

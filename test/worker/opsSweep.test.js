@@ -12,7 +12,7 @@
 //   docker exec -u apprunner app npx jest test/worker/opsSweep.test.js
 
 import { sweepOpsEarmark } from '@/api/monero/rewards'
-import { logError } from '../../lib/logger'
+import { logInfo, logWarn, logError } from '../../lib/logger'
 
 // D1 migrated rewards.js from console.* to the pino logger (lib/logger.js), so
 // CRITICAL/relayed logs no longer hit console.error/console.log. Mock the logger
@@ -326,4 +326,60 @@ test('fee-aware sweeps: full-balance accounts send unlocked minus fee headroom, 
   expect(wallet.relayCalls).toHaveLength(2)
   expect(res.swept).toBe((3_000_000_000_000n - 1_000_000_000n) + (2_500_000_000_000n - 1_000_000_000n))
   expect(models.store.opsSweepTxHash).toMatch(/^[0-9a-f]{64},[0-9a-f]{64}$/)
+})
+
+test('defers (SKIPPED_LOCKED, not FAILED) when createTx throws "tx not possible" (retryable output-selection error)', async () => {
+  const dist = makeDistribution({ opsAvailablePiconeros: 3_000_000_000_000n })
+  const models = makeFakeModels(dist)
+  const wallet = makeFakeWallet({
+    unlocked: 10_000_000_000_000n,
+    throwsOn: true,
+    throwErr: new Error('tx not possible')
+  })
+  logWarn.mockClear()
+  const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
+  expect(res).toEqual({ state: 'SKIPPED_LOCKED' })
+  expect(models.store.opsSweepState).toBe('SKIPPED_LOCKED')
+  expect(wallet.calls).toHaveLength(3) // headroom-decrement retries before deferring
+  expect(wallet.calls.map(c => c.amount)).toEqual([
+    3_000_000_000_000n,
+    3_000_000_000_000n - 1_000_000_000n,
+    3_000_000_000_000n - 2_000_000_000n
+  ])
+  // A permanent non-lock deferral must not be silent (review finding).
+  expect(logWarn).toHaveBeenCalledWith(
+    expect.objectContaining({ distributionId: dist.id, target: '3000000000000' }),
+    expect.stringContaining('deferred')
+  )
+})
+
+test('refuses to re-drive a partially swept row (opsSwept > 0, not SWEPT) — no createTx', async () => {
+  const dist = makeDistribution({
+    opsAvailablePiconeros: 5_000_000_000_000n,
+    opsSweptPiconeros: 3_000_000_000_000n,
+    opsSweepState: 'FAILED'
+  })
+  const models = makeFakeModels(dist)
+  const wallet = makeFakeWallet({ unlocked: 10_000_000_000_000n })
+  const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
+  expect(res).toEqual({ state: 'FAILED' })
+  expect(wallet.calls).toHaveLength(0) // never re-targets opsAvailablePiconeros
+  expect(models.store.opsSweptPiconeros).toBe(3_000_000_000_000n) // unchanged
+})
+
+test('logs the attempted amount and account unlocked balance before createTx (incident diagnosability)', async () => {
+  const dist = makeDistribution({ opsAvailablePiconeros: 3_000_000_000_000n })
+  const models = makeFakeModels(dist)
+  const wallet = makeFakeWallet({ unlocked: 10_000_000_000_000n })
+  logInfo.mockClear()
+  await sweepOpsEarmark({ distribution: dist, models, wallet })
+  expect(logInfo).toHaveBeenCalledWith(
+    expect.objectContaining({
+      distributionId: dist.id,
+      accountIndex: 0,
+      amount: '3000000000000',
+      unlocked: '10000000000000'
+    }),
+    'sweepOpsEarmark: attempting account sweep'
+  )
 })

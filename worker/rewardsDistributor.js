@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
 import { computeCuratorShares } from './curatorShares'
-import { sendPayouts as defaultSendPayouts, sweepOpsEarmark as defaultSweepOpsEarmark } from '@/api/monero/rewards'
+import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
 import logger, { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 import { moneroDistributionStatus } from '@/lib/metrics'
@@ -48,12 +48,12 @@ const DISTRIBUTION_STATUS_GAUGE = { PENDING: 0, SENDING: 1, COMPLETE: 2, FAILED:
 // (no real keys/wallet); production leaves it unset and uses the real signer.
 // Returns the created (or pre-existing, via idempotency) RewardDistribution
 // with its RewardPayout rows included (post-send state).
-export async function runDistributionOnce ({ models, sendPayouts: injectSendPayouts, sweepOpsEarmark: injectSweepOpsEarmark } = {}) {
+export async function runDistributionOnce ({ models, sendPayouts: injectSendPayouts } = {}) {
   const ownsClient = !models
   const db = ownsClient ? createPrisma() : models
   try {
     const distribution = await distribute(db)
-    await finalizeDistribution(db, distribution, injectSendPayouts || defaultSendPayouts, injectSweepOpsEarmark || defaultSweepOpsEarmark)
+    await finalizeDistribution(db, distribution, injectSendPayouts || defaultSendPayouts)
     return await db.rewardDistribution.findUnique({
       where: { id: distribution.id },
       include: { payouts: true }
@@ -381,13 +381,16 @@ function toBigInt (v) {
 //     (funds never left the wallet), so the next run resumes as above.
 //   - Incomplete send summary: if sendPayouts reports any skipped or failed
 //     payouts (skipped > 0 || failed > 0), the distribution is marked FAILED
-//     (resumable) with a CRITICAL alert and the ops sweep is NOT attempted this
-//     run — it never reaches COMPLETE until every payout is SENT.
+//     (resumable) with a CRITICAL alert — it never reaches COMPLETE until every
+//     payout is SENT. The ops-earmark sweep is deliberately NOT part of this
+//     function (2026-09-14 decoupling): the handler enqueues worker/opsSweep.js
+//     as a delayed one-shot after COMPLETE, so a sweep problem can never affect
+//     distribution status.
 //   - Unpersisted relays: a payout relayed on-chain whose DB persist failed
 //     twice counts as `unpersisted` — same FAILED (resumable) path; the next
 //     run's wallet-history reconciliation flips it SENT without re-sending
 //     (never a silent COMPLETE, never a double pay).
-export async function finalizeDistribution (models, distribution, sendPayouts, sweepOpsEarmark = defaultSweepOpsEarmark) {
+export async function finalizeDistribution (models, distribution, sendPayouts) {
   // SENDING = another process is mid-send; COMPLETE = already done. Nothing for
   // this call to drive. (PENDING and FAILED fall through — FAILED is resumable
   // if it still has QUEUED payouts.)
@@ -432,19 +435,6 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
       moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
       return
     }
-    const sweep = await sweepOpsEarmark({ distribution, models })
-    if (sweep.state === 'FAILED') {
-      logError({ distributionId: distribution.id }, 'rewardsDistributor: CRITICAL — ops sweep FAILED after payouts were sent; manual reconciliation required')
-      alert('critical', 'rewards distribution failed (ops sweep)',
-        `distribution ${distribution.id}: ops sweep FAILED after payouts were sent; manual reconciliation required`,
-        { dedupeKey: `dist-${distribution.id}-sweep-failed` })
-      await models.rewardDistribution.update({
-        where: { id: distribution.id },
-        data: { status: 'FAILED' }
-      })
-      moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
-      return
-    }
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { status: 'COMPLETE', completedAt: new Date() }
@@ -463,12 +453,35 @@ export async function finalizeDistribution (models, distribution, sendPayouts, s
   }
 }
 
+// Delay between the payout run and the ops sweep. The payout tx's change is
+// 10-block locked (~20 min at Monero's 2-min block target) and the shared
+// wallet is mid-churn right after a send — the exact window that made the
+// inline sweep throw wallet2 "tx not possible" on 2026-09-14 and fail a
+// fully-paid distribution. One hour clears the lock with wide margin.
+export const OPS_SWEEP_DELAY_SECONDS = 60 * 60
+
+// Enqueue the one-shot delayed sweep for a settled distribution. No retryLimit:
+// a thrown sweep error is almost always pre-relay, and re-driving after a
+// partial relay would over-target without cumulative opsSwept accounting — the
+// weekly distribution re-enqueues (rollover) instead. singletonKey collapses
+// duplicate enqueues of the same row (idempotent across same-week reruns).
+export async function enqueueOpsSweep (boss, distribution) {
+  if (!boss || distribution?.status !== 'COMPLETE') return
+  await boss.send('opsSweep', { distributionId: distribution.id }, {
+    startAfter: OPS_SWEEP_DELAY_SECONDS,
+    singletonKey: `opsSweep-${distribution.id}`
+  })
+}
+
 // pg-boss handler. Runs one weekly distribution. Recurring scheduling is owned
 // by the pgboss.schedule row (cron 0 0 * * 1 UTC, added by migration
 // 20260807160000_schedule_rewards_distributor), NOT a relative self-requeue — so
 // runs land on the same Monday 00:00 UTC the rewards resolver counts down to
 // (api/resolvers/rewards.js). `sndev monero distribute` calls runDistributionOnce
-// directly for out-of-band runs.
-export async function rewardsDistributor ({ models }) {
-  await runDistributionOnce({ models })
+// directly for out-of-band runs. When the run settles COMPLETE, the handler
+// also enqueues the ops-earmark sweep as a 1h-delayed one-shot (see
+// enqueueOpsSweep) — the sweep is never part of the payout run itself.
+export async function rewardsDistributor ({ models, boss } = {}) {
+  const distribution = await runDistributionOnce({ models })
+  await enqueueOpsSweep(boss, distribution)
 }

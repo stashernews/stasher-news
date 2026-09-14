@@ -34,6 +34,7 @@ import { confirmFinalizer } from './confirmFinalizer'
 import { bounties } from './bounties'
 import { rewardsWalletObserver } from './rewardsWalletObserver'
 import { rewardsDistributor } from './rewardsDistributor'
+import { opsSweep } from './opsSweep'
 import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
@@ -267,6 +268,13 @@ async function work () {
   if (await boss.getQueueSize('rewardsDistributor') === 0) {
     await boss.send('rewardsDistributor', {}, { ...BOSS_RETRY, startAfter: 7 * 24 * 60 * 60 })
   }
+
+  // opsSweep: one-shot delayed cold-storage sweep of the rewards-wallet ops
+  // earmark (2026-09-14 A′ decoupling). Enqueued by the rewardsDistributor
+  // handler with startAfter = 1h after a COMPLETE run; never touches
+  // distribution status, and defers/rolls over via opsRolledOverPiconeros if
+  // the wallet is locked, the node is catching up, or a payout is in flight.
+  await boss.work('opsSweep', { includeMetadata: true }, jobWrapper(opsSweep))
 
   // rotateViewKeys: quarterly DEK-hygiene re-wrap of every encrypted view key.
   // Self-requeues on a 90d startAfter; the seed starts it after a day so it doesn't
