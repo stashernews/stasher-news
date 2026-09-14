@@ -9,16 +9,15 @@ import canvasStyles from './offcanvas.module.css'
 import classNames from 'classnames'
 import { useWalletIndicator } from '@/wallets/client/hooks'
 
-function MeImage ({ me, onClick }) {
+function MeImage ({ me }) {
   const src = useMemo(() => me?.photoId ? `${MEDIA_URL}/${me.photoId}` : '/xmrgirl.jpg', [me?.photoId])
   if (!me) {
-    return <span className='text-muted pointer'><AnonIcon onClick={onClick} width='22' height='22' /></span>
+    return <AnonIcon aria-hidden='true' focusable='false' width='22' height='22' className='text-muted' />
   }
   return (
     <Image
-      src={src} width='28' height='28'
+      src={src} width='28' height='28' alt=''
       className={canvasStyles.meimg}
-      onClick={onClick}
     />
   )
 }
@@ -35,7 +34,21 @@ export default function OffCanvas ({ me, dropNavKey }) {
 
   return (
     <>
-      <Indicator show={indicator}><MeImage me={me} onClick={handleShow} /></Indicator>
+      <Indicator show={indicator}>
+        <span
+          role='button' tabIndex={0} className='pointer'
+          aria-label='account menu' aria-haspopup='dialog' aria-expanded={show}
+          onClick={handleShow}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleShow()
+            }
+          }}
+        >
+          <MeImage me={me} />
+        </span>
+      </Indicator>
       <Offcanvas className={canvasStyles.offcanvas} show={show} onHide={handleClose} placement='end'>
         <Offcanvas.Header closeButton>
           <Offcanvas.Title><NavWalletSummary /></Offcanvas.Title>

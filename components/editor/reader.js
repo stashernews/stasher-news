@@ -37,7 +37,11 @@ const initialContentEditable = (editor, html) => {
 
 // server-resolved HTML needs no editor: paint it directly.
 // attributes must mirror HydratableContentEditable's output, hydration won't patch mismatches.
-// data-lexical-editor is an exception, Lexical sets it at attach but CSS needs it at first paint
+// data-lexical-editor is an exception, Lexical sets it at attach but CSS needs it at first paint.
+// role is another exception: read-only bodies must not be textboxes — role="textbox"
+// collapses the whole body into a single unnamed form-control node in the
+// accessibility tree, so screen readers like TalkBack announce nothing and
+// cannot navigate paragraphs/headings. Mirrors role={null} in ComposedReader.
 function ServerHTMLReader ({ html, innerClassName }) {
   return (
     <div
@@ -45,7 +49,6 @@ function ServerHTMLReader ({ html, innerClassName }) {
       aria-readonly='true'
       className={innerClassName}
       contentEditable={false}
-      role='textbox'
       spellCheck
       data-sn-reader='true'
       data-lexical-editor='true'
@@ -113,8 +116,12 @@ function ComposedReader ({ topLevel, state, text, html, readerRef, innerClassNam
     }), [topLevel, state, text])
 
   // paints resolved HTML or generates it, see initialContentEditable
+  // role={null} opts out of ContentEditable's role='textbox' default: null
+  // renders no role attribute (passing undefined would fall back to the
+  // default). Read-only bodies must expose their paragraphs/headings as
+  // normal content, not as a single form-control node — see ServerHTMLReader.
   const contentEditable = useMemo(() => (
-    <HydratableContentEditable html={html} data-sn-reader='true' className={innerClassName} />
+    <HydratableContentEditable html={html} role={null} data-sn-reader='true' className={innerClassName} />
   ), [html, innerClassName])
 
   return (
