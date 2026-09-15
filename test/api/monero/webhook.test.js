@@ -12,6 +12,8 @@
 import { handleWebhook } from '@/pages/api/monero/webhook'
 import { flipPendingToLive, applyBoostDetected } from '@/worker/rewardsWalletObserver'
 import { alert } from '@/lib/alert'
+import logger from '@/lib/logger'
+import { WEBHOOK_MISS_CHECK_DELAY_SECONDS } from '@/lib/constants'
 
 // lib/auth pulls in next-auth/jwt -> uuid (ESM-only under jest CJS require); the
 // webhook graph only uses lib/domains/auth's `safeEqual` (pure node:crypto), so
@@ -37,6 +39,11 @@ jest.mock(`${process.cwd()}/worker/rewardsWalletObserver`, () => ({
 jest.mock(`${process.cwd()}/lib/alert`, () => ({
   alert: jest.fn()
 }))
+
+// The webhook now emits a structured log line (instead of an alert) for the
+// benign tx_not_found race; capture the pino calls without printing in tests.
+const logInfoSpy = jest.spyOn(logger, 'info').mockImplementation(() => {})
+const logErrorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {})
 
 function mockModels (overrides = {}) {
   const txUpdate = overrides.txUpdate || jest.fn().mockResolvedValue({})
@@ -1604,4 +1611,112 @@ test('rejects with 401 when the x-lws-token header does not match', async () => 
     { method: 'POST', headers: { 'x-lws-token': 'wrong' }, body: {} },
     res, mockModels(), mockMonero())
   expect(res.status).toHaveBeenLastCalledWith(401)
+})
+
+// ---- tx_not_found deferral: the benign 0-conf race is logged, not paged ----
+
+test('tx_not_found (benign 0-conf race) logs instead of alerting, schedules the delayed miss check, and the tip still detects on the next callback', async () => {
+  const tip = { id: 31, postId: 10, tipperId: null, state: 'PENDING', paymentId: 'race1', piconeros: 0n, webhookEventId: 'evt-r', post: { userId: 99 }, recipientAccount: scannableAccount() }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const queryRaw = jest.fn().mockResolvedValue([{ rank_delta: 700000000n }])
+  const models = mockModels({
+    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
+    execRaw,
+    queryRaw
+  })
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+
+  // Delivery 1 — lws announces the tx before the view-key scan can see it:
+  // lookupTipTx finds no matching tx -> tx_not_found (the normal race).
+  const monero = mockMonero({ getAddressTxs: jest.fn().mockResolvedValue({ transactions: [] }) })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'race1', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', amount: 1000 } }
+  }, res, models, monero)
+
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(alert).not.toHaveBeenCalled() // silent: no page at receipt time
+  expect(logInfoSpy).toHaveBeenCalledWith(
+    expect.objectContaining({ paymentId: 'race1', piconeros: '1000', context: 'tip 31 detection' }),
+    expect.stringContaining('not visible')
+  )
+  const scheduleCall = execRaw.mock.calls.find(call => sqlOf(call).includes('webhookMissCheck'))
+  expect(scheduleCall).toBeDefined()
+  expect(sqlOf(scheduleCall)).toContain('ON CONFLICT DO NOTHING')
+  const scheduleVals = [...scheduleCall].slice(1)
+  expect(scheduleVals).toEqual(expect.arrayContaining(['race1', '1000', 'tip 31 detection', WEBHOOK_MISS_CHECK_DELAY_SECONDS]))
+  // Pin the plan's fixed values literally (not just self-consistency with the
+  // imported constant): 30 min startafter and the per-paymentId singleton key.
+  expect(WEBHOOK_MISS_CHECK_DELAY_SECONDS).toBe(1800)
+  expect(sqlOf(scheduleCall)).toContain("interval '1 second'")
+  expect(sqlOf(scheduleCall)).toContain("'webhookMissCheck:' ||")
+  // no PENDING -> DETECTED claim on the race delivery
+  expect(execRaw.mock.calls.some(call => sqlOf(call).includes("state = 'DETECTED'"))).toBe(false)
+
+  // Delivery 2 — lws's next callback (1 conf) finds the tx: detection proceeds
+  // exactly as before (money path unchanged).
+  const res2 = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'race1', event: 'tx-confirmation', confirmations: 1, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000 } }
+  }, res2, models, verifiedMonero('race1', 1000))
+  expect(res2.status).toHaveBeenCalledWith(200)
+  expect(execRaw.mock.calls.some(call => sqlOf(call).includes("state = 'DETECTED'"))).toBe(true)
+})
+
+test('tip branch: hash_mismatch still WARNs immediately and schedules nothing', async () => {
+  const tip = { id: 32, postId: 10, tipperId: null, state: 'PENDING', paymentId: 'hash1', piconeros: 0n, webhookEventId: 'evt-h', post: { userId: 99 }, recipientAccount: scannableAccount() }
+  const execRaw = jest.fn().mockResolvedValue(0)
+  const models = mockModels({ observedTip: { findFirst: jest.fn().mockResolvedValue(tip) }, execRaw })
+  const monero = mockMonero({
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: 'realhash', payment_id: 'hash1', piconeros: 1000n, spent_outputs: [] }]
+    })
+  })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'hash1', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'fakehash', amount: 1000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(alert).toHaveBeenCalledWith('warn', 'webhook receipt rejected', expect.stringContaining('hash_mismatch'), expect.anything())
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  expect(execRaw.mock.calls.some(call => sqlOf(call).includes('webhookMissCheck'))).toBe(false)
+})
+
+test('bounty branch: tx_not_found logs but does not schedule the tip miss check (tips-only scope)', async () => {
+  const bounty = { id: 7, postId: 5, state: 'PENDING', paymentId: 'bnrace', webhookEventId: 'evt-b2', recipientAccount: scannableAccount() }
+  const execRaw = jest.fn().mockResolvedValue(1)
+  const models = mockModels({
+    bountyPidMap: { findFirst: jest.fn().mockResolvedValue({ paymentId: 'bnrace', postId: 5, userId: 2 }) },
+    observedBounty: { findFirst: jest.fn().mockResolvedValue(bounty) },
+    execRaw
+  })
+  const monero = mockMonero({ getAddressTxs: jest.fn().mockResolvedValue({ transactions: [] }) })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'bnrace', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', amount: 15000000000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(alert).not.toHaveBeenCalled()
+  expect(logInfoSpy).toHaveBeenCalledWith(
+    expect.objectContaining({ paymentId: 'bnrace', context: 'bounty 7' }),
+    expect.stringContaining('not visible')
+  )
+  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
+  expect(execRaw.mock.calls.some(call => sqlOf(call).includes('webhookMissCheck'))).toBe(false)
+})
+
+test('a miss-check scheduling failure is logged best-effort and never fails the delivery', async () => {
+  const tip = { id: 33, postId: 10, tipperId: null, state: 'PENDING', paymentId: 'race2', piconeros: 0n, webhookEventId: 'evt-r2', post: { userId: 99 }, recipientAccount: scannableAccount() }
+  const execRaw = jest.fn().mockRejectedValue(new Error('pgboss insert failed'))
+  const models = mockModels({ observedTip: { findFirst: jest.fn().mockResolvedValue(tip) }, execRaw })
+  const monero = mockMonero({ getAddressTxs: jest.fn().mockResolvedValue({ transactions: [] }) })
+  const res = mockRes()
+  await handleWebhook({
+    body: { payment_id: 'race2', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', amount: 1000 } }
+  }, res, models, monero)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(logErrorSpy).toHaveBeenCalledWith(
+    expect.objectContaining({ err: expect.any(Error) }),
+    expect.stringContaining('miss-check schedule failed')
+  )
 })

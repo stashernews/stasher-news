@@ -2,9 +2,10 @@ import { PrismaClient, Prisma } from '@prisma/client'
 import { applyTipDetected } from '@/api/monero/ranking'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { notifyNewStreak } from '@/lib/webPush'
-import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
+import { BOSS_RETRY, REQUIRED_CONFIRMATIONS, WEBHOOK_MISS_CHECK_DELAY_SECONDS } from '@/lib/constants'
 import { moneroWebhooksReceivedTotal } from '@/lib/metrics'
 import { alert } from '@/lib/alert'
+import { logInfo, logError } from '@/lib/logger'
 import { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros } from '@/api/monero/bountyFunding'
 import { applyDownvotePenalty } from '@/api/monero/downvote'
 import { shouldExcludeTip, resolveItemSubName, lookupTipTx, recheckDetectedTip } from '@/api/monero/selfTip'
@@ -70,9 +71,33 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
 
   moneroWebhooksReceivedTotal.inc()
 
-  // Returns the verdict on success, or null after responding (503 retry for a
-  // transient lookup failure, 200 no-op for an unverifiable/mismatched receipt).
-  async function verifyOrReject ({ account, paymentId, piconeros, txHash, tx = null, context }) {
+  // Schedule the delayed miss check for a tip receipt whose early lookup found
+  // no tx (tx_not_found). One-shot, startafter +WEBHOOK_MISS_CHECK_DELAY_SECONDS,
+  // singletonKey per paymentId so lws's per-block callbacks and delivery retries
+  // collapse into a single job. Best-effort: this is alert instrumentation, so a
+  // scheduling failure is logged and never changes the webhook's response.
+  async function scheduleWebhookMissCheck ({ paymentId, piconeros, context }) {
+    try {
+      await models.$executeRaw`
+        INSERT INTO pgboss.job (id, name, data, retrylimit, retrydelay, retrybackoff, startafter, singletonkey)
+        VALUES (gen_random_uuid(), 'webhookMissCheck',
+                jsonb_build_object('paymentId', ${paymentId}, 'piconeros', ${piconeros.toString()}, 'context', ${context}),
+                ${BOSS_RETRY.retryLimit}, ${BOSS_RETRY.retryDelay}, ${BOSS_RETRY.retryBackoff},
+                now() + ${WEBHOOK_MISS_CHECK_DELAY_SECONDS} * interval '1 second',
+                'webhookMissCheck:' || ${paymentId})
+        ON CONFLICT DO NOTHING`
+    } catch (err) {
+      logError('webhook: miss-check schedule failed', err)
+    }
+  }
+
+  // Verify the callback against the chain before any state change. Returns the
+  // verdict on success, or null after responding:
+  //   - transient lookup failure -> 503 (lws retries; no alert)
+  //   - tx_not_found (the benign 0-conf race) -> structured log + 200 no-op;
+  //     tip callers additionally schedule the delayed miss check
+  //   - hash/amount mismatch -> immediate WARN + 200 no-op
+  async function verifyOrReject ({ account, paymentId, piconeros, txHash, tx = null, context, deferMiss = false }) {
     let verdict
     try {
       verdict = await verifyReceiptAmount({ models, monero, account, paymentId, piconeros, txHash, tx })
@@ -84,9 +109,18 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
       throw err
     }
     if (!verdict.ok) {
-      alert('warn', 'webhook receipt rejected',
-        `${context}: ${verdict.reason} for paymentId ${paymentId} (callback ${piconeros})`,
-        { dedupeKey: `webhook-reject-${paymentId}-${verdict.reason}` })
+      if (verdict.reason === 'tx_not_found') {
+        // The scanner announces a mempool tx before the view-key lookup can see
+        // it; every observed case self-resolves (next confirmation callback or
+        // reconcilePendingTips). Log only — the delayed check pages if the
+        // payment never lands.
+        logInfo({ paymentId, piconeros: piconeros.toString(), context }, 'webhook: receipt not visible yet (tx_not_found)')
+        if (deferMiss) await scheduleWebhookMissCheck({ paymentId, piconeros, context })
+      } else {
+        alert('warn', 'webhook receipt rejected',
+          `${context}: ${verdict.reason} for paymentId ${paymentId} (callback ${piconeros})`,
+          { dedupeKey: `webhook-reject-${paymentId}-${verdict.reason}` })
+      }
       res.status(200).end()
       return null
     }
@@ -212,15 +246,17 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
       // amount/txHash to the lws-reported tx. Reuses the self-send scan's tx
       // when the scan ran, so a scannable account costs one lws lookup per
       // callback. A mempool tx_not_found here is a 200 no-op (detection is
-      // deferred to the next callback / reconcilePendingTips backstop) — a
-      // real payment is never credited while unverified and never lost.
+      // deferred to the next callback / reconcilePendingTips backstop) and
+      // schedules the delayed miss check — the payment never being credited
+      // while unverified and never being lost still holds.
       const verdict = await verifyOrReject({
         account: tip.recipientAccount,
         paymentId,
         piconeros,
         txHash,
         tx: selfSendTx,
-        context: `tip ${tip.id} detection`
+        context: `tip ${tip.id} detection`,
+        deferMiss: true
       })
       if (!verdict) return
       await models.$transaction(async (tx) => {

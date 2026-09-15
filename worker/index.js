@@ -38,6 +38,7 @@ import { opsSweep } from './opsSweep'
 import { rotateViewKeys } from './rotateViewKeys'
 import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
+import { webhookMissCheck } from './webhookMissCheck'
 import { abandonFeeItems } from './abandonFeeItems'
 import { reverseStaleDetections } from './reverseStaleDetections'
 import { reconcileOwnerFeeLegs } from './reconcileOwnerFeeLegs'
@@ -219,6 +220,12 @@ async function work () {
   if (await boss.getQueueSize('reconcilePendingTips') === 0) {
     await boss.send('reconcilePendingTips', {}, { ...BOSS_RETRY })
   }
+
+  // webhookMissCheck: one-shot delayed follow-up scheduled by the webhook
+  // receiver when a tip receipt verdict is tx_not_found (the benign 0-conf
+  // race). Event-driven — no seed/self-requeue. Pages only when the
+  // ObservedTip is still PENDING when the delay elapses (money never landed).
+  await boss.work('webhookMissCheck', { includeMetadata: true }, jobWrapper(webhookMissCheck))
 
   // webhookCleanup: hourly sweep of orphaned lws webhooks (CONFIRMED/EXPIRED tips).
   await boss.work('webhookCleanup', { includeMetadata: true }, jobWrapper(webhookCleanup))
