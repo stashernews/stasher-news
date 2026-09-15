@@ -131,7 +131,16 @@ async function recoverByRawDecrypt ({ models, apply, daemon, account, transactio
   if (!candidateHashes.length) return { recovered: 0, excluded: 0, claimedTipIds: new Set() }
 
   const raws = await daemon.getTransactions(candidateHashes)
-  if (!raws.length) return { recovered: 0, excluded: 0, claimedTipIds: new Set() }
+  if (!raws.length) {
+    // A non-empty candidate list answered with zero raw txs is the exact shape
+    // an oversized /get_transactions request used to take (restricted mode:
+    // HTTP 200 + status, no txs) before the client batched + status-checked.
+    // Post-fix this is a genuine "not found" answer, but if it reappears in the
+    // logs a lookup silently stopped seeing txs lws knows about — never let
+    // that be invisible again (mainnet incident 2026-09-15).
+    console.warn(`reconcilePendingTips: monerod returned no raw txs for ${candidateHashes.length} candidate hash(es) on account ${account.id}`)
+    return { recovered: 0, excluded: 0, claimedTipIds: new Set() }
+  }
   const viewKeyHex = decryptViewKey(account.viewKey)
 
   // recipient-side pid -> tx row (first hit wins; 8-byte pid collisions

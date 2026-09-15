@@ -25,6 +25,12 @@ import http from 'node:http'
 
 const DEFAULT_TIMEOUT_MS = 15000
 
+// monerod's restricted RPC rejects /get_transactions requests carrying more
+// than 100 hashes: HTTP 200, `status: "Too many transactions requested in
+// restricted mode"`, and NO `txs` array (verified v0.18.5.1). Batch at 50 —
+// comfortably under the cap, and decode_as_json responses stay smaller.
+export const MAX_TX_HASHES_PER_REQUEST = 50
+
 class DaemonHttpError extends Error {
   constructor (status) {
     super(`monerod JSON-RPC returned HTTP ${status}`)
@@ -151,21 +157,11 @@ export function createDaemonClient (options = {}) {
     return height
   }
 
-  /**
-   * Fetch raw transactions by hash via the plain (non-json_rpc)
-   * /get_transactions endpoint, returning each tx's extra blob. Only the
-   * extra is surfaced — the caller (reconcilePendingTips' wrong-pid
-   * fallback) needs the tx public key(s) + encrypted payment id, not the
-   * full serialization. decode_as_json hands back the parsed tx as a JSON
-   * string; monerod serializes `extra` as a byte array (older builds: hex
-   * string) — both are normalized to a Buffer. Restricted RPC permits this
-   * endpoint (verified against the stack's --restricted-rpc monerod).
-   * Mempool txs are returned too (in_pool). Missed hashes are omitted.
-   * @param {string[]} hashes
-   * @returns {Promise<Array<{hash: string, extra: Buffer}>>}
-   */
-  async function getTransactions (hashes) {
-    const base = requireUrl()
+  // One ≤MAX_TX_HASHES_PER_REQUEST batch: POST, HTTP/status validation, raw
+  // monerod `txs` array back. Any non-OK status (the restricted-mode cap
+  // included) throws — a silent [] here would masquerade as "nothing on
+  // chain" and let a paid tip expire (mainnet incident 2026-09-15).
+  async function fetchTxBatch (base, hashes) {
     const body = JSON.stringify({ txs_hashes: hashes, decode_as_json: true })
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), timeoutMs)
@@ -177,21 +173,49 @@ export function createDaemonClient (options = {}) {
     }
     if (!res.ok) throw new DaemonHttpError(res.status)
     const json = parseJsonText(await res.text())
-    const txs = Array.isArray(json && json.txs) ? json.txs : []
+    if (!json || json.status !== 'OK') {
+      throw new DaemonRpcError('get_transactions', {
+        message: `${json && json.status ? json.status : 'empty/unparseable response'} (requested ${hashes.length} hashes)`
+      })
+    }
+    return Array.isArray(json.txs) ? json.txs : []
+  }
+
+  /**
+   * Fetch raw transactions by hash via the plain (non-json_rpc)
+   * /get_transactions endpoint, returning each tx's extra blob. Only the
+   * extra is surfaced — the caller (reconcilePendingTips' wrong-pid
+   * fallback) needs the tx public key(s) + encrypted payment id, not the
+   * full serialization. decode_as_json hands back the parsed tx as a JSON
+   * string; monerod serializes `extra` as a byte array (older builds: hex
+   * string) — both are normalized to a Buffer. Restricted RPC permits this
+   * endpoint but caps a single request at 100 hashes, so hashes are batched
+   * at MAX_TX_HASHES_PER_REQUEST and a non-OK status throws instead of
+   * returning an empty list. Mempool txs are returned too (in_pool). Missed
+   * hashes are omitted.
+   * @param {string[]} hashes
+   * @returns {Promise<Array<{hash: string, extra: Buffer}>>}
+   */
+  async function getTransactions (hashes) {
+    if (!Array.isArray(hashes) || hashes.length === 0) return []
+    const base = requireUrl()
     const out = []
-    for (const tx of txs) {
-      if (!tx || !tx.tx_hash) continue
-      let extra = null
-      if (typeof tx.as_json === 'string' && tx.as_json) {
-        try {
-          const parsed = JSON.parse(tx.as_json)
-          if (Array.isArray(parsed.extra)) extra = Buffer.from(parsed.extra)
-          else if (typeof parsed.extra === 'string') extra = Buffer.from(parsed.extra, 'hex')
-        } catch {
-          // unparseable as_json: omit the tx (caller treats as not-found)
+    for (let i = 0; i < hashes.length; i += MAX_TX_HASHES_PER_REQUEST) {
+      const txs = await fetchTxBatch(base, hashes.slice(i, i + MAX_TX_HASHES_PER_REQUEST))
+      for (const tx of txs) {
+        if (!tx || !tx.tx_hash) continue
+        let extra = null
+        if (typeof tx.as_json === 'string' && tx.as_json) {
+          try {
+            const parsed = JSON.parse(tx.as_json)
+            if (Array.isArray(parsed.extra)) extra = Buffer.from(parsed.extra)
+            else if (typeof parsed.extra === 'string') extra = Buffer.from(parsed.extra, 'hex')
+          } catch {
+            // unparseable as_json: omit the tx (caller treats as not-found)
+          }
         }
+        if (extra != null) out.push({ hash: tx.tx_hash, extra })
       }
-      if (extra != null) out.push({ hash: tx.tx_hash, extra })
     }
     return out
   }

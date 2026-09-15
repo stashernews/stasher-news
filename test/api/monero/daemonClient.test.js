@@ -118,6 +118,7 @@ describe('configuration', () => {
 describe('getTransactions', () => {
   test('POSTs to the plain /get_transactions endpoint with decode_as_json and returns extras', async () => {
     const t = recordingTransport(() => jsonRes(200, {
+      status: 'OK',
       txs: [{
         tx_hash: 'abc123',
         as_json: JSON.stringify({ version: 2, extra: [1, 2, 3, 4] })
@@ -133,6 +134,7 @@ describe('getTransactions', () => {
 
   test('normalizes a hex-string extra (older monerod builds) to a Buffer', async () => {
     const t = recordingTransport(() => jsonRes(200, {
+      status: 'OK',
       txs: [{ tx_hash: 'abc', as_json: JSON.stringify({ extra: 'deadbeef' }) }]
     }))
     const client = makeClient(t)
@@ -142,6 +144,7 @@ describe('getTransactions', () => {
 
   test('omits txs with unparseable as_json rather than throwing', async () => {
     const t = recordingTransport(() => jsonRes(200, {
+      status: 'OK',
       txs: [
         { tx_hash: 'bad', as_json: '{not json' },
         { tx_hash: 'none' },
@@ -157,6 +160,42 @@ describe('getTransactions', () => {
     const t = recordingTransport(() => jsonRes(500, {}))
     const client = makeClient(t)
     await expect(client.getTransactions(['abc'])).rejects.toThrow(/HTTP 500/)
+  })
+
+  test('batches >MAX_TX_HASHES_PER_REQUEST hashes and merges every batch\'s txs', async () => {
+    const hashes = Array.from({ length: 120 }, (_, i) => i.toString(16).padStart(64, '0'))
+    const t = recordingTransport(({ opts }) => {
+      const { txs_hashes: batch } = JSON.parse(opts.body)
+      return jsonRes(200, {
+        status: 'OK',
+        txs: batch.map((h) => ({ tx_hash: h, as_json: JSON.stringify({ extra: [1] }) }))
+      })
+    })
+    const client = makeClient(t)
+    const out = await client.getTransactions(hashes)
+    expect(daemon.MAX_TX_HASHES_PER_REQUEST).toBeLessThanOrEqual(100)
+    expect(t.calls.map(c => JSON.parse(c.opts.body).txs_hashes.length)).toEqual([50, 50, 20])
+    expect(out).toHaveLength(120)
+    expect(out[0]).toEqual({ hash: hashes[0], extra: Buffer.from([1]) })
+    expect(out[119]).toEqual({ hash: hashes[119], extra: Buffer.from([1]) })
+  })
+
+  test('throws on a non-OK status (restricted-mode cap) instead of returning []', async () => {
+    const t = recordingTransport(() => jsonRes(200, {
+      status: 'Too many transactions requested in restricted mode'
+    }))
+    const client = makeClient(t)
+    const err = await client.getTransactions(['abc']).catch(e => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message).toMatch(/get_transactions/)
+    expect(err.message).toMatch(/Too many transactions requested in restricted mode/)
+  })
+
+  test('returns [] for an empty hash list without issuing a request', async () => {
+    const t = recordingTransport(() => jsonRes(200, { status: 'OK' }))
+    const client = makeClient(t)
+    expect(await client.getTransactions([])).toEqual([])
+    expect(t.calls).toHaveLength(0)
   })
 })
 

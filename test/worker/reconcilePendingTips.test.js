@@ -7,6 +7,7 @@ import { alert } from '@/lib/alert'
 import { moneroTipsRecoveredTotal, moneroTipsExpiredTotal } from '@/lib/metrics'
 import { encryptViewKey } from '@/api/monero/viewkey'
 import { maskFromTxPubKey, xorWithMask } from '@/api/monero/pidDecrypt'
+import { createDaemonClient } from '@/api/monero/daemonClient'
 
 // lib/alert is mocked so operator pages are assertable without a network side
 // effect (reverseStaleDetections.test.js pattern).
@@ -538,4 +539,111 @@ test('fallback is skipped entirely when no daemon is injected (legacy callers ke
   const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => {} })
   expect(out).toEqual({ recovered: 0, expired: 1, excluded: 0, pidFallback: 0 })
   expect(expiredWhere).toEqual({ id: 34n, state: 'PENDING' })
+})
+
+test('chunked fallback recovers a wrong-pid tip on an account with >100 transactions (no silent cap failure)', async () => {
+  const realPid = '661bf254912cb9f7'
+  const servedPid = 'd048685749d57220'
+  const txHash = 'aaaa000000000000000000000000000000000000000000000000000000000000'
+  const t = tip({
+    id: 40n,
+    paymentId: realPid,
+    tipperId: 6,
+    detectedAt: new Date(Date.now() - (2 * 24 * 60 * 60 * 1000))
+  })
+  const fx = wrongPidFixture({ pidHex: realPid, txHash })
+  const account = fx.account({ viewKey: fx.viewKey })
+  // 153 unrelated historical txs + the misattributed one = 154 candidates:
+  // over monerod restricted mode's 100-hash cap, so the pre-fix client sent
+  // ONE oversized request and got a silent [] -> the tip expired (2026-09-15).
+  const history = Array.from({ length: 153 }, (_, i) => ({
+    hash: 'bbbb' + i.toString(16).padStart(60, '0'),
+    height: 100 + i,
+    payment_id: 'ffff' + i.toString(16).padStart(12, '0'),
+    piconeros: 1000000000n,
+    spent_outputs: []
+  }))
+  history.push({
+    hash: txHash,
+    height: 3216990,
+    payment_id: servedPid,
+    piconeros: 1000000000n,
+    spent_outputs: [{ sender: { maj_i: 4, min_i: 2 } }]
+  })
+  const lws = {
+    getAddressTxs: async () => ({ transactions: history, blockchain_height: 3217000 })
+  }
+  const requests = []
+  const transport = async (url, { body }) => {
+    const { txs_hashes: batch } = JSON.parse(body)
+    requests.push(batch.length)
+    if (batch.length > 100) {
+      // the pre-fix cap response shape: HTTP 200, status message, NO txs array
+      return { status: 200, ok: true, text: async () => JSON.stringify({ status: 'Too many transactions requested in restricted mode' }) }
+    }
+    return {
+      status: 200,
+      ok: true,
+      text: async () => JSON.stringify({
+        status: 'OK',
+        txs: batch.includes(txHash)
+          ? [{ tx_hash: txHash, as_json: JSON.stringify({ extra: Array.from(fx.extra) }) }]
+          : []
+      })
+    }
+  }
+  const daemon = createDaemonClient({ daemonUrl: 'http://monerod:38081', transport })
+  let expiredWhere = null
+  let applied = false
+  const models = {
+    observedTip: {
+      findMany: async () => [t],
+      updateMany: async ({ where }) => { expiredWhere = where; return { count: 1 } }
+    },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async (fn) => { await fn({ $executeRaw: async () => 1 }) }
+  }
+  const out = await runReconcilePendingTipsOnce({
+    models,
+    lwsClient: lws,
+    daemonClient: daemon,
+    apply: async () => { applied = true; return 700000000n }
+  })
+  expect(out).toEqual({ recovered: 1, expired: 0, excluded: 0, pidFallback: 1 })
+  expect(applied).toBe(true)
+  expect(expiredWhere).toBeNull()
+  // acceptance criterion: no /get_transactions request exceeds the 100-hash cap
+  expect(requests.every(n => n <= 100)).toBe(true)
+  expect(requests).toEqual([50, 50, 50, 4])
+})
+
+test('logs a warning (and still expires) when the daemon returns no raw txs for a non-empty candidate list', async () => {
+  const t = tip({
+    id: 41n,
+    paymentId: 'ffffffffffffffff',
+    detectedAt: new Date(Date.now() - (2 * 24 * 60 * 60 * 1000))
+  })
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: {}, subaddresses: [] }
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [{ hash: 'cafebabe', height: 100, payment_id: 'd048685749d57220', piconeros: 1000000000n, spent_outputs: [] }],
+      blockchain_height: 110
+    })
+  }
+  let expiredWhere = null
+  const models = {
+    observedTip: {
+      findMany: async () => [t],
+      updateMany: async ({ where }) => { expiredWhere = where; return { count: 1 } }
+    },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async () => {}
+  }
+  const daemon = { getTransactions: async () => [] }
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, daemonClient: daemon, apply: async () => {} })
+  expect(out).toEqual({ recovered: 0, expired: 1, excluded: 0, pidFallback: 0 })
+  expect(expiredWhere).toEqual({ id: 41n, state: 'PENDING' })
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining('no raw txs for 1 candidate hash(es) on account 7'))
+  warn.mockRestore()
 })

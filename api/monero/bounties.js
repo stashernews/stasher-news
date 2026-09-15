@@ -108,11 +108,12 @@ export function resolveBountyEscrowRestoreHeight ({ envHeight, earliestFundingHe
 
 // Look up the mined block height of an escrow payout tx by hash via lws
 // get_address_txs (view key only — never opens the spend-key signer wallet;
-// the daemon's restricted RPC strips get_transactions, so a daemon lookup is
-// impossible in prod). Returns null while the tx is unknown to lws or still
-// unconfirmed (mempool txs carry no height). Exported for tests; the bounties
-// worker uses it to backfill the height of SENT payouts whose height was
-// unknown at relay time (2026-08-19 beta incident).
+// the height is already in the account scan, so no daemon call is needed —
+// monerod's restricted /get_transactions does serve single-hash lookups, it
+// just caps batches at 100). Returns null while the tx is unknown to lws or
+// still unconfirmed (mempool txs carry no height). Exported for tests; the
+// bounties worker uses it to backfill the height of SENT payouts whose height
+// was unknown at relay time (2026-08-19 beta incident).
 export async function getBountyEscrowTxHeight (txHash, { models, lws = lwsClient }) {
   const net = (process.env.MONERO_NETWORK || 'stagenet').toUpperCase()
   const account = await models.moneroAccount.findFirst({
