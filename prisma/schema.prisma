@@ -1672,6 +1672,12 @@ model HealthSnapshot {
   stalled          Boolean   @default(false)
   balancePiconeros BigInt?
   balanceUpdatedAt DateTime?
+  // Nightly trust walk heartbeat: written ONLY after a fully-successful run
+  // (worker/trust.js gates the write on zero per-territory failures). The
+  // rewards distributor's staleness fail-safe reads THIS — not
+  // max(UserSubTrust.updated_at), which territory create/unarchive also
+  // refresh with incidental rows.
+  trustCompletedAt  DateTime?
   updatedAt        DateTime  @updatedAt
 }
 
@@ -1779,4 +1785,11 @@ model PlatformFeeConfig {
   // platform grows — operator-tunable via the PlatformFeeConfig row.
   distributionTopN               Int    @default(10)
   distributionMinPayoutPiconeros BigInt @default(1000000000)
+  // Curator trust weighting (#6, sybil hardening): each curator's reward-share
+  // weight is multiplied by (curatorTrustWeightFloor + (1 - floor) * their
+  // UserSubTrust score in the tipped item's turf). 1.0 (default) = disabled,
+  // exactly legacy behavior; 0.5 = gentle; 0.25 = strict. A missing/stale
+  // trust-walk heartbeat (HealthSnapshot.trustCompletedAt) or an empty trust
+  // table forces 1.0 (fail-safe, see worker/rewardsDistributor.js).
+  curatorTrustWeightFloor            Float  @default(1.0)
 }

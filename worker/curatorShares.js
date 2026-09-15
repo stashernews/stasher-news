@@ -1,5 +1,7 @@
 import createPrisma from '@/lib/create-prisma'
 import { nymsToIds, HANDICAP_NYMS } from '@/lib/founderNyms'
+import { logError } from '@/lib/logger'
+import { META_SUB } from '@/lib/constants'
 
 // computeCuratorShares — the share-computation core of StasherNews' weekly
 // rewardsDistributor (Phase 4 Task 7 / design spec §5). It ports Stacker.news'
@@ -54,6 +56,43 @@ const ZAP_THRESHOLD_PICONEROS = 100_000_000n
 // deliberately NOT handicapped (never reaches curator attribution anyway).
 const HANDICAP_ZAP_MULT = 0.5
 
+// --- Curator trust weighting (#6) ---
+
+// The nightly trust walk (02:00 UTC) writes a dedicated heartbeat
+// (HealthSnapshot.trustCompletedAt) only after a fully-successful run. If
+// that heartbeat is missing or older than 26h (one full missed run plus
+// slack), the walk is stale: weighting that week's distribution would
+// discount EVERY curator to the floor, so the distributor falls back to
+// 1.0 (weighting disabled).
+export const TRUST_STALENESS_MS = 26 * 60 * 60 * 1000
+
+// Clamp/sanitize a configured floor. Only a genuine finite number in [0, 1]
+// is accepted — anything else (null, undefined, '', numeric strings, NaN,
+// out-of-range) disables weighting (1.0). Strict typeof check is DELIBERATE:
+// Number(null) and Number('') coerce to 0, which would silently apply the
+// harshest floor (zero-trust curators excluded) instead of disabling —
+// violating the "malformed config must never change payouts" contract.
+function sanitizeTrustWeightFloor (floor) {
+  if (typeof floor !== 'number' || !Number.isFinite(floor) || floor < 0 || floor > 1) {
+    logError(`computeCuratorShares: invalid trustWeightFloor ${floor}; falling back to 1.0 (weighting disabled)`)
+    return 1.0
+  }
+  return floor
+}
+
+// Effective floor for a distribution run: the configured value, unless the
+// trust walk is stale — then 1.0 so an outage can never slash everyone's
+// rewards to the floor. Pure; `newestTrustUpdatedAt` is the walk's dedicated
+// heartbeat (HealthSnapshot.trustCompletedAt, written only after a
+// fully-successful run; null when never written).
+export function effectiveTrustWeightFloor (configFloor, newestTrustUpdatedAt, now = Date.now()) {
+  const configured = sanitizeTrustWeightFloor(configFloor)
+  if (configured === 1.0) return 1.0
+  if (!(newestTrustUpdatedAt instanceof Date) || Number.isNaN(newestTrustUpdatedAt.getTime())) return 1.0
+  if (now - newestTrustUpdatedAt.getTime() > TRUST_STALENESS_MS) return 1.0
+  return configured
+}
+
 // Apportion a curator's share across their earn types by typeProportion
 // (mirrors the upstream SN per-type apportionment: normalize per curator, floor
 // each, give the rounding remainder to the highest-proportion type). Per-type
@@ -85,7 +124,7 @@ function apportionEarns (earns, sharePiconeros) {
  * @param {Date} periodStart - inclusive start of the reward window.
  * @param {Date} periodEnd   - exclusive end of the reward window.
  * @param {bigint} poolPiconeros - total piconeros to distribute this period.
- * @param {{ minPayout?: bigint, topN?: number }} [opts]
+ * @param {{ minPayout?: bigint, topN?: number, trustWeightFloor?: number }} [opts]
  *   - minPayout: shares below this are excluded and roll over (NOT redistributed).
  *   - topN: cap on the number of recipients (highest proportion first).
  * @param {object} [models] - Prisma client. A throwaway client is created if
@@ -94,17 +133,18 @@ function apportionEarns (earns, sharePiconeros) {
  *   `share.earns` partitions `sharePiconeros` by content type; its piconeros sum
  *   exactly to `sharePiconeros`. Consumed when writing per-(curator,type) Earn rows.
  */
-export async function computeCuratorShares (periodStart, periodEnd, poolPiconeros, { minPayout = 0n, topN = 100 } = {}, models) {
+export async function computeCuratorShares (periodStart, periodEnd, poolPiconeros, { minPayout = 0n, topN = 100, trustWeightFloor = 1.0 } = {}, models) {
   const ownsClient = !models
   const db = ownsClient ? createPrisma() : models
+  const floor = sanitizeTrustWeightFloor(trustWeightFloor)
   try {
-    return await compute(db, periodStart, periodEnd, poolPiconeros, minPayout, topN)
+    return await compute(db, periodStart, periodEnd, poolPiconeros, minPayout, topN, floor)
   } finally {
     if (ownsClient) db.$disconnect().catch(console.error)
   }
 }
 
-async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout, topN) {
+async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout, topN, trustWeightFloor) {
   const handicapIds = await nymsToIds(models, HANDICAP_NYMS)
   // Per-curator raw proportions from the ported CTE. Each row is
   // { curatorId: number, total_proportion: number, earns: string (json_agg text) }.
@@ -117,15 +157,23 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
             THEN "weightedVotes" / (sum("weightedVotes") OVER (PARTITION BY "parentId" IS NULL))
             ELSE 0 END AS proportion
         FROM (
-          SELECT *,
-            NTILE(100) OVER (PARTITION BY "parentId" IS NULL ORDER BY ("weightedVotes" - "weightedDownVotes") DESC) AS percentile,
-            ROW_NUMBER() OVER (PARTITION BY "parentId" IS NULL ORDER BY ("weightedVotes" - "weightedDownVotes") DESC) AS rank
+          -- #6: the root join puts every Item column name into the range table
+          -- TWICE, so ALL Item references below MUST stay "Item".-qualified —
+          -- unqualified "weightedVotes"/"parentId"/"deletedAt"/bio raise
+          -- Postgres 42702 ambiguous-column (verified on the dev DB
+          -- 2026-09-14). Turf resolution mirrors api/monero/ranking.js:92
+          -- (root subNames win for comments; turf-less items are META_SUB).
+          SELECT "Item".*,
+            COALESCE(root."subNames"[1], "Item"."subNames"[1], ${META_SUB}::CITEXT) AS turf,
+            NTILE(100) OVER (PARTITION BY "Item"."parentId" IS NULL ORDER BY ("Item"."weightedVotes" - "Item"."weightedDownVotes") DESC) AS percentile,
+            ROW_NUMBER() OVER (PARTITION BY "Item"."parentId" IS NULL ORDER BY ("Item"."weightedVotes" - "Item"."weightedDownVotes") DESC) AS rank
           FROM "Item"
+          LEFT JOIN "Item" root ON root.id = "Item"."rootId"
           WHERE "Item"."created_at" >= ${periodStart}
             AND "Item"."created_at" < ${periodEnd}
-            AND "weightedVotes" > 0
-            AND "deletedAt" IS NULL
-            AND NOT bio
+            AND "Item"."weightedVotes" > 0
+            AND "Item"."deletedAt" IS NULL
+            AND NOT "Item".bio
         ) x
         WHERE x.percentile <= ${PERCENTILE_CUTOFF}
       ),
@@ -134,13 +182,19 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
       -- each contiguous run of tips from the same user on the same item, so a
       -- burst of successive tips is collapsed before the quad-root (preventing
       -- disproportionate reward for splitting a tip into many pieces).
+      -- #6: also carry the tipper's trust in the item's turf (zapPostTrust for
+      -- posts, zapCommentTrust for comments; no row => 0). The LEFT JOIN is
+      -- 1:1 at most (PK userId+subName), so no row fanout.
       item_zapper_islands AS (
         SELECT "ObservedTip"."tipperId" AS "userId",
           item_proportions.id,
           item_proportions.proportion,
           item_proportions."parentId",
+          item_proportions.turf,
           "ObservedTip"."piconeros" AS zapped_piconeros,
           "ObservedTip"."confirmedAt" AS acted_at,
+          COALESCE(CASE WHEN item_proportions."parentId" IS NULL
+            THEN ust."zapPostTrust" ELSE ust."zapCommentTrust" END, 0) AS zap_trust,
           ROW_NUMBER() OVER (PARTITION BY item_proportions.id ORDER BY "ObservedTip"."confirmedAt" ASC)
             - ROW_NUMBER() OVER (PARTITION BY item_proportions.id, "ObservedTip"."tipperId" ORDER BY "ObservedTip"."confirmedAt" ASC) AS island
         FROM item_proportions
@@ -149,18 +203,24 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
           AND "ObservedTip"."confirmedAt" >= ${periodStart}
           AND "ObservedTip"."confirmedAt" < ${periodEnd}
           AND "ObservedTip"."tipperId" IS NOT NULL
+        LEFT JOIN "UserSubTrust" ust
+          ON ust."subName" = item_proportions.turf
+         AND ust."userId" = "ObservedTip"."tipperId"
       ),
       -- one row per (user, item, island): quad-root of the tipped piconeros.
       -- power(sum, 0.25) gives diminishing returns (each additional piconero
       -- rewards less than the last). The legacy /1000 divisor is dropped: it
       -- was a constant divisor that cancels under the final normalization.
+      -- #6: min(zap_trust) — constant within the island (same tipper+turf),
+      -- aggregated to satisfy GROUP BY.
       item_zappers AS (
         SELECT "userId",
           item_zapper_islands.id,
           item_zapper_islands.proportion,
           item_zapper_islands."parentId",
           GREATEST(power(sum(zapped_piconeros)::float, 0.25), 0) AS zapped,
-          min(acted_at) AS acted_at
+          min(acted_at) AS acted_at,
+          min(zap_trust) AS zap_trust
         FROM item_zapper_islands
         GROUP BY "userId", item_zapper_islands.id, item_zapper_islands.proportion, item_zapper_islands."parentId", island
         HAVING sum(zapped_piconeros) > ${ZAP_THRESHOLD_PICONEROS}
@@ -169,9 +229,13 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
       --   early component  = 1/LN(rank + e - 1)   (earlier tippers win)
       --   tipped component = their share of the item's total tipped weight
       --   item component   = the item's share of the period's vote weight
+      --   trust component  (#6) = floor + (1 - floor) * zap_trust, applied
+      --   per (curator, item) INSIDE the sum (trust varies by item turf).
+      --   floor = 1.0 (default) multiplies by exactly 1.0: bit-for-bit legacy.
       item_zapper_ratios AS (
         SELECT "userId",
-          sum((2 * early_multiplier + 1) * zapped_proportion * proportion)
+          sum((2 * early_multiplier + 1) * zapped_proportion * proportion
+              * (${trustWeightFloor}::DOUBLE PRECISION + (1.0 - ${trustWeightFloor}::DOUBLE PRECISION) * zap_trust))
             * CASE WHEN "userId" = ANY(${handicapIds}::int[]) THEN ${HANDICAP_ZAP_MULT} ELSE 1 END AS item_zapper_proportion,
           "parentId" IS NULL AS "isPost"
         FROM (

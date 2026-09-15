@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
-import { computeCuratorShares } from './curatorShares'
+import { computeCuratorShares, effectiveTrustWeightFloor } from './curatorShares'
 import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
 import logger, { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
@@ -200,12 +200,30 @@ async function distribute (models) {
     const opsRolledOver = toBigInt(lastDistribution?.opsAvailablePiconeros) - toBigInt(lastDistribution?.opsSweptPiconeros)
     const opsAvailable = opsInflow + opsRolledOver
 
+    // --- Curator trust weighting (#6): config floor + staleness fail-safe.
+    // Weighting keys off the nightly trust walk's DEDICATED heartbeat
+    // (HealthSnapshot.trustCompletedAt, written only after a fully-successful
+    // run). max(UserSubTrust.updated_at) was rejected: territory create/
+    // unarchive also write fresh rows, so a territory event inside the window
+    // would mask a broken walk. Heartbeat missing/stale (> TRUST_STALENESS_MS)
+    // or trust table empty => force 1.0 (weighting disabled) so a broken walk
+    // can never slash payouts. ---
+    const configTrustFloor = config.curatorTrustWeightFloor ?? 1.0
+    const heartbeat = await tx.healthSnapshot.findUnique({ where: { id: 1 }, select: { trustCompletedAt: true } })
+    const trustRows = await tx.userSubTrust.count()
+    const trustWeightFloor = trustRows > 0
+      ? effectiveTrustWeightFloor(configTrustFloor, heartbeat?.trustCompletedAt ?? null)
+      : 1.0
+    if (trustWeightFloor !== configTrustFloor) {
+      logError('rewardsDistributor: trust walk stale or missing (heartbeat) — curator trust weighting disabled for this run')
+    }
+
     // --- Curator shares (Task 7). Read-only, so it COULD run outside the tx,
     // but passing tx keeps the reads in the same serializable snapshot as the
     // writes below — fully consistent at no extra cost. ---
     const { shares } = await computeCuratorShares(
       periodStart, periodEnd, poolPiconeros,
-      { minPayout: toBigInt(config.distributionMinPayoutPiconeros), topN: config.distributionTopN },
+      { minPayout: toBigInt(config.distributionMinPayoutPiconeros), topN: config.distributionTopN, trustWeightFloor },
       tx)
 
     // --- Address filter + payout rows ---

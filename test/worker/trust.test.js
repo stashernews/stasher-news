@@ -65,6 +65,7 @@ let founderId
 let authorId
 let aId
 let cId
+let priorHeartbeat = null
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -201,6 +202,12 @@ async function seedOneWayFollow ({ curatorId, curatorAmount, firstMinor, recipie
 }
 
 beforeAll(async () => {
+  // Snapshot the heartbeat so teardown can restore it. healthProbe owns the
+  // row's other fields (it upserts id=1 every 60s on dev) — we only touch
+  // trustCompletedAt and must never delete the row.
+  const heartbeatBefore = await prisma.healthSnapshot.findUnique({ where: { id: 1 }, select: { trustCompletedAt: true } })
+  priorHeartbeat = heartbeatBefore?.trustCompletedAt ?? null
+
   // Territory founder is a per-territory trust seed for the SUB walks
   // (seeds = GLOBAL_SEEDS ∪ {founderId}); it does not need to tip for the global
   // zapPostTrust assertion, which is driven by SEED_USER (stasher) tipping.
@@ -317,6 +324,11 @@ afterAll(async () => {
   await prisma.sub.deleteMany({ where: { name: { in: created.subs } } })
   await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
+  // Restore the pre-suite heartbeat (leave-no-trace; the row itself belongs
+  // to healthProbe). Killed-run caveat: an interrupted run can leave a fresh
+  // test heartbeat behind, masking staleness on dev until the next real
+  // nightly walk overwrites it — same residue class as fixture residue.
+  await prisma.healthSnapshot.updateMany({ where: { id: 1 }, data: { trustCompletedAt: priorHeartbeat } })
   await prisma.$disconnect()
 })
 
@@ -413,4 +425,12 @@ test('derives non-zero zapPostTrust from a ONE-DIRECTIONAL seed follow (NULL agg
   expect(rowA.zapPostTrust).toBeGreaterThan(0)
   expect(rowC).toBeTruthy()
   expect(rowC.zapPostTrust).toBeGreaterThan(0)
+})
+
+test('a fully-successful walk writes the trust heartbeat (HealthSnapshot.trustCompletedAt)', async () => {
+  const row = await prisma.healthSnapshot.findUnique({ where: { id: 1 }, select: { trustCompletedAt: true } })
+  expect(row).not.toBeNull()
+  expect(row.trustCompletedAt).toBeInstanceOf(Date)
+  // written by THIS run (beforeAll's trust() call), not a stale value
+  expect(row.trustCompletedAt.getTime()).toBeGreaterThan(Date.now() - 10 * 60 * 1000)
 })

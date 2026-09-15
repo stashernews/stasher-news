@@ -59,6 +59,7 @@ let result // the distribution returned by runDistributionOnce (beforeAll)
 let seededCurators // { c1, c2, c3 } — c3 has NO registered payout address
 let genuineRewardsShare // rewards share of genuine (non-fixture) inflow in the period (beforeAll)
 let genuineOpsShare // ops share of genuine (non-fixture) inflow in the period (beforeAll)
+let priorTrustFloor = null
 
 // Task 9 stub signer: records that it was invoked and marks each QUEUED payout
 // SENT with a stable fake tx hash. Injected into runDistributionOnce so the
@@ -271,10 +272,18 @@ beforeAll(async () => {
   // Self-heal any residue from a prior interrupted run before seeding anew.
   await purgePriorResidue()
 
+  // Snapshot the operator's floor so afterAll can restore it — this suite
+  // runs against the shared dev DB and must leave no trace (AGENTS norm).
+  const priorConfigRow = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  priorTrustFloor = priorConfigRow?.curatorTrustWeightFloor ?? null
+
   // Ensure the PlatformFeeConfig singleton exists with schema defaults
   // (downvoteRewardsPct=100, postingFeeRewardsPct=70, territoryFeeRewardsPct=30,
   //  distributionMinPayoutPiconeros=1e9, distributionTopN=10).
-  await prisma.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
+  // curatorTrustWeightFloor is PINNED to 1.0 for this suite: only c1 has a
+  // seeded UserSubTrust row, so any other floor would discount c2/c3 and break
+  // the exact-pool assertions regardless of operator config.
+  await prisma.platformFeeConfig.upsert({ where: { id: 1 }, update: { curatorTrustWeightFloor: 1.0 }, create: { id: 1 } })
 
   // Clear any RESULT distribution left over from a prior run whose periodEnd
   // falls inside the coming week (otherwise runDistributionOnce's idempotency
@@ -451,6 +460,17 @@ afterAll(async () => {
   }
   await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
+
+  // Restore the operator's pre-suite floor (leave-no-trace on the shared dev
+  // DB). If this suite's pin CREATED the singleton row, leave it with schema
+  // defaults — semantically identical to the pre-suite world. A killed run
+  // skips this restore (documented residue, same class as fixture residue).
+  await prisma.platformFeeConfig.upsert({
+    where: { id: 1 },
+    update: { curatorTrustWeightFloor: priorTrustFloor ?? 1.0 },
+    create: { id: 1 }
+  })
+
   await prisma.$disconnect()
 })
 

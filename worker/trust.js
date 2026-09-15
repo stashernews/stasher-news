@@ -20,6 +20,7 @@ const IRRELEVANT_CUMULATIVE_TRUST = 0.001 // if a user has less than this amount
 // one with global seeds and one with subName seeds
 export async function trust ({ boss, models }) {
   console.time('trust')
+  let failedTerritories = 0
   // Founder nyms -> ids once per run (nightly); missing nyms resolve away.
   const globalSeeds = await resolveTrustSeeds(models)
   const territories = await models.sub.findMany({
@@ -69,10 +70,23 @@ export async function trust ({ boss, models }) {
 
       await storeTrust(models, territory.name, results)
     } catch (e) {
+      failedTerritories += 1
       console.error(`error computing trust for ${territory.name}:`, e)
     } finally {
       console.timeLog('trust', `finished computing trust for ${territory.name}`)
     }
+  }
+  // Heartbeat for the rewards distributor's staleness fail-safe (#6): only a
+  // FULLY-successful walk counts. Any per-territory failure leaves the old
+  // timestamp in place so Monday's distribution fails toward floor 1.0 —
+  // the per-territory catch above swallows errors, so an unconditional
+  // write here would be as defeatable as max(updated_at) was.
+  if (failedTerritories === 0) {
+    await models.healthSnapshot.upsert({
+      where: { id: 1 },
+      update: { trustCompletedAt: new Date() },
+      create: { id: 1, trustCompletedAt: new Date() }
+    })
   }
   console.timeEnd('trust')
 }

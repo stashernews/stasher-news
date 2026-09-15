@@ -17,7 +17,7 @@
 //   docker exec -u apprunner app npx jest test/worker/curatorShares.test.js
 
 import { PrismaClient } from '@prisma/client'
-import { computeCuratorShares } from '@/worker/curatorShares'
+import { computeCuratorShares, effectiveTrustWeightFloor } from '@/worker/curatorShares'
 import { USER_ID } from '@/lib/constants'
 
 const prisma = new PrismaClient()
@@ -26,7 +26,7 @@ const ADDR = '7' + '4'.repeat(94) // 95-char Monero address placeholder
 
 // Tracks every row created across tests so afterAll can tear them down in
 // FK-safe order: ObservedTip -> Item -> MoneroAccount -> users.
-const created = { users: [], items: [], accounts: [], tips: [] }
+const created = { users: [], items: [], accounts: [], tips: [], trustRows: [] }
 
 // The shared seed: 3 ranked root posts + 4 tippers (3 heavy, 1 dust). The dust
 // tipper (D) tips just above the ZAP_THRESHOLD on the lowest-ranked post, so its
@@ -51,7 +51,7 @@ async function purgePriorResidue () {
   const tipperIds = [...new Set(priorTips.map(t => t.tipperId).filter(Boolean))]
   const testPostIds = [...new Set(priorTips.map(t => t.postId).filter(Boolean))]
   const priorAuthorIds = (await prisma.item.findMany({
-    where: { title: { in: ['top post', 'mid post', 'low post', 'normal handicap control post', 'staff handicapped post'] } },
+    where: { title: { in: ['top post', 'mid post', 'low post', 'normal handicap control post', 'staff handicapped post', 'trust weighted post one', 'trust weighted post two'] } },
     select: { userId: true }
   })).map(i => i.userId)
   const testUserIds = [...new Set([...tipperIds, ...priorAuthorIds])].filter(id => id !== HANDICAP_USER_ID)
@@ -63,9 +63,10 @@ async function purgePriorResidue () {
     await prisma.item.deleteMany({ where: { id } })
   }
   await prisma.item.deleteMany({
-    where: { title: { in: ['top post', 'mid post', 'low post', 'normal handicap control post', 'staff handicapped post'] } }
+    where: { title: { in: ['top post', 'mid post', 'low post', 'normal handicap control post', 'staff handicapped post', 'trust weighted post one', 'trust weighted post two'] } }
   })
   await prisma.$executeRaw`DELETE FROM "MoneroAccount" WHERE address ~ '^74{94}[0-9]+$'`
+  if (testUserIds.length) await prisma.userSubTrust.deleteMany({ where: { userId: { in: testUserIds } } })
   if (testUserIds.length) await prisma.user.deleteMany({ where: { id: { in: testUserIds } } })
 }
 
@@ -86,6 +87,9 @@ afterAll(async () => {
     await prisma.item.deleteMany({ where: { id } })
   }
   for (const id of created.accounts) await prisma.moneroAccount.deleteMany({ where: { id } })
+  for (const tr of created.trustRows) {
+    await prisma.userSubTrust.deleteMany({ where: { subName: tr.subName, userId: tr.userId } })
+  }
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
   await prisma.$disconnect()
 })
@@ -335,4 +339,113 @@ test('staff curators (HANDICAP_IDS) get a 0.5x curator proportion', async () => 
   // Both curators tipped identical amounts on identical posts; the staff
   // handicap halves the proportion, so the staff share is exactly half.
   expect(staffShare.sharePiconeros).toBe(normalShare.sharePiconeros / 2n)
+})
+
+// --- #6: trust-weight floor helpers (pure, no DB) ---
+
+test('effectiveTrustWeightFloor: fresh trust passes the config floor through', () => {
+  const now = new Date('2026-09-21T00:00:00Z').getTime()
+  expect(effectiveTrustWeightFloor(0.5, new Date(now - 60 * 60 * 1000), now)).toBe(0.5)
+  expect(effectiveTrustWeightFloor(0.25, new Date(now - 25 * 60 * 60 * 1000), now)).toBe(0.25)
+})
+
+test('effectiveTrustWeightFloor: stale trust (>26h) forces 1.0', () => {
+  const now = new Date('2026-09-21T00:00:00Z').getTime()
+  expect(effectiveTrustWeightFloor(0.5, new Date(now - 27 * 60 * 60 * 1000), now)).toBe(1.0)
+})
+
+test('effectiveTrustWeightFloor: missing/invalid freshness (empty table) forces 1.0', () => {
+  expect(effectiveTrustWeightFloor(0.5, null, Date.now())).toBe(1.0)
+  expect(effectiveTrustWeightFloor(0.5, undefined, Date.now())).toBe(1.0)
+  expect(effectiveTrustWeightFloor(0.5, 'not-a-date', Date.now())).toBe(1.0)
+})
+
+test('effectiveTrustWeightFloor: invalid config floors fall back to 1.0', () => {
+  const fresh = new Date()
+  expect(effectiveTrustWeightFloor('nope', fresh, Date.now())).toBe(1.0)
+  expect(effectiveTrustWeightFloor(1.5, fresh, Date.now())).toBe(1.0)
+  expect(effectiveTrustWeightFloor(-1, fresh, Date.now())).toBe(1.0)
+  expect(effectiveTrustWeightFloor(NaN, fresh, Date.now())).toBe(1.0)
+
+  // coercible-to-0 junk must NOT masquerade as floor 0 (strict typing):
+  expect(effectiveTrustWeightFloor(null, fresh, Date.now())).toBe(1.0)
+  expect(effectiveTrustWeightFloor(undefined, fresh, Date.now())).toBe(1.0)
+  expect(effectiveTrustWeightFloor('', fresh, Date.now())).toBe(1.0)
+  expect(effectiveTrustWeightFloor('0.5', fresh, Date.now())).toBe(1.0)
+})
+
+// --- #6: trust-weighted curator shares (integration) ---
+
+// Test items are created WITHOUT subNames, so their turf resolves to META_SUB
+// ('stasher') — the same real sub rewardsDistributor.test.js seeds trust into.
+async function seedTrustRow (userId, zapPostTrust, zapCommentTrust = zapPostTrust) {
+  await prisma.userSubTrust.create({
+    data: { subName: 'stasher', userId, zapPostTrust, zapCommentTrust }
+  })
+  created.trustRows.push({ subName: 'stasher', userId })
+}
+
+const TRUST_POOL = 10_000_000_000_000n
+
+// Two identical posts, one tipped by a curator we give trust, one by a curator
+// we don't. Symmetric items => identical baseline contributions, so any share
+// difference is attributable ONLY to the trust multiplier.
+async function seedTrustScenario () {
+  const account = await seedAccount()
+  const author1 = await createUser()
+  const author2 = await createUser()
+  const trustedTipper = await createUser()
+  const untrustedTipper = await createUser()
+  const post1 = await createRootPost(author1, 'trust weighted post one', 10)
+  const post2 = await createRootPost(author2, 'trust weighted post two', 10)
+  const at = new Date(Date.now() + 90 * 60 * 1000) // inside the shared period window
+  await seedTip({ postId: post1, tipperId: trustedTipper, piconeros: 1_000_000_000n, confirmedAt: at, recipientAccountId: account.id })
+  await seedTip({ postId: post2, tipperId: untrustedTipper, piconeros: 1_000_000_000n, confirmedAt: at, recipientAccountId: account.id })
+  return { trustedTipper, untrustedTipper }
+}
+
+test('a full-trust curator is unaffected by the floor (multiplier exactly 1)', async () => {
+  const sc = await seedTrustScenario()
+  await seedTrustRow(sc.trustedTipper, 1, 1)
+  await seedTrustRow(sc.untrustedTipper, 1, 1)
+  const { shares } = await computeCuratorShares(periodStart, periodEnd, TRUST_POOL, { minPayout: 0n, topN: 100, trustWeightFloor: 0.25 }, prisma)
+  const a = shares.find(s => s.curatorId === sc.trustedTipper)
+  const b = shares.find(s => s.curatorId === sc.untrustedTipper)
+  expect(a).toBeDefined()
+  expect(b).toBeDefined()
+  // identical symmetric contributions x trust 1 => identical shares
+  expect(a.sharePiconeros).toBe(b.sharePiconeros)
+})
+
+test('a zero-trust curator (no UserSubTrust row) earns ~floor x weight at floor=0.25', async () => {
+  const sc = await seedTrustScenario()
+  await seedTrustRow(sc.trustedTipper, 1, 1)
+  // untrustedTipper gets NO row -> COALESCE(trust, 0)
+  const { shares } = await computeCuratorShares(periodStart, periodEnd, TRUST_POOL, { minPayout: 0n, topN: 100, trustWeightFloor: 0.25 }, prisma)
+  const a = shares.find(s => s.curatorId === sc.trustedTipper)
+  const b = shares.find(s => s.curatorId === sc.untrustedTipper)
+  expect(a).toBeDefined()
+  expect(b).toBeDefined()
+  // proportions 0.8 vs 0.2 => ~4x ratio (tolerant of BigInt floor rounding)
+  const t = BigInt(a.sharePiconeros)
+  const u = BigInt(b.sharePiconeros)
+  expect(t).toBeGreaterThan(3n * u)
+  expect(t).toBeLessThan(5n * u)
+})
+
+test('floor=0 excludes zero-trust curators from rewards entirely', async () => {
+  const sc = await seedTrustScenario()
+  await seedTrustRow(sc.trustedTipper, 1, 1)
+  const { shares } = await computeCuratorShares(periodStart, periodEnd, TRUST_POOL, { minPayout: 0n, topN: 100, trustWeightFloor: 0 }, prisma)
+  const ids = shares.map(s => s.curatorId)
+  expect(ids).toContain(sc.trustedTipper)
+  expect(ids).not.toContain(sc.untrustedTipper)
+})
+
+test('trustWeightFloor omitted (default 1.0) is bit-for-bit identical to legacy behavior', async () => {
+  const params = { minPayout: 1_000_000_000n, topN: 100 }
+  const legacy = await computeCuratorShares(periodStart, periodEnd, POOL, params, prisma)
+  const explicit = await computeCuratorShares(periodStart, periodEnd, POOL, { ...params, trustWeightFloor: 1.0 }, prisma)
+  const replacer = (_, v) => (typeof v === 'bigint' ? String(v) : v)
+  expect(JSON.stringify(explicit, replacer)).toEqual(JSON.stringify(legacy, replacer))
 })
