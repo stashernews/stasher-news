@@ -73,3 +73,6 @@ jobs:
         # workers racing the shared DB produce a rotating set of interference
         # failures. Serial execution is deterministic: 1109/1109 green.
         run: npm test -- --runInBand
+
+      - name: Verify editor markdown-length checks
+        run: npm run check:markdown-length

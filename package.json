@@ -15,6 +15,7 @@
     "start": "NODE_OPTIONS='--trace-warnings --max-old-space-size=4096 --max-semi-space-size=128' next start -p $PORT --keepAliveTimeout 120000",
     "lint": "standard",
     "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
+    "check:markdown-length": "tsx --tsconfig jsconfig.json scripts/check-markdown-length.js",
     "worker": "NODE_OPTIONS='--max-old-space-size=2048' tsx --tsconfig jsconfig.json --trace-warnings worker/index.js",
     "worker:dev": "NODE_OPTIONS='--max-old-space-size=2048' tsx --tsconfig jsconfig.json --trace-warnings --watch worker/index.js"
   },

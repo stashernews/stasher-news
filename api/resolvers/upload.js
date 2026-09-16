@@ -1,4 +1,4 @@
-import { USER_ID, IMAGE_PIXELS_MAX, UPLOAD_SIZE_MAX, UPLOAD_SIZE_MAX_AVATAR, UPLOAD_FREE_BYTES_MAX, UPLOAD_FEE_PICONEROS, UPLOAD_TYPES_ALLOW, AWS_S3_URL_REGEXP, AVATAR_TYPES_ALLOW, MEDIA_URL, DOMAIN_BETA_IDS } from '@/lib/constants'
+import { USER_ID, IMAGE_PIXELS_MAX, UPLOAD_SIZE_MAX, UPLOAD_SIZE_MAX_AVATAR, UPLOAD_FREE_BYTES_MAX, UPLOAD_FEE_PICONEROS, UPLOAD_TYPES_ALLOW, AWS_S3_URL_REGEXP, AVATAR_TYPES_ALLOW, PUBLIC_MEDIA_URL, DOMAIN_BETA_IDS } from '@/lib/constants'
 import { createPresignedPost } from '@/api/s3'
 import { GqlAuthenticationError, GqlAuthorizationError, GqlInputError } from '@/lib/error'
 import { rateLimit } from '@/lib/rate-limit'
@@ -167,6 +167,6 @@ export async function throwOnExpiredUploads (uploadIds, { tx }) {
   const deletedIds = uploadIds.filter(id => !existingIds.has(id))
 
   if (deletedIds.length > 0) {
-    throw new Error(`upload(s) ${deletedIds.map(id => `${MEDIA_URL}/${id}`).join(', ')} are expired, consider reuploading.`)
+    throw new GqlInputError(`upload(s) ${deletedIds.map(id => `${PUBLIC_MEDIA_URL}/${id}`).join(', ')} are expired, consider reuploading.`)
   }
 }

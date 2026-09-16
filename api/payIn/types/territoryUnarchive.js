@@ -1,6 +1,6 @@
 import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST } from '@/lib/constants'
 import { nextBilling } from '@/lib/territory'
-import { initialTrust } from '../lib/territory'
+import { initialTrust, subOccWhere } from '../lib/territory'
 import * as MEDIA_UPLOAD from './mediaUpload'
 import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
@@ -106,12 +106,7 @@ export async function onBegin (tx, payInId, { name, billingType, uploadIds, ...d
     },
     // optimistic concurrency control
     // make sure none of the relevant fields have changed since we fetched the sub
-    where: {
-      ...sub,
-      postTypes: {
-        equals: sub.postTypes
-      }
-    }
+    where: subOccWhere(sub)
   })
 
   const trust = await initialTrust(tx, { name: updatedSub.name, userId: updatedSub.userId })

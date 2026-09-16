@@ -1,26 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
-import { $getSelection, $isRangeSelection, RootNode, $getRoot } from 'lexical'
+import { $getSelection, $isRangeSelection, RootNode } from 'lexical'
 import { $trimTextContentFromAnchor } from '@lexical/selection'
 import { $restoreEditorState } from '@lexical/utils'
 import { MAX_POST_TEXT_LENGTH } from '@/lib/constants'
+import { getRemainingMarkdown, markdownLength } from '@/lib/lexical/utils'
+import { isMarkdownMode } from '@/lib/lexical/commands/utils'
+import useDebounceCallback from '@/components/use-debounce-callback'
+import { useFeeButton } from '@/components/fee-button'
 
-function getRemaining (editor, maxLength) {
-  return editor.getEditorState().read(() => {
-    const root = $getRoot()
-    const textContentSize = root ? root.getTextContentSize() : 0
-    return Math.max(0, maxLength - textContentSize)
-  })
-}
+// fee-button disabled reason published while the submitted markdown exceeds the limit
+export const MAX_LENGTH_DISABLED_REASON = 'maxLength'
 
 /**
  * plugin that enforces maximum text length and displays character count
+ * the count is the length of the markdown formik submits (the same string the
+ * server validates), so write and compose modes report the same unit
  * @param {number} props.lengthOptions.maxLength - maximum character limit
  * @param {boolean} props.lengthOptions.show - whether to always show character count
  * @returns {JSX.Element|null} character count display or null
  */
 export function MaxLengthPlugin ({ lengthOptions = {} }) {
   const [editor] = useLexicalComposerContext()
+  const { setDisabled } = useFeeButton() ?? {}
 
   // if no limit is set, MAX_POST_TEXT_LENGTH is used
   // rendering is disabled if not requested
@@ -28,8 +30,9 @@ export function MaxLengthPlugin ({ lengthOptions = {} }) {
 
   // track remaining characters with state so it updates on editor changes
   const [remaining, setRemaining] = useState(() => {
-    return getRemaining(editor, maxLength)
+    return getRemainingMarkdown(editor, maxLength)
   })
+  const overLimit = useRef(false)
 
   useEffect(() => {
     // prevent infinite restoration loops by tracking the last restored editor state
@@ -73,14 +76,40 @@ export function MaxLengthPlugin ({ lengthOptions = {} }) {
     })
   }, [editor, maxLength])
 
-  // update remaining characters whenever editor content changes
+  const apply = useCallback(() => {
+    const length = markdownLength(editor)
+    setRemaining(Math.max(0, maxLength - length))
+    const over = length > maxLength
+    if (over !== overLimit.current) {
+      overLimit.current = over
+      setDisabled?.(MAX_LENGTH_DISABLED_REASON, over)
+    }
+  }, [editor, maxLength, setDisabled])
+
+  // rich mode serializes the whole document to markdown, so debounce it like
+  // the formik bridge (formik.js) does; markdown mode is a cheap text read
+  const debouncedApply = useDebounceCallback(apply, 500, [apply])
+
+  // counter and submit gate measure the exported markdown, not rendered text
   useEffect(() => {
-    return editor.registerUpdateListener(({ editorState }) => {
-      editorState.read(() => {
-        setRemaining(getRemaining(editor, maxLength))
-      })
-    })
-  }, [editor, maxLength])
+    const onUpdate = ({ dirtyElements, dirtyLeaves }) => {
+      // skip non-content updates (cursor moves, etc.)
+      if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
+      if (isMarkdownMode(editor)) {
+        apply()
+      } else {
+        debouncedApply()
+      }
+    }
+
+    apply()
+    return editor.registerUpdateListener(onUpdate)
+  }, [editor, apply, debouncedApply])
+
+  // never leave the submit button disabled after unmount
+  useEffect(() => {
+    return () => setDisabled?.(MAX_LENGTH_DISABLED_REASON, false)
+  }, [setDisabled])
 
   if (show || remaining < 10) {
     return (

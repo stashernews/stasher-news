@@ -7,6 +7,7 @@ import { useFeeButton } from '@/components/fee-button'
 import { isMarkdownMode } from '@/lib/lexical/commands/utils'
 import useDebounceCallback from '@/components/use-debounce-callback'
 import { useToast } from '@/components/toast'
+import { MAX_LENGTH_DISABLED_REASON } from '@/components/editor/plugins/core/max-length'
 
 /** instantly syncs Formik with the latest markdown resulting from the editor */
 export const SYNC_FORMIK_COMMAND = createCommand('SYNC_FORMIK_COMMAND')
@@ -21,7 +22,7 @@ export default function FormikBridgePlugin ({ name = 'text' }) {
   const [,, textHelpers] = useField({ name })
   const { submitForm } = useFormikContext() ?? {}
   const toaster = useToast()
-  const { setDisabled, disabled = false } = useFeeButton() ?? {}
+  const { setDisabled, disabled = false, disabledReasons } = useFeeButton() ?? {}
 
   const disableSubmit = useCallback((value) => setDisabled?.(DEBOUNCED_SUBMIT_DISABLED_REASON, value), [setDisabled])
 
@@ -92,7 +93,11 @@ export default function FormikBridgePlugin ({ name = 'text' }) {
       SUBMIT_FORMIK_COMMAND,
       () => {
         if (disabled) {
-          toaster?.warning('content is still being processed, please wait')
+          toaster?.warning(
+            disabledReasons?.has(MAX_LENGTH_DISABLED_REASON)
+              ? 'content is over the character limit'
+              : 'content is still being processed, please wait'
+          )
           return false
         }
         submitForm?.()
@@ -100,7 +105,7 @@ export default function FormikBridgePlugin ({ name = 'text' }) {
       },
       COMMAND_PRIORITY_HIGH
     )
-  }, [editor, disabled, toaster, submitForm])
+  }, [editor, disabled, disabledReasons, toaster, submitForm])
 
   // toggling mode will unmount and remount the Lexical editor
   useEffect(() => {

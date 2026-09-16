@@ -6,6 +6,7 @@ import { buildMoneroUri } from '@/api/monero/uri'
 import { GqlInputError } from '@/lib/error'
 import * as MEDIA_UPLOAD from './mediaUpload'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
+import { subOccWhere } from '../lib/territory'
 import { uploadFees } from '@/api/resolvers/upload'
 
 export const anonable = false
@@ -113,13 +114,10 @@ export async function onBegin (tx, payInId, { oldName, billingType, uploadIds, .
         create: [{ payInId }]
       }
     },
+    // optimistic concurrency control
+    // make sure none of the relevant fields have changed since we fetched the sub
     where: {
-      // optimistic concurrency control
-      // make sure none of the relevant fields have changed since we fetched the sub
-      ...oldSub,
-      postTypes: {
-        equals: oldSub.postTypes
-      },
+      ...subOccWhere(oldSub),
       name: oldName,
       userId: payIn.userId
     }

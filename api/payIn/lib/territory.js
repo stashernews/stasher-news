@@ -5,6 +5,22 @@ import { nymsToIds, TRUST_SEED_NYMS } from '@/lib/founderNyms'
 // resolution lives in lib/founderNyms.js (founder nyms are name-resolved).
 export const GLOBAL_SEEDS = [USER_ID.stasher]
 
+// OCC guard for Sub updates: spread the fetched row (minus the nullable-unique
+// billingPayInId) into Prisma's update where. The full-row spread is deliberate
+// — the auto-bumped updatedAt catches concurrent writes; do NOT trim it to
+// "relevant fields". Prisma rejects null for unique fields in a where clause,
+// and a null billingPayInId carries no OCC signal, so include it only when set.
+export function subOccWhere (sub) {
+  const { billingPayInId, ...guard } = sub
+  return {
+    ...guard,
+    ...(billingPayInId != null && { billingPayInId }),
+    postTypes: {
+      equals: sub.postTypes
+    }
+  }
+}
+
 export async function initialTrust (models, { name, userId }) {
   const resolved = await nymsToIds(models, TRUST_SEED_NYMS)
   const seeds = resolved.length > 0 ? resolved : GLOBAL_SEEDS

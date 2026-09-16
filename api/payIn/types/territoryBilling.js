@@ -4,6 +4,7 @@ import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
+import { subOccWhere } from '../lib/territory'
 
 // StasherNews territory billing/renewal (spec §6.2). Same shape as territoryCreate
 // but for an existing Sub at renewal: reserves a major-2 fee subaddress, emits the
@@ -60,12 +61,7 @@ export async function onBegin (tx, payInId, { name }) {
   // it if PENDING_FEE persists past the grace window.
   const updated = await tx.sub.update({
     // optimistic concurrency control
-    where: {
-      ...sub,
-      postTypes: {
-        equals: sub.postTypes
-      }
-    },
+    where: subOccWhere(sub),
     data: {
       billedLastAt,
       billPaidUntil,

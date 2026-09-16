@@ -1,14 +1,30 @@
 import { deleteObjects } from '@/api/s3'
 import { alert } from '@/lib/alert'
-import { BOSS_RETRY } from '@/lib/constants'
+import { BOSS_RETRY, PUBLIC_MEDIA_URL } from '@/lib/constants'
 import { logError } from '@/lib/logger'
+
+// The /uploads/ shape is host-free so desc pins survive domain changes; the
+// configured PUBLIC_MEDIA_URL prefix is matched too for deployments that serve
+// media at the domain root (real-AWS mainnet config).
+export function mediaUrlRegexPrefix (mediaUrl) {
+  return mediaUrl.replace(/\/$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const MEDIA_URL_REGEX_PREFIX = mediaUrlRegexPrefix(PUBLIC_MEDIA_URL)
 
 export async function deleteUnusedImages ({ models, boss }) {
   // delete unused media in database and S3 24 hours after upload, for stackers
   // and anons alike. "Unused" = attached to no LIVE content: attachments via a
   // soft-deleted (abandoned) item no longer pin the upload, so media from
   // fee-abandoned or deleted posts is reaped too. Paid flag is irrelevant —
-  // unattached media has no content to protect.
+  // unattached media has no content to protect. A /uploads/<id> or
+  // PUBLIC_MEDIA_URL/<id> URL in a turf description (Sub.desc) is a live
+  // reference too — turf descs render their media, so the match mirrors the
+  // URL shapes uploadIdsFromText extracts: the host-free /uploads/ shape so
+  // pins survive domain changes, plus the configured prefix for deployments
+  // that serve media at the domain root (real-AWS mainnet config). Sub.desc is
+  // canonicalized server-side before storage (signed imgproxy URLs decoded), so
+  // the /uploads/<id> pin sees plaintext sources.
   const unpaidImages = await models.$queryRaw`
     SELECT id
     FROM "Upload"
@@ -21,6 +37,10 @@ export async function deleteUnusedImages ({ models, boss }) {
         WHERE "ItemUpload"."uploadId" = "Upload".id AND "Item"."deletedAt" IS NULL)
       AND NOT EXISTS (SELECT * FROM "SubBranding" WHERE "logoId" = "Upload".id)
       AND NOT EXISTS (SELECT * FROM "SubBranding" WHERE "faviconId" = "Upload".id)
+      AND NOT EXISTS (
+        SELECT 1 FROM "Sub"
+        WHERE "Sub".desc ~ ('/uploads/' || "Upload".id || '([^0-9]|$)')
+          OR "Sub".desc ~ (${MEDIA_URL_REGEX_PREFIX} || '/' || "Upload".id || '([^0-9]|$)'))
       AND created_at < date_trunc('hour', now() - interval '24 hours')`
 
   const s3Keys = unpaidImages.map(({ id }) => id)

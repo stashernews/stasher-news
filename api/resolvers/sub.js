@@ -12,6 +12,7 @@ import { DOMAIN_BETA_IDS, ACTIVE_SUBS_PRIORITY } from '@/lib/constants'
 import { territoryReentryFunding, territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { turfOwnerFeesEnabled } from '@/api/monero/turfFeeRouting'
 import { NEVER_SEEN_FEE_PAY_IN_TYPES, isHiddenFromViewer } from '@/lib/territoryVisibility'
+import { canonicalizeItemText } from '@/lib/url'
 
 export async function getSub (parent, { name }, { models, me }) {
   if (!name) return null
@@ -320,6 +321,7 @@ export default {
 
       await validateSchema(territorySchema, data, { models, me, sub: { name: data.oldName } })
 
+      if (data.desc) data.desc = canonicalizeItemText(data.desc)
       data.uploadIds = uploadIdsFromText(data.desc)
 
       if (data.oldName) {
@@ -459,6 +461,7 @@ export default {
         throw new GqlInputError('sub should not be archived')
       }
 
+      if (data.desc) data.desc = canonicalizeItemText(data.desc)
       data.uploadIds = uploadIdsFromText(data.desc)
 
       await assertHasWallet(models, me.id, 'register your Monero wallet first — posting fees, boosts, and revenue in your turf flow to it')

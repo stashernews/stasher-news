@@ -6,7 +6,7 @@ import { gql } from '@apollo/client'
 import { useApolloClient, useLazyQuery } from '@apollo/client/react'
 import { useCallback, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
-import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, DOMAIN_BETA_IDS } from '@/lib/constants'
+import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, POST_TYPE_LABELS, DOMAIN_BETA_IDS } from '@/lib/constants'
 import { territorySchema, filterXmrValidator } from '@/lib/validate'
 import { useMe } from './me'
 import Info from './info'
@@ -251,36 +251,18 @@ export default function TerritoryForm ({ sub }) {
         />
         <CheckboxGroup label='post types' name='postTypes'>
           <Row>
-            <Col xs={4} sm='auto'>
-              <Checkbox
-                inline
-                label='links'
-                value='LINK'
-                name='postTypes'
-                id='links-checkbox'
-                groupClassName='ms-1 mb-0'
-              />
-            </Col>
-            <Col xs={4} sm='auto'>
-              <Checkbox
-                inline
-                label='discussions'
-                value='DISCUSSION'
-                name='postTypes'
-                id='discussions-checkbox'
-                groupClassName='ms-1 mb-0'
-              />
-            </Col>
-            <Col xs={4} sm='auto'>
-              <Checkbox
-                inline
-                label='polls'
-                value='POLL'
-                name='postTypes'
-                id='polls-checkbox'
-                groupClassName='ms-1 mb-0'
-              />
-            </Col>
+            {POST_TYPES.map(postType => (
+              <Col xs={4} sm='auto' key={postType}>
+                <Checkbox
+                  inline
+                  label={POST_TYPE_LABELS[postType]}
+                  value={postType}
+                  name='postTypes'
+                  id={`${POST_TYPE_LABELS[postType]}-checkbox`}
+                  groupClassName='ms-1 mb-0'
+                />
+              </Col>
+            ))}
           </Row>
         </CheckboxGroup>
         {sub?.billingType !== 'ONCE' &&

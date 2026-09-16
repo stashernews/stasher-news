@@ -8,8 +8,9 @@
 // attached to LIVE content: media whose only attachment is a soft-deleted
 // (abandoned) item is swept too. References cover every real attachment path:
 // the ItemUpload join table (the path posts/comments actually use), Item.uploadId
-// (job listings), the SubBranding.logoId and faviconId (territory logos/favicons)
-// and users.photoId.
+// (job listings), the SubBranding.logoId and faviconId (territory logos/favicons),
+// users.photoId and a /uploads/<id> or PUBLIC_MEDIA_URL/<id> URL in a turf
+// description (Sub.desc).
 //
 // S3 is stubbed (deleteObjects returns its input keys) so the test is hermetic:
 // with NODE_ENV=test the real @/api/s3 targets Amazon S3 with the localstack
@@ -20,9 +21,9 @@
 // test/worker/rewardsWalletObserver.fee.test.js.
 
 import { PrismaClient } from '@prisma/client'
-import { USER_ID, BOSS_RETRY } from '@/lib/constants'
+import { USER_ID, BOSS_RETRY, PUBLIC_MEDIA_URL } from '@/lib/constants'
 import { deleteObjects } from '../../api/s3'
-import { deleteUnusedImages } from '@/worker/deleteUnusedImages'
+import { deleteUnusedImages, mediaUrlRegexPrefix } from '@/worker/deleteUnusedImages'
 
 jest.mock('../../api/s3', () => ({
   deleteObjects: jest.fn(async keys => keys)
@@ -72,6 +73,11 @@ async function createItem (userId, { uploadId = null } = {}) {
 //   - 'itemUploadId': Item.uploadId — job listings
 //   - 'logo': SubBranding.logoId — territory logos
 //   - 'favicon': SubBranding.faviconId — territory favicons
+//   - 'subDesc': a /uploads/<id> URL in Sub.desc — turf descriptions render their media
+//   - 'subDescPrefix': a /uploads/<id>0 URL — must NOT pin upload <id> (digit boundary)
+//   - 'subDescPublic': a PUBLIC_MEDIA_URL/<id> URL in Sub.desc — domain-root media config
+//   - 'subDescPublicPrefix': a PUBLIC_MEDIA_URL/<id>0 URL — must NOT pin upload <id>
+//   - 'subDescInternal': the decoded mainnet form http://minio:9000/uploads/<id> in Sub.desc
 //   - 'photo': users.photoId — user profile photos
 async function seedUpload ({ userId, ageMs, paid = false, reference = null, abandoned = false }) {
   const upload = await prisma.upload.create({
@@ -115,6 +121,67 @@ async function seedUpload ({ userId, ageMs, paid = false, reference = null, aban
     })
     created.subs.push(sub.name)
     await prisma.subBranding.create({ data: { subName: sub.name, faviconId: upload.id } })
+  } else if (reference === 'subDesc') {
+    const sub = await prisma.sub.create({
+      data: {
+        name: `sub-desc-${upload.id}`,
+        userId,
+        rankingType: 'WOT',
+        billingType: 'ONCE',
+        billingCost: 1000000000,
+        desc: `see ![](https://stasher.news/uploads/${upload.id})`
+      }
+    })
+    created.subs.push(sub.name)
+  } else if (reference === 'subDescPrefix') {
+    const sub = await prisma.sub.create({
+      data: {
+        name: `sub-desc-prefix-${upload.id}`,
+        userId,
+        rankingType: 'WOT',
+        billingType: 'ONCE',
+        billingCost: 1000000000,
+        desc: `see ![](https://stasher.news/uploads/${upload.id}0)`
+      }
+    })
+    created.subs.push(sub.name)
+  } else if (reference === 'subDescPublic') {
+    const sub = await prisma.sub.create({
+      data: {
+        name: `sub-desc-public-${upload.id}`,
+        userId,
+        rankingType: 'WOT',
+        billingType: 'ONCE',
+        billingCost: 1000000000,
+        desc: `see ![](${PUBLIC_MEDIA_URL}/${upload.id})`
+      }
+    })
+    created.subs.push(sub.name)
+  } else if (reference === 'subDescPublicPrefix') {
+    const sub = await prisma.sub.create({
+      data: {
+        name: `sub-desc-public-prefix-${upload.id}`,
+        userId,
+        rankingType: 'WOT',
+        billingType: 'ONCE',
+        billingCost: 1000000000,
+        desc: `see ![](${PUBLIC_MEDIA_URL}/${upload.id}0)`
+      }
+    })
+    created.subs.push(sub.name)
+  } else if (reference === 'subDescInternal') {
+    const sub = await prisma.sub.create({
+      data: {
+        name: `sub-desc-internal-${upload.id}`,
+        userId,
+        rankingType: 'WOT',
+        billingType: 'ONCE',
+        billingCost: 1000000000,
+        // decoded form of a signed imgproxy URL on mainnet (canonical source)
+        desc: `see ![](http://minio:9000/uploads/${upload.id})`
+      }
+    })
+    created.subs.push(sub.name)
   } else if (reference === 'photo') {
     await prisma.user.update({ where: { id: userId }, data: { photoId: upload.id } })
   }
@@ -154,6 +221,57 @@ test('deleteUnusedImages deletes unreferenced uploads after 24h for everyone and
   expect(remainingIds).toEqual([recent.id, refItemUpload.id, refItemUploadId.id, refLogo.id, refFavicon.id, refPhoto.id].sort())
   // the daily sweep re-queues itself for the next run
   expect(boss.send).toHaveBeenCalledWith('deleteUnusedImages', {}, { ...BOSS_RETRY, startAfter: 24 * 60 * 60 })
+})
+
+test('an old upload referenced only from a turf description survives the sweep, and a longer id built from its prefix is not pinned', async () => {
+  const userId = await createUser()
+
+  // desc contains /uploads/<id> followed by ')' -> pinned, survives
+  const descReferenced = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'subDesc' })
+  // desc contains /uploads/<id>0 -> the digit boundary means upload <id> is NOT pinned, swept
+  const prefixOnly = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'subDescPrefix' })
+
+  const boss = { send: jest.fn() }
+  await deleteUnusedImages({ models: prisma, boss })
+
+  const remaining = await prisma.upload.findMany({
+    where: { id: { in: [descReferenced.id, prefixOnly.id] } },
+    select: { id: true }
+  })
+  expect(remaining.map(({ id }) => id)).toEqual([descReferenced.id])
+})
+
+test('a desc referencing the configured public media URL also pins the upload, with the same digit boundary', async () => {
+  const userId = await createUser()
+  const referenced = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'subDescPublic' })
+  const prefixOnly = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'subDescPublicPrefix' })
+
+  const boss = { send: jest.fn() }
+  await deleteUnusedImages({ models: prisma, boss })
+
+  const remaining = await prisma.upload.findMany({
+    where: { id: { in: [referenced.id, prefixOnly.id] } },
+    select: { id: true }
+  })
+  expect(remaining.map(({ id }) => id)).toEqual([referenced.id])
+})
+
+test('a desc holding the decoded internal source url (canonical mainnet form) pins the upload', async () => {
+  const userId = await createUser()
+  const referenced = await seedUpload({ userId, ageMs: 8 * DAY_MS, reference: 'subDescInternal' })
+
+  const boss = { send: jest.fn() }
+  await deleteUnusedImages({ models: prisma, boss })
+
+  const remaining = await prisma.upload.findMany({
+    where: { id: { in: [referenced.id] } },
+    select: { id: true }
+  })
+  expect(remaining.map(({ id }) => id)).toEqual([referenced.id])
+})
+
+test('mediaUrlRegexPrefix escapes metacharacters and drops a trailing slash', () => {
+  expect(mediaUrlRegexPrefix('https://m.stasher.news/')).toBe('https://m\\.stasher\\.news')
 })
 
 test('a failing deleteObjects rejects the run — no DB deletion, no requeue — so pg-boss retries and alerts instead of reporting completed', async () => {
