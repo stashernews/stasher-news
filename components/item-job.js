@@ -12,7 +12,7 @@ import Badges from './badge'
 import { MEDIA_URL } from '@/lib/constants'
 import { Badge } from 'react-bootstrap'
 import SubPopover from './sub-popover'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import { ensureProtocol } from '@/lib/url'
 import { PayInInfo, InfoDropdownItem } from './item-info'
 import PendingFeeBadge from './pending-fee-badge'
@@ -70,7 +70,7 @@ export default function ItemJob ({ item, toc, rank, children, ...props }) {
           </div>
           <div className={styles.other}>
             <span>
-              {piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost) * 1000))}
+              {piconerosToMXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost) * 1000))}
             </span>
             <span> \ </span>
             {item.company &&

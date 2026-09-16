@@ -5,7 +5,7 @@ import Dropdown from 'react-bootstrap/Dropdown'
 import { useShowModal } from './modal'
 import { useToast } from './toast'
 import { useAnimation } from './animation'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import { bountyPiconerosOf } from '@/lib/bounty'
 import { AWARD_BOUNTY_MUTATION, RECLAIM_BOUNTY_MUTATION, ROLLOVER_BOUNTY_MUTATION } from '@/fragments/payIn'
 
@@ -48,7 +48,7 @@ function BountyConfirmBody ({ title, description, amountPiconeros, confirmText, 
       <p className='text-muted'>{description}</p>
       {amountPiconeros != null && piconeros > 0n &&
         <div className='text-monospace text-center mb-2'>
-          {piconerosToXmr(piconeros)}
+          {piconerosToMXmr(piconeros)}
         </div>}
       <div className='d-flex justify-content-end gap-2'>
         <Button variant='secondary' onClick={onClose}>cancel</Button>

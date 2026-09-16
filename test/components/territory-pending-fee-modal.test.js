@@ -83,13 +83,13 @@ async function renderModal ({ polledSub, initialReceived, initialExpected } = {}
 describe('TerritoryPendingFeeModal', () => {
   test('shows the short-pay hint when the poll reports a partial payment', async () => {
     await renderModal({ polledSub: { feeReceivedPiconeros: 400000000, billingFeePiconeros: 1000000000 } })
-    expect(container.textContent).toMatch(/payment detected but short — received 0\.0004 XMR of 0\.001 XMR\. Send 0\.0006 XMR to the same address to complete it\./)
+    expect(container.textContent).toMatch(/payment detected but short — received 0\.4 mXMR of 1 mXMR\. Send 0\.0006 XMR \(0\.6 mXMR\) to the same address to complete it\./)
   })
 
   test('shows no hint when nothing has been received', async () => {
     await renderModal({ polledSub: { feeReceivedPiconeros: 0, billingFeePiconeros: 1000000000 } })
     // copy-stable payment view (the "turf" heading copy lands in a later task)
-    expect(container.textContent).toContain('Scan to send 0.001 XMR')
+    expect(container.textContent).toContain('Scan to send 1 mXMR (0.001 XMR)')
     expect(container.textContent).not.toMatch(/payment detected but short/)
   })
 

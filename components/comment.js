@@ -14,7 +14,7 @@ import { USER_ID, COMMENT_DEPTH_LIMIT, UNKNOWN_LINK_REL, DEFAULT_COMMENTS_PICONE
 import PayBounty from './pay-bounty'
 import BountyIcon from '@/svgs/bounty-bag.svg'
 import ActionTooltip from './action-tooltip'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import Share from './share'
 import ItemInfo from './item-info'
 import Badge from 'react-bootstrap/Badge'
@@ -253,7 +253,7 @@ export default function Comment ({
                     <>
                       {includeParent && <Parent item={item} rootText={rootText} />}
                       {bountyPaid &&
-                        <ActionTooltip notForm overlayText={`${piconerosToXmr(BigInt(root.bounty) * 1000n)} paid`}>
+                        <ActionTooltip notForm overlayText={`${piconerosToMXmr(BigInt(root.bounty) * 1000n)} paid`}>
                           <BountyIcon className={`${styles.bountyIcon} ${'fill-success vertical-align-middle'}`} height={16} width={16} />
                         </ActionTooltip>}
                     </>

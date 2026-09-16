@@ -8,7 +8,7 @@ import useWatchDownvote from './downvote/use-watch-downvote'
 import { useAct } from './item-act'
 import { useAnimation } from './animation'
 import { useToast } from './toast'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr, piconerosToMXmrDual } from '@/lib/format'
 import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 import Flag from '@/svgs/flag-fill.svg'
 import {
@@ -96,7 +96,7 @@ export default function DownvoteModal ({ item, onClose }) {
       <BootstrapForm.Group className='my-2'>
         <div className='d-flex justify-content-between align-items-baseline'>
           <BootstrapForm.Label className='mb-0'>amount</BootstrapForm.Label>
-          <span className='text-monospace'>{piconerosToXmr(BigInt(amount))}</span>
+          <span className='text-monospace'>{piconerosToMXmr(BigInt(amount))}</span>
         </div>
         <BootstrapForm.Range
           min={DOWNVOTE_MIN_PICONEROS}
@@ -126,7 +126,7 @@ export default function DownvoteModal ({ item, onClose }) {
               className='me-1'
               width={14}
               height={14}
-            />{piconerosToXmr(BigInt(p))}
+            />{piconerosToMXmr(BigInt(p))}
           </Button>
         ))}
       </div>
@@ -178,7 +178,7 @@ function DownvotePaymentView ({ moneroUri, amount, paymentId, onDetected, onClos
       moneroUri={moneroUri}
       amountPiconeros={BigInt(amount)}
       heading='Pay this downvote'
-      description={`Scan to send ${piconerosToXmr(BigInt(amount))} to the rewards pool.`}
+      description={`Scan to send ${piconerosToMXmrDual(BigInt(amount))} to the rewards pool.`}
     >
       {statusCopy &&
         <p className='text-muted text-center mt-3'>

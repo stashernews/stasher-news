@@ -10,7 +10,8 @@ import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, DOMAIN_BETA_IDS } from '@/lib/co
 import { territorySchema, filterXmrValidator } from '@/lib/validate'
 import { useMe } from './me'
 import Info from './info'
-import { piconerosToXmrDecimal, piconerosToXmr, signedXmrToPiconeros, snapToFilterGrid, xmrToPiconeros } from '@/lib/format'
+import { piconerosToXmrDecimal, piconerosToMXmr, signedXmrToPiconeros, snapToFilterGrid, xmrToPiconeros } from '@/lib/format'
+import { MXmrFieldHint } from './mxmr-hint'
 import { SUB } from '@/fragments/subs'
 import TerritoryBranding, { useBranding } from './territory-branding'
 import Link from 'next/link'
@@ -38,6 +39,7 @@ function SatFilterRanges () {
       max={0.01}
       step={0.0001}
       suffix=' XMR'
+      hint={<MXmrFieldHint name='postsPiconerosFilter' />}
     />
   )
 }
@@ -63,6 +65,7 @@ function TurfPremiumRanges () {
         max={0.01}
         step={0.0005}
         suffix=' XMR'
+        hint={<MXmrFieldHint name='postPremiumPiconeros' />}
       />
       <Range
         label={
@@ -79,6 +82,7 @@ function TurfPremiumRanges () {
         max={0.01}
         step={0.0005}
         suffix=' XMR'
+        hint={<MXmrFieldHint name='commentPremiumPiconeros' />}
       />
     </>
   )
@@ -189,7 +193,7 @@ export default function TerritoryForm ({ sub }) {
     if (fee <= 0n) return {}
     return {
       territory: {
-        term: `+ ${piconerosToXmr(fee)}`,
+        term: `+ ${piconerosToMXmr(fee)}`,
         label: `${billing} turf fee`,
         op: '+',
         modifier: cost => cost + Number(fee / 1000n)
@@ -291,7 +295,7 @@ export default function TerritoryForm ({ sub }) {
             >
               <Checkbox
                 type='radio'
-                label={`${piconerosToXmr(monthlyFee)}/month`}
+                label={`${piconerosToMXmr(monthlyFee)}/month`}
                 value='MONTHLY'
                 name='billingType'
                 id='monthly-checkbox'
@@ -300,7 +304,7 @@ export default function TerritoryForm ({ sub }) {
               />
               <Checkbox
                 type='radio'
-                label={`${piconerosToXmr(yearlyFee)}/year`}
+                label={`${piconerosToMXmr(yearlyFee)}/year`}
                 value='YEARLY'
                 name='billingType'
                 id='yearly-checkbox'
@@ -309,7 +313,7 @@ export default function TerritoryForm ({ sub }) {
               />
               <Checkbox
                 type='radio'
-                label={`${piconerosToXmr(onceFee)} once`}
+                label={`${piconerosToMXmr(onceFee)} once`}
                 value='ONCE'
                 name='billingType'
                 id='once-checkbox'

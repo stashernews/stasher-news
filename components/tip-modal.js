@@ -14,7 +14,8 @@ import PaymentSuccessView from './payment-success-view'
 import useWatchTip from './tip/use-watch-tip'
 import { INITIATE_TIP } from '@/fragments/monero'
 import { USER_ID } from '@/lib/constants'
-import { xmrToPiconeros, piconerosToXmr, piconerosToXmrDecimal } from '@/lib/format'
+import { xmrToPiconeros, piconerosToXmrDecimal, piconerosToMXmr, piconerosToMXmrDual } from '@/lib/format'
+import MXmrHint from './mxmr-hint'
 import { shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 import { DISPLAY_FONT } from '@/lib/rebrand'
 import UpArrow from '@/svgs/up-arrow.svg'
@@ -108,7 +109,7 @@ export default function TipModal ({ item, onClose }) {
       <BootstrapForm.Group className='my-2'>
         <div className='d-flex justify-content-between align-items-baseline'>
           <BootstrapForm.Label className='mb-0'>amount</BootstrapForm.Label>
-          <span className='text-monospace'>{amount && piconerosToXmr(xmrToPiconerosSafe(amount))}</span>
+          <span className='text-monospace'>{amount && piconerosToMXmrDual(xmrToPiconerosSafe(amount))}</span>
         </div>
         <InputGroup>
           <BootstrapForm.Control
@@ -122,6 +123,7 @@ export default function TipModal ({ item, onClose }) {
           />
           <InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>
         </InputGroup>
+        <MXmrHint value={amount} />
         <BootstrapForm.Range
           className='mt-2'
           min={Number(TIP_SLIDER_MIN)}
@@ -140,7 +142,7 @@ export default function TipModal ({ item, onClose }) {
             variant={amount === p ? 'primary' : 'outline-primary'}
             onClick={() => setAmount(p)}
           >
-            <UpArrow className='me-1' width={14} height={14} />{p}
+            <UpArrow className='me-1' width={14} height={14} />{piconerosToMXmr(xmrToPiconeros(p))}
           </Button>
         ))}
       </div>
@@ -167,7 +169,7 @@ export default function TipModal ({ item, onClose }) {
   )
 }
 
-// render-time helper: show the XMR equivalent only when the input parses
+// render-time helper: show the amounts only when the input parses
 function xmrToPiconerosSafe (amount) {
   try { return xmrToPiconeros(amount) } catch { return 0n }
 }
@@ -208,8 +210,8 @@ function TipPaymentView ({ uri, paymentId, amount, recipient, onDetected, onClos
       amountPiconeros={BigInt(amount)}
       heading='Pay this tip'
       description={recipient === 'REWARDS'
-        ? `Scan to send ${piconerosToXmr(BigInt(amount))} to the rewards pool — the author has no Monero wallet.`
-        : `Scan to send ${piconerosToXmr(BigInt(amount))} directly to the author.`}
+        ? `Scan to send ${piconerosToMXmrDual(BigInt(amount))} to the rewards pool — the author has no Monero wallet.`
+        : `Scan to send ${piconerosToMXmrDual(BigInt(amount))} directly to the author.`}
     >
       {statusCopy &&
         <p className='text-muted text-center mt-2'>

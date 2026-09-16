@@ -10,7 +10,7 @@ import PendingFeeBadge from './pending-fee-badge'
 import PayPostingFeeButton from './pay-posting-fee-button'
 import BountyFundingView from './bounty-funding-view'
 import { AwardBountyDropdownItem } from './bounty-actions'
-import { numWithUnits, piconerosToXmr } from '@/lib/format'
+import { numWithUnits, piconerosToMXmr } from '@/lib/format'
 import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
 import { timeSince } from '@/lib/time'
@@ -50,7 +50,7 @@ function itemTitle (item) {
     unitPlural: 'tippers'
   })
   if (Number(item.piconeros)) {
-    title += ` \\ ${piconerosToXmr(BigInt(Number(item.piconeros)))} stashed`
+    title += ` \\ ${piconerosToMXmr(BigInt(Number(item.piconeros)))} stashed`
   }
   if (item.boost) {
     title += ` \\ ${numWithUnits(item.boost, { abbreviate: false, unitSingular: 'boost', unitPlural: 'boost' })}`
@@ -59,15 +59,15 @@ function itemTitle (item) {
     title += ` \\ ${numWithUnits(item.cost, { abbreviate: false, unitSingular: 'cost', unitPlural: 'cost' })}`
   }
   if (item.downPiconeros) {
-    title += ` \\ ${piconerosToXmr(BigInt(item.downPiconeros))} downvoted`
+    title += ` \\ ${piconerosToMXmr(BigInt(item.downPiconeros))} downvoted`
   }
   if (item.mePiconeros || item.meDontLikePiconeros || item.meAnonPiconeros) {
     const satSources = []
     if (item.meAnonPiconeros || Number(item.mePiconeros || 0) > 0) {
-      satSources.push(`${piconerosToXmr(BigInt(Number(item.mePiconeros || 0) + Number(item.meAnonPiconeros || 0)))}`)
+      satSources.push(`${piconerosToMXmr(BigInt(Number(item.mePiconeros || 0) + Number(item.meAnonPiconeros || 0)))}`)
     }
     if (item.meDontLikePiconeros) {
-      satSources.push(`${piconerosToXmr(BigInt(item.meDontLikePiconeros))}`)
+      satSources.push(`${piconerosToMXmr(BigInt(item.meDontLikePiconeros))}`)
     }
     if (satSources.length) {
       title += ` (${satSources.join(' & ')} from me)`
@@ -125,10 +125,10 @@ export default function ItemInfo ({
       {!isPinnedPost && !(isPinnedSubReply && !full) &&
         <>
           <span title={itemTitle(item)}>
-            {piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost) * 1000))}
+            {piconerosToMXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost) * 1000))}
           </span>
           {Number(item.downPiconeros) > 0 &&
-            <span className='text-danger'> -{piconerosToXmr(BigInt(item.downPiconeros))}</span>}
+            <span className='text-danger'> -{piconerosToMXmr(BigInt(item.downPiconeros))}</span>}
           <span> \ </span>
         </>}
       <Link
@@ -140,7 +140,7 @@ export default function ItemInfo ({
               `/items/${item.id}?commentsViewedAt=${viewedAt}`,
               `/items/${item.id}`)
           }
-        }} title={`${piconerosToXmr(BigInt(Number(item.commentPiconeros) + Number(item.commentCost) * 1000 + Number(item.commentBoost)))} (${item.commentPiconeros} stashed \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
+        }} title={`${piconerosToMXmr(BigInt(Number(item.commentPiconeros) + Number(item.commentCost) * 1000 + Number(item.commentBoost)))} (${item.commentPiconeros} stashed \\ ${item.commentCost} cost \\ ${item.commentBoost} boost)`} className='text-reset position-relative'
       >
         {numWithUnits(item.ncomments, {
           abbreviate: false,
@@ -188,11 +188,11 @@ export default function ItemInfo ({
       <PendingFeeBadge item={item} />
       {Number(item.bountyPiconeros) > 0 &&
         <span>
-          {' '}<Badge className={styles.newComment} bg={null}>bounty {piconerosToXmr(bountyPiconerosOf(item.bountyPiconeros))} · {bountyStatusText}</Badge>
+          {' '}<Badge className={styles.newComment} bg={null}>bounty {piconerosToMXmr(bountyPiconerosOf(item.bountyPiconeros))} · {bountyStatusText}</Badge>
         </span>}
       {item.bountyAwardedAt &&
         <span>
-          {' '}<Badge className={styles.newComment} bg={null}>bounty winner{root?.bountyPiconeros ? ` · ${piconerosToXmr(bountyPiconerosOf(root.bountyPiconeros))}` : ''}</Badge>
+          {' '}<Badge className={styles.newComment} bg={null}>bounty winner{root?.bountyPiconeros ? ` · ${piconerosToMXmr(bountyPiconerosOf(root.bountyPiconeros))}` : ''}</Badge>
         </span>}
       {sub?.nsfw &&
         <Badge className={styles.newComment} bg={null}>nsfw</Badge>}
@@ -204,7 +204,7 @@ export default function ItemInfo ({
         <span
           role='button' onClick={() => showModal((onClose) => <ItemDetails item={item} me={me} />)}
         >
-          {' '}<Badge className={styles.newComment} bg={null}>-{piconerosToXmr(BigInt(item.downPiconeros || 0))}</Badge>
+          {' '}<Badge className={styles.newComment} bg={null}>-{piconerosToMXmr(BigInt(item.downPiconeros || 0))}</Badge>
         </span>}
       {extraBadges}
       <PayPostingFeeButton item={item} />
@@ -301,33 +301,33 @@ function ItemDetails ({ item, me }) {
       <div className={styles.detailsLabel}>tippers</div>
       <div className={styles.detailsValue}>{item.upvotes}</div>
       <div className={styles.detailsLabel}>cost</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.cost) * 1000n)}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.cost) * 1000n)}</div>
       <div className={styles.detailsLabel}>boost</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.boost))}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.boost))}</div>
       <div className={styles.detailsLabel}>stashed</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.piconeros)))}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(Number(item.piconeros)))}</div>
       <div className={styles.detailsLabel}>downvotes</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.downPiconeros || 0))}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.downPiconeros || 0))}</div>
       <div className={styles.detailsLabel}>invested</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost)))}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost)))}</div>
       <div className={styles.detailsSection}>comments</div>
       <div className={styles.detailsLabel}>cost</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentCost) * 1000n)}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.commentCost) * 1000n)}</div>
       <div className={styles.detailsLabel}>boost</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentBoost))}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.commentBoost))}</div>
       <div className={styles.detailsLabel}>stashed</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.commentPiconeros)))}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(Number(item.commentPiconeros)))}</div>
       <div className={styles.detailsLabel}>downvotes</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.commentDownPiconeros || 0))}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.commentDownPiconeros || 0))}</div>
       <div className={styles.detailsLabel}>invested</div>
-      <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.commentPiconeros) + Number(item.commentBoost) + Number(item.commentCost)))}</div>
+      <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(Number(item.commentPiconeros) + Number(item.commentBoost) + Number(item.commentCost)))}</div>
       {me && (
         <>
           <div className={styles.detailsSection}>from me</div>
           <div className={styles.detailsLabel}>tipped</div>
-          <div className={styles.detailsValue}>{piconerosToXmr(BigInt(Number(item.mePiconeros)))}</div>
+          <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(Number(item.mePiconeros)))}</div>
           <div className={styles.detailsLabel}>downvoted</div>
-          <div className={styles.detailsValue}>{piconerosToXmr(BigInt(item.meDontLikePiconeros || 0))}</div>
+          <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.meDontLikePiconeros || 0))}</div>
         </>
       )}
     </div>

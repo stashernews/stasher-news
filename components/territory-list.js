@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { abbrNum, numWithUnits, piconerosToXmr } from '@/lib/format'
+import { numWithUnits, piconerosToMXmr } from '@/lib/format'
 import styles from './item.module.css'
 import React, { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@apollo/client/react'
@@ -11,15 +11,15 @@ import ActionDropdown from './action-dropdown'
 import { TerritoryInfo, ToggleSubSubscriptionDropdownItem, MuteSubDropdownItem } from './territory-header'
 
 // all of this nonsense is to show the stat we are sorting by first
-const Stacked = ({ sub }) => (sub.optional.stacked !== null && <span>{piconerosToXmr(BigInt(sub.optional.stacked))} stashed</span>)
-const Spent = ({ sub }) => (sub.optional.spent !== null && <span>{abbrNum(sub.optional.spent)} spent</span>)
+const Stacked = ({ sub }) => (sub.optional.stacked !== null && <span>{piconerosToMXmr(BigInt(sub.optional.stacked))} stashed</span>)
+const Spent = ({ sub }) => (sub.optional.spent !== null && <span>{piconerosToMXmr(BigInt(sub.optional.spent))} spent</span>)
 const Items = ({ sub }) => (
   <span>
     {numWithUnits(sub.nitems, { unitSingular: 'item', unitPlural: 'items' })}
   </span>)
 // `!= null` (not `!== null` like its siblings) because queries whose optional
 // selection omits revenue (e.g. USER_WITH_SUBS) leave the field undefined
-const Revenue = ({ sub }) => (sub.optional.revenue != null && <span>{piconerosToXmr(BigInt(sub.optional.revenue))} revenue</span>)
+const Revenue = ({ sub }) => (sub.optional.revenue != null && <span>{piconerosToMXmr(BigInt(sub.optional.revenue))} revenue</span>)
 const Separator = () => (<span> \ </span>)
 
 const STAT_POS = {

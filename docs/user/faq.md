@@ -22,7 +22,7 @@ Stasher News is a forum similar to Reddit or Hacker News. Unlike on Reddit or Ha
 
 ### What is Monero?
 
-Monero is a privacy-focused digital currency. Its smallest unit is the piconero, equal to 0.000000000001 XMR (one trillionth of a Monero). On Stasher News, amounts are shown as XMR for readability.
+Monero is a privacy-focused digital currency. Its smallest unit is the piconero. On Stasher News, amounts are shown in millinero (mXMR), where 1 mXMR = 0.001 XMR = 1,000,000,000 piconeros.
 
 On Stasher News, all payments are denominated and delivered peer-to-peer on the Monero network, and nothing is taken from tips along the way.
 
@@ -52,7 +52,7 @@ See the [section about turfs](#turfs) for details.
 
 ### Do I need Monero to use Stasher News?
 
-No. You don't need Monero to get started. Browsing is free, and posting fees deter spam and fund curator rewards. New accounts get 1 free post per month; once your account has stacked at least 0.01 XMR in tips and is at least 7 days old, you're established and the first 5 posts each month are free. Posts beyond the monthly allowance cost 0.001 XMR. Comments are free — 2 per day for new accounts and 5 per day once you're established — with the daily allowance resetting at 00:00 UTC each day; beyond that, each comment costs 0.001 XMR. Anonymous posts cost 0.01 XMR and anonymous comments cost 0.003 XMR.
+No. You don't need Monero to get started. Browsing is free, and posting fees deter spam and fund curator rewards. New accounts get 1 free post per month; once your account has stacked at least 10 mXMR in tips and is at least 7 days old, you're established and the first 5 posts each month are free. Posts beyond the monthly allowance cost 1 mXMR. Comments are free — 2 per day for new accounts and 5 per day once you're established — with the daily allowance resetting at 00:00 UTC each day; beyond that, each comment costs 1 mXMR. Anonymous posts cost 10 mXMR and anonymous comments cost 3 mXMR.
 
 You'll need a Monero wallet to receive tips and rewards, since all payments are delivered peer-to-peer on the Monero network.
 
@@ -152,7 +152,7 @@ Click [here](/territory) or scroll to the bottom in the turf dropdown menu and c
 
 ### How much does it cost to found a turf?
 
-Founding a turf costs either 0.02 XMR/month, 0.2 XMR/year, or 1 XMR as a one-time payment.
+Founding a turf costs either 20 mXMR/month, 200 mXMR/year, or 1000 mXMR as a one-time payment.
 
 If a turf founder chooses either the monthly or yearly payment options, they can select 'remind me to renew' to get a notification when the next turf fee is due. You have a 5-day grace period after the end of your current billing period to pay the fee and keep your turf.
 
@@ -170,7 +170,7 @@ Yes. As a turf founder, you receive 100% of the posting fees, comment fees, and 
 
 Fees are the same across all turfs, but they increase by 1.5x for repetitive posts and self-reply comments to prevent spam.
 
-As an example, if it costs 0.001 XMR for a stasher to make a post, it will cost 0.0015 XMR if they make a second post within 10 minutes of their first post. If they post a third time within 10 minutes of their first one, it will cost 0.0023 XMR.
+As an example, if it costs 1 mXMR for a stasher to make a post, it will cost 1.5 mXMR if they make a second post within 10 minutes of their first post. If they post a third time within 10 minutes of their first one, it will cost 2.3 mXMR.
 
 This 1.5x fee escalation continues until 10 minutes have elapsed, and will reset to the base fee when the stasher goes 10 minutes or more without posting or replying to themselves in a comment thread.
 
@@ -178,7 +178,7 @@ This 1.5x fee escalation continues until 10 minutes have elapsed, and will reset
 
 ### Are media uploads free?
 
-Uploads up to 10 MB are free. Uploads larger than 10 MB cost 0.001 XMR per additional 10 MB, and uploads without being logged in always cost 0.001 XMR.
+Uploads up to 10 MB are free. Uploads larger than 10 MB cost 1 mXMR per additional 10 MB, and uploads without being logged in always cost 1 mXMR.
 
 Upload fees are applied when you submit your post or comment.
 
@@ -299,11 +299,11 @@ To donate XMR directly to the Stasher News rewards pool, or to see the rewards t
 
 ### Is there an equivalent to downvotes?
 
-Yes. If you see content that you think should not be on Stasher News, you can click the `...` next to the post or comment and select 'downvote', or use the downvote arrow next to the tip button. A modal lets you choose a downvote amount between 0.0001 and 0.025 XMR.
+Yes. If you see content that you think should not be on Stasher News, you can click the `...` next to the post or comment and select 'downvote', or use the downvote arrow next to the tip button. A modal lets you choose a downvote amount between 0.1 and 25 mXMR.
 
 Downvoting content is a form of negative feedback that reduces the visibility of the specific item. Downvote payments fund the weekly curator rewards pool.
 
-By default, your posts and comments filters start at -0.025 XMR: a post or comment whose net investment (cost + tips + boost - downvotes) sinks below that — roughly a dozen minimum downvotes — becomes outlawed: posts drop out of your feeds and comments collapse to the bottom. The 'posts xmr filter' and 'comments xmr filter' sliders in your [settings](/settings) set your own threshold, from 'wild west' at the far left (-0.1, show everything, even heavily downvoted content) up to 0.01 at the right. Turfs use their own filter floors, and outlawed items always remain reachable by direct link.
+By default, your posts and comments filters start at -25 mXMR: a post or comment whose net investment (cost + tips + boost - downvotes) sinks below that — roughly a dozen minimum downvotes — becomes outlawed: posts drop out of your feeds and comments collapse to the bottom. The 'posts xmr filter' and 'comments xmr filter' sliders in your [settings](/settings) set your own threshold, from 'wild west' at the far left (-100 mXMR, show everything, even heavily downvoted content) up to 10 mXMR at the right. Turfs use their own filter floors, and outlawed items always remain reachable by direct link.
 
 ---
 
@@ -319,7 +319,7 @@ A bounty is a post that puts a reward of XMR on solving a problem or completing 
 
 ### How do I fund a bounty?
 
-When you create a bounty, you set an amount of at least 0.01 XMR. To fund it, you pay the monero: URI shown after posting — an integrated address on the platform's dedicated bounty escrow wallet — including the platform fee (the greater of 0.01 XMR or 1% of the bounty, capped at 20% of the bounty) in the same payment. The bounty is only visible to you until the funding payment confirms on-chain.
+When you create a bounty, you set an amount of at least 10 mXMR. To fund it, you pay the monero: URI shown after posting — an integrated address on the platform's dedicated bounty escrow wallet — including the platform fee (the greater of 10 mXMR or 1% of the bounty, capped at 20% of the bounty) in the same payment. The bounty is only visible to you until the funding payment confirms on-chain.
 
 ---
 

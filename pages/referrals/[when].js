@@ -10,7 +10,7 @@ import { useQuery } from '@apollo/client/react'
 import PageLoading from '@/components/page-loading'
 import { WHENS } from '@/lib/constants'
 import dynamic from 'next/dynamic'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import { whenToFrom } from '@/lib/time'
 import { DISPLAY_FONT } from '@/lib/rebrand'
 import copy from 'clipboard-copy'
@@ -73,7 +73,7 @@ export default function Referrals ({ ssrData }) {
         <h2 className='fw-bold text-muted'>referrals</h2>
         <div className='d-flex align-items-center justify-content-center flex-wrap gap-2'>
           <h4 className='fw-bold text-muted d-flex align-items-center justify-content-center mb-0'>
-            {piconerosToXmr(totalPiconeros)} in the last
+            {piconerosToMXmr(totalPiconeros)} in the last
             <Select
               groupClassName='mb-0 mx-2'
               className='w-auto'

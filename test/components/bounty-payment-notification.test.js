@@ -108,6 +108,6 @@ describe('BountyPayment notification renderer', () => {
     })
 
     expect(container.querySelector('[data-testid="hand-coin"]')).toBeTruthy()
-    expect(container.textContent).toContain('you received a 10 XMR bounty payment')
+    expect(container.textContent).toContain('you received a 10000 mXMR bounty payment')
   })
 })

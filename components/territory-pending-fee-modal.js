@@ -2,7 +2,7 @@ import { useRouter } from 'next/router'
 import { useEffect } from 'react'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
-import { moneroUriAmountPiconeros, piconerosToXmr, underpayHint } from '@/lib/format'
+import { moneroUriAmountPiconeros, piconerosToMXmrDual, underpayHint } from '@/lib/format'
 import MoneroPaymentView from './monero-payment-view'
 import PaymentSuccessView from './payment-success-view'
 import { useAnimation } from './animation'
@@ -66,7 +66,7 @@ export default function TerritoryPendingFeeModal ({ moneroUri, subName, onClose,
       moneroUri={moneroUri}
       amountPiconeros={feePiconeros}
       heading='Pay the turf fee'
-      description={`Scan to send ${piconerosToXmr(feePiconeros)} to the platform rewards wallet. Your turf goes live once the fee is detected on-chain.`}
+      description={`Scan to send ${piconerosToMXmrDual(feePiconeros)} to the platform rewards wallet. Your turf goes live once the fee is detected on-chain.`}
     >
       {hint &&
         <p className='text-warning text-center mt-3'>

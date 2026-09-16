@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { buildMoneroUri, piconerosToXmrDecimal } from '@/api/monero/uri'
+import { buildMoneroUri, piconerosToMillineroDecimal, piconerosToXmrDecimal } from '@/api/monero/uri'
 
 const STAGENET_PRIMARY = '53H3SiSpNn6kiNubFw9Z5xq3QfHJqLiZyKQxhEVh7V9fFpa8jD9TmGv6g1REaX25Uo7sx2k1oYznxVqzD1Kb1vGfJyU6W4t' // 95-char base58 stagenet fixture
 
@@ -24,6 +24,29 @@ test('piconerosToXmrDecimal maxDecimals truncates toward zero and trims trailing
   expect(piconerosToXmrDecimal(999_900_000_000n, 3)).toBe('0.999') // truncates, never rounds up
   expect(piconerosToXmrDecimal(-1_234_567_890_123n, 3)).toBe('-1.234')
   expect(piconerosToXmrDecimal(1_234_000_000_000n)).toBe('1.234') // default 12 unchanged
+})
+
+test('piconerosToMillineroDecimal converts BigInt piconeros to a decimal mXMR string', () => {
+  expect(piconerosToMillineroDecimal(0n)).toBe('0')
+  expect(piconerosToMillineroDecimal(1_000_000_000n)).toBe('1') // 1 mXMR
+  expect(piconerosToMillineroDecimal(100_000_000n)).toBe('0.1') // 0.0001 XMR (min tip)
+  expect(piconerosToMillineroDecimal(10_000_000_000n)).toBe('10') // 0.01 XMR
+  expect(piconerosToMillineroDecimal(1_000_000_000_000n)).toBe('1000') // 1 XMR
+  expect(piconerosToMillineroDecimal(1_234_567_890_123n)).toBe('1234.567890123')
+})
+
+test('piconerosToMillineroDecimal rejects non-BigInt input', () => {
+  expect(() => piconerosToMillineroDecimal(1000)).toThrow(/BigInt/)
+  expect(() => piconerosToMillineroDecimal('1000')).toThrow(/BigInt/)
+})
+
+test('piconerosToMillineroDecimal maxDecimals truncates toward zero and trims trailing zeros', () => {
+  expect(piconerosToMillineroDecimal(1_234_567_890_123n, 3)).toBe('1234.567')
+  expect(piconerosToMillineroDecimal(4_163_900_000n, 0)).toBe('4') // nav rewards readout
+  expect(piconerosToMillineroDecimal(1_200_000_000_000n, 0)).toBe('1200')
+  expect(piconerosToMillineroDecimal(999_900_000_000n, 3)).toBe('999.9')
+  expect(piconerosToMillineroDecimal(-1_234_567_890_123n, 3)).toBe('-1234.567')
+  expect(piconerosToMillineroDecimal(1_234_000_000_000n)).toBe('1234') // default 9 unchanged
 })
 
 test('buildMoneroUri emits a Cake-compatible single-destination URI with XMR decimal tx_amount', () => {

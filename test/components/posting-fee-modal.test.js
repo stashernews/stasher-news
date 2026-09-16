@@ -87,13 +87,13 @@ describe('PostingFeeModal top-up amount', () => {
     expect(copies.length).toBe(2)
     expect(copies[0].getAttribute('data-value')).toBe('0.0006')
     expect(copies[1].getAttribute('data-value')).toBe(ADDRESS)
-    expect(container.textContent).toContain('Scan to send 0.0006 XMR')
+    expect(container.textContent).toContain('Scan to send 0.6 mXMR (0.0006 XMR)')
   })
 
   test('shows the full fee before the first poll resolves (fresh submit)', async () => {
     await renderModal()
     expect(amountInput().getAttribute('value')).toBe('0.001')
-    expect(container.textContent).toContain('Scan to send 0.001 XMR')
+    expect(container.textContent).toContain('Scan to send 1 mXMR (0.001 XMR)')
   })
 
   test('shows the full fee when nothing has been received', async () => {
@@ -104,6 +104,6 @@ describe('PostingFeeModal top-up amount', () => {
 
   test('shows the short-pay hint when the poll reports a partial payment', async () => {
     await renderModal({ polledItem: { feeReceivedPiconeros: 400000000, feeTopUpUri: URI_TOPUP } })
-    expect(container.textContent).toMatch(/payment detected but short — received 0\.0004 XMR of 0\.001 XMR\. Send 0\.0006 XMR to the same address to complete it\./)
+    expect(container.textContent).toMatch(/payment detected but short — received 0\.4 mXMR of 1 mXMR\. Send 0\.0006 XMR \(0\.6 mXMR\) to the same address to complete it\./)
   })
 })

@@ -4,7 +4,7 @@ import { useQuery } from '@apollo/client/react'
 import { useEffect } from 'react'
 import { useMe } from './me'
 import { useAnimation } from './animation'
-import { moneroUriAmountPiconeros, piconerosToXmr, underpayHint } from '@/lib/format'
+import { moneroUriAmountPiconeros, piconerosToMXmrDual, underpayHint } from '@/lib/format'
 import { postingFeeModalPhase } from '@/lib/pay-in'
 import MoneroPaymentView from './monero-payment-view'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
@@ -69,7 +69,7 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
       moneroUri={displayUri}
       amountPiconeros={displayPiconeros}
       heading='Pay the posting fee'
-      description={`Scan to send ${piconerosToXmr(displayPiconeros)} to the platform rewards wallet. Your post goes live once the fee is detected on-chain.`}
+      description={`Scan to send ${piconerosToMXmrDual(displayPiconeros)} to the platform rewards wallet. Your post goes live once the fee is detected on-chain.`}
     >
       {hint &&
         <p className='text-warning text-center mt-3'>

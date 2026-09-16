@@ -4,7 +4,7 @@ import ActionTooltip from './action-tooltip'
 import TipModal from './tip-modal'
 import { useMe } from './me'
 import { useMemo } from 'react'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import { useShowModal } from './modal'
 import { Dropdown } from 'react-bootstrap'
 import classNames from 'classnames'
@@ -41,7 +41,7 @@ export default function UpVote ({ item, className, collapsed }) {
     const sats = defaultTipIncludingRandom({ ...me?.privates })
     let overlayTextContent
     if (me) {
-      overlayTextContent = me.privates?.tipRandom ? 'random' : piconerosToXmr(BigInt(sats))
+      overlayTextContent = me.privates?.tipRandom ? 'random' : piconerosToMXmr(BigInt(sats))
     } else {
       overlayTextContent = 'tip it'
     }

@@ -1,10 +1,54 @@
 /* eslint-env jest */
-import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, piconerosToSats, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid, formatDaysHours } from '@/lib/format'
+import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, piconerosToMXmr, piconerosToMXmrDecimal, piconerosToMXmrDual, legacySatsSeriesToMXmr, piconerosToSats, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid, formatDaysHours } from '@/lib/format'
 
 describe('piconerosToXmrDecimal re-export', () => {
   it('is re-exported from lib/format (settings + tip modal import it from here)', () => {
     expect(typeof piconerosToXmrDecimal).toBe('function')
     expect(piconerosToXmrDecimal(xmrToPiconeros('0.001'))).toBe('0.001')
+  })
+})
+
+describe('piconerosToMXmr', () => {
+  it('formats piconeros with an mXMR suffix', () => {
+    expect(piconerosToMXmr(1_000_000_000n)).toBe('1 mXMR')
+    expect(piconerosToMXmr(100_000_000n)).toBe('0.1 mXMR')
+    expect(piconerosToMXmr(1_234_567_890_123n)).toBe('1234.567890123 mXMR')
+    expect(piconerosToMXmr(-1_000_000_000n)).toBe('-1 mXMR')
+  })
+
+  it('caps decimals when asked (nav rewards readout)', () => {
+    expect(piconerosToMXmr(4_163_900_000n, 0)).toBe('4 mXMR')
+  })
+})
+
+describe('piconerosToMXmrDecimal re-export', () => {
+  it('is re-exported from lib/format', () => {
+    expect(piconerosToMXmrDecimal(xmrToPiconeros('0.001'))).toBe('1')
+  })
+})
+
+describe('piconerosToMXmrDual', () => {
+  it('renders the mXMR amount with its XMR equivalent', () => {
+    expect(piconerosToMXmrDual(1_000_000_000n)).toBe('1 mXMR (0.001 XMR)')
+    expect(piconerosToMXmrDual(600_000_000n)).toBe('0.6 mXMR (0.0006 XMR)')
+    expect(piconerosToMXmrDual(1_200_000_000n)).toBe('1.2 mXMR (0.0012 XMR)')
+  })
+})
+
+describe('legacySatsSeriesToMXmr', () => {
+  it('converts growth-series values from legacy sats to numeric mXMR', () => {
+    const series = [
+      { time: 't1', data: [{ name: 'TIP', value: 2_500_000 }, { name: 'POSTING', value: 1_000 }] },
+      { time: 't2', data: [{ name: 'TIP', value: 0 }] }
+    ]
+    expect(legacySatsSeriesToMXmr(series)).toEqual([
+      { time: 't1', data: [{ name: 'TIP', value: 2.5 }, { name: 'POSTING', value: 0.001 }] },
+      { time: 't2', data: [{ name: 'TIP', value: 0 }] }
+    ])
+  })
+
+  it('passes through a missing series', () => {
+    expect(legacySatsSeriesToMXmr(undefined)).toBeUndefined()
   })
 })
 

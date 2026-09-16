@@ -19,6 +19,7 @@ import PageLoading from '@/components/page-loading'
 import { useToast } from '@/components/toast'
 import { useMe } from '@/components/me'
 import { piconerosToXmrDecimal, signedXmrToPiconeros, xmrToPiconeros, snapToFilterGrid } from '@/lib/format'
+import { MXmrFieldHint } from '@/components/mxmr-hint'
 import { useField } from 'formik'
 import styles from '@/styles/nav.module.css'
 import { AuthBanner } from '@/components/banners'
@@ -174,7 +175,12 @@ export default function Settings ({ ssrData }) {
             required
             autoFocus
             append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
-            hint={<small className='text-muted'>note: clicking the tip button on any post lets you tip a custom amount</small>}
+            hint={
+              <>
+                <small className='text-muted'>note: clicking the tip button on any post lets you tip a custom amount</small>
+                <div><MXmrFieldHint name='tipDefault' /></div>
+              </>
+            }
           />
           <TipRandomField />
           <Select
@@ -350,6 +356,7 @@ export default function Settings ({ ssrData }) {
             max={0.01}
             step={0.0001}
             suffix=' XMR'
+            hint={<MXmrFieldHint name='postsPiconerosFilter' />}
             allOption
             labels={[
               { value: -0.1, label: 'wild west' },
@@ -372,6 +379,7 @@ export default function Settings ({ ssrData }) {
             max={0.01}
             step={0.0001}
             suffix=' XMR'
+            hint={<MXmrFieldHint name='commentsPiconerosFilter' />}
             allOption
             labels={[
               { value: -0.1, label: 'wild west' },
@@ -494,6 +502,7 @@ const TipRandomField = () => {
             required
             autoFocus
             max={tipRandomMaxField.value ? tipRandomMaxField.value - 1 : undefined}
+            hint={<MXmrFieldHint name='tipRandomMin' />}
             append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
           />
           <Input
@@ -504,6 +513,7 @@ const TipRandomField = () => {
             required
             autoFocus
             min={tipRandomMinField.value ? tipRandomMinField.value + 1 : undefined}
+            hint={<MXmrFieldHint name='tipRandomMax' />}
             append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
           />
         </>}

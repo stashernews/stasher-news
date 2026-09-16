@@ -6,7 +6,7 @@ import styles from './fee-button.module.css'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
 import { ANON_COMMENT_FEE_MULTIPLIER, ANON_POST_FEE_MULTIPLIER, DEFAULT_POSTING_FEE_PICONEROS, FAST_POLL_INTERVAL_MS, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, SSR } from '@/lib/constants'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import { useMe } from './me'
 import AnonIcon from '@/svgs/spy-fill.svg'
 import { useShowModal } from './modal'
@@ -61,7 +61,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
     // waived it when the replier owns every turf in the thread)
     return {
       commentFee: {
-        term: `+ ${piconerosToXmr(commentFee)}`,
+        term: `+ ${piconerosToMXmr(commentFee)}`,
         label: 'comment fee',
         // base line so the itemRepetition multiplier (op '*') scales it
         // server-side too: 0.001 x 1.5^n (sortHelper runs _ first, then * and /)
@@ -133,7 +133,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
 
   return {
     postingFee: {
-      term: `+ ${piconerosToXmr(platformFeePiconeros)}`,
+      term: `+ ${piconerosToMXmr(platformFeePiconeros)}`,
       label: postMultiplier > 1 ? `posting fee \u00d7 ${postMultiplier} turfs` : 'posting fee',
       // base line so the itemRepetition multiplier (op '*') scales it. The
       // modifier ADDS to the accumulator (not absolute) because the premium
@@ -152,7 +152,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
     ...(premiumTotalPiconeros > 0n
       ? {
           turfPremium: {
-            term: `+ ${piconerosToXmr(premiumTotalPiconeros)}`,
+            term: `+ ${piconerosToMXmr(premiumTotalPiconeros)}`,
             label: 'turf owner premium',
             op: '_',
             modifier: (cost) => cost + Number(premiumTotalPiconeros / 1000n)
@@ -338,13 +338,13 @@ export default function FeeButton ({ ChildButton = SubmitButton, variant, text, 
   const feeText = free
     ? 'free'
     : total > 1
-      ? piconerosToXmr(legacySatsToPiconeros(total))
+      ? piconerosToMXmr(legacySatsToPiconeros(total))
       : undefined
   disabled ||= ctxDisabled
 
   return (
     <div className={styles.feeButton}>
-      <ActionTooltip overlayText={!free && total === 1 ? piconerosToXmr(1000n) : feeText}>
+      <ActionTooltip overlayText={!free && total === 1 ? piconerosToMXmr(1000n) : feeText}>
         <ChildButton
           variant={variant} disabled={disabled}
           appendText={feeText}
@@ -372,7 +372,7 @@ function Receipt ({ lines, total }) {
       </tbody>
       <tfoot>
         <tr>
-          <td className='fw-bold'>{piconerosToXmr(legacySatsToPiconeros(total))}</td>
+          <td className='fw-bold'>{piconerosToMXmr(legacySatsToPiconeros(total))}</td>
           <td align='right' className='font-weight-light'>total fee</td>
         </tr>
       </tfoot>

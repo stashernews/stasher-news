@@ -1,7 +1,7 @@
 import React from 'react'
 import styles from './pay-bounty.module.css'
 import { useMe } from './me'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import { useShowModal } from './modal'
 import { useRoot } from './root'
 import { useAnimation } from '@/components/animation'
@@ -99,10 +99,10 @@ export default function PayBounty ({ children, item }) {
               Pay this bounty to {item.user.name}?
             </div>
             <div className='text-center text-muted mt-2'>
-              {piconerosToXmr(BigInt(bounty) * 1000n)} + {piconerosToXmr(BigInt(proxyFee) * 1000n)} proxy fee
+              {piconerosToMXmr(BigInt(bounty) * 1000n)} + {piconerosToMXmr(BigInt(proxyFee) * 1000n)} proxy fee
             </div>
             <Form className='text-center' onSubmit={() => handlePayBounty(onClose)} initial={{ id: item.id }}>
-              <SubmitButton className='mt-4' variant='primary' submittingText='paying...' appendText={piconerosToXmr(BigInt(totalCost) * 1000n)}>
+              <SubmitButton className='mt-4' variant='primary' submittingText='paying...' appendText={piconerosToMXmr(BigInt(totalCost) * 1000n)}>
                 pay
               </SubmitButton>
             </Form>

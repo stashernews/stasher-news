@@ -103,4 +103,9 @@ describe('MoneroPaymentView copyable amount', () => {
     expect(copies.length).toBe(1)
     expect(copies[0].getAttribute('data-value')).toBe(ADDRESS)
   })
+
+  it('quotes the amount in mXMR with the XMR equivalent in the scan line', async () => {
+    await renderView({ moneroUri: URI_WITH_AMOUNT, amountPiconeros: 1000000000n })
+    expect(container.textContent).toContain('Scan to send 1 mXMR (0.001 XMR).')
+  })
 })

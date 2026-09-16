@@ -5,7 +5,7 @@ import Button from 'react-bootstrap/Button'
 import MoneroPaymentView from './monero-payment-view'
 import PaymentSuccessView from './payment-success-view'
 import { useRouter } from 'next/router'
-import { piconerosToXmr, underpayHint } from '@/lib/format'
+import { piconerosToMXmr, underpayHint } from '@/lib/format'
 import { bountyFundingDescription } from '@/lib/bounty'
 import { FUND_BOUNTY_MUTATION } from '@/fragments/payIn'
 
@@ -137,7 +137,7 @@ export default function BountyFundingView ({ postId, amountPiconeros, onClose })
           </p>}
         <p className='text-muted text-center mt-3'>
           <small>
-            fee: {piconerosToXmr(BigInt(feePiconeros))} — the bounty pays out in full on award; the fee funds operations.
+            fee: {piconerosToMXmr(BigInt(feePiconeros))} — the bounty pays out in full on award; the fee funds operations.
           </small>
         </p>
       </MoneroPaymentView>

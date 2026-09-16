@@ -9,7 +9,7 @@ import { useRouter } from 'next/router'
 import dynamic from 'next/dynamic'
 import PageLoading from '@/components/page-loading'
 import { WhenAreaChartSkeleton, WhenLineChartSkeleton } from '@/components/charts-skeletons'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr, legacySatsSeriesToMXmr } from '@/lib/format'
 
 const WhenAreaChart = dynamic(() => import('@/components/charts').then(mod => mod.WhenAreaChart), {
   loading: () => <WhenAreaChartSkeleton />
@@ -84,11 +84,11 @@ function GrowthTotals ({ totals, sub }) {
     <Row className='my-4'>
       <Col xs={6} md={3} className='text-center mb-3'>
         <div className='text-muted small'>total stashed</div>
-        <div className='fw-bold fs-5'>{piconerosToXmr(BigInt(Math.floor(totals.stashing)) * 1000n)}</div>
+        <div className='fw-bold fs-5'>{piconerosToMXmr(BigInt(Math.floor(totals.stashing)) * 1000n)}</div>
       </Col>
       <Col xs={6} md={3} className='text-center mb-3'>
         <div className='text-muted small'>total spent</div>
-        <div className='fw-bold fs-5'>{piconerosToXmr(BigInt(Math.floor(totals.spending)) * 1000n)}</div>
+        <div className='fw-bold fs-5'>{piconerosToMXmr(BigInt(Math.floor(totals.spending)) * 1000n)}</div>
       </Col>
       <Col xs={6} md={3} className='text-center mb-3'>
         <div className='text-muted small'>spend actions</div>
@@ -127,12 +127,12 @@ export default function Growth ({ ssrData }) {
       <GrowthTotals totals={growthTotals} sub={sub} />
       <Row>
         <Col className='mt-3'>
-          <div className='text-center text-muted fw-bold'>XMR stashed</div>
-          <WhenAreaChart data={stashingGrowth} />
+          <div className='text-center text-muted fw-bold'>mXMR stashed</div>
+          <WhenAreaChart data={legacySatsSeriesToMXmr(stashingGrowth)} />
         </Col>
         <Col className='mt-3'>
-          <div className='text-center text-muted fw-bold'>XMR spent</div>
-          <WhenAreaChart data={spendingGrowth} />
+          <div className='text-center text-muted fw-bold'>mXMR spent</div>
+          <WhenAreaChart data={legacySatsSeriesToMXmr(spendingGrowth)} />
         </Col>
       </Row>
       <Row>

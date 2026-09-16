@@ -1,6 +1,6 @@
 import { datePivot } from '@/lib/time'
 import gql from 'graphql-tag'
-import { numWithUnits, abbrNum, piconerosToXmr } from '@/lib/format'
+import { numWithUnits, piconerosToMXmr } from '@/lib/format'
 import { META_SUB, USER_ID } from '@/lib/constants'
 import { autoPost } from './weeklyPosts'
 
@@ -52,7 +52,7 @@ function topPosts (days) {
     if (post) {
       text += `
 - [${post.title}](${process.env.NEXT_PUBLIC_URL}/items/${post.id})
-    - ${piconerosToXmr(BigInt(post.piconeros ?? 0))} \\ ${numWithUnits(post.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })} \\ @${post.user.name} \\ ~${post.subName} \\ \`${day}\``
+    - ${piconerosToMXmr(BigInt(post.piconeros ?? 0))} \\ ${numWithUnits(post.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })} \\ @${post.user.name} \\ ~${post.subName} \\ \`${day}\``
     } else {
       text += `
 - no top post for \`${day}\``
@@ -68,7 +68,7 @@ function topStackers (days) {
     if (user) {
       text += `
 - @${user.name}
-    - ${abbrNum(user.optional?.stacked)} stashed \\ ${abbrNum(user.optional?.spent)} spent \\ ${numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
+    - ${piconerosToMXmr(BigInt(user.optional?.stacked ?? 0))} stashed \\ ${piconerosToMXmr(BigInt(user.optional?.spent ?? 0))} spent \\ ${numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
     } else {
       text += `
 - stasher is in hiding for \`${day}\``
@@ -84,7 +84,7 @@ function topComments (days) {
     if (comment) {
       text += `
 - ${process.env.NEXT_PUBLIC_URL}/items/${comment.root.id}?commentId=${comment.id} on [${comment.root.title}](${process.env.NEXT_PUBLIC_URL}/items/${comment.root.id})
-    - ${piconerosToXmr(BigInt(comment.piconeros ?? 0))} \\ ${numWithUnits(comment.ncomments, { unitSingular: 'reply', unitPlural: 'replies' })} \\ @${comment.user.name} \\ \`${day}\`
+    - ${piconerosToMXmr(BigInt(comment.piconeros ?? 0))} \\ ${numWithUnits(comment.ncomments, { unitSingular: 'reply', unitPlural: 'replies' })} \\ @${comment.user.name} \\ \`${day}\`
         > ${comment.text.trim().split('\n')[0]} [...]`
     } else {
       text += `
@@ -101,7 +101,7 @@ function topSubs (days) {
     if (sub) {
       text += `
 - ~${sub.name}
-    - ${abbrNum(sub.optional?.stacked)} stashed \\ ${abbrNum(sub.optional?.spent)} spent \\ ${numWithUnits(sub.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
+    - ${piconerosToMXmr(BigInt(sub.optional?.stacked ?? 0))} stashed \\ ${piconerosToMXmr(BigInt(sub.optional?.spent ?? 0))} spent \\ ${numWithUnits(sub.nitems, { unitSingular: 'item', unitPlural: 'items' })} \\ \`${day}\``
     } else {
       text += `
 - no top territory for \`${day}\``

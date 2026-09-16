@@ -9,8 +9,9 @@ import PaymentSuccessView from './payment-success-view'
 import { useAct } from './item-act'
 import { useAnimation } from './animation'
 import { useToast } from './toast'
-import { piconerosToXmr, xmrToPiconeros } from '@/lib/format'
+import { piconerosToMXmr, piconerosToMXmrDual, xmrToPiconeros } from '@/lib/format'
 import BoostIcon from '@/svgs/arrow-up-double-line.svg'
+import MXmrHint from './mxmr-hint'
 
 const PRESETS = ['0.001', '0.01', '0.1', '1']
 
@@ -98,7 +99,7 @@ export default function BoostModal ({ item, onClose }) {
           <BootstrapForm onSubmit={onSubmit}>
             <div className='d-flex gap-2 justify-content-center mb-2 flex-wrap'>
               {PRESETS.map(num =>
-                <Button size='sm' key={num} onClick={() => setAmount(num)}>{num}</Button>)}
+                <Button size='sm' key={num} onClick={() => setAmount(num)}>{piconerosToMXmr(xmrToPiconeros(num))}</Button>)}
             </div>
             <BootstrapForm.Group>
               <BootstrapForm.Control
@@ -108,6 +109,7 @@ export default function BoostModal ({ item, onClose }) {
                 onChange={e => setAmount(e.target.value)}
                 placeholder='XMR amount'
               />
+              <MXmrHint value={amount} />
             </BootstrapForm.Group>
             <div className='d-flex justify-content-end gap-2 mt-3'>
               <Button variant='secondary' onClick={onClose}>cancel</Button>
@@ -122,7 +124,7 @@ export default function BoostModal ({ item, onClose }) {
             moneroUri={moneroUri}
             amountPiconeros={BigInt(piconeros)}
             heading='Pay this boost'
-            description={`Scan to send ${piconerosToXmr(BigInt(piconeros))} to the platform wallet. 30% funds the weekly curator rewards.`}
+            description={`Scan to send ${piconerosToMXmrDual(BigInt(piconeros))} to the platform wallet. 30% funds the weekly curator rewards.`}
           >
             <p className='text-muted text-center mt-3'>
               <small>

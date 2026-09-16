@@ -94,7 +94,7 @@ describe('BountyFundingView payable amount', () => {
 
     expect(mockMutate).toHaveBeenCalled()
     // description states the total up front
-    expect(container.textContent).toContain('Scan to send 0.012 XMR')
+    expect(container.textContent).toContain('Scan to send 12 mXMR (0.012 XMR)')
 
     // copyable amount field and its copy button carry the TOTAL (0.012), so a
     // user copying the amount sends the full 0.012 the escrow expects

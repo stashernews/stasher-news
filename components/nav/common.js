@@ -9,7 +9,6 @@ import SubSelect from '../sub-select'
 import { LONG_POLL_INTERVAL_MS, PUBLIC_MEDIA_URL, SSR } from '../../lib/constants'
 import NoteIcon from '../../svgs/notification-4-fill.svg'
 import { useMe } from '../me'
-import { abbrNum } from '../../lib/format'
 import { DISPLAY_FONT } from '@/lib/rebrand'
 import { COPY } from '@/lib/rebrand-copy'
 import { useServiceWorker } from '../serviceworker'
@@ -23,7 +22,7 @@ import { useWalletIndicator } from '@/wallets/client/hooks'
 import SwitchAccountList, { useIsLurker } from '@/components/account'
 import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import { useBranding } from '@/components/territory-branding'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
@@ -134,7 +133,7 @@ export function NavRewards () {
   return (
     <Nav.Item className='navRewards d-none d-md-flex align-items-center gap-2'>
       <Link href='/rewards' className='nav-link p-0 navRewardsAmount'>
-        {piconerosToXmr(BigInt(total), 3)} in {time && <DaysHoursCountdown className='navRewardsTimer' date={time} />}
+        {piconerosToMXmr(BigInt(total), 0)} in {time && <DaysHoursCountdown className='navRewardsTimer' date={time} />}
       </Link>
     </Nav.Item>
   )
@@ -176,9 +175,9 @@ export function WalletSummary () {
   return (
     <span
       className='text-monospace'
-      title={`${Number(me.privates?.piconeros).toLocaleString('en-US')} piconero (${piconerosToXmr(BigInt(me.privates?.piconeros))})`}
+      title={`${Number(me.privates?.piconeros).toLocaleString('en-US')} piconero (${piconerosToMXmr(BigInt(me.privates?.piconeros))})`}
     >
-      {`${abbrNum(me.privates?.piconeros)}`}
+      {piconerosToMXmr(BigInt(me.privates?.piconeros), 2)}
     </span>
   )
 }

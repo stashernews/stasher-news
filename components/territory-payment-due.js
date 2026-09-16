@@ -1,7 +1,7 @@
 import { Alert, Button } from 'react-bootstrap'
 import { useMe } from './me'
 import FeeButton, { FeeButtonProvider } from './fee-button'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import { Form } from './form'
 import { timeSince } from '@/lib/time'
 import { LongCountdown } from './countdown'
@@ -76,7 +76,7 @@ export default function TerritoryPaymentDue ({ sub }) {
       <FeeButtonProvider
         baseLineItems={{
           territory: {
-            term: `+ ${piconerosToXmr(feePiconeros)}`,
+            term: `+ ${piconerosToMXmr(feePiconeros)}`,
             label: `${sub.billingType.toLowerCase()} turf fee`,
             op: '+',
             modifier: cost => cost + Number(feePiconeros / 1000n)

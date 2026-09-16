@@ -7,7 +7,7 @@ import { useMe } from './me'
 import UpArrow from '@/svgs/up-arrow.svg'
 import { xmrAmountSchema } from '@/lib/validate'
 import { defaultTipIncludingRandom } from './upvote'
-import { xmrToPiconeros, piconerosToXmrDecimal } from '@/lib/format'
+import { xmrToPiconeros, piconerosToXmrDecimal, piconerosToMXmr } from '@/lib/format'
 import { ACT_MUTATION } from '@/fragments/payIn'
 import { actWaitFor, getPayIn } from '@/lib/pay-in'
 import { meAnonPiconeros } from '@/lib/apollo'
@@ -16,6 +16,7 @@ import { useAnimation } from '@/components/animation'
 import { useToast } from '@/components/toast'
 import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import { composeCallbacks } from '@/lib/compose-callbacks'
+import { MXmrFieldHint } from './mxmr-hint'
 
 const defaultTips = ['0.001', '0.01', '0.1', '1']
 
@@ -34,7 +35,7 @@ const Tips = ({ setOValue }) => {
         className='me-1'
         width={14}
         height={14}
-      />{num}
+      />{piconerosToMXmr(xmrToPiconeros(num))}
     </Button>)
 }
 
@@ -121,6 +122,7 @@ export default function ItemAct ({ onClose, item, act = 'TIP', step, children })
         step={step}
         required
         autoFocus
+        hint={<MXmrFieldHint name='amount' />}
         append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
       />
 

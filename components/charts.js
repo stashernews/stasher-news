@@ -12,7 +12,7 @@ import { ResponsiveContainer } from 'recharts/lib/component/ResponsiveContainer'
 import { PieChart } from 'recharts/lib/chart/PieChart'
 import { Cell } from 'recharts/lib/component/Cell'
 import { Pie } from 'recharts/lib/polar/Pie'
-import { abbrNum } from '@/lib/format'
+import { abbrNum, piconerosToMXmr } from '@/lib/format'
 import { useRouter } from 'next/router'
 import { timeUnitForRange } from '@/lib/time'
 import { payTypeShortName } from '@/lib/pay-in'
@@ -220,7 +220,7 @@ export function GrowthPieChart ({ data }) {
           paddingAngle={0}
           outerRadius={80}
           fill='var(--bs-secondary)'
-          label
+          label={({ value }) => piconerosToMXmr(BigInt(value))}
         >
           {
             data.map((entry, index) => (
@@ -228,7 +228,7 @@ export function GrowthPieChart ({ data }) {
             ))
           }
         </Pie>
-        <Tooltip />
+        <Tooltip formatter={(value, name) => [piconerosToMXmr(BigInt(value)), name]} />
       </PieChart>
     </ResponsiveContainer>
   )

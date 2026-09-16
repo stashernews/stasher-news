@@ -11,7 +11,7 @@ import BountyIcon from '@/svgs/bounty-bag.svg'
 import ActionTooltip from './action-tooltip'
 import ImageIcon from '@/svgs/image-fill.svg'
 import VideoIcon from '@/svgs/video-on-fill.svg'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import ItemInfo from './item-info'
 import { CardMedia, hasVideoUpload } from './card-media'
 import { XPreviewCard } from './x-preview'
@@ -126,7 +126,7 @@ export default function Item ({
               {item.pollCost && <PollIndicator item={item} />}
               {item.bounty > 0 &&
                 <span className={styles.icon}>
-                  <ActionTooltip notForm overlayText={`${piconerosToXmr(BigInt(item.bounty) * 1000n)} ${item.bountyPaidTo?.length ? ' paid' : ' bounty'}`}>
+                  <ActionTooltip notForm overlayText={`${piconerosToMXmr(BigInt(item.bounty) * 1000n)} ${item.bountyPaidTo?.length ? ' paid' : ' bounty'}`}>
                     <BountyIcon className={`${styles.bountyIcon} ${item.bountyPaidTo?.length ? 'fill-success' : 'fill-grey'}`} height={16} width={16} />
                   </ActionTooltip>
                 </span>}

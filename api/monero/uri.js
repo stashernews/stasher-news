@@ -4,31 +4,44 @@
 // tx_amount is parsed by wallets as DECIMAL XMR (not atomic units), so we convert
 // the project's internal BigInt piconeros to an XMR decimal string here.
 //
-// Piconeros = 1e-12 XMR. All internal monetary columns are BigInt piconeros; the
-// URI boundary is the one place we render them as a human/wallet decimal string.
+// Piconeros = 1e-12 XMR. All internal monetary columns are BigInt piconeros; these
+// helpers are the single source of truth for rendering them as human denomination
+// decimal strings (the URI boundary uses the XMR variant).
 
-const PICONEROS_PER_XMR = 10n ** 12n
-
-/** BigInt piconeros -> decimal XMR string (trimmed of trailing zeros).
- * maxDecimals caps precision by truncating toward zero (never rounds up). */
-export function piconerosToXmrDecimal (piconeros, maxDecimals = 12) {
-  if (typeof piconeros !== 'bigint') throw new Error('piconerosToXmrDecimal: amount must be a BigInt')
+// BigInt piconeros -> decimal string in a unit of 10^unitDecimals piconeros.
+// Trims trailing fractional zeros; maxDecimals caps precision by truncating
+// toward zero (never rounds up).
+function piconerosToDecimalString (piconeros, unitDecimals, maxDecimals) {
+  if (typeof piconeros !== 'bigint') throw new Error('piconerosToDecimalString: amount must be a BigInt')
   const neg = piconeros < 0n
   let n = neg ? -piconeros : piconeros
-  if (maxDecimals < 12) {
-    const factor = 10n ** BigInt(12 - maxDecimals)
+  if (maxDecimals < unitDecimals) {
+    const factor = 10n ** BigInt(unitDecimals - maxDecimals)
     n = n / factor * factor
   }
-  const whole = n / PICONEROS_PER_XMR
-  const frac = n % PICONEROS_PER_XMR
+  const unit = 10n ** BigInt(unitDecimals)
+  const whole = n / unit
+  const frac = n % unit
   let s
   if (frac === 0n) {
     s = whole.toString()
   } else {
-    const fracStr = frac.toString().padStart(12, '0').replace(/0+$/, '')
+    const fracStr = frac.toString().padStart(unitDecimals, '0').replace(/0+$/, '')
     s = `${whole.toString()}.${fracStr}`
   }
   return (neg ? '-' : '') + s
+}
+
+/** BigInt piconeros -> decimal XMR string (trimmed of trailing zeros).
+ * maxDecimals caps precision by truncating toward zero (never rounds up). */
+export function piconerosToXmrDecimal (piconeros, maxDecimals = 12) {
+  return piconerosToDecimalString(piconeros, 12, maxDecimals)
+}
+
+/** BigInt piconeros -> decimal millinero (mXMR) string (trimmed of trailing zeros).
+ * 1 mXMR = 1e9 piconeros. maxDecimals caps precision by truncating toward zero. */
+export function piconerosToMillineroDecimal (piconeros, maxDecimals = 9) {
+  return piconerosToDecimalString(piconeros, 9, maxDecimals)
 }
 
 // base58 Monero address charset. The Monero base58 alphabet is the standard

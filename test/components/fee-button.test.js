@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import { postCommentBaseLineItems, legacySatsToPiconeros } from '@/components/fee-button'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 
 // components/fee-button imports ./form, which pulls in the lexical editor whose
 // node_modules deps (github-slugger, the mdast chain) are ESM-only and
@@ -12,15 +12,15 @@ jest.mock('../../components/editor', () => ({
 }))
 
 describe('postCommentBaseLineItems — posts', () => {
-  test('low-rep authors see a single posting-fee line quoting 0.001 XMR', () => {
+  test('low-rep authors see a single posting-fee line quoting 1 mXMR', () => {
     const lines = postCommentBaseLineItems({
       me: { privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000 } }
     })
     expect(Object.keys(lines)).toEqual(['postingFee'])
     expect(lines.postingFee.op).toBe('_')
-    expect(lines.postingFee.term).toBe('+ 0.001 XMR')
+    expect(lines.postingFee.term).toBe('+ 1 mXMR')
     expect(lines.postingFee.label).toBe('posting fee')
-    expect(piconerosToXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+    expect(piconerosToMXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('1 mXMR')
   })
 
   test('established authors see no fee lines', () => {
@@ -56,7 +56,7 @@ describe('postCommentBaseLineItems — posts', () => {
     const total = [lines.postingFee, lines.anonCharge]
       .sort((a, b) => (a.op === '_' ? -1 : 1))
       .reduce((cost, line) => line.modifier(cost), 0)
-    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.01 XMR')
+    expect(piconerosToMXmr(BigInt(total) * 1000n)).toBe('10 mXMR')
   })
 
   test('anonymous comments show the comment fee x3', () => {
@@ -66,7 +66,7 @@ describe('postCommentBaseLineItems — posts', () => {
     const total = [lines.commentFee, lines.anonCharge]
       .sort((a, b) => (a.op === '_' ? -1 : 1))
       .reduce((cost, line) => line.modifier(cost), 0)
-    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.003 XMR')
+    expect(piconerosToMXmr(BigInt(total) * 1000n)).toBe('3 mXMR')
   })
 })
 
@@ -86,10 +86,10 @@ describe('postCommentBaseLineItems — comments and bios', () => {
     })
     expect(Object.keys(lines)).toEqual(['commentFee'])
     expect(lines.commentFee.op).toBe('_')
-    expect(lines.commentFee.term).toBe('+ 0.001 XMR')
+    expect(lines.commentFee.term).toBe('+ 1 mXMR')
     expect(lines.commentFee.label).toBe('comment fee')
     expect(lines.commentFee.isComment).toBe(true)
-    expect(piconerosToXmr(BigInt(lines.commentFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+    expect(piconerosToMXmr(BigInt(lines.commentFee.modifier(0)) * 1000n)).toBe('1 mXMR')
   })
 
   test('bios stay free', () => {
@@ -122,13 +122,13 @@ describe('postCommentBaseLineItems — turf owners (subs)', () => {
     expect(lines).not.toHaveProperty('commentFee')
   })
 
-  test('a post to 2 non-owned turfs shows a scaled posting fee (0.002 XMR)', () => {
+  test('a post to 2 non-owned turfs shows a scaled posting fee (2 mXMR)', () => {
     const lines = postCommentBaseLineItems({
       me: { id: 1, privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } },
       subs: [{ name: 'a', userId: 2 }, { name: 'b', userId: 3 }]
     })
     expect(lines.postingFee).toBeTruthy()
-    expect(lines.postingFee.term).toBe('+ 0.002 XMR')
+    expect(lines.postingFee.term).toBe('+ 2 mXMR')
     expect(lines.postingFee.label).toBe('posting fee \u00d7 2 turfs')
   })
 
@@ -138,7 +138,7 @@ describe('postCommentBaseLineItems — turf owners (subs)', () => {
       subs: [{ name: 'mine', userId: 1 }, { name: 'yours', userId: 2 }]
     })
     expect(lines.postingFee).toBeTruthy()
-    expect(lines.postingFee.term).toBe('+ 0.001 XMR')
+    expect(lines.postingFee.term).toBe('+ 1 mXMR')
     expect(lines.postingFee.label).toBe('posting fee')
   })
 
@@ -149,9 +149,9 @@ describe('postCommentBaseLineItems — turf owners (subs)', () => {
       subs: [{ name: 'a', userId: 2 }, { name: 'b', userId: 3 }]
     })
     expect(Object.keys(lines)).toEqual(['commentFee'])
-    expect(lines.commentFee.term).toBe('+ 0.001 XMR')
+    expect(lines.commentFee.term).toBe('+ 1 mXMR')
     expect(lines.commentFee.label).toBe('comment fee')
-    expect(piconerosToXmr(BigInt(lines.commentFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+    expect(piconerosToMXmr(BigInt(lines.commentFee.modifier(0)) * 1000n)).toBe('1 mXMR')
   })
 
   test('a comment past quota in a mixed (1 owned + 1 non-owned) turf thread shows the flat comment fee', () => {
@@ -161,7 +161,7 @@ describe('postCommentBaseLineItems — turf owners (subs)', () => {
       subs: [{ name: 'mine', userId: 1 }, { name: 'yours', userId: 2 }]
     })
     expect(Object.keys(lines)).toEqual(['commentFee'])
-    expect(lines.commentFee.term).toBe('+ 0.001 XMR')
+    expect(lines.commentFee.term).toBe('+ 1 mXMR')
     expect(lines.commentFee.label).toBe('comment fee')
   })
 
@@ -177,12 +177,12 @@ describe('postCommentBaseLineItems — turf owners (subs)', () => {
 })
 
 describe('legacySatsToPiconeros — fractional escalation totals never crash BigInt', () => {
-  test('integer totals convert exactly (0.001 XMR fee)', () => {
+  test('integer totals convert exactly (1 mXMR fee)', () => {
     expect(legacySatsToPiconeros(1_000_000)).toBe(1_000_000_000n)
   })
 
   test('the exact crash value from the live report (17085937.5) rounds instead of throwing', () => {
-    // 0.001 XMR base escalated x1.5^7: 1e6 * 1.5^7 = 17085937.5 legacy sats
+    // 1 mXMR base escalated x1.5^7: 1e6 * 1.5^7 = 17085937.5 legacy sats
     expect(() => legacySatsToPiconeros(17085937.5)).not.toThrow()
     expect(legacySatsToPiconeros(17085937.5)).toBe(17_085_938_000n)
   })
@@ -209,13 +209,13 @@ describe('postCommentBaseLineItems — turf premiums', () => {
       me: lowRepMe,
       subs: [sub('Revenue', 860, 2000000000)]
     })
-    expect(lines.postingFee.term).toBe('+ 0.001 XMR')
+    expect(lines.postingFee.term).toBe('+ 1 mXMR')
     expect(lines.postingFee.label).toBe('posting fee')
-    expect(piconerosToXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+    expect(piconerosToMXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('1 mXMR')
     // the premium is its own receipt line, not folded into the posting fee
-    expect(lines.turfPremium.term).toBe('+ 0.002 XMR')
+    expect(lines.turfPremium.term).toBe('+ 2 mXMR')
     expect(lines.turfPremium.label).toBe('turf owner premium')
-    expect(piconerosToXmr(BigInt(lines.turfPremium.modifier(0)) * 1000n)).toBe('0.002 XMR')
+    expect(piconerosToMXmr(BigInt(lines.turfPremium.modifier(0)) * 1000n)).toBe('2 mXMR')
   })
 
   test('the premium line is hidden when me.privates.turfOwnerFees is off (feature dormant)', () => {
@@ -223,8 +223,8 @@ describe('postCommentBaseLineItems — turf premiums', () => {
       me: { id: 7, privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000, freePostsLeft: 0 } },
       subs: [sub('Revenue', 860, 2000000000)]
     })
-    expect(lines.postingFee.term).toBe('+ 0.001 XMR')
-    expect(piconerosToXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('0.001 XMR')
+    expect(lines.postingFee.term).toBe('+ 1 mXMR')
+    expect(piconerosToMXmr(BigInt(lines.postingFee.modifier(0)) * 1000n)).toBe('1 mXMR')
     // stored premiums exist but the flag is off: premiums never ride a leg the
     // platform wallet would collect, so the receipt must not quote one
     expect(lines).not.toHaveProperty('turfPremium')
@@ -235,14 +235,14 @@ describe('postCommentBaseLineItems — turf premiums', () => {
       me: lowRepMe,
       subs: [sub('Revenue', 860, 2000000000), sub('plain', 999)]
     })
-    // posting fee: 0.001 x 2 = 0.002; premium: 0.002; total 0.004
-    expect(lines.postingFee.term).toBe('+ 0.002 XMR')
+    // posting fee: 1 mXMR x 2 = 2 mXMR; premium: 2 mXMR; total 4 mXMR
+    expect(lines.postingFee.term).toBe('+ 2 mXMR')
     expect(lines.postingFee.label).toBe('posting fee \u00d7 2 turfs')
-    expect(lines.turfPremium.term).toBe('+ 0.002 XMR')
+    expect(lines.turfPremium.term).toBe('+ 2 mXMR')
     const total = [lines.postingFee, lines.turfPremium]
       .sort((a, b) => (a.op === '_' && b.op !== '_' ? -1 : a.op !== '_' && b.op === '_' ? 1 : 0))
       .reduce((cost, line) => line.modifier(cost), 0)
-    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.004 XMR')
+    expect(piconerosToMXmr(BigInt(total) * 1000n)).toBe('4 mXMR')
   })
 
   test('owned turfs stay free even with a premium set', () => {
@@ -268,7 +268,7 @@ describe('postCommentBaseLineItems — turf premiums', () => {
       me: lowRepMe,
       subs: [sub('a', 1), sub('b', 2)]
     })
-    expect(lines.postingFee.term).toBe('+ 0.002 XMR')
+    expect(lines.postingFee.term).toBe('+ 2 mXMR')
     expect(lines.postingFee.label).toBe('posting fee \u00d7 2 turfs')
     expect(lines).not.toHaveProperty('turfPremium')
   })
@@ -278,7 +278,7 @@ describe('postCommentBaseLineItems — turf premiums', () => {
       me: lowRepMe,
       subs: [{ name: 'legacy', userId: 860 }]
     })
-    expect(lines.postingFee.term).toBe('+ 0.001 XMR')
+    expect(lines.postingFee.term).toBe('+ 1 mXMR')
     expect(lines).not.toHaveProperty('turfPremium')
   })
 
@@ -288,9 +288,9 @@ describe('postCommentBaseLineItems — turf premiums', () => {
     const total = [lines.postingFee, lines.anonCharge]
       .sort((a, b) => (a.op === '_' ? -1 : 1))
       .reduce((cost, line) => line.modifier(cost), 0)
-    // 0.001 x 10 = 0.01 (the server may still charge a premium on an
+    // 1 mXMR x 10 = 10 mXMR (the server may still charge a premium on an
     // owner-routed anon leg — the receipt cannot know the route, so it
     // quotes the fallback floor like every other estimate it makes)
-    expect(piconerosToXmr(BigInt(total) * 1000n)).toBe('0.01 XMR')
+    expect(piconerosToMXmr(BigInt(total) * 1000n)).toBe('10 mXMR')
   })
 })

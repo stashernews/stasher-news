@@ -99,7 +99,7 @@ describe('underpayHint', () => {
 
   test('quotes received / expected / remaining when short', () => {
     const hint = underpayHint(400_000_000n, 1_000_000_000n)
-    expect(hint).toContain('received 0.0004 XMR of 0.001 XMR')
-    expect(hint).toContain('Send 0.0006 XMR')
+    expect(hint).toContain('received 0.4 mXMR of 1 mXMR')
+    expect(hint).toContain('Send 0.0006 XMR (0.6 mXMR)')
   })
 })

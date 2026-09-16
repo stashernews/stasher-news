@@ -18,7 +18,7 @@ import Share from './share'
 import Toc from './table-of-contents'
 import { RootProvider } from './root'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseEmbedUrl } from '@/lib/url'
-import { piconerosToXmr } from '@/lib/format'
+import { piconerosToMXmr } from '@/lib/format'
 import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
 import BountyActions from './bounty-actions'
 import { useQuoteReply } from './use-quote-reply'
@@ -117,18 +117,18 @@ function TopLevelItem ({ item, noReply, ...props }) {
             {item.bountyPaidTo?.length
               ? (
                 <div className='px-3 py-1 d-inline-block bg-grey-medium rounded text-success'>
-                  <Check className='fill-success' /> {piconerosToXmr(BigInt(item.bounty) * 1000n)} paid
+                  <Check className='fill-success' /> {piconerosToMXmr(BigInt(item.bounty) * 1000n)} paid
                   {item.bountyPaidTo.length > 1 && <small className='fw-light'> {new Set(item.bountyPaidTo).size} times</small>}
                 </div>)
               : (
                 <div className='px-3 py-1 d-inline-block bg-grey-darkmode rounded text-light'>
-                  {piconerosToXmr(BigInt(item.bounty) * 1000n)} bounty
+                  {piconerosToMXmr(BigInt(item.bounty) * 1000n)} bounty
                 </div>)}
           </div>}
         {Number(item.bountyPiconeros) > 0 &&
           <div className='fw-bold mt-2'>
             <div className='px-3 py-1 d-inline-block bg-grey-darkmode rounded text-light'>
-              {piconerosToXmr(bountyPiconerosOf(item.bountyPiconeros))} bounty · {bountyStatusWord(item.bountyStatus)}
+              {piconerosToMXmr(bountyPiconerosOf(item.bountyPiconeros))} bounty · {bountyStatusWord(item.bountyStatus)}
             </div>
           </div>}
       </article>

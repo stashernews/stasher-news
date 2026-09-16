@@ -6,7 +6,8 @@ import BootstrapForm from 'react-bootstrap/Form'
 import { Form, Input, SubmitButton } from './form'
 import { useAnimation } from './animation'
 import { useToast } from './toast'
-import { moneroUriAmountPiconeros, piconerosToXmr, xmrToPiconeros } from '@/lib/format'
+import { moneroUriAmountPiconeros, piconerosToMXmrDual, xmrToPiconeros } from '@/lib/format'
+import { MXmrFieldHint } from './mxmr-hint'
 import MoneroPaymentView from './monero-payment-view'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { xmrAmountSchema } from '@/lib/validate'
@@ -62,7 +63,7 @@ export default function DonateModal ({ onClose }) {
         moneroUri={payIn.moneroUri}
         amountPiconeros={amountPiconeros}
         heading='Donate to the rewards pool'
-        description={`Scan to send ${piconerosToXmr(amountPiconeros)} to the rewards wallet. ${rewardsPct}% funds curator rewards, ${100 - rewardsPct}% supports the platform.`}
+        description={`Scan to send ${piconerosToMXmrDual(amountPiconeros)} to the rewards wallet. ${rewardsPct}% funds curator rewards, ${100 - rewardsPct}% supports the platform.`}
       >
         <p className='text-muted text-center mt-3'>
           <small>
@@ -99,6 +100,7 @@ export default function DonateModal ({ onClose }) {
         type='number'
         required
         autoFocus
+        hint={<MXmrFieldHint name='amount' />}
         append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
       />
       <BootstrapForm.Group className='my-2'>

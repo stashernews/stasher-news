@@ -1,7 +1,7 @@
 import Qr from './qr'
 import InputGroup from 'react-bootstrap/InputGroup'
 import { CopyButton } from './form'
-import { moneroUriAddress, moneroUriAmountPiconeros, piconerosToXmr, piconerosToXmrDecimal } from '@/lib/format'
+import { moneroUriAddress, moneroUriAmountPiconeros, piconerosToMXmrDual, piconerosToXmrDecimal } from '@/lib/format'
 
 export default function MoneroPaymentView ({ moneroUri, amountPiconeros, heading, description, children }) {
   const address = moneroUriAddress(moneroUri)
@@ -11,7 +11,7 @@ export default function MoneroPaymentView ({ moneroUri, amountPiconeros, heading
     <div className='d-flex flex-column align-items-center'>
       {heading && <h6>{heading}</h6>}
       <p className='text-muted text-center'>
-        {description ?? (amount ? `Scan to send ${piconerosToXmr(amount)}.` : 'Scan to send Monero.')}
+        {description ?? (amount ? `Scan to send ${piconerosToMXmrDual(amount)}.` : 'Scan to send Monero.')}
       </p>
       <Qr value={moneroUri} />
       {(amountDecimal || address) &&

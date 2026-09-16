@@ -11,6 +11,7 @@ import { useShowModal } from './modal'
 import { useToast } from './toast'
 import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
 import { piconerosToXmrDecimal, xmrToPiconeros } from '@/lib/format'
+import { MXmrFieldHint } from './mxmr-hint'
 import { BOUNTY_DEFAULT_XMR, BOUNTY_MIN_XMR, bountyPiconerosOf } from '@/lib/bounty'
 import { useRef } from 'react'
 
@@ -103,6 +104,7 @@ export function BountyForm ({
       />
       <Input
         label={bountyLabel} name='amount' required
+        hint={<MXmrFieldHint name='amount' />}
         append={<InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>}
       />
       <SNInput

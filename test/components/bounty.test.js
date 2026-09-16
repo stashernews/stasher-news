@@ -90,18 +90,18 @@ describe('bountyStatusWord', () => {
 describe('bountyFundingDescription', () => {
   test('states the total with the breakdown in parentheses', () => {
     expect(bountyFundingDescription(10_000_000_000n, 10_000_000_000n))
-      .toBe('Scan to send 0.02 XMR (0.01 XMR bounty + 0.01 XMR escrow fee) to the bounty escrow.')
+      .toBe('Scan to send 20 mXMR (0.02 XMR) (10 mXMR bounty + 10 mXMR escrow fee) to the bounty escrow.')
   })
 
   test('handles amounts without a fee floor rounding', () => {
     expect(bountyFundingDescription(5_000_000_000n, 10_000_000_000n))
-      .toBe('Scan to send 0.015 XMR (0.005 XMR bounty + 0.01 XMR escrow fee) to the bounty escrow.')
+      .toBe('Scan to send 15 mXMR (0.015 XMR) (5 mXMR bounty + 10 mXMR escrow fee) to the bounty escrow.')
   })
 
   test('accepts string and number inputs like the GraphQL scalars deliver', () => {
     expect(bountyFundingDescription('10000000000', '10000000000'))
-      .toBe('Scan to send 0.02 XMR (0.01 XMR bounty + 0.01 XMR escrow fee) to the bounty escrow.')
+      .toBe('Scan to send 20 mXMR (0.02 XMR) (10 mXMR bounty + 10 mXMR escrow fee) to the bounty escrow.')
     expect(bountyFundingDescription(10000000000, 10000000000))
-      .toBe('Scan to send 0.02 XMR (0.01 XMR bounty + 0.01 XMR escrow fee) to the bounty escrow.')
+      .toBe('Scan to send 20 mXMR (0.02 XMR) (10 mXMR bounty + 10 mXMR escrow fee) to the bounty escrow.')
   })
 })

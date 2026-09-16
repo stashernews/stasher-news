@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import Image from 'react-bootstrap/Image'
-import { abbrNum, numWithUnits, piconerosToXmr } from '@/lib/format'
+import { numWithUnits, piconerosToMXmr } from '@/lib/format'
 import styles from './item.module.css'
 import userStyles from './user-header.module.css'
 import React, { useEffect, useMemo, useState } from 'react'
@@ -16,9 +16,9 @@ import CheckCircle from '@/svgs/checkbox-circle-fill.svg'
 
 // all of this nonsense is to show the stat we are sorting by first
 const Stacked = ({ user }) => (user.optional.stacked !== null
-  ? <span>{piconerosToXmr(BigInt(user.optional.stacked))} stashed</span>
-  : (user.optional.stashAmountHidden && <span>??? XMR stashed</span>))
-const Spent = ({ user }) => (user.optional.spent !== null && <span>{abbrNum(user.optional.spent)} spent</span>)
+  ? <span>{piconerosToMXmr(BigInt(user.optional.stacked))} stashed</span>
+  : (user.optional.stashAmountHidden && <span>??? mXMR stashed</span>))
+const Spent = ({ user }) => (user.optional.spent !== null && <span>{piconerosToMXmr(BigInt(user.optional.spent))} spent</span>)
 const Items = ({ user }) => (
   <Link href={`/${user.name}/all`} className='text-reset'>
     {numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })}

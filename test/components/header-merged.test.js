@@ -208,8 +208,19 @@ describe('HeaderMerged zero-removal', () => {
     expect(container.querySelector('a[href="/notifications"] svg')).toBeTruthy()
     // @user dropdown toggle (MeCorner)
     expect(container.textContent).toContain('@u1')
-    // wallet balance (MeCorner NavWalletSummary): abbrNum(5e12) = '5t'
-    expect(container.textContent).toContain('5t')
+    // wallet balance (MeCorner NavWalletSummary): 5e12 piconeros = 5000 mXMR
+    const wallet = container.querySelector('span[title*="piconero"]')
+    expect(wallet).toBeTruthy()
+    expect(wallet.textContent).toBe('5000 mXMR')
+    expect(wallet.getAttribute('title')).toContain('5000 mXMR')
+  })
+
+  it('renders the wallet balance rounded to 2 mXMR decimals without float artifacts', async () => {
+    mockMe = { name: 'u1', bioId: 'x', privates: { piconeros: '8700000000001' } }
+    await renderHeader(TURF_PROPS)
+
+    const wallet = container.querySelector('span[title*="piconero"]')
+    expect(wallet.textContent).toBe('8700 mXMR')
   })
 
   it('omits the second-bar elements on non-turf pages like the two-bar header does', async () => {
@@ -232,7 +243,7 @@ describe('NavRewards', () => {
 
     const amount = cluster.querySelector('a[href="/rewards"]')
     expect(amount).toBeTruthy()
-    expect(amount.textContent).toMatch(/^1\.2 XMR in \d+d \d{1,2}h$/)
+    expect(amount.textContent).toMatch(/^1200 mXMR in \d+d \d{1,2}h$/)
 
     const timer = cluster.querySelector('.navRewards .navRewardsTimer')
     expect(timer).toBeTruthy()
@@ -245,12 +256,12 @@ describe('NavRewards', () => {
     expect(cluster.querySelectorAll('.nav-item').length).toBeGreaterThanOrEqual(2)
   })
 
-  it('caps the rewards amount at 3 decimal places (truncated, trailing zeros trimmed)', async () => {
-    mockRewardsTotal = '4163900000' // 0.004163 XMR
+  it('caps the rewards amount at whole mXMR (truncated, trailing zeros trimmed)', async () => {
+    mockRewardsTotal = '4163900000' // 4.1639 mXMR
     await renderHeader(TURF_PROPS)
 
     const amount = container.querySelector('a[href="/rewards"]')
-    expect(amount.textContent).toMatch(/^0\.004 XMR in \d+d \d{1,2}h$/)
+    expect(amount.textContent).toMatch(/^4 mXMR in \d+d \d{1,2}h$/)
   })
 
   it('renders nothing when the rewards pool is not available', async () => {

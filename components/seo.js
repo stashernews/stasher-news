@@ -1,7 +1,7 @@
 import { NextSeo } from 'next-seo'
 import { useRouter } from 'next/router'
 import removeMd from 'remove-markdown'
-import { numWithUnits, piconerosToXmr } from '@/lib/format'
+import { numWithUnits, piconerosToMXmr } from '@/lib/format'
 import { useBranding } from './territory-branding'
 
 // Resolves the brand/site-name/tagline triple for SEO meta:
@@ -92,7 +92,7 @@ export default function Seo ({ sub, item, user }) {
         desc = desc.replace(/\s+/g, ' ')
       }
     } else {
-      desc = `@${item.user.name} stashed ${piconerosToXmr(BigInt(item.piconeros))} ${item.url ? `posting ${item.url}` : 'with this discussion'}`
+      desc = `@${item.user.name} stashed ${piconerosToMXmr(BigInt(item.piconeros))} ${item.url ? `posting ${item.url}` : 'with this discussion'}`
     }
     if (item.ncomments) {
       desc += ` [${numWithUnits(item.ncomments, { unitSingular: 'comment', unitPlural: 'comments' })}`
@@ -105,7 +105,7 @@ export default function Seo ({ sub, item, user }) {
     }
   }
   if (user) {
-    desc = `@${user.name} has [${user.optional.stacked ? `${piconerosToXmr(BigInt(user.optional.stacked))} stashed,` : ''}${numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })}]`
+    desc = `@${user.name} has [${user.optional.stacked ? `${piconerosToMXmr(BigInt(user.optional.stacked))} stashed,` : ''}${numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })}]`
   }
 
   return (
