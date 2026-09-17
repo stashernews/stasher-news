@@ -1,10 +1,10 @@
 import { useField } from 'formik'
-import { piconerosToMXmr, signedXmrToPiconeros } from '@/lib/format'
+import { piconerosToMXmr, xmrAmountToPiconeros } from '@/lib/format'
 
 export function mxmrHintText (value) {
   let piconeros
   try {
-    piconeros = signedXmrToPiconeros(String(value))
+    piconeros = xmrAmountToPiconeros(String(value))
   } catch {
     return null
   }

@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, piconerosToMXmr, piconerosToMXmrDecimal, piconerosToMXmrDual, legacySatsSeriesToMXmr, piconerosToSats, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid, formatDaysHours, FILTER_STEP_XMR } from '@/lib/format'
+import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, piconerosToMXmr, piconerosToMXmrDecimal, piconerosToMXmrDual, legacySatsSeriesToMXmr, piconerosToSats, xmrToPiconeros, signedXmrToPiconeros, xmrAmountToPiconeros, snapToFilterGrid, formatDaysHours, FILTER_STEP_XMR } from '@/lib/format'
 
 describe('piconerosToXmrDecimal re-export', () => {
   it('is re-exported from lib/format (settings + tip modal import it from here)', () => {
@@ -118,6 +118,28 @@ describe('signedXmrToPiconeros', () => {
       const xmr = k * FILTER_STEP_XMR
       expect(signedXmrToPiconeros(xmr)).toBe(BigInt(k) * 100000000n)
     }
+  })
+})
+
+describe('xmrAmountToPiconeros', () => {
+  test('parses amounts exactly, without snapping to the filter grid', () => {
+    expect(xmrAmountToPiconeros('0.00123')).toBe(1230000000n)
+    expect(xmrAmountToPiconeros('0.00015')).toBe(150000000n)
+    expect(xmrAmountToPiconeros('0.00005')).toBe(50000000n)
+    expect(xmrAmountToPiconeros('-0.025')).toBe(-25000000000n)
+  })
+
+  test('absorbs float noise and exponent notation at piconero precision', () => {
+    expect(xmrAmountToPiconeros('1e-11')).toBe(10n)
+    expect(xmrAmountToPiconeros('-1e-11')).toBe(-10n)
+    expect(xmrAmountToPiconeros('0.025500000000000002')).toBe(25500000000n)
+    expect(xmrAmountToPiconeros(0.001)).toBe(1000000000n)
+  })
+
+  test('rejects invalid input', () => {
+    expect(() => xmrAmountToPiconeros('abc')).toThrow()
+    expect(() => xmrAmountToPiconeros('')).toThrow()
+    expect(() => xmrAmountToPiconeros(null)).toThrow()
   })
 })
 

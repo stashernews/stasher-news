@@ -18,6 +18,12 @@ describe('mxmrHintText', () => {
     expect(mxmrHintText('-0.1')).toBe('= -100 mXMR')
   })
 
+  test('keeps off-grid amounts exact (no filter-grid snapping)', () => {
+    expect(mxmrHintText('0.00123')).toBe('= 1.23 mXMR')
+    expect(mxmrHintText('0.00015')).toBe('= 0.15 mXMR')
+    expect(mxmrHintText('0.00005')).toBe('= 0.05 mXMR')
+  })
+
   test('returns null for blank or invalid values', () => {
     expect(mxmrHintText('')).toBeNull()
     expect(mxmrHintText(undefined)).toBeNull()
