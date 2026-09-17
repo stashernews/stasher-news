@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, piconerosToMXmr, piconerosToMXmrDecimal, piconerosToMXmrDual, legacySatsSeriesToMXmr, piconerosToSats, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid, formatDaysHours } from '@/lib/format'
+import { moneroUriAmountPiconeros, moneroUriAddress, piconerosToXmr, piconerosToXmrDecimal, piconerosToMXmr, piconerosToMXmrDecimal, piconerosToMXmrDual, legacySatsSeriesToMXmr, piconerosToSats, xmrToPiconeros, signedXmrToPiconeros, snapToFilterGrid, formatDaysHours, FILTER_STEP_XMR } from '@/lib/format'
 
 describe('piconerosToXmrDecimal re-export', () => {
   it('is re-exported from lib/format (settings + tip modal import it from here)', () => {
@@ -100,8 +100,24 @@ describe('signedXmrToPiconeros', () => {
   })
 
   test('accepts exponent notation defensively', () => {
-    expect(signedXmrToPiconeros('1e-11')).toBe(10n)
-    expect(signedXmrToPiconeros('-1e-11')).toBe(-10n)
+    // sub-grid values (e.g. the legacy 10n piconeros default) collapse onto the grid
+    expect(signedXmrToPiconeros('1e-11')).toBe(0n)
+    expect(signedXmrToPiconeros('-1e-11')).toBe(0n)
+  })
+
+  test('quantizes floating-point noise onto the filter grid', () => {
+    // slider stepping (min + n*step) emits doubles like these; their shortest
+    // decimal representation exceeds xmrToPiconeros' 12-decimal guard
+    expect(signedXmrToPiconeros(-0.025500000000000002)).toBe(-25500000000n)
+    expect(signedXmrToPiconeros(-0.024999999999999994)).toBe(-25000000000n)
+    expect(signedXmrToPiconeros(0.0035000000000000005)).toBe(3500000000n)
+  })
+
+  test('converts every grid point without throwing', () => {
+    for (let k = -1000; k <= 100; k++) {
+      const xmr = k * FILTER_STEP_XMR
+      expect(signedXmrToPiconeros(xmr)).toBe(BigInt(k) * 100000000n)
+    }
   })
 })
 
