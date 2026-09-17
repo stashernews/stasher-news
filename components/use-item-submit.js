@@ -9,6 +9,7 @@ import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
 import { useMe } from './me'
 import { useBranding } from './territory-branding'
 import PostingFeeModal from './posting-fee-modal'
+import UploadFeeModal from './upload-fee-modal'
 import { useShowModal } from './modal'
 
 // this is intented to be compatible with upsert item mutations
@@ -101,9 +102,18 @@ export default function useItemSubmit (mutation,
       // still surface the fee); only the redirect is gated on it. persistOnNavigate
       // was set up for route-based QR persistence; the modal now owns the QR
       // display, so the early return makes that option inert for fee posts.
+      //
+      // Which modal: a create is gated by Item.feeStatus (flips to FEE_PAID when
+      // the posting fee is observed), so PostingFeeModal tracks it. An EDIT's
+      // upload fee has no state that flips — the item's feeStatus still reads
+      // FEE_PAID from the creation fee — so it tracks the fee PayIn directly via
+      // UploadFeeModal (PayIn.feeCovered), otherwise the fee would be silently
+      // waived.
       if (isPostingFeeSubmit(response)) {
         resetForm?.()
-        showModal(onClose => <PostingFeeModal moneroUri={response.moneroUri} itemId={postId} />)
+        showModal(onClose => item
+          ? <UploadFeeModal moneroUri={response.moneroUri} payInId={response.id} onClose={onClose} />
+          : <PostingFeeModal moneroUri={response.moneroUri} itemId={postId} />)
         if (navigateOnSubmit) {
           return
         }

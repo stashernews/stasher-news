@@ -21,6 +21,8 @@ import LinkExternal from '@/svgs/link-external.svg'
 import { isAbortError } from '@/lib/error'
 import { useShowModal } from './modal'
 import TerritoryPendingFeeModal from './territory-pending-fee-modal'
+import UploadFeeModal from './upload-fee-modal'
+import { needsCadenceFee } from '@/lib/territory'
 
 function SatFilterRanges () {
   return (
@@ -165,13 +167,23 @@ export default function TerritoryForm ({ sub }) {
         }
       })
 
-      // territory created PENDING_FEE — surface the fee payment before navigating.
-      // persistOnNavigate keeps the modal open across the redirect below so the
-      // founder can actually pay (navigating would otherwise close it immediately).
+      // Surface the fee payment before navigating. persistOnNavigate keeps the
+      // modal open across the redirect below so the founder can actually pay
+      // (navigating would otherwise close it immediately).
+      //
+      // Which modal: a billing fee (create, unarchive, cadence switch) sets
+      // Sub.billingStatus PENDING_FEE in onBegin, which TerritoryPendingFeeModal
+      // polls. An upload-fee-only save (billing unchanged) sets no billing state,
+      // so that modal would see the OLD creation fee's PAID status and instantly
+      // close without collecting the fee — those saves track the fee PayIn
+      // directly via UploadFeeModal.
       const response = data?.upsertSub ?? data?.unarchiveTerritory
       if (response?.moneroUri) {
+        const billingFlow = !sub || archived || needsCadenceFee(sub, variables.billingType)
         showModal(onClose => (
-          <TerritoryPendingFeeModal moneroUri={response.moneroUri} subName={variables.name} onClose={onClose} />
+          billingFlow
+            ? <TerritoryPendingFeeModal moneroUri={response.moneroUri} subName={variables.name} onClose={onClose} />
+            : <UploadFeeModal moneroUri={response.moneroUri} payInId={response.id} onClose={onClose} />
         ), { persistOnNavigate: true })
       }
       await router.push(`/~${variables.name}`)

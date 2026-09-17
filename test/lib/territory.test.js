@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { needsCadenceFee } from '@/api/payIn/types/territoryUpdate'
+import { needsCadenceFee } from '@/lib/territory'
 
 test('switching to a longer plan requires a fee', () => {
   expect(needsCadenceFee({ billingType: 'MONTHLY' }, 'YEARLY')).toBe(true)

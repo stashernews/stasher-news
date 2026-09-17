@@ -1,5 +1,6 @@
 import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_MAX_RETRIES, WALLET_RETRY_BEFORE_MS } from '@/lib/constants'
 import { GqlAuthenticationError } from '@/lib/error'
+import { moneroUriAmountPiconeros } from '@/lib/format'
 import { retry } from '../payIn'
 import { payInTypesSql } from '../payIn/lib/sql'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
@@ -222,13 +223,25 @@ export default {
     // on the general payIn queries.
     feeObserved: async (payIn, args, { models }) => {
       if (typeof payIn.feeObserved !== 'undefined') return payIn.feeObserved
-      const obs = await models.feeObservation.findFirst({
-        where: { payInId: payIn.id, state: { in: ['DETECTED', 'CONFIRMED'] } }
-      })
-      if (obs) return true
-      // owner-routed legs record ObservedSubFee receipts instead
-      const subFee = await models.observedSubFee.findFirst({ where: { payInId: payIn.id } })
-      return !!subFee
+      return await isFeeObserved(payIn, { models })
+    },
+    // Coverage-aware companion to feeObserved (see the typeDef doc). Fee payIns
+    // are born PAID, so the client's fee modals poll observation state; modals
+    // whose gated record settles only at FULL coverage (Upload.paid) must poll
+    // this instead of feeObserved, which flips on any partial payment. The sums
+    // intentionally mirror the observer's settle gates exactly (no state filter
+    // — rewardsWalletObserver.attributeFeeBySubaddress and
+    // subFeeObservation.applySubFeeReceipt both sum every observation row).
+    feeCovered: async (payIn, args, { models }) => {
+      if (typeof payIn.feeCovered !== 'undefined') return payIn.feeCovered
+      const expected = payIn.moneroUri ? moneroUriAmountPiconeros(payIn.moneroUri) : null
+      // no parseable URI = a legacy/ungated fee: any observation covers it
+      if (expected === null) return await isFeeObserved(payIn, { models })
+      const [fees, subFees] = await Promise.all([
+        models.feeObservation.aggregate({ _sum: { piconeros: true }, where: { payInId: payIn.id } }),
+        models.observedSubFee.aggregate({ _sum: { piconeros: true }, where: { payInId: payIn.id } })
+      ])
+      return (fees._sum.piconeros ?? 0n) >= expected || (subFees._sum.piconeros ?? 0n) >= expected
     },
     payerPrivates: (payIn, args, { models, me }) => {
       if (!isMine(payIn, { me })) {
@@ -349,6 +362,19 @@ export default {
       return await getSub(payIn, { name: payIn.subPayIn.subName }, { models, me })
     }
   }
+}
+
+// The "payment succeeded" observation predicate shared by feeObserved and the
+// URI-less fallback of feeCovered: a FeeObservation in a success state, or an
+// owner-routed ObservedSubFee receipt (born DETECTED and only matured, so any
+// receipt row means coins landed).
+async function isFeeObserved (payIn, { models }) {
+  const obs = await models.feeObservation.findFirst({
+    where: { payInId: payIn.id, state: { in: ['DETECTED', 'CONFIRMED'] } }
+  })
+  if (obs) return true
+  const subFee = await models.observedSubFee.findFirst({ where: { payInId: payIn.id } })
+  return !!subFee
 }
 
 /*

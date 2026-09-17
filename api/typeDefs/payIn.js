@@ -132,6 +132,14 @@ type PayIn {
   # payInState alone can't tell the client the fee/donation landed.
   feeObserved: Boolean
 
+  # Coverage-aware companion to feeObserved: true once the observations recorded
+  # for this payIn cover the amount its monero: URI quoted (the same cumulative
+  # gate the observer applies before flipping the gated Item/Sub/Upload). The
+  # upload-fee modals poll this because Upload.paid settles only at full
+  # coverage; feeObserved's any-observation semantics would show a partial
+  # payment as settled.
+  feeCovered: Boolean
+
   # Territory re-entry (paySub on a PENDING_FEE turf): received/expected totals for
   # the current billing PayIn so the client can render the underpayment hint. Null
   # on every other payIn.

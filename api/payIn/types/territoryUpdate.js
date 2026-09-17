@@ -1,5 +1,5 @@
 import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST } from '@/lib/constants'
-import { nextBilling } from '@/lib/territory'
+import { nextBilling, needsCadenceFee } from '@/lib/territory'
 import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
@@ -16,14 +16,6 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.REWARD_SATS,
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
-
-// A cadence switch is a paid action only when it moves to a longer/once plan
-// (monthly→yearly, *→once). Downgrades (yearly→monthly) are free and simply
-// take effect when the paid year ends.
-export function needsCadenceFee (oldSub, newBillingType) {
-  if (!oldSub || oldSub.billingType === newBillingType) return false
-  return newBillingType === 'YEARLY' || newBillingType === 'ONCE'
-}
 
 export async function getInitial (models, { oldName, billingType, uploadIds = [] }, { me }) {
   const oldSub = await models.sub.findUnique({

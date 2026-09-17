@@ -11,6 +11,8 @@ import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { parseHTML } from 'linkedom'
 import TerritoryForm from '@/components/territory-form'
+import UploadFeeModal from '@/components/upload-fee-modal'
+import TerritoryPendingFeeModal from '@/components/territory-pending-fee-modal'
 
 jest.mock('next/router', () => ({ useRouter: () => ({ push: mockRouterPush }) }))
 jest.mock(`${process.cwd()}/components/me`, () => ({ useMe: () => ({ me: mockMe }) }))
@@ -220,5 +222,70 @@ describe('TerritoryForm turf premiums', () => {
     const variables = submittedVariables()
     expect(variables.postPremiumPiconeros).toBe('500000000')
     expect(variables.commentPremiumPiconeros).toBe('0')
+  })
+})
+
+// The save flow shows one of two fee modals depending on WHY the save costs
+// money: a billing fee (create / unarchive / cadence switch) is tracked by
+// Sub.billingStatus, while an upload-fee-only update (billing unchanged) has no
+// record state that flips — it must track the fee PayIn via UploadFeeModal,
+// otherwise the billing modal sees the OLD creation fee's PAID status and
+// instantly closes without collecting the upload fee.
+describe('TerritoryForm fee modal selection', () => {
+  // valid base58 filler; tx_amount drives the quoted amount
+  const URI = 'monero:5' + 'F'.repeat(94) + '?tx_amount=0.001'
+
+  function openedModal () {
+    expect(mockShowModal).toHaveBeenCalledTimes(1)
+    return mockShowModal.mock.calls[0][0](jest.fn())
+  }
+
+  test('an upload-fee-only save opens the upload fee modal with the payIn id', async () => {
+    mockUpsertSub.mockResolvedValue({
+      data: {
+        upsertSub: {
+          id: 17604,
+          moneroUri: URI,
+          payerPrivates: { result: { billingStatus: 'PAID' } }
+        }
+      }
+    })
+    await renderForm()
+    await submitForm()
+
+    const element = openedModal()
+    expect(element.type).toBe(UploadFeeModal)
+    expect(element.props.payInId).toBe(17604)
+    expect(element.props.moneroUri).toBe(URI)
+  })
+
+  test('a cadence switch opens the billing modal', async () => {
+    mockUpsertSub.mockResolvedValue({
+      data: {
+        upsertSub: {
+          id: 17605,
+          moneroUri: URI,
+          payerPrivates: { result: { billingStatus: 'PENDING_FEE' } }
+        }
+      }
+    })
+    await renderForm()
+    // switch MONTHLY -> YEARLY (a paid cadence upgrade)
+    const yearly = container.querySelector('#yearly-checkbox')
+    await act(async () => {
+      yearly.dispatchEvent(new win.Event('click', { bubbles: true }))
+    })
+    await submitForm()
+
+    expect(submittedVariables().billingType).toBe('YEARLY')
+    const element = openedModal()
+    expect(element.type).toBe(TerritoryPendingFeeModal)
+  })
+
+  test('a save with no fee does not open a modal', async () => {
+    await renderForm()
+    await submitForm()
+
+    expect(mockShowModal).not.toHaveBeenCalled()
   })
 })
