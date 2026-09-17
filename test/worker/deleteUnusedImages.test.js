@@ -33,7 +33,7 @@ const prisma = new PrismaClient()
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-const created = { users: [], items: [], subs: [], uploads: [] }
+const created = { users: [], items: [], subs: [], uploads: [], payIns: [] }
 
 afterAll(async () => {
   for (const id of created.items) {
@@ -41,6 +41,7 @@ afterAll(async () => {
     await prisma.item.deleteMany({ where: { id } })
   }
   for (const id of created.uploads) await prisma.upload.deleteMany({ where: { id } })
+  for (const id of created.payIns) await prisma.payIn.deleteMany({ where: { id } })
   for (const name of created.subs) await prisma.sub.deleteMany({ where: { name } })
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
   await prisma.$disconnect()
@@ -79,12 +80,12 @@ async function createItem (userId, { uploadId = null } = {}) {
 //   - 'subDescPublicPrefix': a PUBLIC_MEDIA_URL/<id>0 URL — must NOT pin upload <id>
 //   - 'subDescInternal': the decoded mainnet form http://minio:9000/uploads/<id> in Sub.desc
 //   - 'photo': users.photoId — user profile photos
-async function seedUpload ({ userId, ageMs, paid = false, reference = null, abandoned = false }) {
+async function seedUpload ({ userId, ageMs, paid = false, size = 1024, reference = null, abandoned = false }) {
   const upload = await prisma.upload.create({
     data: {
       userId,
       type: 'image/png',
-      size: 1024,
+      size,
       paid,
       createdAt: new Date(Date.now() - ageMs)
     }
@@ -272,6 +273,102 @@ test('a desc holding the decoded internal source url (canonical mainnet form) pi
 
 test('mediaUrlRegexPrefix escapes metacharacters and drops a trailing slash', () => {
   expect(mediaUrlRegexPrefix('https://m.stasher.news/')).toBe('https://m\\.stasher\\.news')
+})
+
+// A >10MB upload whose fee is still payable must outlive its QR: the reaper
+// otherwise deletes it at 24h (no content pin yet — a deferred edit has not
+// attached it), and a fee observed afterwards would then try to attach a
+// reaped upload (FK violation -> observer wedge). Pin ONLY while a deferred
+// edit waiting on that fee payIn lives (UploadPayIn -> payIn, whose benefactor
+// owns the PendingItemUpdate row); once paid, or once the pending edit + payIn
+// are gone, the normal rules apply. A payIn with no pending edit (legacy
+// unpaid edits, abandoned creates) must NOT pin — pre-pin behavior.
+test('an old unpaid fee-due upload linked to a live deferred edit is not swept, while paid, unlinked and pending-less ones are', async () => {
+  const userId = await createUser()
+
+  const pinned = await seedUpload({ userId, ageMs: 8 * DAY_MS, size: 11 * 1024 * 1024 })
+  const directPinned = await seedUpload({ userId, ageMs: 8 * DAY_MS, size: 11 * 1024 * 1024 })
+  const paidWithPayIn = await seedUpload({ userId, ageMs: 8 * DAY_MS, size: 11 * 1024 * 1024, paid: true })
+  const unpinned = await seedUpload({ userId, ageMs: 8 * DAY_MS, size: 11 * 1024 * 1024 })
+  const noPendingEdit = await seedUpload({ userId, ageMs: 8 * DAY_MS, size: 11 * 1024 * 1024 })
+
+  // production shape: the UploadPayIn lives on the MEDIA_UPLOAD beneficiary,
+  // whose benefactor is the ITEM_UPDATE payIn the pending row references
+  const feePayIn = await prisma.payIn.create({
+    data: {
+      userId,
+      payInType: 'ITEM_UPDATE',
+      payInState: 'PAID',
+      piconeros: 0n,
+      moneroUri: `monero:5${'F'.repeat(94)}?tx_amount=0.001`,
+      moneroSubaddressMajor: 1,
+      moneroSubaddressMinor: 999
+    }
+  })
+  created.payIns.push(feePayIn.id)
+  const beneficiary = await prisma.payIn.create({
+    data: { userId, payInType: 'MEDIA_UPLOAD', payInState: 'PAID', piconeros: 0n, benefactorId: feePayIn.id }
+  })
+  created.payIns.push(beneficiary.id)
+  await prisma.uploadPayIn.create({ data: { uploadId: pinned.id, payInId: beneficiary.id } })
+  await prisma.uploadPayIn.create({ data: { uploadId: paidWithPayIn.id, payInId: beneficiary.id } })
+  const item = await createItem(userId)
+  await prisma.pendingItemUpdate.create({
+    data: {
+      itemId: item.id,
+      payInId: feePayIn.id,
+      oldText: null,
+      args: { id: String(item.id), text: 'deferred', uploadIds: [pinned.id] }
+    }
+  })
+
+  // direct shape: UploadPayIn on the pending row's own payIn
+  const directPayIn = await prisma.payIn.create({
+    data: {
+      userId,
+      payInType: 'ITEM_UPDATE',
+      payInState: 'PAID',
+      piconeros: 0n,
+      moneroUri: `monero:5${'F'.repeat(94)}?tx_amount=0.001`,
+      moneroSubaddressMajor: 1,
+      moneroSubaddressMinor: 997
+    }
+  })
+  created.payIns.push(directPayIn.id)
+  await prisma.uploadPayIn.create({ data: { uploadId: directPinned.id, payInId: directPayIn.id } })
+  const directItem = await createItem(userId)
+  await prisma.pendingItemUpdate.create({
+    data: {
+      itemId: directItem.id,
+      payInId: directPayIn.id,
+      oldText: null,
+      args: { id: String(directItem.id), text: 'deferred', uploadIds: [directPinned.id] }
+    }
+  })
+
+  // a fee-due upload linked to a payIn with no pending edit does not pin
+  const orphanPayIn = await prisma.payIn.create({
+    data: {
+      userId,
+      payInType: 'ITEM_UPDATE',
+      payInState: 'PAID',
+      piconeros: 0n,
+      moneroUri: `monero:5${'F'.repeat(94)}?tx_amount=0.001`,
+      moneroSubaddressMajor: 1,
+      moneroSubaddressMinor: 998
+    }
+  })
+  created.payIns.push(orphanPayIn.id)
+  await prisma.uploadPayIn.create({ data: { uploadId: noPendingEdit.id, payInId: orphanPayIn.id } })
+
+  const boss = { send: jest.fn() }
+  await deleteUnusedImages({ models: prisma, boss })
+
+  const remaining = await prisma.upload.findMany({
+    where: { id: { in: [pinned.id, directPinned.id, paidWithPayIn.id, unpinned.id, noPendingEdit.id] } },
+    select: { id: true }
+  })
+  expect(remaining.map(({ id }) => id).sort()).toEqual([pinned.id, directPinned.id].sort())
 })
 
 test('a failing deleteObjects rejects the run — no DB deletion, no requeue — so pg-boss retries and alerts instead of reporting completed', async () => {

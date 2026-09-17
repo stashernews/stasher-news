@@ -105,14 +105,13 @@ export default function useItemSubmit (mutation,
       //
       // Which modal: a create is gated by Item.feeStatus (flips to FEE_PAID when
       // the posting fee is observed), so PostingFeeModal tracks it. An EDIT's
-      // upload fee has no state that flips — the item's feeStatus still reads
-      // FEE_PAID from the creation fee — so it tracks the fee PayIn directly via
-      // UploadFeeModal (PayIn.feeCovered), otherwise the fee would be silently
-      // waived.
+      // upload fee defers the edit server-side (PendingItemUpdate) until the fee
+      // is observed, so it tracks the fee PayIn directly via UploadFeeModal
+      // (PayIn.feeCovered) and returns to the item once the edit is published.
       if (isPostingFeeSubmit(response)) {
         resetForm?.()
         showModal(onClose => item
-          ? <UploadFeeModal moneroUri={response.moneroUri} payInId={response.id} onClose={onClose} />
+          ? <UploadFeeModal moneroUri={response.moneroUri} payInId={response.id} itemId={navigateOnSubmit ? item.id : undefined} onClose={onClose} />
           : <PostingFeeModal moneroUri={response.moneroUri} itemId={postId} />)
         if (navigateOnSubmit) {
           return

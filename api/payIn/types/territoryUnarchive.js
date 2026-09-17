@@ -1,13 +1,12 @@
 import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST } from '@/lib/constants'
 import { nextBilling } from '@/lib/territory'
 import { initialTrust, subOccWhere } from '../lib/territory'
-import * as MEDIA_UPLOAD from './mediaUpload'
 import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { GqlInputError } from '@/lib/error'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
-import { uploadFees } from '@/api/resolvers/upload'
+import { assertUploadsWithinFreeSize, throwOnExpiredUploads } from '@/api/resolvers/upload'
 
 export const anonable = false
 
@@ -18,21 +17,20 @@ export const paymentMethods = [
 ]
 
 export async function getInitial (models, { billingType, uploadIds = [] }, { me }) {
+  // StasherNews: turf descriptions cannot carry >10MB media (there is no
+  // upload-fee path for turfs) and stale/deleted upload ids must fail with the
+  // actionable "expired" error rather than saving a dead URL. Both checks run
+  // before any subaddress draw.
+  await throwOnExpiredUploads(uploadIds, { tx: models })
+  await assertUploadsWithinFreeSize(uploadIds, { models })
+
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) throw new GqlInputError('fee config not initialized')
   const fee = territoryFeePiconeros(billingType, config)
   const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UNARCHIVE', { me }) // major 2
 
-  const beneficiaries = []
-  let uploadFeesPiconeros = 0n
-  if (uploadIds.length > 0) {
-    const fees = await uploadFees(uploadIds, { models, me })
-    uploadFeesPiconeros = fees.totalFeesPiconeros
-    beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
-  }
-
   const moneroUri = buildMoneroUri(
-    [{ address: reserved.address, amount: fee + uploadFeesPiconeros }],
+    [{ address: reserved.address, amount: fee }],
     { description: `StasherNews turf reactivation (${billingType})` }
   )
 
@@ -42,8 +40,7 @@ export async function getInitial (models, { billingType, uploadIds = [] }, { me 
     piconeros: 0n,
     moneroUri,
     moneroSubaddressMajor: reserved.major,
-    moneroSubaddressMinor: reserved.minor,
-    beneficiaries
+    moneroSubaddressMinor: reserved.minor
   }
 }
 

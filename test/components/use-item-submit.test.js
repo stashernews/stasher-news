@@ -104,14 +104,14 @@ function payInResponse (id) {
   }
 }
 
-function Harness ({ item }) {
-  submitRef = useItemSubmit(UPDATE_COMMENT, { item })
+function Harness ({ item, navigateOnSubmit }) {
+  submitRef = useItemSubmit(UPDATE_COMMENT, { item, navigateOnSubmit })
   return null
 }
 
-async function submit ({ item }) {
+async function submit ({ item, navigateOnSubmit }) {
   await act(async () => {
-    root.render(<Harness item={item} />)
+    root.render(<Harness item={item} navigateOnSubmit={navigateOnSubmit} />)
   })
   await act(async () => {
     await submitRef({ text: 'edited with a big video' }, { resetForm: jest.fn() })
@@ -131,6 +131,18 @@ describe('useItemSubmit fee modal selection', () => {
     const element = openedModal()
     expect(element.type).toBe(UploadFeeModal)
     expect(element.props.payInId).toBe(17650)
+    expect(element.props.moneroUri).toBe(URI_FULL)
+    expect(element.props.itemId).toBe(99)
+  })
+
+  test('an in-place edit with an upload fee opens the modal without an itemId to navigate to', async () => {
+    mockMutate.mockResolvedValue({ data: { upsertComment: payInResponse(17653) } })
+    await submit({ item: { id: 99, text: 'old text' }, navigateOnSubmit: false })
+
+    const element = openedModal()
+    expect(element.type).toBe(UploadFeeModal)
+    expect(element.props.itemId).toBeUndefined()
+    expect(element.props.payInId).toBe(17653)
     expect(element.props.moneroUri).toBe(URI_FULL)
   })
 

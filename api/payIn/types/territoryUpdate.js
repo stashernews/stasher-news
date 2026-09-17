@@ -4,10 +4,9 @@ import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { GqlInputError } from '@/lib/error'
-import * as MEDIA_UPLOAD from './mediaUpload'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 import { subOccWhere } from '../lib/territory'
-import { uploadFees } from '@/api/resolvers/upload'
+import { assertUploadsWithinFreeSize, throwOnExpiredUploads } from '@/api/resolvers/upload'
 
 export const anonable = false
 
@@ -18,41 +17,37 @@ export const paymentMethods = [
 ]
 
 export async function getInitial (models, { oldName, billingType, uploadIds = [] }, { me }) {
+  // StasherNews: turf descriptions cannot carry >10MB media (there is no
+  // upload-fee path for turfs) and stale/deleted upload ids must fail with the
+  // actionable "expired" error rather than saving a dead URL. Both checks run
+  // before any subaddress draw.
+  await throwOnExpiredUploads(uploadIds, { tx: models })
+  await assertUploadsWithinFreeSize(uploadIds, { models })
+
   const oldSub = await models.sub.findUnique({
     where: {
       name: oldName
     }
   })
 
-  const beneficiaries = []
-  let uploadFeesPiconeros = 0n
-  if (uploadIds.length > 0) {
-    const fees = await uploadFees(uploadIds, { models, me })
-    uploadFeesPiconeros = fees.totalFeesPiconeros
-    beneficiaries.push(await MEDIA_UPLOAD.getInitial(models, { uploadIds }, { me }))
-  }
-
   const prospect = {
     payInType: 'TERRITORY_UPDATE',
     userId: me?.id,
-    piconeros: 0n,
-    beneficiaries
+    piconeros: 0n
   }
 
   // cadence switch to a longer/once plan: charge the FULL new fee on-chain at the
   // switch; the new period starts at the end of the current paid coverage so the
   // remaining days are never double-charged (spec §4b).
   const cadenceFee = needsCadenceFee(oldSub, billingType)
-  if (cadenceFee || uploadFeesPiconeros > 0n) {
-    const config = cadenceFee ? await models.platformFeeConfig.findUnique({ where: { id: 1 } }) : null
-    if (cadenceFee && !config) throw new GqlInputError('fee config not initialized')
-    const cadencePiconeros = cadenceFee ? territoryFeePiconeros(billingType, config) : 0n
-    // cadence fee + uploads share the territory subaddress when both apply; uploads-only use POSTING
-    const feeType = cadenceFee ? 'TERRITORY_UPDATE' : 'POSTING'
-    const reserved = await reserveFeeSubaddress(models, feeType, { me })
+  if (cadenceFee) {
+    const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+    if (!config) throw new GqlInputError('fee config not initialized')
+    const cadencePiconeros = territoryFeePiconeros(billingType, config)
+    const reserved = await reserveFeeSubaddress(models, 'TERRITORY_UPDATE', { me })
     prospect.moneroUri = buildMoneroUri(
-      [{ address: reserved.address, amount: cadencePiconeros + uploadFeesPiconeros }],
-      { description: cadenceFee ? `StasherNews turf ${oldSub.name} switch to ${billingType}` : 'StasherNews upload fee' }
+      [{ address: reserved.address, amount: cadencePiconeros }],
+      { description: `StasherNews turf ${oldSub.name} switch to ${billingType}` }
     )
     prospect.moneroSubaddressMajor = reserved.major
     prospect.moneroSubaddressMinor = reserved.minor

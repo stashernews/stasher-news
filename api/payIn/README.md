@@ -195,6 +195,17 @@ ASSIGN-never-freed, so no reuse/misattribution — a late payment to the abandon
 subaddress finds no pending PayIn and is ignored). The author's thread view shows
 the abandoned comment as deleted.
 
+**ITEM_UPDATE upload fees are deferred, not honor-system (2026-09-17):** an edit that
+attaches uploads over 10MB quotes the fee on its `moneroUri` (benefactor `piconeros`
+stays `0n`), so the payIn is born `PAID`. Instead of applying the edit in `onBegin`,
+`api/payIn/types/itemUpdate.js` stores it in `PendingItemUpdate` (args + the item's
+pre-edit `text`). `rewardsWalletObserver.flipPendingToLive` applies the stored edit in
+the same pass that flips `Upload.paid`; a pending row whose item was deleted or edited
+again while the fee was in flight is dropped (the upload stays paid and is
+re-attachable). `abandonFeeItems` purges unobserved pending rows after
+`FEE_ITEM_ABANDON_DAYS` and deletes their payIn, so a never-paid edit leaves the item
+untouched and its unattached upload is reaped by `deleteUnusedImages`.
+
 **Counters:** `User.freePostCount` / `freePostResetAt` track the monthly post quota. The
 `incrementFreePostCount` hook (in `api/payIn/lib/freebie.js`) runs in ITEM_CREATE `onPaid`
 and bumps the counter atomically (optimistic-concurrency guarded: no-op for comments, bios,

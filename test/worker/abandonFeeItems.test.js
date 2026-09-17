@@ -187,3 +187,70 @@ test('abandons an item with an ObservedSubFee receipt: PayIn deleted, receipt su
   expect(live.payInId).toBeNull()
   expect(live.state).toBe('DETECTED')
 })
+
+// --- deferred fee-bearing edits (PendingItemUpdate) ---
+// A never-paid ITEM_UPDATE upload fee leaves the item untouched but strands the
+// stored edit; the sweep purges it after FEE_ITEM_ABANDON_DAYS and deletes the
+// fee payIn (a late payment then finds no payIn and is ignored, exactly like the
+// abandoned ITEM_CREATE behavior).
+async function seedPendingUpdate ({ minor, ageMs }) {
+  const userId = await createUser()
+  const createdAt = new Date(Date.now() - ageMs)
+  const item = await prisma.item.create({
+    data: {
+      userId,
+      title: `pending-update-fixture-${minor}`,
+      text: 'original text',
+      createdAt,
+      feeStatus: 'FEE_NOT_REQUIRED'
+    }
+  })
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(item.id)}::ltree WHERE id = ${item.id}::int`
+  created.items.push(item.id)
+  const payIn = await prisma.payIn.create({
+    data: {
+      userId,
+      payInType: 'ITEM_UPDATE',
+      payInState: 'PAID',
+      piconeros: 0n,
+      moneroUri: `monero:5${'F'.repeat(94)}?tx_amount=0.001`,
+      moneroSubaddressMajor: 1,
+      moneroSubaddressMinor: minor,
+      createdAt
+    }
+  })
+  created.payIns.push(payIn.id)
+  const pending = await prisma.pendingItemUpdate.create({
+    data: {
+      itemId: item.id,
+      payInId: payIn.id,
+      oldText: 'original text',
+      args: { id: String(item.id), text: 'deferred text' },
+      createdAt
+    }
+  })
+  return { item, payIn, pending }
+}
+
+test('purges a deferred edit (and its payIn) older than FEE_ITEM_ABANDON_DAYS', async () => {
+  const { item, payIn, pending } = await seedPendingUpdate({ minor: 601, ageMs: 2 * DAY_MS })
+
+  const out = await runAbandonFeeItemsOnce({ models: prisma })
+
+  expect(out.pendingPurged).toBe(1)
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { id: pending.id } })).toBeNull()
+  expect(await prisma.payIn.findUnique({ where: { id: payIn.id } })).toBeNull()
+  // the item itself is untouched — the edit was never applied
+  const live = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(live.deletedAt).toBeNull()
+  expect(live.text).toBe('original text')
+})
+
+test('leaves a fresh deferred edit untouched', async () => {
+  const { pending } = await seedPendingUpdate({ minor: 602, ageMs: 0 })
+
+  const out = await runAbandonFeeItemsOnce({ models: prisma })
+
+  expect(out.pendingPurged).toBe(0)
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { id: pending.id } })).toBeTruthy()
+})

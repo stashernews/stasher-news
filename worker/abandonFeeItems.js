@@ -1,18 +1,25 @@
 import { FEE_ITEM_ABANDON_DAYS } from '@/lib/constants'
 import { deleteReminders } from '@/lib/item'
 
-// abandonFeeItems — 1-day abandonment sweep for never-paid PENDING_FEE items.
+// abandonFeeItems — 1-day abandonment sweep for never-paid fee-gated flows.
 //
-// A fee-gated item (post or reply) is created PENDING_FEE and is invisible to
-// everyone except its author until rewardsWalletObserver observes the posting
-// fee on-chain (flipPendingToLive → FEE_PAID). A fee the author never pays
-// would otherwise linger forever: author-only visible, no badge, no re-pay
-// path, no expiry. This sweep soft-deletes PENDING_FEE items past
-// FEE_ITEM_ABANDON_DAYS (1 day), deletes their fee PayIn (the subaddress pool
-// is ASSIGN-never-freed, so deleting the PayIn cannot cause reuse or
-// misattribution — a late payment to the abandoned subaddress simply finds no
-// pending PayIn and is ignored, matching the observer's tested behavior), and
-// clears queued pgboss jobs for the item.
+// (1) PENDING_FEE items: a fee-gated item (post or reply) is created
+// PENDING_FEE and is invisible to everyone except its author until
+// rewardsWalletObserver observes the posting fee on-chain (flipPendingToLive →
+// FEE_PAID). A fee the author never pays would otherwise linger forever:
+// author-only visible, no badge, no re-pay path, no expiry. This sweep
+// soft-deletes PENDING_FEE items past FEE_ITEM_ABANDON_DAYS (1 day), deletes
+// their fee PayIn (the subaddress pool is ASSIGN-never-freed, so deleting the
+// PayIn cannot cause reuse or misattribution — a late payment to the abandoned
+// subaddress simply finds no pending PayIn and is ignored, matching the
+// observer's tested behavior), and clears queued pgboss jobs for the item.
+//
+// (2) PendingItemUpdate rows (deferred >10MB-upload edits): a fee-bearing edit
+// is stored instead of applied until its upload fee is observed. An edit whose
+// fee is never paid would otherwise strand the row forever; the sweep purges
+// rows past the same cutoff and deletes their ITEM_UPDATE payIn (same
+// late-payment semantics as (1)). The item is untouched — the edit never
+// applied — and the unattached upload is reaped by deleteUnusedImages.
 //
 // This module exports TWO things (mirrors worker/confirmFinalizer.js):
 //   - runAbandonFeeItemsOnce: the testable per-sweep core (no pg-boss).
@@ -73,12 +80,29 @@ export async function runAbandonFeeItemsOnce ({ models }) {
     abandoned += 1
   }
 
-  return { abandoned }
+  const staleUpdates = await models.pendingItemUpdate.findMany({
+    where: { createdAt: { lt: cutoff } },
+    select: { id: true, payInId: true }
+  })
+
+  let pendingPurged = 0
+  for (const update of staleUpdates) {
+    // Claim the row first; a concurrent flip that applied the edit wins the
+    // deleteMany race, and the payIn must then stay (the edit is live).
+    const claimed = await models.pendingItemUpdate.deleteMany({ where: { id: update.id } })
+    if (claimed.count === 0) continue
+    await models.payIn.deleteMany({ where: { id: update.payInId } })
+    pendingPurged += 1
+  }
+
+  return { abandoned, pendingPurged }
 }
 
 // pg-boss handler. Runs one sweep per invocation; recurrence is cron-owned
 // (pgboss.schedule row abandonFeeItems) — no self-requeue.
 export async function abandonFeeItems ({ models }) {
   const out = await runAbandonFeeItemsOnce({ models })
-  if (out.abandoned) console.log(`abandonFeeItems: soft-deleted ${out.abandoned} unpaid item(s)`)
+  if (out.abandoned || out.pendingPurged) {
+    console.log(`abandonFeeItems: soft-deleted ${out.abandoned} unpaid item(s), purged ${out.pendingPurged} deferred edit(s)`)
+  }
 }

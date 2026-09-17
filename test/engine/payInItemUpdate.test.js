@@ -19,6 +19,16 @@
 // result item must keep the ITEM_CREATE payIn for ITEM_UPDATE payIns (upstream
 // 59f9f8d5; stripped by c0043ef3).
 //
+// Deferred fee-bearing edits (Task 3, 2026-09-17). An ITEM_UPDATE that attaches
+// uploads over 10MB quotes the upload fee on its moneroUri (piconeros stays 0n),
+// so the payIn is born PAID and onBegin used to apply the edit immediately — a
+// user could attach >10MB media and never pay by dismissing the QR. onBegin now
+// stores such an edit in PendingItemUpdate (args + the item's pre-edit text) and
+// rewardsWalletObserver.flipPendingToLive applies it when the covering fee is
+// observed. A pending row whose item was deleted or edited again while the fee
+// was in flight is dropped (the upload stays paid and is re-attachable); free
+// edits still apply at onBegin.
+//
 // Real-DB integration test (mirrors test/engine/payInItemCreate.test.js):
 //   docker exec -u apprunner app npx jest test/engine/payInItemUpdate.test.js
 
@@ -26,6 +36,9 @@ import { PrismaClient } from '@prisma/client'
 import pay from '@/api/payIn/index'
 import { getInitial } from '@/api/payIn/types/itemUpdate'
 import { getItem } from '@/api/resolvers/item'
+import { flipPendingToLive } from '@/worker/rewardsWalletObserver'
+import { logError } from '@/lib/logger'
+import { alert } from '@/lib/alert'
 
 // itemUpdate.js statically imports @/lib/lexical/server/mentions (ESM-only
 // mdast-util-from-markdown) and @/api/resolvers/item (getItem), neither of
@@ -49,14 +62,27 @@ jest.mock('../../api/monero/feePool', () => ({
     address: '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
   }))
 }))
-// The engine test below drives pay('ITEM_UPDATE', ...), which imports the
+// The observer's ITEM_UPDATE branch and applyPendingItemUpdate log/alert on
+// drops and apply failures; mock both so the tests assert them directly and the
+// output stays pristine.
+jest.mock('../../lib/logger', () => ({
+  __esModule: true,
+  logInfo: jest.fn(),
+  logWarn: jest.fn(),
+  logError: jest.fn(),
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+}))
+jest.mock('../../lib/alert', () => ({ __esModule: true, alert: jest.fn() }))
+// The engine tests below drive pay('ITEM_UPDATE', ...), which imports the
 // api/payIn/types barrel. Following payInItemCreate.test.js, the barrel is
-// mocked to expose ONLY the real ITEM_UPDATE module (the spec must be relative;
-// see the comment above on jest.mock vs the @/ alias). The update test has no
-// upload beneficiaries, so MEDIA_UPLOAD is not needed here.
+// mocked to expose ONLY the real ITEM_UPDATE and MEDIA_UPLOAD modules (the spec
+// must be relative; see the comment above on jest.mock vs the @/ alias).
+// MEDIA_UPLOAD must be real too: the deferred tests attach uploads, which
+// creates a MEDIA_UPLOAD beneficiary through pay().
 jest.mock('../../api/payIn/types', () => {
   const itemUpdate = jest.requireActual('../../api/payIn/types/itemUpdate')
-  return { __esModule: true, default: { ITEM_UPDATE: itemUpdate } }
+  const mediaUpload = jest.requireActual('../../api/payIn/types/mediaUpload')
+  return { __esModule: true, default: { ITEM_UPDATE: itemUpdate, MEDIA_UPLOAD: mediaUpload } }
 })
 
 const prisma = new PrismaClient()
@@ -181,5 +207,173 @@ test('pay("ITEM_UPDATE", ...) returns the ITEM_CREATE payIn on the result item, 
 
   // the onPaid streak job references the test user (deleted in afterAll); drop
   // it so the worker never executes it against a deleted row
+  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
+})
+
+// --- fee-edit deferral: nothing attaches until the covering fee is observed ---
+test('a fee-bearing edit is deferred: item, text and uploads stay untouched', async () => {
+  const userId = await createUser()
+  const { id: itemId } = await createRootPost(userId)
+  const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: `edited ![](http://media.test/uploads/${uploadId})`, uploadIds: [uploadId] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+
+  expect(result.payInType).toBe('ITEM_UPDATE')
+  expect(result.payInState).toBe('PAID')
+  expect(result.moneroUri).toMatch(/^monero:/)
+
+  const deferred = await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })
+  expect(deferred).toBeTruthy()
+  expect(deferred.itemId).toBe(itemId)
+  expect(deferred.oldText).toBeNull() // createRootPost seeds no text
+
+  const untouched = await prisma.item.findUnique({ where: { id: itemId } })
+  expect(untouched.text).toBeNull()
+  expect(await prisma.itemUpload.findFirst({ where: { itemId } })).toBeNull()
+  expect((await prisma.upload.findUnique({ where: { id: uploadId } })).paid).toBe(false)
+
+  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
+})
+
+test('flipPendingToLive applies the deferred edit and marks the upload paid (idempotent)', async () => {
+  const userId = await createUser()
+  const { id: itemId } = await createRootPost(userId)
+  const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+  const editedText = `edited with media ![](http://media.test/uploads/${uploadId})`
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: editedText, uploadIds: [uploadId] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+
+  await flipPendingToLive(prisma, payInRow, 1_000_000_000n)
+
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).text).toBe(editedText)
+  expect(await prisma.itemUpload.findFirst({ where: { itemId, uploadId } })).toBeTruthy()
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeNull()
+  expect((await prisma.upload.findUnique({ where: { id: uploadId } })).paid).toBe(true)
+
+  // a replayed observation must not apply anything a second time
+  await flipPendingToLive(prisma, payInRow, 1_000_000_000n)
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).text).toBe(editedText)
+
+  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
+})
+
+test('a deferred edit is dropped, not applied, when the item changed while the fee was in flight', async () => {
+  const userId = await createUser()
+  const { id: itemId } = await createRootPost(userId)
+  const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: 'deferred edit', uploadIds: [uploadId] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+
+  // a newer edit lands (e.g. a free typo fix) before the fee is observed
+  await prisma.item.update({ where: { id: itemId }, data: { text: 'newer manual edit' } })
+
+  await flipPendingToLive(prisma, payInRow, 1_000_000_000n)
+
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).text).toBe('newer manual edit')
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeNull()
+  // a dropped edit also drops its fee payIn (the pending row is consumed by the
+  // claim, so the abandonment sweep would never reach it)
+  expect(await prisma.payIn.findUnique({ where: { id: result.id } })).toBeNull()
+  // the fee still counts: the upload is paid and can be re-attached for free
+  expect((await prisma.upload.findUnique({ where: { id: uploadId } })).paid).toBe(true)
+
+  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
+})
+
+// The unused-image sweep can remove a deferred edit's unpaid upload before the
+// fee lands (deleteUnusedImages now pins fee-due uploads with a live fee payIn,
+// but manual/legacy deletions still happen). Attaching a missing upload would
+// violate the ItemUpload FK and, uncaught, wedge the observer — the apply must
+// drop the edit instead (pending row consumed, item untouched, alert raised).
+test('a deferred edit whose upload vanished is dropped without an FK failure', async () => {
+  const userId = await createUser()
+  const { id: itemId } = await createRootPost(userId)
+  const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: 'deferred edit', uploadIds: [uploadId] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+
+  // the upload is gone before the fee lands
+  await prisma.upload.delete({ where: { id: uploadId } })
+
+  await expect(flipPendingToLive(prisma, payInRow, 1_000_000_000n)).resolves.toBeUndefined()
+
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).text).toBeNull()
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeNull()
+  // the dropped edit's fee payIn is deleted with it (see the stale-edit test)
+  expect(await prisma.payIn.findUnique({ where: { id: result.id } })).toBeNull()
+  expect(alert).toHaveBeenCalledWith(
+    'warn',
+    expect.stringContaining('uploads missing'),
+    expect.stringContaining(String(result.id)),
+    expect.objectContaining({ dedupeKey: expect.any(String) })
+  )
+
+  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
+})
+
+// Any unexpected apply failure must not fail the observer run: the cursor only
+// advances on a clean run, so a throw here would re-process the same tx on every
+// retry (conflict path) and re-run this flip — freezing ALL fee attribution
+// until manual intervention (the 2026-08-10 item-2755 incident class).
+// flipPendingToLive must catch, log, alert, and let the run finish; the apply
+// transaction rolls back and the pending edit survives for the abandonment purge.
+test('an unexpected apply failure is contained by flipPendingToLive and does not wedge the observer', async () => {
+  const userId = await createUser()
+  const { id: itemId } = await createRootPost(userId)
+  const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: 'deferred edit', uploadIds: [uploadId] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+
+  // getItem is the last call of applyItemUpdate; rejecting it stands in for any
+  // unexpected failure after the apply has begun
+  getItem.mockRejectedValueOnce(new Error('boom'))
+
+  await expect(flipPendingToLive(prisma, payInRow, 1_000_000_000n)).resolves.toBeUndefined()
+
+  // the apply tx rolled back: nothing applied, the pending row survives
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).text).toBeNull()
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeTruthy()
+  expect(logError).toHaveBeenCalledWith(expect.stringContaining('ITEM_UPDATE failed'), expect.any(Error))
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    expect.any(String),
+    expect.stringContaining(String(result.id)),
+    expect.objectContaining({ dedupeKey: expect.any(String) })
+  )
+
   await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })

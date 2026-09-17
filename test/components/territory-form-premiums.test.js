@@ -11,7 +11,6 @@ import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { parseHTML } from 'linkedom'
 import TerritoryForm from '@/components/territory-form'
-import UploadFeeModal from '@/components/upload-fee-modal'
 import TerritoryPendingFeeModal from '@/components/territory-pending-fee-modal'
 
 jest.mock('next/router', () => ({ useRouter: () => ({ push: mockRouterPush }) }))
@@ -225,12 +224,9 @@ describe('TerritoryForm turf premiums', () => {
   })
 })
 
-// The save flow shows one of two fee modals depending on WHY the save costs
-// money: a billing fee (create / unarchive / cadence switch) is tracked by
-// Sub.billingStatus, while an upload-fee-only update (billing unchanged) has no
-// record state that flips — it must track the fee PayIn via UploadFeeModal,
-// otherwise the billing modal sees the OLD creation fee's PAID status and
-// instantly closes without collecting the upload fee.
+// The save flow shows the billing fee modal: after the turf 10MB cap every
+// URI-bearing turf save is a create/unarchive/cadence flow, and those set
+// Sub.billingStatus PENDING_FEE in onBegin, which TerritoryPendingFeeModal polls.
 describe('TerritoryForm fee modal selection', () => {
   // valid base58 filler; tx_amount drives the quoted amount
   const URI = 'monero:5' + 'F'.repeat(94) + '?tx_amount=0.001'
@@ -239,25 +235,6 @@ describe('TerritoryForm fee modal selection', () => {
     expect(mockShowModal).toHaveBeenCalledTimes(1)
     return mockShowModal.mock.calls[0][0](jest.fn())
   }
-
-  test('an upload-fee-only save opens the upload fee modal with the payIn id', async () => {
-    mockUpsertSub.mockResolvedValue({
-      data: {
-        upsertSub: {
-          id: 17604,
-          moneroUri: URI,
-          payerPrivates: { result: { billingStatus: 'PAID' } }
-        }
-      }
-    })
-    await renderForm()
-    await submitForm()
-
-    const element = openedModal()
-    expect(element.type).toBe(UploadFeeModal)
-    expect(element.props.payInId).toBe(17604)
-    expect(element.props.moneroUri).toBe(URI)
-  })
 
   test('a cadence switch opens the billing modal', async () => {
     mockUpsertSub.mockResolvedValue({

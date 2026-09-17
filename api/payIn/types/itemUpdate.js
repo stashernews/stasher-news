@@ -1,4 +1,7 @@
 import { PAID_ACTION_PAYMENT_METHODS } from '@/lib/constants'
+import { GqlInputError } from '@/lib/error'
+import { alert } from '@/lib/alert'
+import { logWarn } from '@/lib/logger'
 import { uploadFees } from '../../resolvers/upload'
 import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
@@ -10,6 +13,8 @@ import { subsDiff } from '@/lib/subs'
 import { getTempImgproxyUrls } from '../lib/upload'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
+import { serializePayInArgs, deserializePayInArgs } from '../lib/payInArgs'
+
 export const anonable = true
 
 export const paymentMethods = [
@@ -62,11 +67,46 @@ export async function getInitial (models, { id, uploadIds = [], bio, subNames },
 }
 
 export async function onBegin (tx, payInId, args) {
+  const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
+
+  // StasherNews: a fee-bearing edit (getInitial reserved a POSTING fee
+  // subaddress because the edit attached >10MB uploads) is NOT applied here.
+  // The edit is stored and rewardsWalletObserver.flipPendingToLive applies it
+  // once the covering fee is observed on the rewards wallet — applying at
+  // creation let a user attach >10MB media for free by dismissing the fee QR
+  // (found 2026-09-17 on post 351432). A never-paid row is purged after
+  // FEE_ITEM_ABANDON_DAYS and its unattached upload is reaped by
+  // deleteUnusedImages.
+  if (payIn.moneroSubaddressMajor != null) {
+    const item = await tx.item.findUnique({
+      where: { id: parseInt(args.id) },
+      select: { userId: true, text: true }
+    })
+    if (!item) throw new GqlInputError('item not found')
+
+    await tx.pendingItemUpdate.create({
+      data: {
+        itemId: parseInt(args.id),
+        payInId,
+        oldText: item.text,
+        args: serializePayInArgs(args)
+      }
+    })
+
+    return await getItem(null, { id: args.id }, { models: tx, me: { id: item.userId } })
+  }
+
+  return await applyItemUpdate(tx, payIn, args)
+}
+
+// The edit body — factored out of onBegin so the observer can run it when a
+// deferred edit's fee lands (applyPendingItemUpdate) and the free-edit path can
+// run it immediately.
+export async function applyItemUpdate (tx, payIn, args) {
   const { id, uploadIds = [], options: pollOptions = [], subNames = [], ...data } = args
   // never persist signed imgproxy preview urls: decode them to their embedded
   // source url (canonical https://<host>/uploads/N) so text survives key rotations
   if (data.text) data.text = canonicalizeItemText(data.text)
-  const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
 
   const old = await tx.item.findUnique({
     where: { id: parseInt(id) },
@@ -166,6 +206,75 @@ export async function onBegin (tx, payInId, args) {
   await performBotBehavior(tx, args)
 
   return await getItem(null, { id }, { models: tx, me: { id: old.userId } })
+}
+
+// Apply a deferred fee-bearing edit once its fee has been observed. Called by
+// worker/rewardsWalletObserver.flipPendingToLive. The pending row is claimed
+// (deleted) inside the same transaction that applies the edit, so concurrent or
+// replayed flips cannot apply it twice. Returns false when there is no pending
+// row, or the edit was dropped because the item is gone or changed after the
+// deferral, or its uploads no longer exist — in that case the upload can be
+// re-attached for free if it still exists, and the fee stays recorded.
+export async function applyPendingItemUpdate (models, payIn) {
+  const pending = await models.pendingItemUpdate.findUnique({ where: { payInId: payIn.id } })
+  if (!pending) return false
+
+  const applied = await models.$transaction(async tx => {
+    const claimed = await tx.pendingItemUpdate.deleteMany({ where: { id: pending.id } })
+    if (claimed.count === 0) return false
+
+    // A dropped edit also drops its fee payIn: the pending row is consumed by
+    // the claim above, so abandonFeeItems (which scans PendingItemUpdate rows)
+    // would never reach this payIn — leaving it, its MEDIA_UPLOAD beneficiary
+    // and the link rows behind forever. The fee WAS observed (this only runs
+    // after coverage), so mark the linked uploads paid first — same gate as the
+    // observer's shared flip — otherwise deleting the payIn would cascade the
+    // UploadPayIn rows away and the payer would lose the upload exemption.
+    const drop = async () => {
+      await tx.$executeRaw`
+        UPDATE "Upload" SET paid = true
+        FROM "UploadPayIn"
+        WHERE ("UploadPayIn"."payInId" = ${payIn.id}
+          OR "UploadPayIn"."payInId" IN (SELECT id FROM "PayIn" WHERE "benefactorId" = ${payIn.id}))
+          AND "Upload"."id" = "UploadPayIn"."uploadId"`
+      await tx.payIn.deleteMany({ where: { id: payIn.id } })
+      return false
+    }
+
+    const item = await tx.item.findUnique({
+      where: { id: pending.itemId },
+      select: { deletedAt: true, text: true }
+    })
+    if (!item || item.deletedAt) {
+      logWarn('applyPendingItemUpdate: item missing/deleted; dropped deferred edit', { payInId: payIn.id, itemId: pending.itemId })
+      return await drop()
+    }
+    if (item.text !== pending.oldText) {
+      logWarn('applyPendingItemUpdate: item changed after the edit was deferred; dropped deferred edit', { payInId: payIn.id, itemId: pending.itemId })
+      return await drop()
+    }
+
+    const args = deserializePayInArgs(pending.args)
+    const uploadIds = args.uploadIds ?? []
+    if (uploadIds.length > 0) {
+      const existingUploads = await tx.upload.findMany({ where: { id: { in: uploadIds } }, select: { id: true } })
+      if (existingUploads.length !== uploadIds.length) {
+        // The uploads were reaped or removed while the fee was still payable.
+        // Attaching them would violate the ItemUpload FK and, if uncaught, wedge
+        // the observer (the cursor only advances on a clean run); drop the edit
+        // instead. The fee stays recorded as an observation.
+        logWarn('applyPendingItemUpdate: uploads missing; dropped deferred edit', { payInId: payIn.id, itemId: pending.itemId })
+        alert('warn', 'deferred edit dropped: uploads missing', `payIn ${payIn.id}, item ${pending.itemId}`, { dedupeKey: `applyPendingItemUpdate-missing-${payIn.id}` })
+        return await drop()
+      }
+    }
+
+    await applyItemUpdate(tx, payIn, args)
+    return true
+  }, { timeout: 10000 })
+
+  if (applied) await onPaidSideEffects(models, payIn.id)
+  return applied
 }
 
 export async function onPaidSideEffects (models, payInId) {

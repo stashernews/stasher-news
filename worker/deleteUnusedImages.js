@@ -1,6 +1,6 @@
 import { deleteObjects } from '@/api/s3'
 import { alert } from '@/lib/alert'
-import { BOSS_RETRY, PUBLIC_MEDIA_URL } from '@/lib/constants'
+import { BOSS_RETRY, PUBLIC_MEDIA_URL, UPLOAD_FREE_BYTES_MAX } from '@/lib/constants'
 import { logError } from '@/lib/logger'
 
 // The /uploads/ shape is host-free so desc pins survive domain changes; the
@@ -41,6 +41,22 @@ export async function deleteUnusedImages ({ models, boss }) {
         SELECT 1 FROM "Sub"
         WHERE "Sub".desc ~ ('/uploads/' || "Upload".id || '([^0-9]|$)')
           OR "Sub".desc ~ (${MEDIA_URL_REGEX_PREFIX} || '/' || "Upload".id || '([^0-9]|$)'))
+      -- a >10MB upload whose fee is still unpaid is pinned ONLY while a deferred
+      -- edit is waiting on that fee payIn (UploadPayIn -> its MEDIA_UPLOAD
+      -- beneficiary's payIn -> benefactor ITEM_UPDATE -> PendingItemUpdate): a
+      -- deferred edit has not attached it yet (no ItemUpload pin), and reaping
+      -- it before the fee lands would make the observed fee attach a missing
+      -- upload. Pay-ins with no pending edit (legacy unpaid edits, abandoned
+      -- creates) do NOT pin — those uploads are swept as before.
+      AND NOT (
+        "Upload"."paid" = false
+        AND "Upload".size > ${UPLOAD_FREE_BYTES_MAX}::INTEGER
+        AND EXISTS (
+          SELECT 1
+          FROM "UploadPayIn"
+          JOIN "PayIn" ON "PayIn"."id" = "UploadPayIn"."payInId"
+          JOIN "PendingItemUpdate" ON "PendingItemUpdate"."payInId" = COALESCE("PayIn"."benefactorId", "PayIn"."id")
+          WHERE "UploadPayIn"."uploadId" = "Upload"."id"))
       AND created_at < date_trunc('hour', now() - interval '24 hours')`
 
   const s3Keys = unpaidImages.map(({ id }) => id)

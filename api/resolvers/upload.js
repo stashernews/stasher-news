@@ -109,6 +109,20 @@ export function uploadIdsFromText (text) {
   return [...new Set([...text.matchAll(AWS_S3_URL_REGEXP)].map(m => Number(m[1])))]
 }
 
+// Turf descriptions have no upload-fee path: >10MB media is rejected outright.
+// Called from every desc-bearing territory getInitial BEFORE any fee-subaddress
+// draw, so a rejected save can never strand an ASSIGNED subaddress.
+export async function assertUploadsWithinFreeSize (uploadIds, { models }) {
+  if (!uploadIds?.length) return
+  const oversized = await models.upload.findFirst({
+    where: { id: { in: uploadIds }, size: { gt: UPLOAD_FREE_BYTES_MAX } },
+    select: { id: true }
+  })
+  if (oversized) {
+    throw new GqlInputError(`territory descriptions cannot include uploads over ${UPLOAD_FREE_BYTES_MAX / (1024 ** 2)} megabytes`)
+  }
+}
+
 export async function uploadFees (s3Keys, { models, me }) {
   const userId = me?.id ?? USER_ID.anon
 

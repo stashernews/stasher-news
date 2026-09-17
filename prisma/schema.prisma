@@ -265,6 +265,32 @@ model ItemUpload {
   @@index([uploadId])
 }
 
+// StasherNews: a fee-bearing ITEM_UPDATE (an edit that attaches >10MB uploads)
+// is NOT applied in onBegin — it is stored here and applied by
+// worker/rewardsWalletObserver.flipPendingToLive once the upload fee is
+// observed on the rewards wallet. Applying at creation let a user attach
+// >10MB media for free by dismissing the fee QR (found 2026-09-17 on post
+// 351432). A never-paid row is purged by abandonFeeItems after
+// FEE_ITEM_ABANDON_DAYS.
+model PendingItemUpdate {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  itemId    Int
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  payInId   Int      @unique
+  payIn     PayIn    @relation(fields: [payInId], references: [id], onDelete: Cascade)
+  // the item's text when the edit was deferred — a mismatch at apply time means
+  // the author (or an admin) edited the item while the fee was in flight; the
+  // deferred edit is dropped rather than clobbering the newer one
+  oldText   String?
+  // the ITEM_UPDATE payInArgs, BigInt-tagged via api/payIn/lib/payInArgs.js
+  args      Json
+
+  @@index([itemId])
+  @@index([createdAt])
+}
+
 model Upload {
   id                  Int           @id @default(autoincrement())
   createdAt           DateTime      @default(now()) @map("created_at")
@@ -408,6 +434,7 @@ model Item {
   AutoSocialPost          AutoSocialPost[]
   randPollOptions         Boolean               @default(false)
   itemPayIns              ItemPayIn[]
+  pendingUpdates          PendingItemUpdate[]
   CommentsViewAt          CommentsViewAt[]
   ranktop                 Float                 @default(0)
   litCenteredSum          Float                 @default(0)
@@ -1187,22 +1214,23 @@ model PayIn {
   // the FeeObservation at attribution. null = legacy default (100% to the pool).
   donationRewardsPct    Int?
 
-  genesis         PayIn?           @relation("PayInGenesis", fields: [genesisId], references: [id], onDelete: Cascade)
-  successor       PayIn?           @relation("PayInSuccessor", fields: [successorId], references: [id], onDelete: Cascade)
-  predecessor     PayIn?           @relation("PayInSuccessor")
-  benefactor      PayIn?           @relation("PayInBenefactor", fields: [benefactorId], references: [id], onDelete: Cascade)
-  beneficiaries   PayIn[]          @relation("PayInBenefactor")
-  itemPayIn       ItemPayIn?
-  subPayIn        SubPayIn?
-  progeny         PayIn[]          @relation("PayInGenesis")
-  pollVote        PollVote?
-  uploadPayIns    UploadPayIn[]
+  genesis           PayIn?             @relation("PayInGenesis", fields: [genesisId], references: [id], onDelete: Cascade)
+  successor         PayIn?             @relation("PayInSuccessor", fields: [successorId], references: [id], onDelete: Cascade)
+  predecessor       PayIn?             @relation("PayInSuccessor")
+  benefactor        PayIn?             @relation("PayInBenefactor", fields: [benefactorId], references: [id], onDelete: Cascade)
+  beneficiaries     PayIn[]            @relation("PayInBenefactor")
+  itemPayIn         ItemPayIn?
+  subPayIn          SubPayIn?
+  progeny           PayIn[]            @relation("PayInGenesis")
+  pollVote          PollVote?
+  uploadPayIns      UploadPayIn[]
+  pendingItemUpdate PendingItemUpdate?
   // back-relations for the fee 1:1 linkages (Item.feePayIn / Sub.billingPayIn /
   // FeeObservation.payIn). The FKs live on the other side; these are the read sides.
-  feeItem         Item?            @relation("ItemFeePayIn")
-  feeSub          Sub?             @relation("SubBillingPayIn")
-  feeObservations FeeObservation[]
-  observedSubFees ObservedSubFee[]
+  feeItem           Item?              @relation("ItemFeePayIn")
+  feeSub            Sub?               @relation("SubBillingPayIn")
+  feeObservations   FeeObservation[]
+  observedSubFees   ObservedSubFee[]
 
   @@index([userId])
   @@index([createdAt])

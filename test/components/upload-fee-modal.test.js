@@ -27,6 +27,9 @@ jest.mock(`${process.cwd()}/svgs/keyhole.svg`, () => ({
 const mockUseQuery = jest.fn()
 jest.mock('@apollo/client/react', () => ({ useQuery: (...args) => mockUseQuery(...args) }))
 
+const mockRouterPush = jest.fn()
+jest.mock('next/router', () => ({ useRouter: () => ({ push: mockRouterPush }) }))
+
 // Valid base58 (charset [1-9A-HJ-NP-Za-km-z], 95 chars) so moneroUriAddress()
 // accepts it. Leading '5' mimics a stagenet primary address; content is filler.
 const URI_FULL = 'monero:5' + 'F'.repeat(94) + '?tx_amount=0.001'
@@ -63,24 +66,26 @@ afterEach(async () => {
   jest.clearAllMocks()
 })
 
-async function renderModal ({ polledPayIn } = {}) {
+async function renderModal ({ polledPayIn, itemId } = {}) {
   mockUseQuery.mockReturnValue({
     data: polledPayIn ? { payIn: polledPayIn } : null
   })
   await act(async () => {
-    root.render(<UploadFeeModal moneroUri={URI_FULL} payInId={42} onClose={mockOnClose} />)
+    root.render(<UploadFeeModal moneroUri={URI_FULL} payInId={42} itemId={itemId} onClose={mockOnClose} />)
   })
 }
 
 describe('UploadFeeModal', () => {
   beforeEach(() => {
     mockOnClose = jest.fn()
+    mockRouterPush.mockClear()
   })
 
   test('shows the QR and the quoted amount while the fee is not covered', async () => {
     await renderModal({ polledPayIn: { id: 42, feeCovered: false } })
     expect(container.textContent).toContain('Pay the upload fee')
     expect(container.textContent).toContain('1 mXMR (0.001 XMR)')
+    expect(container.textContent).toContain('nothing has changed on the item yet')
     expect(container.textContent).not.toMatch(/payment detected/i)
     expect(mockOnClose).not.toHaveBeenCalled()
   })
@@ -96,5 +101,20 @@ describe('UploadFeeModal', () => {
     await renderModal({ polledPayIn: { id: 42, feeCovered: true } })
     await act(async () => { jest.advanceTimersByTime(1500) })
     expect(mockOnClose).toHaveBeenCalledTimes(1)
+  })
+
+  test('navigates to the item after the success view when itemId is set', async () => {
+    jest.useFakeTimers()
+    await renderModal({ polledPayIn: { id: 42, feeCovered: true }, itemId: 99 })
+    await act(async () => { jest.advanceTimersByTime(1500) })
+    expect(mockOnClose).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).toHaveBeenCalledWith('/items/99')
+  })
+
+  test('does not navigate when itemId is absent', async () => {
+    jest.useFakeTimers()
+    await renderModal({ polledPayIn: { id: 42, feeCovered: true } })
+    await act(async () => { jest.advanceTimersByTime(1500) })
+    expect(mockRouterPush).not.toHaveBeenCalled()
   })
 })

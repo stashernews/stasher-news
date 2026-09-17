@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/router'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
 import { moneroUriAmountPiconeros, piconerosToMXmrDual } from '@/lib/format'
@@ -17,14 +18,15 @@ const UPLOAD_FEE_STATUS = gql`
   }
 `
 
-// UploadFeeModal — the >10MB upload fee attached to an already-live record (a
-// turf description edit, or a post/comment edit). Unlike the territory billing
-// modal (Sub.billingStatus) and PostingFeeModal's create phase (Item.feeStatus),
-// an edit has no record state that flips when THIS fee lands, so the modal polls
-// the fee PayIn's feeCovered — the same cumulative gate that flips Upload.paid.
-// The update itself is already live (fee payIns are born PAID, onBegin ran at
-// creation and only the gated Upload.paid waits for the observation).
-export default function UploadFeeModal ({ moneroUri, payInId, onClose }) {
+// UploadFeeModal — the >10MB upload fee attached to an item edit. A fee-bearing
+// edit is deferred server-side (PendingItemUpdate): onBegin stores the edit and
+// rewardsWalletObserver.flipPendingToLive applies it once the fee is observed.
+// The modal polls PayIn.feeCovered — the same cumulative gate that flips
+// Upload.paid and releases the deferred edit — and reports success only once
+// the fee actually settles. Closing the QR without paying leaves the item
+// unchanged (the pending edit is abandoned after FEE_ITEM_ABANDON_DAYS).
+export default function UploadFeeModal ({ moneroUri, payInId, itemId, onClose }) {
+  const router = useRouter()
   const animate = useAnimation()
   const [settled, setSettled] = useState(false)
   const feePiconeros = moneroUriAmountPiconeros(moneroUri) ?? 0n
@@ -45,9 +47,12 @@ export default function UploadFeeModal ({ moneroUri, payInId, onClose }) {
   if (settled) {
     return (
       <PaymentSuccessView
-        title='Payment detected — upload fee settled!'
+        title='Payment detected — your edit is going live!'
         autoCloseMs={1500}
-        onAutoClose={onClose}
+        onAutoClose={() => {
+          onClose()
+          if (itemId) router.push(`/items/${itemId}`)
+        }}
       />
     )
   }
@@ -57,11 +62,12 @@ export default function UploadFeeModal ({ moneroUri, payInId, onClose }) {
       moneroUri={moneroUri}
       amountPiconeros={feePiconeros}
       heading='Pay the upload fee'
-      description={`Scan to send ${piconerosToMXmrDual(feePiconeros)} to the platform rewards wallet. Your update is already live — this settles the fee for your over-10MB upload.`}
+      description={`Scan to send ${piconerosToMXmrDual(feePiconeros)} to the platform rewards wallet. Your saved edit is applied as soon as this fee is detected — nothing has changed on the item yet.`}
     >
       <p className='text-muted text-center mt-3'>
         <small>
-          Until it settles, your next save will charge this upload again.
+          Until it settles, your next save will charge this upload again. Closing this
+          window leaves the item unchanged.
         </small>
       </p>
     </MoneroPaymentView>

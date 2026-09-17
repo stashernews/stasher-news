@@ -5,6 +5,7 @@ import { territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
+import { assertUploadsWithinFreeSize, throwOnExpiredUploads } from '@/api/resolvers/upload'
 
 // StasherNews territory creation (spec §6.2). The founder pays a territory fee to
 // the platform rewards wallet via a dedicated major-2 subaddress; the territory is
@@ -20,7 +21,14 @@ export const paymentMethods = [
   PAID_ACTION_PAYMENT_METHODS.PESSIMISTIC
 ]
 
-export async function getInitial (models, { billingType, name }, { me }) {
+export async function getInitial (models, { billingType, name, uploadIds = [] }, { me }) {
+  // StasherNews: turf descriptions cannot carry >10MB media (there is no
+  // upload-fee path for turfs) and stale/deleted upload ids must fail with the
+  // actionable "expired" error rather than saving a dead URL. Both checks run
+  // before any subaddress draw.
+  await throwOnExpiredUploads(uploadIds, { tx: models })
+  await assertUploadsWithinFreeSize(uploadIds, { models })
+
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   const fee = territoryFeePiconeros(billingType, config)
   const sub = await reserveFeeSubaddress(models, 'TERRITORY_CREATE', { me }) // major 2

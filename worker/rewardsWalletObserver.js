@@ -8,6 +8,8 @@ import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
 import { createReorgDetector } from '@/lib/reorgDetector'
 import { moneroUriAmountPiconeros } from '@/lib/format'
 import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
+import { alert } from '@/lib/alert'
+import { logError } from '@/lib/logger'
 
 // rewardsWalletObserver — observes posting/territory fees AND downvote payments paid to
 // the platform rewards wallet (Phase 3 Task 5 + Phase 4 Task 4 / spec §3.3, §5.6,
@@ -286,6 +288,28 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
       // creation side effects (notifications, verified-badge check) fire once,
       // after the flip commits — onPaidSideEffects suppressed them at creation
       await runItemLiveSideEffects(models, flipped)
+    }
+  } else if (payIn.payInType === 'ITEM_UPDATE') {
+    // Loaded lazily: api/payIn/types/itemUpdate statically imports the
+    // ESM-only lexical mention parser (via @/lib/lexical/server/mentions) and
+    // the API resolver layer — a static import here breaks every jest suite
+    // that imports this module without stubbing the parser, and bloats worker
+    // boot. The deferred-apply path is rare (one call per fee-bearing edit
+    // whose fee lands), so a cached dynamic import is free.
+    const { applyPendingItemUpdate } = await import('@/api/payIn/types/itemUpdate')
+    // An apply failure must NEVER fail this run: the observer advances its
+    // cursor only after a clean poll, so a throw here would re-process the same
+    // tx on every retry (conflict path) and re-run this flip — freezing ALL fee
+    // attribution until manual intervention (the 2026-08-10 incident class).
+    // Mirrors the applyBoostDetected isolation. The pending edit survives the
+    // rolled-back apply and is purged by abandonFeeItems; the fee is already
+    // recorded by the FeeObservation.
+    try {
+      const applied = await applyPendingItemUpdate(models, payIn)
+      if (applied) console.log(`flipPendingToLive: applied deferred ITEM_UPDATE payIn ${payIn.id}`)
+    } catch (err) {
+      logError('flipPendingToLive: applying deferred ITEM_UPDATE failed', err)
+      alert('critical', 'deferred edit apply failed', `payIn ${payIn.id}: ${err?.message || err}`, { dedupeKey: `applyPendingItemUpdate-${payIn.id}` })
     }
   } else if (['DONATE', 'TIP_UNWALLETED', 'BOOST'].includes(payIn.payInType)) {
     // no gated record to flip — the FeeObservation itself is the effect
