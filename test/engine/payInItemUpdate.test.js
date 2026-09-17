@@ -9,11 +9,23 @@
 // when the item already has a paid ITEM_CREATE payIn; otherwise getInitial
 // throws ('cannot increase item cost with unpaid invoice').
 //
+// ITEM_UPDATE result-payIn regression (edit-countdown bug). afterBegin used to
+// attach the edit's own ITEM_UPDATE payIn to the result item
+// (`{ ...result, payIn }`), and Item.payIn returns an attached payIn as-is. The
+// upsertComment fragment caches that as Item:<id>.payIn, so use-can-edit.js
+// anchored the client's 10-minute window on the edit while updateItem kept
+// anchoring on the item's PAID ITEM_CREATE payIn — the UI showed a live
+// countdown that the server refused ("item can no longer be edited"). The
+// result item must keep the ITEM_CREATE payIn for ITEM_UPDATE payIns (upstream
+// 59f9f8d5; stripped by c0043ef3).
+//
 // Real-DB integration test (mirrors test/engine/payInItemCreate.test.js):
 //   docker exec -u apprunner app npx jest test/engine/payInItemUpdate.test.js
 
 import { PrismaClient } from '@prisma/client'
+import pay from '@/api/payIn/index'
 import { getInitial } from '@/api/payIn/types/itemUpdate'
+import { getItem } from '@/api/resolvers/item'
 
 // itemUpdate.js statically imports @/lib/lexical/server/mentions (ESM-only
 // mdast-util-from-markdown) and @/api/resolvers/item (getItem), neither of
@@ -37,6 +49,15 @@ jest.mock('../../api/monero/feePool', () => ({
     address: '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
   }))
 }))
+// The engine test below drives pay('ITEM_UPDATE', ...), which imports the
+// api/payIn/types barrel. Following payInItemCreate.test.js, the barrel is
+// mocked to expose ONLY the real ITEM_UPDATE module (the spec must be relative;
+// see the comment above on jest.mock vs the @/ alias). The update test has no
+// upload beneficiaries, so MEDIA_UPLOAD is not needed here.
+jest.mock('../../api/payIn/types', () => {
+  const itemUpdate = jest.requireActual('../../api/payIn/types/itemUpdate')
+  return { __esModule: true, default: { ITEM_UPDATE: itemUpdate } }
+})
 
 const prisma = new PrismaClient()
 
@@ -64,7 +85,7 @@ async function createRootPost (userId) {
   })
   created.payIns.push(payIn.id)
   await prisma.itemPayIn.create({ data: { itemId: id, payInId: payIn.id } })
-  return id
+  return { id, payInId: payIn.id }
 }
 
 async function createUpload (userId, { size }) {
@@ -83,7 +104,20 @@ async function ensureFeeConfig () {
   feeConfigCreated = true
 }
 
+// Delete pgboss jobs referencing an item so the worker never executes them
+// against test rows (the edit path queues imgproxy; search triggers queue
+// indexItem) — same cleanup as payInItemCreate.test.js.
+async function deleteJobsForItem (itemId) {
+  const id = String(itemId)
+  await prisma.$executeRaw`
+    DELETE FROM pgboss.job
+    WHERE data->>'id' = ${id} OR data->>'itemId' = ${id}`
+}
+
 afterAll(async () => {
+  for (const id of created.items) {
+    await deleteJobsForItem(id)
+  }
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } }).catch(() => {})
   await prisma.upload.deleteMany({ where: { id: { in: created.uploads } } }).catch(() => {})
   for (const id of created.items) {
@@ -100,11 +134,52 @@ afterAll(async () => {
 test('getInitial builds an upload-fee URI for an item update adding a >10MB upload', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
-  const itemId = await createRootPost(userId) // has a paid ITEM_CREATE payIn
+  const { id: itemId } = await createRootPost(userId) // has a paid ITEM_CREATE payIn
   const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
   const result = await getInitial(prisma, { id: String(itemId), uploadIds: [uploadId] }, { me: { id: userId } })
   expect(result.piconeros).toBe(0n)
   expect(result.moneroUri).toMatch(/^monero:/)
   expect(result.moneroUri).toContain('tx_amount=0.001') // upload fee only
   expect(result.beneficiaries?.some(b => b.payInType === 'MEDIA_UPLOAD')).toBe(true)
+})
+
+// --- edit-countdown regression: the result item must keep the ITEM_CREATE payIn ---
+//
+// Drives pay('ITEM_UPDATE', ...) end-to-end on a real DB. getItem is stubbed at
+// the top of this file, so it returns the real ITEM_CREATE PayIn row exactly
+// like the ITEM_CREATE-only SQL join in api/resolvers/item.js does. Before the
+// fix, afterBegin overwrote result.payIn with the (free) edit's ITEM_UPDATE
+// payIn; the client cached it and anchored the 10-minute edit countdown on the
+// edit time while updateItem anchored on the create payIn's payInStateChangedAt.
+test('pay("ITEM_UPDATE", ...) returns the ITEM_CREATE payIn on the result item, not the edit payIn', async () => {
+  const userId = await createUser()
+  const { id: itemId, payInId: createPayInId } = await createRootPost(userId)
+  const createPayIn = await prisma.payIn.findUnique({ where: { id: createPayInId } })
+
+  getItem.mockImplementationOnce(async () => ({ id: itemId, payIn: createPayIn }))
+
+  const result = await pay('ITEM_UPDATE', { id: String(itemId), text: 'edited body' }, { me: { id: userId } })
+  created.payIns.push(result.id)
+
+  // the mutation's own payIn is the ITEM_UPDATE one...
+  expect(result.payInType).toBe('ITEM_UPDATE')
+  expect(result.payInState).toBe('PAID')
+  expect(result.id).not.toBe(createPayInId)
+
+  // ...but the result item must carry the item's PAID ITEM_CREATE payIn so the
+  // client countdown and the server's updateItem window agree
+  expect(result.result).toBeTruthy()
+  expect(result.result.payIn).toBeTruthy()
+  expect(result.result.payIn.payInType).toBe('ITEM_CREATE')
+  expect(result.result.payIn.id).toBe(createPayInId)
+  expect(result.result.payIn.payInState).toBe('PAID')
+  expect(new Date(result.result.payIn.payInStateChangedAt).getTime()).toBe(new Date(createPayIn.payInStateChangedAt).getTime())
+
+  // the edit itself landed
+  const item = await prisma.item.findUnique({ where: { id: itemId } })
+  expect(item.text).toBe('edited body')
+
+  // the onPaid streak job references the test user (deleted in afterAll); drop
+  // it so the worker never executes it against a deleted row
+  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })

@@ -129,7 +129,14 @@ async function afterBegin (models, { payIn, result, mCostRemaining }, { me, send
     onPaidSideEffects(models, payIn.id).catch(console.error)
     return {
       ...payIn,
-      result: result ? { ...result, payIn } : undefined
+      result: result
+        ? {
+            ...result,
+            // XXX this weirdness is for ITEM_UPDATE payIns, which we want to return
+            // the ITEM_CREATE payIn which can be unpaid while the (free) ITEM_UPDATE payIn is paid
+            payIn: payIn.payInType === 'ITEM_UPDATE' ? result.payIn : payIn
+          }
+        : undefined
     }
   } else if (payIn.payInState === 'PENDING_INVOICE_CREATION') {
     throw new Error('Monero payments not implemented')
