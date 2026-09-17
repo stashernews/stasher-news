@@ -203,6 +203,12 @@ export function postCommentUseRemoteLineItems ({ parentId, subs = [] } = {}) {
   }
 }
 
+// The freebie base-cost line is an accumulator sentinel: it makes the button
+// read "free" but is never charged on-chain. Exclude its unit from the quoted
+// total so a freebie post carrying paid upload fees quotes exactly those fees.
+export const payableFeeTotal = (baseCostLine, total) =>
+  baseCostLine?.allowFreebies === true ? total - baseCostLine.modifier(0) : total
+
 function sortHelper (a, b) {
   if (a.op === '_') {
     return -1
@@ -285,6 +291,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
       lines,
       merge: mergeLineItems,
       total,
+      payableTotal: payableFeeTotal(baseCostLine, total),
       disabled: disabledReasons.size > 0,
       disabledReasons,
       setDisabled,
@@ -334,11 +341,11 @@ export function legacySatsToPiconeros (total) {
 
 export default function FeeButton ({ ChildButton = SubmitButton, variant, text, disabled }) {
   const { me } = useMe()
-  const { lines, total, disabled: ctxDisabled, free, freeCommentsLeft, freePostsLeft } = useFeeButton()
+  const { lines, total, payableTotal, disabled: ctxDisabled, free, freeCommentsLeft, freePostsLeft } = useFeeButton()
   const feeText = free
     ? 'free'
-    : total > 1
-      ? piconerosToMXmr(legacySatsToPiconeros(total))
+    : payableTotal > 0
+      ? piconerosToMXmr(legacySatsToPiconeros(payableTotal))
       : undefined
   disabled ||= ctxDisabled
 
@@ -354,7 +361,7 @@ export default function FeeButton ({ ChildButton = SubmitButton, variant, text, 
       </ActionTooltip>
       {!me && <AnonInfo />}
       {(free && <Info><FreebieDialog freeCommentsLeft={freeCommentsLeft} freePostsLeft={freePostsLeft} /></Info>) ||
-       (total > 1 && <Info><Receipt lines={lines} total={total} /></Info>)}
+       (payableTotal > 0 && <Info><Receipt lines={lines} total={payableTotal} /></Info>)}
     </div>
   )
 }
@@ -363,8 +370,8 @@ function Receipt ({ lines, total }) {
   return (
     <Table className={styles.receipt} borderless size='sm'>
       <tbody>
-        {Object.entries(lines).sort(([, a], [, b]) => sortHelper(a, b)).map(([key, { term, label, omit }]) => (
-          !omit &&
+        {Object.entries(lines).sort(([, a], [, b]) => sortHelper(a, b)).map(([key, { term, label, omit, allowFreebies }]) => (
+          !omit && allowFreebies !== true &&
             <tr key={key}>
               <td>{term}</td>
               <td align='right' className='font-weight-light'>{label}</td>

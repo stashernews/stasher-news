@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { postCommentBaseLineItems, legacySatsToPiconeros } from '@/components/fee-button'
+import { postCommentBaseLineItems, legacySatsToPiconeros, payableFeeTotal } from '@/components/fee-button'
 import { piconerosToMXmr } from '@/lib/format'
 
 // components/fee-button imports ./form, which pulls in the lexical editor whose
@@ -292,5 +292,37 @@ describe('postCommentBaseLineItems — turf premiums', () => {
     // owner-routed anon leg — the receipt cannot know the route, so it
     // quotes the fallback floor like every other estimate it makes)
     expect(piconerosToMXmr(BigInt(total) * 1000n)).toBe('10 mXMR')
+  })
+})
+
+describe('payableFeeTotal', () => {
+  const freePostsMe = { privates: { postingFeeRequired: false, postingFeePiconeros: 0, freePostsLeft: 5 } }
+
+  test('a free post with paid upload fees quotes exactly the upload fee', () => {
+    const lines = postCommentBaseLineItems({ me: freePostsMe })
+    const all = {
+      ...lines,
+      uploadFees: { term: '+ 2 mXMR', label: 'upload fee', op: '+', modifier: cost => cost + 2000000 }
+    }
+    const total = Object.values(all).reduce((acc, { modifier }) => modifier(acc), 0)
+    const baseCostLine = Object.values(all).find(l => l.op === '_' && l.allowFreebies !== undefined)
+    expect(total).toBe(2000001)
+    expect(payableFeeTotal(baseCostLine, total)).toBe(2000000)
+    expect(piconerosToMXmr(legacySatsToPiconeros(payableFeeTotal(baseCostLine, total)))).toBe('2 mXMR')
+  })
+
+  test('a freebie-only item pays nothing', () => {
+    const lines = postCommentBaseLineItems({ me: freePostsMe })
+    const baseCostLine = Object.values(lines).find(l => l.op === '_' && l.allowFreebies !== undefined)
+    expect(payableFeeTotal(baseCostLine, 1)).toBe(0)
+  })
+
+  test('real fee lines are never excluded (allowFreebies false, not true)', () => {
+    const lines = postCommentBaseLineItems({
+      me: { privates: { postingFeeRequired: true, postingFeePiconeros: 1000000000 } }
+    })
+    const baseCostLine = Object.values(lines).find(l => l.op === '_' && l.allowFreebies !== undefined)
+    expect(baseCostLine.allowFreebies).toBe(false)
+    expect(payableFeeTotal(baseCostLine, 1000000)).toBe(1000000)
   })
 })
