@@ -14,13 +14,21 @@ import { useCallback, useState } from 'react'
 import FeeButton, { FeeButtonProvider, postCommentBaseLineItems, postCommentUseRemoteLineItems } from './fee-button'
 import Delete from './delete'
 import CancelButton from './cancel-button'
-import { subNames, subsPostPrefix, subsAllSupport } from '@/lib/subs'
+import { subNames, subsPostPrefix, subsAllSupport, postFormType, defaultPostType } from '@/lib/subs'
+
+const POST_TYPE_FORMS = {
+  link: LinkForm,
+  discussion: DiscussionForm,
+  poll: PollForm,
+  bounty: BountyForm
+}
 
 export function PostForm ({ type, subs, children }) {
   const { me } = useMe()
   const [errorMessage, setErrorMessage] = useState()
 
   const prefix = subsPostPrefix(subs)
+  const formType = postFormType(type, subs)
 
   const checkSession = useCallback((e) => {
     if (!me) {
@@ -29,7 +37,7 @@ export function PostForm ({ type, subs, children }) {
     }
   }, [me, setErrorMessage])
 
-  if (!type) {
+  if (!formType) {
     let postButtons = []
     let morePostButtons = []
 
@@ -136,16 +144,7 @@ export function PostForm ({ type, subs, children }) {
     )
   }
 
-  let FormType = JobForm
-  if (type === 'discussion') {
-    FormType = DiscussionForm
-  } else if (type === 'link') {
-    FormType = LinkForm
-  } else if (type === 'poll') {
-    FormType = PollForm
-  } else if (type === 'bounty') {
-    FormType = BountyForm
-  }
+  const FormType = formType === 'job' ? JobForm : POST_TYPE_FORMS[formType]
 
   return (
     <FeeButtonProvider
@@ -161,9 +160,8 @@ export default function Post ({ subs }) {
   const router = useRouter()
   let type = router.query.type
 
-  if (subs.length === 1 && subs[0].postTypes?.length === 1) {
-    type = subs[0].postTypes[0].toLowerCase()
-  }
+  const singleType = defaultPostType(subs)
+  if (singleType) type = singleType
 
   // picking the bounty post type pre-selects the bounties turf
   const selectedSubs = type === 'bounty' && !subNames(subs).includes('bounties')

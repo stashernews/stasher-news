@@ -6,7 +6,7 @@ import { gql } from '@apollo/client'
 import { useApolloClient, useLazyQuery } from '@apollo/client/react'
 import { useCallback, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
-import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, POST_TYPE_LABELS, DOMAIN_BETA_IDS } from '@/lib/constants'
+import { MAX_TERRITORY_DESC_LENGTH, POST_TYPES, POST_TYPE_LABELS, DEFAULT_POST_TYPES, DOMAIN_BETA_IDS } from '@/lib/constants'
 import { territorySchema, filterXmrValidator } from '@/lib/validate'
 import { useMe } from './me'
 import Info from './info'
@@ -201,6 +201,12 @@ export default function TerritoryForm ({ sub }) {
     }
   }, [sub, billing, monthlyFee, yearlyFee, onceFee])
 
+  // JOB is removal-only legacy: show it only where it already exists (and never
+  // on the jobs turf, which must keep it); new turfs never see it
+  const postTypeChoices = sub?.postTypes?.includes('JOB') && sub?.name !== 'jobs'
+    ? POST_TYPES
+    : DEFAULT_POST_TYPES
+
   return (
     <FeeButtonProvider baseLineItems={lineItems}>
       <Form
@@ -211,7 +217,7 @@ export default function TerritoryForm ({ sub }) {
           postsPiconerosFilter: sub?.postsPiconerosFilter == null ? -0.1 : snapToFilterGrid(Number(piconerosToXmrDecimal(BigInt(sub.postsPiconerosFilter)))),
           postPremiumPiconeros: sub?.postPremiumPiconeros == null ? 0 : Number(piconerosToXmrDecimal(BigInt(sub.postPremiumPiconeros))),
           commentPremiumPiconeros: sub?.commentPremiumPiconeros == null ? 0 : Number(piconerosToXmrDecimal(BigInt(sub.commentPremiumPiconeros))),
-          postTypes: sub?.postTypes || POST_TYPES,
+          postTypes: sub?.postTypes || DEFAULT_POST_TYPES,
           billingType: sub?.billingType || 'MONTHLY',
           billingAutoRenew: sub?.billingAutoRenew || false,
           nsfw: sub?.nsfw || false
@@ -251,7 +257,7 @@ export default function TerritoryForm ({ sub }) {
         />
         <CheckboxGroup label='post types' name='postTypes'>
           <Row>
-            {POST_TYPES.map(postType => (
+            {postTypeChoices.map(postType => (
               <Col xs={4} sm='auto' key={postType}>
                 <Checkbox
                   inline

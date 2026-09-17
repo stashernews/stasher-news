@@ -12,10 +12,11 @@
 // every offered value must be a real enum value or the create path breaks.
 //
 // BOUNTY was restored as a first-class post type by A-13 (PostType.BOUNTY,
-// monero-funded bounties). JOB is a live fork post type (job-form.js /
-// UPSERT_JOB, the seeded jobs turf).
+// monero-funded bounties). JOB remains in POST_TYPES/POST_TYPE_LABELS for
+// legacy turfs, but it is removal-only (excluded from DEFAULT_POST_TYPES):
+// job identity is the `jobs` turf (lib/item.js isJob), not a turf postType.
 
-import { POST_TYPES, POST_TYPE_LABELS } from '@/lib/constants'
+import { POST_TYPES, POST_TYPE_LABELS, DEFAULT_POST_TYPES } from '@/lib/constants'
 import { PostType } from '@prisma/client'
 
 describe('POST_TYPES', () => {
@@ -31,5 +32,10 @@ describe('POST_TYPES', () => {
     for (const postType of POST_TYPES) {
       expect(POST_TYPE_LABELS[postType]).toBeTruthy()
     }
+  })
+
+  test('DEFAULT_POST_TYPES is every post type except the legacy JOB', () => {
+    expect(DEFAULT_POST_TYPES).not.toContain('JOB')
+    expect([...DEFAULT_POST_TYPES].sort()).toEqual(Object.values(PostType).filter(p => p !== 'JOB').sort())
   })
 })

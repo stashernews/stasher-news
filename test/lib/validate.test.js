@@ -80,3 +80,50 @@ describe('bountySchema piconero validation (A-13)', () => {
     })).rejects.toThrow(/required/)
   })
 })
+
+describe('territorySchema job exclusivity', () => {
+  const schema = (oldName) => territorySchema({
+    models: { sub: { findMany: async () => [] } },
+    ...(oldName ? { sub: { name: oldName } } : {})
+  })
+  const turf = (name, postTypes) => ({
+    name,
+    desc: 'd',
+    postsPiconerosFilter: null,
+    postPremiumPiconeros: null,
+    commentPremiumPiconeros: null,
+    postTypes,
+    billingType: 'MONTHLY',
+    billingAutoRenew: false,
+    nsfw: false
+  })
+
+  it('rejects JOB as the only type on a non-jobs turf', async () => {
+    await expect(schema().validate(turf('myturf', ['JOB'])))
+      .rejects.toThrow(/jobs can only be hosted by the jobs turf/)
+  })
+  it('accepts JOB alongside a regular type on a non-jobs turf', async () => {
+    await expect(schema().validate(turf('myturf', ['LINK', 'JOB']))).resolves.toBeTruthy()
+  })
+  it('accepts the jobs turf carrying JOB', async () => {
+    await expect(schema().validate(turf('jobs', ['LINK', 'JOB']))).resolves.toBeTruthy()
+  })
+  it('rejects the jobs turf without JOB', async () => {
+    await expect(schema().validate(turf('jobs', ['LINK'])))
+      .rejects.toThrow(/the jobs turf must support jobs/)
+  })
+  it('rejects renaming the jobs turf', async () => {
+    await expect(schema('jobs').validate(turf('jobs2', ['LINK', 'JOB'])))
+      .rejects.toThrow(/the jobs turf cannot be renamed/)
+  })
+  it('rejects a duplicated JOB on a non-jobs turf', async () => {
+    await expect(schema().validate(turf('myturf', ['JOB', 'JOB'])))
+      .rejects.toThrow(/jobs can only be hosted by the jobs turf/)
+  })
+  it('accepts an in-place edit of the jobs turf', async () => {
+    await expect(schema('jobs').validate(turf('jobs', ['LINK', 'JOB']))).resolves.toBeTruthy()
+  })
+  it('allows a JOB-carrying non-jobs turf to take a free jobs name (availability rule still governs)', async () => {
+    await expect(schema('myturf').validate(turf('jobs', ['LINK', 'JOB']))).resolves.toBeTruthy()
+  })
+})

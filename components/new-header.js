@@ -31,10 +31,11 @@ export default function NewHeader ({ type, sub }) {
   const router = useRouter()
   const prefix = usePrefix(sub?.name)
 
+  // the jobs feed exists only on the jobs turf; elsewhere JOB is inert legacy
   const items = sub
-    ? ITEM_TYPES_UNIVERSAL.concat(sub.postTypes.map(p =>
-      ['LINK', 'DISCUSSION', 'POLL', 'JOB'].includes(p) ? `${p.toLowerCase()}s` : 'bounties'
-    ))
+    ? ITEM_TYPES_UNIVERSAL.concat(sub.postTypes
+      .filter(p => p !== 'JOB' || sub.name === 'jobs')
+      .map(p => ['LINK', 'DISCUSSION', 'POLL', 'JOB'].includes(p) ? `${p.toLowerCase()}s` : 'bounties'))
     : ITEM_TYPES
 
   type ||= router.query.type || type || 'posts'

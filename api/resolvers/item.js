@@ -839,6 +839,10 @@ export default {
         throw new GqlAuthenticationError()
       }
 
+      if (!item.subNames?.includes('jobs')) {
+        throw new GqlInputError('jobs can only be posted in the jobs turf')
+      }
+
       item.location = item.location?.toLowerCase() === 'remote' ? undefined : item.location
       await validateSchema(jobSchema, item, { models })
       if (item.logo !== undefined) {
