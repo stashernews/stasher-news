@@ -22,7 +22,7 @@ import { useWalletIndicator } from '@/wallets/client/hooks'
 import SwitchAccountList, { useIsLurker } from '@/components/account'
 import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
-import { piconerosToMXmr } from '@/lib/format'
+import { piconerosToXmr, piconerosToMXmr } from '@/lib/format'
 import { useBranding } from '@/components/territory-branding'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
@@ -133,7 +133,7 @@ export function NavRewards () {
   return (
     <Nav.Item className='navRewards d-none d-md-flex align-items-center gap-2'>
       <Link href='/rewards' className='nav-link p-0 navRewardsAmount'>
-        {piconerosToMXmr(BigInt(total), 0)} in {time && <DaysHoursCountdown className='navRewardsTimer' date={time} />}
+        {piconerosToXmr(BigInt(total), 3)} in {time && <DaysHoursCountdown className='navRewardsTimer' date={time} />}
       </Link>
     </Nav.Item>
   )

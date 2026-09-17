@@ -4,7 +4,7 @@ import { getGetServerSideProps } from '@/api/ssrApollo'
 import Layout from '@/components/layout'
 import { useQuery } from '@apollo/client/react'
 import Link from 'next/link'
-import { piconerosToMXmr } from '@/lib/format'
+import { piconerosToXmr, piconerosToMXmr } from '@/lib/format'
 import PageLoading from '@/components/page-loading'
 import { useShowModal } from '@/components/modal'
 import dynamic from 'next/dynamic'
@@ -36,11 +36,11 @@ const REWARDS_FULL = gql`
 
 export const getServerSideProps = getGetServerSideProps({ query: REWARDS_FULL })
 
-export function RewardLine ({ total, time }) {
+export function RewardLine ({ total, time, xmr }) {
   return (
     <>
       <span style={{ whiteSpace: 'nowrap' }}>
-        {piconerosToMXmr(BigInt(total))} in rewards
+        {xmr ? piconerosToXmr(BigInt(total), 3) : piconerosToMXmr(BigInt(total))} in rewards
       </span>
       {time &&
         <small style={{ whiteSpace: 'nowrap' }}>

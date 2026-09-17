@@ -18,7 +18,7 @@ export default function Rewards () {
   const time = data?.rewards?.[0]?.time
   return (
     <Link href='/rewards' className='nav-link p-0 p-0 d-inline-flex'>
-      {total ? <span><RewardLine total={total} time={time} /></span> : 'rewards'}
+      {total ? <span><RewardLine total={total} time={time} xmr /></span> : 'rewards'}
     </Link>
   )
 }

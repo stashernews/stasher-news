@@ -243,7 +243,7 @@ describe('NavRewards', () => {
 
     const amount = cluster.querySelector('a[href="/rewards"]')
     expect(amount).toBeTruthy()
-    expect(amount.textContent).toMatch(/^1200 mXMR in \d+d \d{1,2}h$/)
+    expect(amount.textContent).toMatch(/^1\.2 XMR in \d+d \d{1,2}h$/)
 
     const timer = cluster.querySelector('.navRewards .navRewardsTimer')
     expect(timer).toBeTruthy()
@@ -256,12 +256,12 @@ describe('NavRewards', () => {
     expect(cluster.querySelectorAll('.nav-item').length).toBeGreaterThanOrEqual(2)
   })
 
-  it('caps the rewards amount at whole mXMR (truncated, trailing zeros trimmed)', async () => {
-    mockRewardsTotal = '4163900000' // 4.1639 mXMR
+  it('caps the rewards amount at 3 decimal places (truncated, trailing zeros trimmed)', async () => {
+    mockRewardsTotal = '4163900000' // 0.004163 XMR
     await renderHeader(TURF_PROPS)
 
     const amount = container.querySelector('a[href="/rewards"]')
-    expect(amount.textContent).toMatch(/^4 mXMR in \d+d \d{1,2}h$/)
+    expect(amount.textContent).toMatch(/^0\.004 XMR in \d+d \d{1,2}h$/)
   })
 
   it('renders nothing when the rewards pool is not available', async () => {
