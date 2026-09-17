@@ -1007,6 +1007,12 @@ test('a previous weekly run whose periodEnd sits at this run\'s periodStart boun
   created.distributions.push(dist.id)
 
   expect(dist.id).not.toBe(boundary.id)
+  // The new period's inflow window starts exactly where the boundary row
+  // ended — contiguous periods, so no confirmed inflow can fall into a gap
+  // (late run) or be double-counted (jitter overlap) between distributions.
+  // The old run-time-derived periodStart sat ~4s BEFORE boundary.periodEnd,
+  // re-allocating that sliver of inflow into both periods.
+  expect(dist.periodStart.toISOString()).toBe(boundary.periodEnd.toISOString())
   const rows = await prisma.rewardDistribution.findMany({ where: { id: { in: [boundary.id, dist.id] } } })
   expect(rows).toHaveLength(2) // two consecutive weekly runs -> two rows
 })

@@ -14,10 +14,11 @@
 // The rewards/ops figures are the LITERAL current allocations, not a pro-rata
 // slice of the balance: rewards = the next distribution's pool (this cycle's
 // rewards-earmarked inflow + the latest rollover, via lib/rewardsPool.js — the
-// same computation /rewards uses), ops = the latest distribution's unswept ops
-// (opsAvailablePiconeros - opsSweptPiconeros, the monero_ops_pending_piconeros
-// definition). The cycle inflow comes from the shared function's $queryRaw;
-// the all-time aggregates only drive the ledger balance + inflowBreakdown.
+// same computation /rewards uses), ops = the latest distribution's unswept
+// carry (opsAvailablePiconeros - opsSweptPiconeros) + this cycle's ops-earmarked
+// inflow (the monero_ops_pending_piconeros definition). The cycle inflow comes
+// from the shared function's $queryRaw; the all-time aggregates only drive the
+// ledger balance + inflowBreakdown (a cumulative display, never an allocation).
 
 import resolvers from '@/api/resolvers/rewardsWallet'
 import { encryptViewKey } from '@/api/monero/viewkey'
@@ -270,6 +271,64 @@ describe('Query.rewardsWalletInfo', () => {
     expect(result.opsEarmarkPiconeros).toBe(2_000_000_000n)
     expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
     expect(result.balancePiconeros).toBe(10_516_894_999n)
+  })
+
+  test('open-cycle POSTING + BOOST inflow counts toward ops even when the prior sweep landed (carry 0)', async () => {
+    // Regression for the truncated ops definition: the prior distribution is
+    // fully settled and swept (carry 0), but the OPEN week takes 1_000 posting
+    // (70/30) + 1_000 boost (30/70) — rewards earmark 700 + 300 = 1_000, ops
+    // earmark 300 + 700 = 1_000. The old definition reported ops = 0 until the
+    // next distribution ran, while the ledger balance already held that 1_000
+    // (the transparency page's two figures failed to sum to the balance).
+    const lastDistribution = makeDistribution({
+      rolledOverPiconeros: 42n,
+      opsAvailablePiconeros: 100n,
+      opsSweptPiconeros: 100n,
+      opsSweepState: 'SWEPT'
+    })
+    const models = makeModels({
+      // ledger: received 3000 - (858 payouts + 100 swept) = 2042 balance
+      downvotes: 3_000n,
+      payoutsSent: 858n,
+      opsSweptTotal: 100n,
+      lastDistribution,
+      inflow: { posting: 1_000n, boost: 1_000n }
+    })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(result.rewardsEarmarkPiconeros).toBe(1_042n) // 42 rollover + 1_000 open rewards
+    expect(result.opsEarmarkPiconeros).toBe(1_000n) // carry 0 + 1_000 open ops
+    expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
+    expect(result.balancePiconeros).toBe(2_042n)
+  })
+
+  test('a prior partial sweep: ops = unswept carry + the open-cycle ops earmark', async () => {
+    // The latest distribution swept only part of its ops (2_000 of 5_000, e.g.
+    // SKIPPED_LOCKED mid-sweep), so 3_000 carries; the open week adds 1_000
+    // posting (70/30) -> 700 rewards / 300 ops. Ops must be the full 3_300, not
+    // just the 3_000 carry.
+    const lastDistribution = makeDistribution({
+      rolledOverPiconeros: 1_000n,
+      opsAvailablePiconeros: 5_000n,
+      opsSweptPiconeros: 2_000n,
+      opsSweepState: 'SKIPPED_LOCKED'
+    })
+    const models = makeModels({
+      // ledger: received 8000 - (1000 payouts + 2000 swept) = 5000 balance
+      downvotes: 8_000n,
+      payoutsSent: 1_000n,
+      opsSweptTotal: 2_000n,
+      lastDistribution,
+      inflow: { posting: 1_000n }
+    })
+
+    const result = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(result.rewardsEarmarkPiconeros).toBe(1_700n) // 1_000 rollover + 700 open rewards
+    expect(result.opsEarmarkPiconeros).toBe(3_300n) // 3_000 carry + 300 open ops
+    expect(result.rewardsEarmarkPiconeros + result.opsEarmarkPiconeros).toBe(result.balancePiconeros)
+    expect(result.balancePiconeros).toBe(5_000n)
   })
 
   test('pendingSweepPiconeros agrees with the monero_ops_pending_piconeros metric for the same distribution', async () => {

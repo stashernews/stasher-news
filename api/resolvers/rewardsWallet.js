@@ -17,9 +17,9 @@ import { getNextRewardsPool } from '@/lib/rewardsPool'
 // numbers the rest of the platform uses:
 //   - rewards = the next distribution's pool, from getNextRewardsPool — the
 //     exact value the /rewards page counts down to;
-//   - ops     = the latest distribution's unswept ops (opsAvailablePiconeros
-//     - opsSweptPiconeros) — the exact value of the
-//     monero_ops_pending_piconeros metric.
+//   - ops     = the latest distribution's unswept carry (opsAvailablePiconeros
+//     - opsSweptPiconeros) PLUS the open cycle's ops-earmarked inflow — the
+//     exact value of the monero_ops_pending_piconeros metric.
 // In every settled state the two sum to the ledger balance, so the page never
 // shows rounding drift. Two documented windows where rewards + ops < balance:
 // (1) while a distribution's payouts are still QUEUED/PENDING they are not yet
@@ -127,8 +127,8 @@ export default {
       // --- Ledger-derived sent + the literal allocations. ---
       // getNextRewardsPool is the SAME computation /rewards uses for its pool,
       // so the transparency rewards figure and the /rewards countdown cannot
-      // drift; it also returns the latest distribution's unswept ops, the
-      // monero_ops_pending_piconeros definition.
+      // drift; it also returns the pending ops figure (unswept carry + this
+      // cycle's ops earmark), the monero_ops_pending_piconeros definition.
       const [pool, payoutAgg, sweepAgg] = await Promise.all([
         getNextRewardsPool(models),
         models.rewardPayout.aggregate({
@@ -151,8 +151,9 @@ export default {
 
       // LITERAL current allocations (never a pro-rata slice of the balance):
       //   rewards = the next distribution's pool (same value /rewards shows),
-      //   ops     = the latest distribution's unswept ops (same value the
-      //             monero_ops_pending_piconeros metric reports).
+      //   ops     = the latest distribution's unswept carry + this cycle's ops
+      //             earmark (same value the monero_ops_pending_piconeros
+      //             metric reports).
       const rewardsAllocation = pool.poolPiconeros
       const opsAllocation = pool.pendingSweepPiconeros
 

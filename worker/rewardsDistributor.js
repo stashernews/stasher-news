@@ -65,7 +65,12 @@ export async function runDistributionOnce ({ models, sendPayouts: injectSendPayo
 
 async function distribute (models) {
   const periodEnd = new Date()
-  const periodStart = new Date(periodEnd.getTime() - WEEK_MS)
+  // Run-time-anchored window, used ONLY by the idempotency guard below. It must
+  // stay run-time anchored: the inflow window (periodStart) starts at the last
+  // distribution's periodEnd, so feeding periodStart to the guard would put the
+  // previous row's periodEnd at/below the window start and a same-week re-run
+  // would double-distribute instead of skipping.
+  const runWindowStart = new Date(periodEnd.getTime() - WEEK_MS)
 
   // The whole ledger write is atomic: the idempotency check, the read-only
   // inflow/share computations, the RewardDistribution create, and the
@@ -92,7 +97,7 @@ async function distribute (models) {
     // resumability path is preserved: a FAILED distribution re-driven later
     // the same week is still found here and re-finalized.
     const existing = await tx.rewardDistribution.findFirst({
-      where: { periodEnd: { gte: new Date(periodStart.getTime() + IDEMPOTENCY_GRACE_MS) } },
+      where: { periodEnd: { gte: new Date(runWindowStart.getTime() + IDEMPOTENCY_GRACE_MS) } },
       orderBy: { periodEnd: 'desc' },
       include: { payouts: true }
     })
@@ -100,6 +105,15 @@ async function distribute (models) {
       logInfo('rewardsDistributor: distribution already exists for this period; skipping')
       return existing
     }
+
+    // Inflow window: contiguous with the previous distribution — start exactly
+    // where it ended. A late run (cron delay/outage) must absorb its gap window
+    // rather than drop it, and a run inside the jitter grace must not overlap
+    // the previous window (double-allocation). Before the first distribution,
+    // fall back to the trailing 7 days (matching lib/rewardsPool.js's open-cycle
+    // fallback). Read inside the transaction: it also yields the rollover input.
+    const lastDistribution = await tx.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
+    const periodStart = lastDistribution?.periodEnd ?? runWindowStart
 
     // --- Inflow by source (all CONFIRMED, confirmedAt in [periodStart, periodEnd)) ---
     const [downvoteAgg, postingAgg, territoryAgg, donateRows, boostAgg, walletlessTipAgg, bountyRolloverAgg, bountyFeeAgg] = await Promise.all([
@@ -190,7 +204,6 @@ async function distribute (models) {
     const opsInflow = totalInflow - rewardsInflow
 
     // --- Pool: this week's earmark + the prior period's rollover ---
-    const lastDistribution = await tx.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
     const rolledOver = toBigInt(lastDistribution?.rolledOverPiconeros)
     const poolPiconeros = rewardsInflow + rolledOver
 

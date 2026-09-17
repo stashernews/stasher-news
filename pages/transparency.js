@@ -171,16 +171,26 @@ export default function Transparency ({ ssrData }) {
             <small>
               The wallet holds one consolidated balance. The two figures below are
               what it is literally allocated to right now: the pool that pays out at
-              the next weekly distribution, and the platform's share still awaiting
-              its sweep to the ops wallet. The two always sum to the whole.
+              the next weekly distribution, and the platform's share — unswept from
+              the last distribution plus this week's accrual — awaiting its sweep to
+              the ops wallet. Once a distribution's payouts and sweep have settled,
+              the two sum to the whole.
             </small>
           </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
             <Stat label='Rewards allocation' value={piconerosToXmr(toBigInt(w.nextPoolPiconeros))} sub='pays out at the next distribution' />
-            <Stat label='Ops allocation' value={piconerosToXmr(toBigInt(w.pendingSweepPiconeros))} sub='awaiting sweep to cold storage' />
+            <Stat label='Ops allocation' value={piconerosToXmr(toBigInt(w.pendingSweepPiconeros))} sub='unswept from the last distribution + accruing this week' />
           </div>
 
-          <h4 className='text-muted mt-4'>Confirmed inflow by source</h4>
+          <h4 className='text-muted mt-4'>Confirmed inflow by source (all-time)</h4>
+          <p className='text-muted'>
+            <small>
+              Every confirmed inflow since the wallet opened, split by its
+              allocation percentage. The rewards and ops shares below are cumulative
+              splits of that all-time inflow — not the current allocations shown
+              above.
+            </small>
+          </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
             <Stat label='Downvotes' value={piconerosToXmr(toBigInt(pi.downvotePiconeros))} sub={`${pi.downvoteRewardsPct}% to rewards`} />
             <Stat label='Posting fees' value={piconerosToXmr(toBigInt(pi.postingFeePiconeros))} sub={`${pi.postingFeeRewardsPct}% to rewards`} />
@@ -188,9 +198,9 @@ export default function Transparency ({ ssrData }) {
             <Stat label='Wallet-less tips' value={piconerosToXmr(toBigInt(pi.walletlessTipPiconeros))} sub={`${pi.walletlessTipRewardsPct}% to rewards`} />
           </div>
           <div className='d-flex flex-wrap justify-content-between py-3 my-2'>
-            <Stat label='Total inflow' value={piconerosToXmr(toBigInt(pi.totalPiconeros))} />
-            <Stat label='Rewards share' value={piconerosToXmr(toBigInt(pi.rewardsPiconeros))} />
-            <Stat label='Ops share' value={piconerosToXmr(toBigInt(pi.opsPiconeros))} />
+            <Stat label='Total inflow' value={piconerosToXmr(toBigInt(pi.totalPiconeros))} sub='all-time' />
+            <Stat label='Rewards share' value={piconerosToXmr(toBigInt(pi.rewardsPiconeros))} sub='all-time cumulative split' />
+            <Stat label='Ops share' value={piconerosToXmr(toBigInt(pi.opsPiconeros))} sub='all-time cumulative split' />
           </div>
 
           <h4 className='text-muted mt-4'>Distribution log</h4>
@@ -202,8 +212,9 @@ export default function Transparency ({ ssrData }) {
               shares roll over to the next period. The ops allocation is swept to
               the ops wallet when the hot wallet has enough unlocked change; when
               it doesn't (recent incoming outputs are still locked), the sweep is
-              deferred and the amount rolls into next week's opsAvailable — that
-              unswept amount is the "Ops allocation" figure shown above.
+              deferred and the unswept amount rolls into next week's opsAvailable
+              — it forms the "Ops allocation" figure shown above together with
+              that week's accruing ops share.
             </small>
           </p>
           {dists.length === 0

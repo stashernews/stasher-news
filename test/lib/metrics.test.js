@@ -206,21 +206,50 @@ test('collectDBBackedMetrics sets the pg-boss failed-jobs gauge from pgboss.job'
   expect(await valueOf('worker_pgjobs_failed_total')).toBe(5)
 })
 
-test('collectDBBackedMetrics maps the latest distribution status + opsPending piconeros', async () => {
+test('collectDBBackedMetrics maps the latest distribution status + opsPending piconeros aligned with the pool definition', async () => {
+  // The gauge mirrors lib/rewardsPool.js pendingSweepPiconeros: unswept carry
+  // (1e12 - 6e11 = 4e11) + the open cycle's ops earmark (posting 1e12 at 70%
+  // rewards -> 3e11). The old definition stopped at the 4e11 carry, while the
+  // transparency page (correctly) showed 7e11.
   const models = {
     observedTip: { count: jest.fn().mockResolvedValue(0) },
-    $queryRaw: jest.fn().mockResolvedValue([{ failed: 0 }]),
+    $queryRaw: jest.fn(async (strings) => {
+      const sql = Array.isArray(strings) ? strings.join(' ') : String(strings)
+      if (sql.includes('pgboss')) return [{ failed: 0 }]
+      return [{
+        downvote: 0n,
+        posting: 1_000_000_000_000n,
+        territory: 0n,
+        donate: 0n,
+        donateRaw: 0n,
+        boost: 0n,
+        walletlesstip: 0n,
+        bountyrollover: 0n,
+        bountyfee: 0n,
+        time: new Date('2026-09-21T00:00:00.000Z')
+      }]
+    }),
+    platformFeeConfig: {
+      upsert: jest.fn().mockResolvedValue({
+        downvoteRewardsPct: 100,
+        postingFeeRewardsPct: 70,
+        territoryFeeRewardsPct: 30,
+        walletlessTipRewardsPct: 70,
+        boostRewardsPct: 30
+      })
+    },
     rewardDistribution: {
       findFirst: jest.fn().mockResolvedValue({
         status: 'SENDING',
-        opsAvailablePiconeros: 1000000000000n,
-        opsSweptPiconeros: 600000000000n
+        periodEnd: new Date('2026-09-14T00:00:00.000Z'),
+        opsAvailablePiconeros: 1_000_000_000_000n,
+        opsSweptPiconeros: 600_000_000_000n
       })
     }
   }
   await collectDBBackedMetrics(models)
   expect(await valueOf('monero_distribution_status')).toBe(1)
-  expect(await valueOf('monero_ops_pending_piconeros')).toBe(400000000000)
+  expect(await valueOf('monero_ops_pending_piconeros')).toBe(700_000_000_000)
 })
 
 test('collectDBBackedMetrics is a no-op without models and never throws on a null models arg', async () => {

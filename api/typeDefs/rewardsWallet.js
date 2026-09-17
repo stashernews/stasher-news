@@ -37,10 +37,11 @@ export default gql`
     # Identical to the /rewards pool total (one shared computation,
     # getNextRewardsPool) — NOT a pro-rata slice of the balance.
     nextPoolPiconeros: BigInt!
-    # Literal ops allocation = funds awaiting the ops sweep:
-    # latest RewardDistribution.opsAvailablePiconeros - opsSweptPiconeros.
-    # Matches the monero_ops_pending_piconeros metric; before the first
-    # distribution it is this cycle's ops-earmarked inflow.
+    # Literal ops allocation = funds awaiting the ops sweep: the latest
+    # RewardDistribution's unswept carry (opsAvailablePiconeros -
+    # opsSweptPiconeros) plus this cycle's ops-earmarked inflow. Before the
+    # first distribution it is just this cycle's ops-earmarked inflow.
+    # Matches the monero_ops_pending_piconeros metric.
     pendingSweepPiconeros: BigInt!
     # Deprecated aliases of nextPoolPiconeros / pendingSweepPiconeros, kept so
     # existing clients' queries keep validating. The old pro-rata semantics
