@@ -50,7 +50,7 @@ function itemTitle (item) {
     unitPlural: 'tippers'
   })
   if (Number(item.piconeros)) {
-    title += ` \\ ${piconerosToMXmr(BigInt(Number(item.piconeros)))} stashed`
+    title += ` \\ ${piconerosToMXmr(BigInt(Number(item.piconeros)), 1)} stashed`
   }
   if (item.boost) {
     title += ` \\ ${numWithUnits(item.boost, { abbreviate: false, unitSingular: 'boost', unitPlural: 'boost' })}`
@@ -59,15 +59,15 @@ function itemTitle (item) {
     title += ` \\ ${numWithUnits(item.cost, { abbreviate: false, unitSingular: 'cost', unitPlural: 'cost' })}`
   }
   if (item.downPiconeros) {
-    title += ` \\ ${piconerosToMXmr(BigInt(item.downPiconeros))} downvoted`
+    title += ` \\ ${piconerosToMXmr(BigInt(item.downPiconeros), 1)} downvoted`
   }
   if (item.mePiconeros || item.meDontLikePiconeros || item.meAnonPiconeros) {
     const satSources = []
     if (item.meAnonPiconeros || Number(item.mePiconeros || 0) > 0) {
-      satSources.push(`${piconerosToMXmr(BigInt(Number(item.mePiconeros || 0) + Number(item.meAnonPiconeros || 0)))}`)
+      satSources.push(`${piconerosToMXmr(BigInt(Number(item.mePiconeros || 0) + Number(item.meAnonPiconeros || 0)), 1)}`)
     }
     if (item.meDontLikePiconeros) {
-      satSources.push(`${piconerosToMXmr(BigInt(item.meDontLikePiconeros))}`)
+      satSources.push(`${piconerosToMXmr(BigInt(item.meDontLikePiconeros), 1)}`)
     }
     if (satSources.length) {
       title += ` (${satSources.join(' & ')} from me)`
@@ -125,10 +125,10 @@ export default function ItemInfo ({
       {!isPinnedPost && !(isPinnedSubReply && !full) &&
         <>
           <span title={itemTitle(item)}>
-            {piconerosToMXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost) * 1000))}
+            {piconerosToMXmr(BigInt(Number(item.piconeros) + Number(item.boost) + Number(item.cost) * 1000), 1)}
           </span>
           {Number(item.downPiconeros) > 0 &&
-            <span className='text-danger'> -{piconerosToMXmr(BigInt(item.downPiconeros))}</span>}
+            <span className='text-danger'> -{piconerosToMXmr(BigInt(item.downPiconeros), 1)}</span>}
           <span> \ </span>
         </>}
       <Link
