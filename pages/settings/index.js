@@ -226,15 +226,15 @@ export default function Settings ({ ssrData }) {
           <Checkbox
             label='notify me about badge changes (flame streak, coin, verified check, earned reputation)'
             name='noteBadges'
-            groupClassName='mb-3'
+            groupClassName='mb-0'
           />
           <Checkbox
             label={`email me a weekly digest of replies, mentions, and earnings${settings?.authMethods?.emailHint ? ` (${settings.authMethods.emailHint})` : ''}`}
             name='emailNotifications'
-            groupClassName='mb-0'
+            groupClassName={settings?.authMethods?.email ? 'mb-3' : 'mb-0'}
           />
           {!settings?.authMethods?.email &&
-            <div className='text-muted fw-light mb-2'>
+            <div className='text-muted fw-light mb-3'>
               <Link href='/settings/logins'>link an email</Link> to receive it
             </div>}
           <div className='form-label'>privacy</div>
