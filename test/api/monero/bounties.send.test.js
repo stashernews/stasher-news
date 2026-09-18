@@ -1,18 +1,20 @@
 /* eslint-env jest */
 
-// Stubbed-wallet unit tests for the bounty escrow signer's fee settlement
+// Stubbed-wallet unit tests for the bounty escrow signer's dispatch loop
 // (A-13, 2026-08-19 beta incident). The wallet is injected (a plain object
 // exposing getUnlockedBalance / createTx / getTx) and the Prisma client is an
 // in-memory stub, so the suite never touches the network or spends real XMR —
 // same pattern as test/api/monero/rewards.test.js.
 //
-// Covers the fee-settlement defer/retry: a fee that fails with a balance error
-// (the payout's change output is locked until the payout tx confirms) is
-// deferred (feePendingAt set, feeTxHash NULL) and retried on a later tick for
-// SENT payouts; a hard (non-balance) fee error still fails loudly and is left
-// for manual reconciliation (never auto-retried).
+// Covers: single-tx payout dispatch (prize + platform fee as destinations with
+// the network fee subtracted from the last destination); the insufficient-
+// balance skip-streak alert, exercised from both the pre-dispatch guard and
+// the in-createTx balance-error catch; and the legacy fee-settlement
+// defer/retry (feePendingAt) for payouts sent before 2026-09-18. Hard
+// (non-balance) errors still fail loudly and are left for manual
+// reconciliation (never auto-retried).
 
-import { sendBountyPayments } from '@/api/monero/bounties'
+import { sendBountyPayments, __resetSkipStreaks } from '@/api/monero/bounties'
 import { logInfo, logError } from '../../../lib/logger'
 import { alert } from '../../../lib/alert'
 
@@ -66,11 +68,16 @@ function makeFakeModels (rows) {
         Object.assign(row, data)
         return { ...row }
       }
-    }
+    },
+    // ROLLOVER booking reads the item and inserts a BOUNTY_ROLLOVER
+    // FeeObservation through $queryRaw; no-op stubs keep the tx-focused tests
+    // independent of booking SQL.
+    item: { async findUnique () { return { id: 1, bountyPiconeros: 12_000_000_000n } } },
+    async $queryRaw () { return [] }
   }
 }
 
-function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync, throwsOn = {} } = {}) {
+function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync, throwsOn = {}, netFee = 0n } = {}) {
   const calls = [] // createTx requests only (existing assertions depend on this shape)
   const order = [] // method-call order: 'sync' | 'getUnlockedBalance' | 'createTx'
   let balance = unlocked
@@ -78,6 +85,7 @@ function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync,
   return {
     calls,
     order,
+    setUnlocked (value) { balance = value },
     async sync () {
       order.push('sync')
       if (unlockedAfterSync !== undefined) balance = unlockedAfterSync
@@ -89,7 +97,20 @@ function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync,
     async createTx (req) {
       order.push('createTx')
       calls.push(req)
-      if (throwsOn[req.address]) throw throwsOn[req.address]
+      const addresses = req.destinations ? req.destinations.map(d => d.address) : [req.address]
+      for (const address of addresses) {
+        if (throwsOn[address]) throw throwsOn[address]
+      }
+      // Model wallet2's balance requirement: the network fee is charged on top
+      // of the destination sum unless subtractFeeFrom folds it into a
+      // destination (netFee defaults to 0 for the legacy fee-retry tests).
+      const destSum = req.destinations
+        ? req.destinations.reduce((acc, d) => acc + BigInt(d.amount), 0n)
+        : BigInt(req.amount)
+      if (balance < destSum + (req.subtractFeeFrom ? 0n : netFee)) {
+        throw new Error('not enough unlocked money')
+      }
+      balance -= destSum + (req.subtractFeeFrom ? 0n : netFee)
       n += 1
       const hash = 'ab' + String(n).padStart(6, '0') + 'cd'.repeat(28) // 2+6+56 = 64 hex chars
       return { getHash: () => hash }
@@ -98,42 +119,90 @@ function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync,
   }
 }
 
-test('defers the fee (feePendingAt set, feeTxHash NULL) when fee settlement hits a balance error; payout still SENT', async () => {
-  const payout = makePayout()
+test('dispatches an award on exactly prize + platform fee in one tx, draining the escrow exactly', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
   const models = makeFakeModels([payout])
-  const wallet = makeFakeWallet({ throwsOn: { [FEE_ADDR]: new Error('not enough unlocked money') } })
-  logInfo.mockClear()
-  logError.mockClear()
+  const wallet = makeFakeWallet({ unlocked: 12_000_000_000n, netFee: 40_000n })
 
   const summary = await sendBountyPayments([payout], { models, wallet })
 
   expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0, settled: 0 })
-  const row = models.store.get(payout.id)
-  expect(row.state).toBe('SENT')
-  expect(row.txHash).toMatch(/^[0-9a-f]{64}$/)
-  expect(row.feeTxHash).toBeNull()
-  expect(row.feePendingAt).toBeInstanceOf(Date)
-  expect(wallet.calls).toHaveLength(2) // payout + failed fee attempt
-  expect(logError).not.toHaveBeenCalled() // balance error is retryable, not loud
+  expect(wallet.calls).toHaveLength(1)
+  expect(await wallet.getUnlockedBalance(0)).toBe(0n)
+  expect(models.store.get(payout.id).state).toBe('SENT')
 })
 
-test('a hard (non-balance) fee error still fails loudly and does NOT set feePendingAt', async () => {
-  const payout = makePayout()
+test('AWARD sends prize and platform fee as two destinations, subtracting the fee from the ops cut', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
   const models = makeFakeModels([payout])
-  const wallet = makeFakeWallet({ throwsOn: { [FEE_ADDR]: new Error('invalid recipient address') } })
-  logInfo.mockClear()
-  logError.mockClear()
+  const wallet = makeFakeWallet({ unlocked: 12_000_000_000n, netFee: 40_000n })
+
+  await sendBountyPayments([payout], { models, wallet })
+
+  expect(wallet.calls).toHaveLength(1)
+  expect(wallet.calls[0]).toEqual({
+    accountIndex: 0,
+    destinations: [
+      { address: WINNER_ADDR, amount: 10_000_000_000n },
+      { address: FEE_ADDR, amount: 2_000_000_000n }
+    ],
+    subtractFeeFrom: [1],
+    relay: true
+  })
+})
+
+test('wallet2 contract: the winner receives the exact prize and ops receives fee minus the network fee', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
+  const models = makeFakeModels([payout])
+  const netFee = 40_000n
+  const wallet = makeFakeWallet({ unlocked: 12_000_000_000n, netFee })
+
+  await sendBountyPayments([payout], { models, wallet })
+
+  const req = wallet.calls[0]
+  const effective = req.destinations.map((d, i) => ({
+    address: d.address,
+    amount: BigInt(d.amount) - (req.subtractFeeFrom.includes(i) ? netFee : 0n)
+  }))
+  expect(effective[0]).toEqual({ address: WINNER_ADDR, amount: 10_000_000_000n })
+  expect(effective[1]).toEqual({ address: FEE_ADDR, amount: 2_000_000_000n - netFee })
+})
+
+test('ROLLOVER sends the full amount as one destination with the miner fee subtracted from it', async () => {
+  const payout = makePayout({ kind: 'ROLLOVER', piconeros: 12_000_000_000n, feePiconeros: 0n })
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet({ unlocked: 12_000_000_000n, netFee: 40_000n })
 
   const summary = await sendBountyPayments([payout], { models, wallet })
 
   expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0, settled: 0 })
-  const row = models.store.get(payout.id)
-  expect(row.state).toBe('SENT')
-  expect(row.feeTxHash).toBeNull()
-  expect(row.feePendingAt).toBeNull()
+  expect(wallet.calls).toHaveLength(1)
+  expect(wallet.calls[0]).toEqual({
+    accountIndex: 0,
+    destinations: [{ address: WINNER_ADDR, amount: 12_000_000_000n }],
+    subtractFeeFrom: [0],
+    relay: true
+  })
+  expect(await wallet.getUnlockedBalance(0)).toBe(0n)
+})
+
+test('a hard createTx error (non-balance) marks the payout FAILED with the funds still in escrow', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet({
+    unlocked: 12_000_000_000n,
+    netFee: 40_000n,
+    throwsOn: { [WINNER_ADDR]: new Error('invalid recipient address') }
+  })
+  logError.mockClear()
+
+  const summary = await sendBountyPayments([payout], { models, wallet })
+
+  expect(summary).toEqual({ sent: 0, failed: 1, skipped: 0, settled: 0 })
+  expect(models.store.get(payout.id).state).toBe('FAILED')
   expect(logError).toHaveBeenCalledWith(
     expect.objectContaining({ payoutId: payout.id }),
-    expect.stringContaining('reconcile manually')
+    expect.stringContaining('FAILED (funds stayed in escrow)')
   )
 })
 
@@ -266,4 +335,142 @@ test('does not touch the wallet when there is nothing queued or pending (no sync
 
   expect(summary).toEqual({ sent: 0, failed: 0, skipped: 0, settled: 0 })
   expect(wallet.order).toEqual([])
+})
+
+test('alerts exactly once after N consecutive insufficient-balance skips, naming the payout', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet({ unlocked: 0n, netFee: 40_000n })
+  alert.mockClear()
+
+  for (let i = 0; i < 4; i++) {
+    const summary = await sendBountyPayments([payout], { models, wallet })
+    expect(summary).toEqual({ sent: 0, failed: 0, skipped: 1, settled: 0 })
+  }
+  expect(alert).not.toHaveBeenCalled()
+
+  await sendBountyPayments([payout], { models, wallet })
+  expect(alert).toHaveBeenCalledTimes(1)
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    'bounty payout stuck — insufficient escrow balance',
+    expect.stringContaining(`payout ${payout.id}`),
+    expect.objectContaining({ dedupeKey: `bounty-skip-stuck-${payout.id}` })
+  )
+
+  await sendBountyPayments([payout], { models, wallet })
+  expect(alert).toHaveBeenCalledTimes(1) // does not re-fire while the streak continues
+})
+
+test('a dispatched payout clears its streak, and a later strand alerts on a fresh streak', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet({ unlocked: 0n, netFee: 40_000n })
+  alert.mockClear()
+
+  for (let i = 0; i < 4; i++) await sendBountyPayments([payout], { models, wallet })
+  expect(alert).not.toHaveBeenCalled()
+
+  wallet.setUnlocked(12_000_000_000n)
+  expect((await sendBountyPayments([payout], { models, wallet })).sent).toBe(1)
+  expect(alert).not.toHaveBeenCalled() // the dispatch cleared the streak
+
+  alert.mockClear()
+  for (let i = 0; i < 4; i++) await sendBountyPayments([payout], { models, wallet })
+  expect(alert).not.toHaveBeenCalled()
+  await sendBountyPayments([payout], { models, wallet })
+  expect(alert).toHaveBeenCalledTimes(1)
+})
+
+test('a legacy deferred-fee retry stuck on a short balance also alerts after N runs', async () => {
+  const payout = makePayout({ state: 'SENT', txHash: 'ab'.repeat(32), feePendingAt: new Date() })
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet({ unlocked: 5_000_000_000n }) // < feePiconeros (10e9)
+  alert.mockClear()
+
+  for (let i = 0; i < 5; i++) {
+    const summary = await sendBountyPayments([payout], { models, wallet })
+    expect(summary.skipped).toBe(1)
+  }
+
+  expect(alert).toHaveBeenCalledTimes(1)
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    'bounty payout stuck — insufficient escrow balance',
+    expect.stringContaining(`payout ${payout.id}`),
+    expect.objectContaining({ dedupeKey: `bounty-skip-stuck-${payout.id}` })
+  )
+})
+
+test('__resetSkipStreaks clears the consecutive-skip state', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet({ unlocked: 0n, netFee: 40_000n })
+  alert.mockClear()
+
+  for (let i = 0; i < 4; i++) await sendBountyPayments([payout], { models, wallet })
+  __resetSkipStreaks()
+  for (let i = 0; i < 4; i++) await sendBountyPayments([payout], { models, wallet })
+  expect(alert).not.toHaveBeenCalled()
+
+  await sendBountyPayments([payout], { models, wallet })
+  expect(alert).toHaveBeenCalledTimes(1) // a fresh streak needs a full N
+})
+
+test('a QUEUED payout that passes the guard but fails createTx on balance (in-createTx catch) alerts after N runs', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
+  const models = makeFakeModels([payout])
+  // The guard passes (local unlocked 12e9 >= needs 12e9) but wallet2 cannot
+  // gather inputs for the tx despite the sufficient unlocked total and throws
+  // a balance-class error inside createTx — the skip must go through the
+  // in-createTx catch, which must bump the streak like the guard path does.
+  const wallet = makeFakeWallet({
+    unlocked: 12_000_000_000n,
+    netFee: 40_000n,
+    throwsOn: { [WINNER_ADDR]: new Error('not enough unlocked money') }
+  })
+  alert.mockClear()
+
+  for (let i = 0; i < 4; i++) {
+    const summary = await sendBountyPayments([payout], { models, wallet })
+    expect(summary).toEqual({ sent: 0, failed: 0, skipped: 1, settled: 0 })
+  }
+  expect(alert).not.toHaveBeenCalled()
+
+  await sendBountyPayments([payout], { models, wallet })
+  expect(alert).toHaveBeenCalledTimes(1)
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    'bounty payout stuck — insufficient escrow balance',
+    expect.stringContaining(`payout ${payout.id}`),
+    expect.objectContaining({ dedupeKey: `bounty-skip-stuck-${payout.id}` })
+  )
+
+  await sendBountyPayments([payout], { models, wallet })
+  expect(alert).toHaveBeenCalledTimes(1) // does not re-fire while the streak continues
+})
+
+// Characterization coverage of the legacy branch's existing in-createTx catch bump (green from birth by design).
+test('a legacy deferred-fee retry that passes its guard but fails createTx on the network fee alerts after N runs', async () => {
+  const payout = makePayout({ state: 'SENT', txHash: 'ab'.repeat(32), feePendingAt: new Date() })
+  const models = makeFakeModels([payout])
+  // Guard passes exactly (unlocked == feePiconeros) but createTx additionally
+  // needs the network fee (10e9 + 40k) and throws a balance error in-createTx.
+  const wallet = makeFakeWallet({ unlocked: 10_000_000_000n, netFee: 40_000n })
+  alert.mockClear()
+
+  for (let i = 0; i < 4; i++) {
+    const summary = await sendBountyPayments([payout], { models, wallet })
+    expect(summary).toEqual({ sent: 0, failed: 0, skipped: 1, settled: 0 })
+  }
+  expect(alert).not.toHaveBeenCalled()
+
+  await sendBountyPayments([payout], { models, wallet })
+  expect(alert).toHaveBeenCalledTimes(1)
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    'bounty payout stuck — insufficient escrow balance',
+    expect.stringContaining(`payout ${payout.id}`),
+    expect.objectContaining({ dedupeKey: `bounty-skip-stuck-${payout.id}` })
+  )
 })

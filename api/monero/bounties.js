@@ -7,6 +7,11 @@ import { lwsClient } from '@/api/monero/lwsClient'
 // holds the BOUNTY ESCROW wallet's spend key (separate standalone wallet — never
 // the rewards wallet). Opens an in-memory monero-ts wallet from env, sends each
 // QUEUED BountyPayment, records the tx hash, flips QUEUED -> SENT.
+// Each payout is ONE tx: prize + platform fee as destinations with the network
+// fee subtracted from the last one (the ops cut, or the payout destination for
+// ROLLOVER / fee-waived refunds), so the winner/refund receives the exact
+// booked amount and the escrow consumes exactly prize + fee (2026-09-18 fix:
+// exact-funded awards used to strand a network fee short).
 // Re-syncs the wallet's chain view once per dispatch before reading balances,
 // so outputs that unlock after open are visible without a worker restart.
 //
@@ -15,6 +20,20 @@ import { lwsClient } from '@/api/monero/lwsClient'
 // on hard createTx errors (funds stay in escrow).
 
 const RESTORE_HEIGHT_MARGIN = 1000
+
+// Stuck-payout alerting: a balance-short skip is silent (funds are safe, so
+// nothing FAILs), so a permanently short escrow would otherwise skip forever
+// (2026-09-18 finding: exact-funded awards stranded a miner fee short). Track
+// the consecutive 60s dispatcher runs each payout was skipped and page ops once
+// at N. Process-lifetime state (like worker/healthProbe.js's stall tracker): a
+// worker restart only delays the alert by N further ticks.
+// BOUNTY_SKIP_ALERT_TICKS is read once at module load — restart to change it.
+const skipStreaks = new Map()
+const SKIP_ALERT_TICKS = Math.max(1, Number(process.env.BOUNTY_SKIP_ALERT_TICKS) || 5)
+
+export function __resetSkipStreaks () {
+  skipStreaks.clear()
+}
 
 let walletPromise = null
 
@@ -106,6 +125,31 @@ export function resolveBountyEscrowRestoreHeight ({ envHeight, earliestFundingHe
   return { restoreHeight: 0, source: 'genesis' }
 }
 
+// Count one balance-short skip for `payout` and alert exactly once when the
+// streak reaches SKIP_ALERT_TICKS. `needs` is the payout's total requirement in
+// piconeros (prize + platform fee, or the fee alone for a legacy retry).
+function bumpSkipStreak (payout, unlocked, needs) {
+  const streak = (skipStreaks.get(payout.id) || 0) + 1
+  skipStreaks.set(payout.id, streak)
+  if (streak !== SKIP_ALERT_TICKS) return
+  alert('critical', 'bounty payout stuck — insufficient escrow balance',
+    `payout ${payout.id} (item ${payout.itemId}, kind ${payout.kind}) skipped ${streak} consecutive dispatcher runs: escrow unlocked ${unlocked} < needed ${needs} piconeros for recipient ${payout.recipientAddress}; the funds are safe in escrow but the payout cannot dispatch`,
+    { dedupeKey: `bounty-skip-stuck-${payout.id}` })
+}
+
+function clearSkipStreak (payoutId) {
+  skipStreaks.delete(payoutId)
+}
+
+// Drop streak entries for payouts no longer offered to the dispatcher (sent,
+// reconciled, deleted) so the map tracks only outstanding work.
+function pruneSkipStreaks (payouts) {
+  const offered = new Set(payouts.map(p => p.id))
+  for (const id of skipStreaks.keys()) {
+    if (!offered.has(id)) skipStreaks.delete(id)
+  }
+}
+
 // Look up the mined block height of an escrow payout tx by hash via lws
 // get_address_txs (view key only — never opens the spend-key signer wallet;
 // the height is already in the account scan, so no daemon call is needed —
@@ -128,21 +172,29 @@ export async function getBountyEscrowTxHeight (txHash, { models, lws = lwsClient
   return tx && tx.height != null ? tx.height : null
 }
 
-// Send QUEUED BountyPayments. `wallet` is injectable for tests. For each:
-//  - AWARD/RECLAIM: send `piconeros` to the winner's registered address, then
-//    send the fee straight to the cold/ops wallet (REWARDS_COLD_STORAGE_ADDRESS,
-//    fallback PLATFORM_REWARDS_ADDRESS; physical move — the ledger already
-//    booked BOUNTY_FEE at funding confirmation).
-//  - ROLLOVER: send `piconeros` (bounty + fee = full escrow balance) to
-//    PLATFORM_REWARDS_ADDRESS and book the pool inflow directly
-//    (FeeObservation('BOUNTY_ROLLOVER'), born CONFIRMED — the pool can only
-//    distribute money physically present in the rewards wallet).
+// Send QUEUED BountyPayments. `wallet` is injectable for tests. Each payout is
+// ONE tx. For each:
+//  - AWARD/RECLAIM: destinations [winner `piconeros`, cold/ops
+//    (REWARDS_COLD_STORAGE_ADDRESS, fallback PLATFORM_REWARDS_ADDRESS)
+//    `feePiconeros`], subtractFeeFrom the last — the ops cut absorbs the
+//    network fee, the winner receives the exact booked prize, and ops
+//    physically receives the fee minus the network fee while the ledger stays
+//    booked gross (the network-fee delta is the documented unbooked-ops
+//    class, spec 2026-09-18).
+//  - ROLLOVER and fee-waived payouts: one destination for the full amount,
+//    subtractFeeFrom it, so the escrow still zeroes exactly. ROLLOVER also
+//    books the pool inflow directly (FeeObservation('BOUNTY_ROLLOVER'), born
+//    CONFIRMED — the pool can only distribute money physically present in the
+//    rewards wallet).
+// Deferred-fee rows (feePendingAt) from before 2026-09-18 are still settled by
+// the legacy retry branch below; new payouts never set it.
 export async function sendBountyPayments (payouts, { models, wallet } = {}) {
   const queued = (payouts || []).filter(p => p.state === 'QUEUED')
   const pendingFees = (payouts || []).filter(p => p.feePendingAt)
   if (queued.length === 0 && pendingFees.length === 0) {
     return { sent: 0, failed: 0, skipped: 0, settled: 0 }
   }
+  pruneSkipStreaks([...queued, ...pendingFees])
   const w = wallet || await getBountyEscrowWallet({ models })
   // The singleton escrow wallet syncs once at open; without a refresh here the
   // unlocked-balance read below sees the stale cached view (2026-08-19/20 beta
@@ -169,7 +221,11 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
       // after the payout matures, so the retry must not stop at CONFIRMED or
       // the fee strands in escrow forever.
       if (payout.kind === 'ROLLOVER' || payout.feePiconeros <= 0n || payout.feeTxHash) continue
-      if (unlocked < payout.feePiconeros) { skipped += 1; continue }
+      if (unlocked < payout.feePiconeros) {
+        bumpSkipStreak(payout, unlocked, payout.feePiconeros)
+        skipped += 1
+        continue
+      }
       let feeTxHash = null
       try {
         const feeTx = await w.createTx({
@@ -181,7 +237,12 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
         feeTxHash = toTxHash(feeTx.getHash())
         unlocked -= payout.feePiconeros
       } catch (err) {
-        if (isBalanceError(err)) { skipped += 1; continue }
+        if (isBalanceError(err)) {
+          bumpSkipStreak(payout, unlocked, payout.feePiconeros)
+          skipped += 1
+          continue
+        }
+        clearSkipStreak(payout.id)
         // Hard error: stop auto-retrying and leave it for manual reconciliation.
         await models.bountyPayment.update({ where: { id: payout.id }, data: { feePendingAt: null } })
         logError({ payoutId: payout.id, err }, 'sendBountyPayments: fee settlement FAILED (fee stays in escrow; reconcile manually)')
@@ -193,9 +254,11 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
       // so ops records the relayed feeTxHash manually.
       try {
         await models.bountyPayment.update({ where: { id: payout.id }, data: { feeTxHash, feePendingAt: null } })
+        clearSkipStreak(payout.id)
         settled += 1
         logInfo({ payoutId: payout.id, feeTxHash }, 'sendBountyPayments: deferred fee settlement relayed')
       } catch (err) {
+        clearSkipStreak(payout.id)
         await models.bountyPayment.update({ where: { id: payout.id }, data: { feePendingAt: null } }).catch(() => {})
         logError({ payoutId: payout.id, txHash: feeTxHash, err }, 'sendBountyPayments: CRITICAL — fee relayed but DB persist failed; manual reconciliation required')
         alert('critical', 'fee-relayed-but-unpersisted',
@@ -206,65 +269,55 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
     }
 
     const needs = payout.piconeros + (payout.kind === 'ROLLOVER' ? 0n : payout.feePiconeros)
-    if (unlocked < needs) { skipped += 1; continue }
+    if (unlocked < needs) {
+      bumpSkipStreak(payout, unlocked, needs)
+      skipped += 1
+      continue
+    }
 
     const recipient = payout.recipientAddress
     const amount = payout.piconeros
+    const fee = payout.kind === 'ROLLOVER' ? 0n : payout.feePiconeros
+    // One tx settles both legs, with the miner fee subtracted from the LAST
+    // destination (2026-09-18 fix): the ops cut for AWARD/RECLAIM, the payout
+    // destination for ROLLOVER and fee-waived payouts. The winner/refund still
+    // receives the exact booked amount and the escrow consumes exactly `needs`
+    // (the fee rides inside the destination sum) — without a miner-fee reserve,
+    // which an exactly funded escrow cannot carry. One network fee, not two.
+    const destinations = fee > 0n
+      ? [{ address: recipient, amount }, { address: feeAddress, amount: fee }]
+      : [{ address: recipient, amount }]
     let tx
     try {
-      tx = await w.createTx({ accountIndex: 0, address: recipient, amount, relay: true })
+      tx = await w.createTx({
+        accountIndex: 0,
+        destinations,
+        subtractFeeFrom: [destinations.length - 1],
+        relay: true
+      })
     } catch (err) {
-      if (isBalanceError(err)) { skipped += 1; continue }
+      if (isBalanceError(err)) {
+        bumpSkipStreak(payout, unlocked, needs)
+        skipped += 1
+        continue
+      }
+      clearSkipStreak(payout.id)
       logError({ payoutId: payout.id, err }, 'sendBountyPayments: payout FAILED (funds stayed in escrow)')
       await models.bountyPayment.update({ where: { id: payout.id }, data: { state: 'FAILED' } })
       failed += 1
       continue
     }
-    unlocked -= amount
+    unlocked -= needs
+    clearSkipStreak(payout.id)
     const txHash = toTxHash(tx.getHash())
     logInfo({ payoutId: payout.id, txHash, kind: payout.kind }, 'sendBountyPayments: payout relayed')
 
-    // Fee settlement (AWARD/RECLAIM): move the platform fee escrow -> cold/ops
-    // wallet directly (REWARDS_COLD_STORAGE_ADDRESS; fallback
-    // PLATFORM_REWARDS_ADDRESS for stacks without cold storage) — the ops funds
-    // are swept from the hot rewards wallet anyway, so skipping the hop avoids a
-    // second tx fee. The pool ledger is unaffected: BOUNTY_FEE rows are 100%
-    // ops (recipientMajor/minor 0). ROLLOVER sends the whole escrow balance in
-    // the payout tx above (the bounty portion is 100% pool, which physically
-    // lives in the rewards wallet).
-    let feeTxHash = null
-    let feePendingAt = null
-    if (payout.kind !== 'ROLLOVER' && payout.feePiconeros > 0n) {
-      try {
-        const feeTx = await w.createTx({
-          accountIndex: 0,
-          address: feeAddress,
-          amount: payout.feePiconeros,
-          relay: true
-        })
-        feeTxHash = toTxHash(feeTx.getHash())
-        unlocked -= payout.feePiconeros
-        logInfo({ payoutId: payout.id, feeTxHash }, 'sendBountyPayments: fee settlement relayed')
-      } catch (err) {
-        if (isBalanceError(err)) {
-          // The payout's change output is locked until the payout tx confirms,
-          // so the fee cannot leave yet. Defer: mark the fee pending and a
-          // later tick retries it once the unlocked balance covers it.
-          feePendingAt = new Date()
-          logInfo({ payoutId: payout.id }, 'sendBountyPayments: fee settlement deferred (change locked); will retry on a later tick')
-        } else {
-          // Fee stays in escrow; the payout is still valid — log and continue.
-          logError({ payoutId: payout.id, err }, 'sendBountyPayments: fee settlement FAILED (fee stays in escrow; reconcile manually)')
-        }
-      }
-    }
-
     // ROLLOVER: book the BOUNTY PORTION to the pool (100% rewards via the
-    // BOUNTY_ROLLOVER ledger source). The fee was already booked at funding
-    // confirmation (BOUNTY_FEE, 100% ops) and physically rides along unbooked
-    // in this payout tx — so the pool ledger books exactly what the rewards
-    // wallet receives (bounty) and the ops ledger exactly what funding booked
-    // (fee): ledger-vs-wallet exact by construction.
+    // BOUNTY_ROLLOVER ledger source). The rewards wallet physically receives
+    // the full amount minus the network fee, the pool ledger books the bounty
+    // portion, and ops booked the fee gross at funding confirmation
+    // (BOUNTY_FEE, 100% ops) — the network-fee delta lands in the same
+    // unbooked-ops class as the AWARD/RECLAIM case (spec 2026-09-18).
     if (payout.kind === 'ROLLOVER') {
       // The bounty portion = the item's booked bountyPiconeros, NOT the relayed
       // amount (bounty + fee). Booking `amount` would double-count the fee
@@ -295,7 +348,7 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
     try {
       await models.bountyPayment.update({
         where: { id: payout.id },
-        data: { state: 'SENT', txHash, height, sentAt: new Date(), feeTxHash, feePendingAt }
+        data: { state: 'SENT', txHash, height, sentAt: new Date() }
       })
       sent += 1
     } catch (err) {
