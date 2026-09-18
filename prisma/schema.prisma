@@ -21,6 +21,9 @@ model User {
   emailVerified           DateTime?            @map("email_verified")
   emailHash               String?              @unique(map: "users.email_hash_unique")
   emailHint               String?
+  emailCiphertext         String?
+  emailNotifications      Boolean              @default(true)
+  emailDigestSentAt       DateTime?
   checkedNotesAt          DateTime?
   foundNotesAt            DateTime?
   apiKeyHash              String?              @unique(map: "users.apikeyhash_unique") @db.Char(64)

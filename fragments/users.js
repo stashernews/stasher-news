@@ -71,6 +71,7 @@ export const SETTINGS_FIELDS = gql`
       noteItemMentions
       noteInvites
       noteBadges
+      emailNotifications
       hideFromTopUsers
       hideStashAmount
       hideBadges

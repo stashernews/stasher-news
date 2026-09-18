@@ -95,6 +95,7 @@ export default gql`
     noteAllDescendants: Boolean!
     noteBadges: Boolean!
     noteEarning: Boolean!
+    emailNotifications: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!
     noteMentions: Boolean!
@@ -176,6 +177,7 @@ export default gql`
     noteAllDescendants: Boolean!
     noteBadges: Boolean!
     noteEarning: Boolean!
+    emailNotifications: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!
     noteMentions: Boolean!

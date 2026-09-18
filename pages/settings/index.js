@@ -110,6 +110,7 @@ export default function Settings ({ ssrData }) {
             noteItemMentions: settings?.noteItemMentions,
             noteInvites: settings?.noteInvites,
             noteBadges: settings?.noteBadges,
+            emailNotifications: settings?.emailNotifications,
             hideFromTopUsers: settings?.hideFromTopUsers,
             hideBadges: settings?.hideBadges,
             hideStashAmount: settings?.hideStashAmount,
@@ -227,6 +228,15 @@ export default function Settings ({ ssrData }) {
             name='noteBadges'
             groupClassName='mb-3'
           />
+          <Checkbox
+            label={`email me a weekly digest of replies, mentions, and earnings${settings?.authMethods?.emailHint ? ` (${settings.authMethods.emailHint})` : ''}`}
+            name='emailNotifications'
+            groupClassName='mb-0'
+          />
+          {!settings?.authMethods?.email &&
+            <div className='text-muted fw-light mb-2'>
+              <Link href='/settings/logins'>link an email</Link> to receive it
+            </div>}
           <div className='form-label'>privacy</div>
           <Checkbox
             label={<>hide me from  <Link href='/top/stashers/day'>top stashers</Link></>}

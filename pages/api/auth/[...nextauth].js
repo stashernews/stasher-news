@@ -11,6 +11,7 @@ import { getToken, encode as encodeJWT } from 'next-auth/jwt'
 import { schnorr } from '@noble/curves/secp256k1'
 import { notifyReferral } from '@/lib/webPush'
 import { hashEmail, maskEmail } from '@/lib/crypto'
+import { encryptEmail } from '@/lib/emailCrypto'
 import { multiAuthMiddleware, setMultiAuthCookies, cookieOptions } from '@/lib/auth'
 import { isAuthProviderEnabled } from '@/lib/authProviderEnv'
 import { getDomainMapping } from '@/lib/domains'
@@ -377,6 +378,7 @@ export const getAuthOptions = (req, res) => ({
         const { email } = data
         data.emailHash = hashEmail({ email })
         data.emailHint = maskEmail({ email })
+        data.emailCiphertext = encryptEmail(email)
         delete data.email
         // data.email used to be used for name of new accounts. since it's missing, let's generate a new name
         data.name = data.emailHash.substring(0, 10)
@@ -468,7 +470,8 @@ export const getAuthOptions = (req, res) => ({
                 where: { id: linkUserId },
                 data: {
                   emailHash: hashEmail({ email: identifier }),
-                  emailHint: maskEmail({ email: identifier })
+                  emailHint: maskEmail({ email: identifier }),
+                  emailCiphertext: encryptEmail(identifier)
                 }
               })
             } catch (error) {

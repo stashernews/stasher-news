@@ -44,6 +44,7 @@ import { reverseStaleDetections } from './reverseStaleDetections'
 import { reconcileOwnerFeeLegs } from './reconcileOwnerFeeLegs'
 import { healthProbe } from './healthProbe'
 import { dbBackup } from './dbBackup'
+import { emailDigest } from './emailDigest'
 import { writeWorkerHeartbeat } from './heartbeat'
 import { logInfo, logError } from '@/lib/logger'
 import { moneroJobDurationSeconds } from '@/lib/metrics'
@@ -301,6 +302,13 @@ async function work () {
   if (await boss.getQueueSize('dbBackup') === 0) {
     await boss.send('dbBackup', {}, { ...BOSS_RETRY, startAfter: 24 * 60 * 60 })
   }
+
+  // emailDigest: daily drip for the weekly per-user email digest (replies,
+  // mentions, earnings, highlights), capped by EMAIL_DIGEST_DAILY_BUDGET so
+  // magic-code login keeps its share of Resend's 100/day quota. Recurring runs
+  // are owned by the pgboss.schedule row (cron 0 15 * * * UTC, migration
+  // <timestamp>_email_digest) — NOT a self-requeue.
+  await boss.work('emailDigest', { includeMetadata: true }, jobWrapper(emailDigest))
 
   logInfo('working jobs')
 }

@@ -127,3 +127,13 @@ describe('territorySchema job exclusivity', () => {
     await expect(schema('myturf').validate(turf('jobs', ['LINK', 'JOB']))).resolves.toBeTruthy()
   })
 })
+
+describe('settingsSchema emailNotifications', () => {
+  test('accepts a boolean', async () => {
+    await expect(settingsSchema.fields.emailNotifications.validate(false)).resolves.toBe(false)
+  })
+
+  test('rejects non-booleans', async () => {
+    await expect(settingsSchema.fields.emailNotifications.validate('yes')).rejects.toThrow()
+  })
+})

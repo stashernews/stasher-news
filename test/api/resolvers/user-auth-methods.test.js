@@ -61,9 +61,22 @@ describe('UserPrivates.authMethods', () => {
 })
 
 describe('Mutation.unlinkAuth(email)', () => {
-  test('clears emailHint along with email, emailVerified and emailHash', async () => {
-    const result = await Mutation.unlinkAuth(null, { authType: 'email', lastAuthConfirm: true }, ctx(1))
+  test('clears emailHint and emailCiphertext along with email, emailVerified and emailHash', async () => {
+    let updateData
+    const context = ctx(1)
+    const update = context.models.user.update
+    context.models.user.update = async ({ data }) => {
+      updateData = data
+      return update({ data })
+    }
+
+    const result = await Mutation.unlinkAuth(null, { authType: 'email', lastAuthConfirm: true }, context)
+
     expect(result.emailHint).toBeNull()
     expect(result.email).toBe(false)
+    expect(updateData.email).toBeNull()
+    expect(updateData.emailVerified).toBeNull()
+    expect(updateData.emailHash).toBeNull()
+    expect(updateData.emailCiphertext).toBeNull()
   })
 })

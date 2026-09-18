@@ -753,7 +753,7 @@ export default {
         } else if (authType === 'phrase') {
           updated = await tx.user.update({ where: { id: me.id }, data: { phrasePubkey: null } })
         } else if (authType === 'email') {
-          updated = await tx.user.update({ where: { id: me.id }, data: { email: null, emailVerified: null, emailHash: null, emailHint: null } })
+          updated = await tx.user.update({ where: { id: me.id }, data: { email: null, emailVerified: null, emailHash: null, emailHint: null, emailCiphertext: null } })
         } else {
           throw new GqlInputError('no such account')
         }

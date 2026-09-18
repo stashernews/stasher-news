@@ -6,6 +6,7 @@ const GOOD = {
   NEXTAUTH_SECRET: 'real-secret-value',
   JWT_SIGNING_PRIVATE_KEY: 'real-key',
   EMAIL_SALT: 'real-salt',
+  EMAIL_MASTER_KEY: Buffer.alloc(32, 7).toString('base64'),
   VIEWKEY_MASTER_KEY: 'a2V5AAAAAAAAAAAAAAAAAAAAAA==',
   LWS_WEBHOOK_TOKEN: 'real-token',
   MONERO_LWS_ADMIN_AUTH: 'real-admin-key',
@@ -148,4 +149,15 @@ describe('assertExplicitNodeEnv', () => {
     expect(() => assertExplicitNodeEnv({ nodeEnv: 'staging' }))
       .toThrow(/NODE_ENV must be explicitly set/)
   })
+})
+
+test('throws in production when EMAIL_MASTER_KEY is missing', () => {
+  const env = { ...GOOD, EMAIL_MASTER_KEY: '' }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/EMAIL_MASTER_KEY/)
+})
+
+test('throws in production when EMAIL_MASTER_KEY equals the committed dev value', () => {
+  const devKey = require('fs').readFileSync('.env.development', 'utf8').match(/^EMAIL_MASTER_KEY=(.+)$/m)[1]
+  const env = { ...GOOD, EMAIL_MASTER_KEY: devKey }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/EMAIL_MASTER_KEY/)
 })
