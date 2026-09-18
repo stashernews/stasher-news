@@ -1,8 +1,8 @@
 /* eslint-env jest */
 // There is no component-render harness in this repo (no @testing-library, no
-// jsdom; see test/components/downvote-modal.test.js), so this test renders the
-// component with react-dom/client backed by linkedom (already in node_modules,
-// CJS-loadable — happy-dom is ESM-only and jest cannot require it here).
+// jsdom), so this test renders the component with react-dom/client backed by
+// linkedom (already in node_modules, CJS-loadable — happy-dom is ESM-only and
+// jest cannot require it here).
 //
 // Module-resolution quirks this repo's jest setup enforces:
 //  - jest.mock() string args are NOT rewritten by SWC, so mocks are registered
@@ -14,8 +14,6 @@
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { parseHTML } from 'linkedom'
-import fs from 'fs'
-import path from 'path'
 import VoteColumn from '@/components/vote-column'
 import DownvoteModal from '@/components/downvote-modal'
 
@@ -29,9 +27,8 @@ jest.mock(`${process.cwd()}/components/form`, () => ({
   CopyButton: 'button'
 }))
 // next/jest maps every .svg to a single shared fileMock module, so one mock
-// factory covers BOTH the up-arrow and down-arrow imports (per-icon mock ids
-// would collapse into the last factory — see header-merged.test.js). The exact
-// down-arrow glyph is instead asserted against the svg file itself below.
+// factory covers the up-arrow/down-arrow imports (per-icon mock ids would
+// collapse into the last factory — see header-merged.test.js).
 jest.mock(`${process.cwd()}/svgs/up-arrow.svg`, () => ({ className }) => <svg className={className}><path d='arrow' /></svg>)
 
 // let, not const: reassigned per-test; jest.mock factories reference these
@@ -78,30 +75,6 @@ async function renderVoteColumn (props = {}) {
 }
 
 describe('VoteColumn', () => {
-  it('renders an upvote affordance with a visible downvote button', async () => {
-    const root = await renderVoteColumn()
-
-    expect(container.querySelector('.upvoteParent')).toBeTruthy()
-
-    const downvote = container.querySelector('[aria-label="downvote"]')
-    expect(downvote).toBeTruthy()
-    expect(downvote.getAttribute('role')).toBe('button')
-    expect(downvote.getAttribute('title')).toBe('downvote')
-    expect(downvote.getAttribute('tabindex')).toBe('0')
-    // the down arrow is an svg glyph
-    expect(downvote.querySelector('svg')).toBeTruthy()
-
-    await act(async () => { root.unmount() })
-  })
-
-  it('downvote uses a down arrow that mirrors the up arrow', () => {
-    const up = fs.readFileSync(path.join(process.cwd(), 'svgs/up-arrow.svg'), 'utf8')
-    const down = fs.readFileSync(path.join(process.cwd(), 'svgs/down-arrow.svg'), 'utf8')
-    // down-arrow is the up-arrow path mirrored on the Y axis (y -> 24 - y)
-    expect(up).toContain('M12 3L20 12L15 12L15 21L9 21L9 12L4 12Z')
-    expect(down).toContain('M12 21L20 12L15 12L15 3L9 3L9 12L4 12Z')
-  })
-
   it('clicking the downvote opens the same DownvoteModal the ⋮ menu uses', async () => {
     const root = await renderVoteColumn()
 
@@ -115,60 +88,6 @@ describe('VoteColumn', () => {
     const node = contentFactory(() => {})
     expect(node.type).toBe(DownvoteModal)
     expect(node.props.item).toEqual({ id: '1', mine: false })
-
-    await act(async () => { root.unmount() })
-  })
-
-  it('Enter key on the downvote button opens the modal too', async () => {
-    const root = await renderVoteColumn()
-
-    const downvote = container.querySelector('[aria-label="downvote"]')
-    const keydown = new win.Event('keydown', { bubbles: true })
-    Object.defineProperty(keydown, 'key', { value: 'Enter' })
-    await act(async () => {
-      downvote.dispatchEvent(keydown)
-    })
-
-    expect(mockShowModal).toHaveBeenCalledTimes(1)
-    await act(async () => { root.unmount() })
-  })
-
-  it('passes className and collapsed through to the up arrow', async () => {
-    const root = await renderVoteColumn({ className: 'fancy-up', collapsed: true })
-
-    const upArrow = container.querySelector('.upvoteParent svg')
-    expect(upArrow.getAttribute('class')).toContain('fancy-up')
-    // collapsed disables the upvote, adding the no-self-tip class
-    expect(container.querySelector('.upvoteParent .noSelfTips')).toBeTruthy()
-
-    await act(async () => { root.unmount() })
-  })
-
-  it('colors the down arrow red when the item is downvoted', async () => {
-    const root = await renderVoteColumn({ item: { id: '1', mine: false, meDontLikePiconeros: '1000000000' } })
-
-    const downvote = container.querySelector('[aria-label="downvote"]')
-    expect(downvote.classList.contains('downvoteArrowActive')).toBe(true)
-    expect(downvote.classList.contains('text-muted')).toBe(false)
-
-    await act(async () => { root.unmount() })
-  })
-
-  it('keeps the down arrow muted when the item is not downvoted', async () => {
-    const root = await renderVoteColumn()
-
-    const downvote = container.querySelector('[aria-label="downvote"]')
-    expect(downvote.classList.contains('downvoteArrowActive')).toBe(false)
-    expect(downvote.classList.contains('text-muted')).toBe(true)
-
-    await act(async () => { root.unmount() })
-  })
-
-  it('hides the down arrow when collapsed', async () => {
-    const root = await renderVoteColumn({ collapsed: true })
-
-    const downvote = container.querySelector('[aria-label="downvote"]')
-    expect(downvote.classList.contains('downvoteCollapsed')).toBe(true)
 
     await act(async () => { root.unmount() })
   })

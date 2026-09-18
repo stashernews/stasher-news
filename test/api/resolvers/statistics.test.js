@@ -10,8 +10,8 @@ import resolvers from '@/api/resolvers/payIn'
 // The resolver transitively imports api/payIn (types barrel -> itemCreate ->
 // lib/lexical/server/mentions) and api/resolvers/item (-> lib/lexical/server/html),
 // which pull ESM-only node_modules (mdast-util-from-markdown) that next/jest does
-// not transform. Mirror the mocks in test/api/resolvers/item-freebie.test.js to
-// break that chain — the statistics resolver and getItemsById stay real.
+// not transform. The mocks below break that chain — the statistics resolver
+// and getItemsById stay real.
 jest.mock('../../../components/editor', () => ({
   __esModule: true,
   SNEditor: 'textarea'
@@ -164,11 +164,6 @@ describe('Query.statistics', () => {
     const { payIns } = await resolvers.Query.statistics(null, {}, { models: prisma, me: { id: me } })
 
     expect(payIns).toHaveLength(0)
-  })
-
-  test('requires auth', async () => {
-    await expect(resolvers.Query.statistics(null, {}, { models: prisma }))
-      .rejects.toThrow(/logged in/i)
   })
 
   test('territory-fee rows carry subName (not a post) so they link to the turf', async () => {

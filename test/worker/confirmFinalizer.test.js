@@ -14,7 +14,7 @@
 //
 // The daemonClient is the only mock — it is the network boundary (DI seam on
 // runConfirmFinalizerOnce). Everything else is real DB behaviour against a
-// live, migrated database, mirroring test/worker/moneroIndexer.test.js.
+// live, migrated database.
 //
 // Run via the node:22.21.1 helper container:
 //   docker exec sn-prisma npx jest test/worker/confirmFinalizer.test.js

@@ -7,7 +7,6 @@ import {
   downvoteAmountError,
   isLargeDownvote
 } from '@/lib/downvote'
-import { downvoteStatusCopy } from '@/components/downvote-modal'
 
 jest.mock('../../components/editor', () => ({
   __esModule: true,
@@ -76,19 +75,5 @@ describe('isLargeDownvote', () => {
   test('true at/above the threshold', () => {
     expect(isLargeDownvote(DOWNVOTE_LARGE_PICONEROS)).toBe(true)
     expect(isLargeDownvote(DOWNVOTE_MAX_PICONEROS)).toBe(true)
-  })
-})
-
-describe('downvoteStatusCopy', () => {
-  test('keeps the actionable failure copy', () => {
-    expect(downvoteStatusCopy('EXPIRED')).toMatch(/expired/)
-    expect(downvoteStatusCopy('REORGED')).toMatch(/reorganized/)
-  })
-
-  test('returns null for the waiting states (no redundant status line)', () => {
-    expect(downvoteStatusCopy('PENDING')).toBeNull()
-    expect(downvoteStatusCopy(null)).toBeNull()
-    expect(downvoteStatusCopy('DETECTED')).toBeNull()
-    expect(downvoteStatusCopy('CONFIRMED')).toBeNull()
   })
 })

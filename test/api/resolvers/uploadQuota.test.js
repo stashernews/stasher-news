@@ -8,6 +8,7 @@ import {
 } from '@/lib/upload-quota'
 import { UPLOAD_OUTSTANDING_CAP_USER, UPLOAD_OUTSTANDING_CAP_ANON } from '@/lib/constants'
 import { GqlInputError } from '@/lib/error'
+import resolvers from '@/api/resolvers/upload'
 
 const prisma = new PrismaClient()
 const MB = 1024 * 1024
@@ -97,5 +98,28 @@ describe('assertUploadQuota', () => {
     await expect(assertUploadQuota({ models: prisma, me: null, ip: '9.9.9.9', size: 40 * MB })).rejects.toThrow(GqlInputError)
     await expect(assertUploadQuota({ models: prisma, me: null, ip: '9.9.9.9', size: 4 * MB })).resolves.toEqual({ ipHash })
     await expect(assertUploadQuota({ models: prisma, me: null, ip: '8.8.8.8', size: 4 * MB })).resolves.toEqual({ ipHash: hashUploadClientIp('8.8.8.8') })
+  })
+})
+
+describe('getSignedPOST resolver wiring', () => {
+  test('allows a logged-in user under the cap', async () => {
+    const userId = await createUser()
+    const result = await resolvers.Mutation.getSignedPOST(
+      null,
+      { type: 'image/png', size: 1024, width: 1, height: 1 },
+      { models: prisma, me: { id: userId }, headers: {} }
+    )
+    expect(result.url).toBeTruthy()
+  })
+
+  test('anonymous uploads are keyed by IP and persist ipHash', async () => {
+    await expect(resolvers.Mutation.getSignedPOST(
+      null,
+      { type: 'image/png', size: 1024, width: 1, height: 1 },
+      { models: prisma, me: null, headers: { 'x-forwarded-for': '7.7.7.7' } }
+    )).resolves.toBeTruthy()
+    const rows = await prisma.upload.findMany({ where: { userId: 27 }, orderBy: { id: 'desc' }, take: 1 })
+    created.uploads.push(...rows.map(r => r.id))
+    expect(rows[0].ipHash).toBe(hashUploadClientIp('7.7.7.7'))
   })
 })

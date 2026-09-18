@@ -37,7 +37,7 @@ beforeAll(() => {
   global.IS_REACT_ACT_ENVIRONMENT = true
   container = parsed.document.createElement('div')
   parsed.document.body.appendChild(container)
-  // root is created exactly once and reused (sticky-bar.test.js pattern):
+  // root is created exactly once and reused (header-merged.test.js pattern):
   // re-creating it per render makes React log redundant createRoot()
   // console.error warnings, which the review gate treats as test-output noise.
   root = createRoot(container)
@@ -54,7 +54,7 @@ afterAll(() => {
 
 afterEach(async () => {
   // render(null) unmounts the tree and empties the container; clearing
-  // innerHTML first would orphan React's tracked nodes (sticky-bar.test.js:142-145)
+  // innerHTML first would orphan React's tracked nodes (header-merged.test.js pattern)
   await act(async () => { root.render(null) })
 })
 

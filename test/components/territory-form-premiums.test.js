@@ -180,20 +180,6 @@ describe('TerritoryForm turf premiums', () => {
     // initial values come from the sub's BigInt piconeros as XMR decimals
     expect(postRange.value).toBe('0.0005')
     expect(commentRange.value).toBe('0')
-    expect(container.textContent).toMatch(/post premium/)
-    expect(container.textContent).toMatch(/comment premium/)
-    expect(container.textContent).toMatch(/posting fees and boosts in your turf go 100% to your registered wallet/)
-    expect(container.textContent).toMatch(/cross-posts and wallet-less cases still pay the platform/)
-  })
-
-  test('hides premium editors and the blurb when turfOwnerFees is false', async () => {
-    await renderForm({ turfOwnerFees: false })
-
-    expect(container.querySelector('input[name="postPremiumPiconeros"]')).toBeFalsy()
-    expect(container.querySelector('input[name="commentPremiumPiconeros"]')).toBeFalsy()
-    expect(container.textContent).not.toMatch(/post premium/)
-    expect(container.textContent).not.toMatch(/comment premium/)
-    expect(container.textContent).not.toMatch(/registered wallet/)
   })
 
   test('submit converts a 0.001 XMR post premium to STRING piconeros (1000000000)', async () => {

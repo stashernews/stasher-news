@@ -4,7 +4,7 @@ import { encryptViewKey, decryptViewKey } from '@/api/monero/viewkey'
 import { runRotateViewKeysOnce } from '@/worker/rotateViewKeys'
 
 // Real crypto needs a valid 32-byte master key. Set before any encryptViewKey
-// call; getMasterKey() lazily caches it (mirrors test/worker/moneroIndexer.test.js).
+// call; getMasterKey() lazily caches it.
 process.env.VIEWKEY_MASTER_KEY = Buffer.alloc(32, 7).toString('base64')
 
 function fakeModels (rows) {

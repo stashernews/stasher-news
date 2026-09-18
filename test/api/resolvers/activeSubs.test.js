@@ -15,7 +15,7 @@ import { PrismaClient } from '@prisma/client'
 import subResolvers from '@/api/resolvers/sub'
 
 // api/resolvers/sub.js transitively imports lexical/server deps (ESM-only).
-// Mirror the mocks in test/api/resolvers/leaderboard.test.js.
+// Mirror the mocks in test/api/resolvers/topSubs.test.js.
 jest.mock('../../../components/editor', () => ({
   __esModule: true,
   SNEditor: 'textarea'

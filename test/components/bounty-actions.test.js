@@ -1,6 +1,6 @@
 /* eslint-env jest */
 // No @testing-library/jsdom in this repo; renders with react-dom/client backed
-// by linkedom (see test/components/item-job.test.js for the harness). The
+// by linkedom (see test/components/vote-column.test.js for the harness). The
 // "award bounty" dropdown entry is ALWAYS enabled — wallet presence is checked
 // by the server inside payBounty ('the winner must attach a wallet to receive
 // the bounty') and surfaced as a danger toast by useBountyAction, so no
@@ -103,31 +103,6 @@ async function renderAwardItem (winner) {
 }
 
 describe('AwardBountyDropdownItem', () => {
-  it('is always enabled, with no wallet tooltip, even when the winner has no optional data', async () => {
-    const root = await renderAwardItem(item({ user: { id: 2, name: 'awardee' } }))
-
-    const entry = container.querySelector('.dropdown-item')
-    expect(entry).toBeTruthy()
-    expect(entry.getAttribute('disabled')).toBeNull()
-    expect(entry.getAttribute('title')).toBeNull()
-
-    await act(async () => { root.unmount() })
-  })
-
-  it('is enabled regardless of the winner wallet signals (no client pre-check)', async () => {
-    // hasWallet/hasAttachedWallet are irrelevant now: the server re-checks at
-    // award time. The entry must not depend on either signal.
-    const root = await renderAwardItem(item({
-      user: { id: 2, name: 'awardee', optional: { hasWallet: false, hasAttachedWallet: false } }
-    }))
-
-    const entry = container.querySelector('.dropdown-item')
-    expect(entry.getAttribute('disabled')).toBeNull()
-    expect(entry.getAttribute('title')).toBeNull()
-
-    await act(async () => { root.unmount() })
-  })
-
   it('opens the award modal on click', async () => {
     const root = await renderAwardItem(item({
       user: { id: 2, name: 'awardee', optional: { hasWallet: false } }

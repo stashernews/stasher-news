@@ -10,8 +10,8 @@
 import { PrismaClient } from '@prisma/client'
 import resolvers, { getItem } from '@/api/resolvers/item'
 
-// api/resolvers/item.js drags in heavy ESM-only transitive deps; mirror the
-// mocks in test/api/resolvers/item-freebie.test.js to break that chain — the
+// api/resolvers/item.js drags in heavy ESM-only transitive deps; the mocks
+// below break that chain — the
 // SQL in itemQueryWithMeta and the field resolvers stay real.
 jest.mock('../../../components/editor', () => ({
   __esModule: true,

@@ -16,10 +16,9 @@ import { PrismaClient } from '@prisma/client'
 import subResolvers from '@/api/resolvers/sub'
 import { LIMIT } from '@/lib/cursor'
 
-// Same mocks as test/engine/activeSubs.test.js: the payIn types barrel and the
-// lexical server HTML generator pull ESM-only node_modules chains that next/jest
-// cannot transform. userSubs never calls pay() or lexical HTML, so the mocks
-// only need to satisfy the import graph.
+// The payIn types barrel and the lexical server HTML generator pull ESM-only
+// node_modules chains that next/jest cannot transform. userSubs never calls
+// pay() or lexical HTML, so the mocks only need to satisfy the import graph.
 jest.mock('../../api/payIn/types', () => {
   const territoryCreate = jest.requireActual('../../api/payIn/types/territoryCreate')
   return { __esModule: true, default: { TERRITORY_CREATE: territoryCreate } }

@@ -2,8 +2,8 @@
 import userResolvers from '@/api/resolvers/user'
 
 // api/resolvers/user.js transitively imports api/resolvers/item.js, which drags
-// in ESM-only lexical deps (mdast-util-from-markdown). Mirror the mocks in
-// test/api/resolvers/item-freebie.test.js to break that chain.
+// in ESM-only lexical deps (mdast-util-from-markdown). The mocks below break
+// that chain.
 jest.mock('../../../components/editor', () => ({
   __esModule: true,
   SNEditor: 'textarea'
@@ -19,9 +19,9 @@ jest.mock('../../../lib/lexical/server/html', () => ({
   lexicalHTMLGenerator: async () => ''
 }))
 
-// The verified badge is hard-off pending the award/pay redesign; these legacy
-// tests mock the flag ON so the hasWallet gate logic stays covered as
-// documentation. let, not const: reassigned per-test; jest.mock factories
+// The verified badge is hard-off pending the award/pay redesign. The one
+// surviving hasWallet test pins the disabled no-op path; it flips mockFlag to
+// false locally. let, not const: reassigned per-test; jest.mock factories
 // reference these lazily (mock*-prefixed per babel-plugin-jest-hoist), so TDZ
 // never applies.
 jest.mock('../../../lib/verified-badge-flag', () => ({
@@ -38,14 +38,12 @@ beforeEach(() => {
 const { UserOptional } = userResolvers
 
 const DAY = 86_400_000
-const CONFIG = { id: 1, freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 }
 
 function mkUser (overrides = {}) {
   return {
     id: 1,
     hideFromTopUsers: false,
     hideStashAmount: true,
-    // Default to an ESTABLISHED user so hasWallet's gate passes for positive cases.
     stackedPiconeros: 10_000_000_000n,
     createdAt: new Date(Date.now() - 8 * DAY),
     ...overrides
@@ -85,22 +83,6 @@ test('stashAmountHidden is true only for non-owners with the setting on', async 
   expect(UserOptional.stashAmountHidden(user, {}, { me: null })).toBe(true)
 })
 
-test('hasWallet is true only when a MoneroAccount exists', async () => {
-  const models = {
-    platformFeeConfig: { findUnique: async () => CONFIG },
-    moneroAccount: {
-      findFirst: jest.fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 1 })
-    }
-  }
-  const a = await UserOptional.hasWallet(mkUser({ id: 10 }), {}, { models })
-  const b = await UserOptional.hasWallet(mkUser({ id: 11 }), {}, { models })
-  expect(a).toBe(false)
-  expect(b).toBe(true)
-  expect(models.moneroAccount.findFirst).toHaveBeenCalledTimes(2)
-})
-
 test('tippedRecently is true within 24h of a detected tip', async () => {
   const models = {
     $queryRaw: jest.fn().mockResolvedValue([{ n: 1 }])
@@ -130,48 +112,6 @@ test('tippedRecently counts DETECTED and CONFIRMED tips by detectedAt (mirrors t
   expect(captured).toContain('state IN (\'DETECTED\', \'CONFIRMED\')')
   expect(captured).toContain('detectedAt')
   expect(captured).not.toContain('confirmedAt')
-})
-
-test('hasWallet returns false for other viewers when hideBadges is on (never queries the DB)', async () => {
-  const models = {
-    platformFeeConfig: { findUnique: async () => CONFIG },
-    moneroAccount: { findFirst: jest.fn() }
-  }
-  const rec = await UserOptional.hasWallet(mkUser({ hideBadges: true }), {}, { models, me: { id: 2 } })
-  expect(rec).toBe(false)
-  expect(models.moneroAccount.findFirst).not.toHaveBeenCalled()
-})
-
-test('hasWallet still resolves for the owner when hideBadges is on', async () => {
-  const models = {
-    platformFeeConfig: { findUnique: async () => CONFIG },
-    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) }
-  }
-  const rec = await UserOptional.hasWallet(mkUser({ hideBadges: true }), {}, { models, me: { id: 1 } })
-  expect(rec).toBe(true)
-  expect(models.moneroAccount.findFirst).toHaveBeenCalledTimes(1)
-})
-
-test('hasWallet is false when the wallet exists but the reputation gate is not met', async () => {
-  const models = {
-    platformFeeConfig: { findUnique: async () => CONFIG },
-    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) }
-  }
-  // lowRep override: below threshold
-  const rec = await UserOptional.hasWallet(mkUser({ stackedPiconeros: 0n, createdAt: new Date() }), {}, { models })
-  expect(rec).toBe(false)
-})
-
-test('hasWallet fetches missing createdAt/stackedPiconeros for feed authors and returns true when established', async () => {
-  const models = {
-    platformFeeConfig: { findUnique: async () => CONFIG },
-    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) },
-    user: { findUnique: jest.fn().mockResolvedValue({ stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * DAY) }) }
-  }
-  // Feed-author shape: has id but NO createdAt/stackedPiconeros on the object.
-  const rec = await UserOptional.hasWallet({ id: 5 }, {}, { models })
-  expect(rec).toBe(true)
-  expect(models.user.findUnique).toHaveBeenCalledTimes(1)
 })
 
 test('hasWallet returns false when the badge is disabled (never queries the DB)', async () => {

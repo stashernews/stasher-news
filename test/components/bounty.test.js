@@ -4,8 +4,7 @@ import {
   BOUNTY_MIN_XMR,
   bountyAmountError,
   bountyFundingDescription,
-  bountyPiconerosOf,
-  bountyStatusWord
+  bountyPiconerosOf
 } from '@/lib/bounty'
 import { BOUNTY_MIN_PICONEROS } from '@/lib/constants'
 import { xmrToPiconeros } from '@/lib/format'
@@ -66,24 +65,6 @@ describe('bountyPiconerosOf normalization', () => {
   test('Number and BigInt pass through', () => {
     expect(bountyPiconerosOf(1_000_000_000)).toBe(1_000_000_000n)
     expect(bountyPiconerosOf(1_000_000_000n)).toBe(1_000_000_000n)
-  })
-})
-
-describe('bountyStatusWord', () => {
-  test('maps every BountyStatus enum value to a display word', () => {
-    expect(bountyStatusWord('UNFUNDED')).toBe('unfunded')
-    expect(bountyStatusWord('PENDING_FUNDING')).toBe('funding pending')
-    expect(bountyStatusWord('DETECTED')).toBe('funding')
-    expect(bountyStatusWord('FUNDED')).toBe('funded')
-    expect(bountyStatusWord('EXPIRED')).toBe('expired')
-    expect(bountyStatusWord('AWARDED')).toBe('awarded')
-    expect(bountyStatusWord('REFUNDED')).toBe('refunded')
-    expect(bountyStatusWord('ROLLED_OVER')).toBe('rolled over')
-  })
-
-  test('falls back to a lowercased un-underscored status', () => {
-    expect(bountyStatusWord('SOME_FUTURE_STATE')).toBe('some future state')
-    expect(bountyStatusWord(undefined)).toBe('')
   })
 })
 

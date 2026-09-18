@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { canPostFree, postingFeePiconeros, postingFeePrivatesFor, freeCommentsQuota, freePostsQuota, commentsFreeLeft, postsFreeLeft, itemFeeReentryFunding, feeReceivedPiconerosForPayIn, __resetFeeConfigCacheForTests } from '@/api/monero/postingFee'
+import { canPostFree, postingFeePiconeros, postingFeePrivatesFor, freeCommentsQuota, freePostsQuota, commentsFreeLeft, postsFreeLeft, feeReceivedPiconerosForPayIn, __resetFeeConfigCacheForTests } from '@/api/monero/postingFee'
 
 const DAY = 86_400_000
 const CONFIG = { freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7, postingFeeFloorPiconeros: 1_000_000_000n }
@@ -205,37 +205,5 @@ describe('feeReceivedPiconerosForPayIn', () => {
   test('both empty -> 0n (no receipts yet)', async () => {
     const models = mockModels({})
     expect(await feeReceivedPiconerosForPayIn(models, 1)).toBe(0n)
-  })
-})
-
-describe('itemFeeReentryFunding (top-up remainder)', () => {
-  const item = { feeStatus: 'PENDING_FEE', feePayInId: 6525, parentId: null }
-
-  test('owner leg: underpayment counts ObservedSubFee, remainder re-quoted not full', async () => {
-    // item 18658 shape: expected 0.003, 0.001 received via the fee: webhook
-    const models = mockModels({ feeObservationSum: null, observedSubFeeSum: 1_000_000_000n })
-    const funding = await itemFeeReentryFunding(models, item)
-    expect(funding.receivedPiconeros).toBe(1_000_000_000n)
-    expect(funding.expectedPiconeros).toBe(3_000_000_000n)
-    const { moneroUriAmountPiconeros } = await import('@/lib/format')
-    expect(moneroUriAmountPiconeros(funding.moneroUri)).toBe(2_000_000_000n)
-  })
-  test('platform leg: FeeObservation receipts still count (unchanged behavior)', async () => {
-    const models = mockModels({ feeObservationSum: 1_000_000_000n, observedSubFeeSum: null })
-    const funding = await itemFeeReentryFunding(models, item)
-    expect(funding.receivedPiconeros).toBe(1_000_000_000n)
-    const { moneroUriAmountPiconeros } = await import('@/lib/format')
-    expect(moneroUriAmountPiconeros(funding.moneroUri)).toBe(2_000_000_000n)
-  })
-  test('nothing received yet -> remainder equals the full fee', async () => {
-    const models = mockModels({})
-    const funding = await itemFeeReentryFunding(models, item)
-    const { moneroUriAmountPiconeros } = await import('@/lib/format')
-    expect(moneroUriAmountPiconeros(funding.moneroUri)).toBe(3_000_000_000n)
-  })
-  test('non-pending or feeless items return null', async () => {
-    const models = mockModels({ observedSubFeeSum: 1n })
-    expect(await itemFeeReentryFunding(models, { feeStatus: 'FEE_PAID', feePayInId: 6525 })).toBeNull()
-    expect(await itemFeeReentryFunding(models, { feeStatus: 'PENDING_FEE', feePayInId: null })).toBeNull()
   })
 })

@@ -18,7 +18,8 @@ import { WEBHOOK_MISS_CHECK_DELAY_SECONDS } from '@/lib/constants'
 // lib/auth pulls in next-auth/jwt -> uuid (ESM-only under jest CJS require); the
 // webhook graph only uses lib/domains/auth's `safeEqual` (pure node:crypto), so
 // mock lib/auth at the module boundary — safeEqual stays real, only the unused
-// secureCookie helper is stubbed. (Same pattern as test/components/sticky-bar.test.js.)
+// secureCookie helper is stubbed. (Same lib/auth boundary-mock pattern as
+// test/components/header-merged.test.js.)
 jest.mock(`${process.cwd()}/lib/auth`, () => ({
   secureCookie: (name) => name
 }))

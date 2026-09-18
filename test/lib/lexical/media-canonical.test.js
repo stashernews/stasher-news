@@ -4,7 +4,7 @@
 // into editor state or markdown export. lib/url.js builds IMGPROXY_URL_REGEXP
 // from process.env.NEXT_PUBLIC_IMGPROXY_URL at import time, so the env is set
 // at the top of this file and the modules are imported dynamically inside
-// each test (env-before-import; mirrors test/lib/url-canonicalize.test.js).
+// each test (env-before-import).
 // LexicalMediaVisitor needs no editor context — a stub node suffices.
 
 process.env.NEXT_PUBLIC_IMGPROXY_URL = 'https://imgprxy.test/'

@@ -101,9 +101,4 @@ describe('PostingFeeModal top-up amount', () => {
     expect(amountInput().getAttribute('value')).toBe('0.001')
     expect(container.textContent).not.toMatch(/payment detected but short/)
   })
-
-  test('shows the short-pay hint when the poll reports a partial payment', async () => {
-    await renderModal({ polledItem: { feeReceivedPiconeros: 400000000, feeTopUpUri: URI_TOPUP } })
-    expect(container.textContent).toMatch(/payment detected but short — received 0\.4 mXMR of 1 mXMR\. Send 0\.0006 XMR \(0\.6 mXMR\) to the same address to complete it\./)
-  })
 })

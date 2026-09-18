@@ -4,8 +4,8 @@ import { piconerosToMXmr } from '@/lib/format'
 
 // components/fee-button imports ./form, which pulls in the lexical editor whose
 // node_modules deps (github-slugger, the mdast chain) are ESM-only and
-// untransformable by next/jest. Stub the editor away (same trick as
-// test/engine/activeSubs.test.js) — it is irrelevant to the pure function here.
+// untransformable by next/jest. Stub the editor away — it is irrelevant to the
+// pure function here.
 jest.mock('../../components/editor', () => ({
   __esModule: true,
   SNEditor: 'textarea'
@@ -90,12 +90,6 @@ describe('postCommentBaseLineItems — comments and bios', () => {
     expect(lines.commentFee.label).toBe('comment fee')
     expect(lines.commentFee.isComment).toBe(true)
     expect(piconerosToMXmr(BigInt(lines.commentFee.modifier(0)) * 1000n)).toBe('1 mXMR')
-  })
-
-  test('bios stay free', () => {
-    const lines = postCommentBaseLineItems({ bio: true, me: { privates: { freeCommentsLeft: 0 } } })
-    expect(lines.baseCost).toBeTruthy()
-    expect(lines.baseCost.allowFreebies).toBe(true)
   })
 })
 

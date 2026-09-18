@@ -1,7 +1,7 @@
 /* eslint-env jest */
 // Pure-logic tests for the multi-auth list cookie reader (repo convention:
-// no React render harness — extract and test the real behavior, mirroring
-// test/components/badge.test.js). The SSR page render crashes if the corrupt
+// no React render harness — extract and test the real behavior). The SSR page
+// render crashes if the corrupt
 // cookie is parsed eagerly (SyntaxError out of AccountChooser), so the
 // reader must fail closed to [] instead of throwing.
 jest.mock('next-auth/jwt', () => ({

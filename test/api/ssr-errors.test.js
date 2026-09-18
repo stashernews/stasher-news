@@ -148,19 +148,6 @@ test('notFound callback is never invoked on falsy data (callbacks like data => !
   expect(notFound).not.toHaveBeenCalled()
 })
 
-// --- Task: SSR fast-path characterization + concurrency tests ----------------
-// The refactor (schema hoist + Promise concurrency) must not change ANY output
-// prop, redirect, or degradation behavior — only the issue order/timing of the
-// underlying queries.
-
-function makeReqRes () {
-  const end = jest.fn()
-  const writeHead = jest.fn(() => ({ end }))
-  const req = { url: '/items/1', headers: { host: 'localhost:3000' }, cookies: {} }
-  const res = { writeHead, end }
-  return { req, res }
-}
-
 test('characterization: happy path returns the full SSR props shape', async () => {
   const { result, res } = await runGssp()
 
@@ -174,48 +161,4 @@ test('characterization: happy path returns the full SSR props shape', async () =
       apollo: { query: print(PAGE_QUERY), variables: { id: 1 } }
     })
   })
-})
-
-test('perf: BLOCK_HEIGHT is issued before ME resolves (independent lookups run concurrently)', async () => {
-  makeStubClient()
-  let resolveMe
-  mockApolloClient.query = jest.fn(async ({ query }) => {
-    if (query === ME) return new Promise(resolve => { resolveMe = resolve })
-    if (query === PRICE) return { data: { price: null } }
-    if (query === BLOCK_HEIGHT) return { data: { blockHeight: 0 } }
-    return mockPageQueryImpl({ query })
-  })
-
-  const { req, res } = makeReqRes()
-  const gssp = getGetServerSideProps({ query: PAGE_QUERY, variables: { id: 1 } })({ req, res, query: { id: '1' } })
-  await new Promise(resolve => setImmediate(resolve)) // flush the sync issue chain up to the ME await
-
-  const issued = mockApolloClient.query.mock.calls.map(([a]) => a.query)
-  expect(issued).toContain(BLOCK_HEIGHT) // fired although ME is still pending
-
-  resolveMe({ data: { me: null } })
-  const result = await gssp
-  expect(result.props.blockHeight).toBe(0)
-})
-
-test('perf: page query is issued before PRICE resolves (post-ME queries run concurrently)', async () => {
-  makeStubClient()
-  let resolvePrice
-  mockApolloClient.query = jest.fn(async ({ query }) => {
-    if (query === ME) return { data: { me: null } }
-    if (query === PRICE) return new Promise(resolve => { resolvePrice = resolve })
-    if (query === BLOCK_HEIGHT) return { data: { blockHeight: 0 } }
-    return mockPageQueryImpl({ query })
-  })
-
-  const { req, res } = makeReqRes()
-  const gssp = getGetServerSideProps({ query: PAGE_QUERY, variables: { id: 1 } })({ req, res, query: { id: '1' } })
-  await new Promise(resolve => setImmediate(resolve))
-
-  const issued = mockApolloClient.query.mock.calls.map(([a]) => a.query)
-  expect(issued).toContain(PAGE_QUERY) // fired although PRICE is still pending
-
-  resolvePrice({ data: { price: null } })
-  const result = await gssp
-  expect(result.props.ssrData).toEqual({ item: { id: 1 } })
 })

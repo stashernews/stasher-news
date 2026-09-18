@@ -1,14 +1,14 @@
 /* eslint-env jest */
 
 // Integration tests for topSubs — the /top/territories leaderboard. Real DB,
-// fixtures tracked + removed (mirrors test/api/resolvers/leaderboard.test.js).
+// fixtures tracked + removed.
 
 import { PrismaClient } from '@prisma/client'
 import { topSubs } from '@/api/resolvers/sub'
 import { SUB_SORTS } from '@/lib/constants'
 
 // api/resolvers/sub.js transitively imports lexical/server deps (ESM-only).
-// Mirror the mocks in test/api/resolvers/leaderboard.test.js.
+// The mocks below break that import chain.
 jest.mock('../../../components/editor', () => ({
   __esModule: true,
   SNEditor: 'textarea'

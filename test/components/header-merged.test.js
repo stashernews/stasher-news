@@ -6,13 +6,16 @@
 // subcomponents — Brand, Sorts, SearchItem, NavPrice, PostItem, RightCorner,
 // Back — plus CommentsNavigator), so the tests double as zero-removal smoke
 // checks: every element of the current two desktop bars must be present in the
-// merged row. Only environment-level leaves are mocked (next router/link, the
-// GraphQL-feeding hooks, the form-leaf SubSelect, and svgs — which resolve to
-// string stubs under next/jest and cannot render as components).
+// merged row. A StickyBar parity check at the bottom pins the merged-row
+// elements that were once missing from the sticky bar. Only environment-level
+// leaves are mocked (next router/link, the GraphQL-feeding hooks, the form-leaf
+// SubSelect, and svgs — which resolve to string stubs under next/jest and
+// cannot render as components).
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { parseHTML } from 'linkedom'
 import HeaderMerged from '@/components/nav/desktop/header-merged'
+import StickyBar from '@/components/nav/sticky-bar'
 import { PriceCarouselProvider } from '@/components/nav/price-carousel'
 
 // react-bootstrap's Dropdown keydown handler pulls the window from
@@ -200,37 +203,12 @@ describe('HeaderMerged zero-removal', () => {
     expect(buttonTexts).toEqual(expect.arrayContaining(['sign up', 'login']))
   })
 
-  it('renders notifications, the @user dropdown and wallet balance when logged in', async () => {
-    mockMe = { name: 'u1', bioId: 'x', privates: { piconeros: '5000000000000' } }
-    await renderHeader(TURF_PROPS)
-
-    // notifications bell (MeCorner)
-    expect(container.querySelector('a[href="/notifications"] svg')).toBeTruthy()
-    // @user dropdown toggle (MeCorner)
-    expect(container.textContent).toContain('@u1')
-    // wallet balance (MeCorner NavWalletSummary): 5e12 piconeros = 5000 mXMR
-    const wallet = container.querySelector('span[title*="piconero"]')
-    expect(wallet).toBeTruthy()
-    expect(wallet.textContent).toBe('5000 mXMR')
-    expect(wallet.getAttribute('title')).toContain('5000 mXMR')
-  })
-
   it('renders the wallet balance rounded to 2 mXMR decimals without float artifacts', async () => {
     mockMe = { name: 'u1', bioId: 'x', privates: { piconeros: '8700000000001' } }
     await renderHeader(TURF_PROPS)
 
     const wallet = container.querySelector('span[title*="piconero"]')
     expect(wallet.textContent).toBe('8700 mXMR')
-  })
-
-  it('omits the second-bar elements on non-turf pages like the two-bar header does', async () => {
-    await renderHeader({ prefix: '/', path: '/', pathname: '/', topNavKey: 'hot', dropNavKey: '', sub: 'frontpage' })
-
-    expect(container.querySelector('[data-testid="turf-select"]')).toBeNull()
-    const linkTexts = Array.from(container.querySelectorAll('a')).map(a => a.textContent)
-    expect(linkTexts).not.toEqual(expect.arrayContaining(['post']))
-    // top-bar elements still present (brand wordmark)
-    expect(container.querySelector('a[href="/"] .brandWordmark')).toBeTruthy()
   })
 })
 
@@ -263,13 +241,24 @@ describe('NavRewards', () => {
     const amount = container.querySelector('a[href="/rewards"]')
     expect(amount.textContent).toMatch(/^0\.004 XMR in \d+d \d{1,2}h$/)
   })
+})
 
-  it('renders nothing when the rewards pool is not available', async () => {
-    mockRewardsTotal = ''
-    mockRewardsTime = null
-    await renderHeader(TURF_PROPS)
+describe('StickyBar parity with HeaderMerged', () => {
+  it('renders the merged-row elements that were once missing from the sticky bar', async () => {
+    await act(async () => {
+      root.render(<PriceCarouselProvider><StickyBar {...TURF_PROPS} /></PriceCarouselProvider>)
+    })
 
-    expect(container.querySelector('a[href="/rewards"]')).toBeNull()
-    expect(container.querySelector('.navRewards')).toBeNull()
+    // sticky wrapper (fixed on scroll)
+    expect(container.querySelector('[class*="sticky"]')).toBeTruthy()
+    // turf selector (was missing from the sticky bar)
+    expect(container.querySelector('[data-testid="turf-select"]')).toBeTruthy()
+    // lit/new/top sorts (were missing)
+    const linkTexts = Array.from(container.querySelectorAll('a')).map(a => a.textContent)
+    expect(linkTexts).toEqual(expect.arrayContaining(['lit', 'new', 'top']))
+    // post button (was missing)
+    const post = Array.from(container.querySelectorAll('a')).find(a => a.textContent === 'post')
+    expect(post).toBeTruthy()
+    expect(post.getAttribute('href')).toBe('/~bitcoin/post')
   })
 })

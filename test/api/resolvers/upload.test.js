@@ -3,12 +3,11 @@
 // Unit tests for the uploadFees resolver — proportional fee schedule: registered
 // users get the first 10MB free per upload, then 0.001 XMR per full 10MB block
 // (floor); anons get no free tier (0.001 minimum on every upload). Real DB,
-// fixtures tracked + removed (mirrors test/api/resolvers/growth.test.js).
+// fixtures tracked + removed.
 
 import { PrismaClient } from '@prisma/client'
-import resolvers, { uploadFees } from '@/api/resolvers/upload'
+import { uploadFees } from '@/api/resolvers/upload'
 import { UPLOAD_FEE_PICONEROS } from '@/lib/constants'
-import { GqlInputError } from '@/lib/error'
 
 const prisma = new PrismaClient()
 const MB = 1024 * 1024
@@ -132,39 +131,5 @@ describe('uploadFees — proportional fee schedule', () => {
     expect(fees.nUnpaid).toBe(0n)
     expect(fees.bytesUnpaid).toBe(0n)
     expect(fees.totalFeesPiconeros).toBe(0n)
-  })
-})
-
-describe('getSignedPOST quota', () => {
-  test('rejects a logged-in user over 100MB outstanding', async () => {
-    const userId = await createUser()
-    await createUploads(userId, [{ size: 95 * MB }])
-    await expect(resolvers.Mutation.getSignedPOST(
-      null,
-      { type: 'image/png', size: 10 * MB, width: 1, height: 1 },
-      { models: prisma, me: { id: userId }, headers: {} }
-    )).rejects.toThrow(GqlInputError)
-  })
-
-  test('allows a logged-in user under the cap', async () => {
-    const userId = await createUser()
-    const result = await resolvers.Mutation.getSignedPOST(
-      null,
-      { type: 'image/png', size: 1024, width: 1, height: 1 },
-      { models: prisma, me: { id: userId }, headers: {} }
-    )
-    expect(result.url).toBeTruthy()
-  })
-
-  test('anonymous uploads are keyed by IP and persist ipHash', async () => {
-    await expect(resolvers.Mutation.getSignedPOST(
-      null,
-      { type: 'image/png', size: 1024, width: 1, height: 1 },
-      { models: prisma, me: null, headers: { 'x-forwarded-for': '7.7.7.7' } }
-    )).resolves.toBeTruthy()
-    const rows = await prisma.upload.findMany({ where: { userId: 27 }, orderBy: { id: 'desc' }, take: 1 })
-    created.uploads.push(...rows.map(r => r.id))
-    const { hashUploadClientIp } = await import('@/lib/upload-quota')
-    expect(rows[0].ipHash).toBe(hashUploadClientIp('7.7.7.7'))
   })
 })

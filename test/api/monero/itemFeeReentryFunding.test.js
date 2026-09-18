@@ -32,6 +32,19 @@ describe('itemFeeReentryFunding', () => {
     expect(res.expectedPiconeros).toBe(1_000_000_000n)
   })
 
+  test('owner leg: underpayment counts ObservedSubFee receipts, remainder re-quoted not full', async () => {
+    // item 18658 shape: expected 0.003, 0.001 received via the fee: webhook
+    const m = {
+      payIn: { findUnique: async () => ({ ...PAY_IN, moneroUri: FEE_URI('0.003') }) },
+      feeObservation: { aggregate: async () => ({ _sum: { piconeros: null } }) },
+      observedSubFee: { aggregate: async () => ({ _sum: { piconeros: 1_000_000_000n } }) }
+    }
+    const res = await itemFeeReentryFunding(m, { feeStatus: 'PENDING_FEE', feePayInId: 1, parentId: null })
+    expect(res.receivedPiconeros).toBe(1_000_000_000n)
+    expect(res.expectedPiconeros).toBe(3_000_000_000n)
+    expect(moneroUriAmountPiconeros(res.moneroUri)).toBe(2_000_000_000n)
+  })
+
   test('nothing received -> full fee', async () => {
     const res = await itemFeeReentryFunding(models(0n), { feeStatus: 'PENDING_FEE', feePayInId: 1, parentId: null })
     expect(moneroUriAmountPiconeros(res.moneroUri)).toBe(1_000_000_000n)
