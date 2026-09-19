@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client'
-import { reverseTip } from '@/api/monero/ranking'
+import { applyTipDetected, reverseTip } from '@/api/monero/ranking'
+import { alert } from '@/lib/alert'
+import { moneroTxNotFoundExclusionsTotal } from '@/lib/metrics'
 
 // Self-tip exclusion helpers (spec §2.2). Pure functions — no I/O.
 //
@@ -55,9 +57,17 @@ export async function resolveItemSubName (postId, handle) {
 }
 
 // Find the lws tx row for a payment id on a scannable recipient account.
+// HASH-FIRST (review finding 1): when the caller names a tx hash, only that
+// exact tx counts as evidence — a tx selected by payment id alone is NOT
+// evidence for the named hash, because same-pid dust collisions must not
+// resolve to the wrong tx. With no named hash the pid lookup is unchanged
+// (last-wins is fine for hash-free claims). lookupTipTxMeta returns
+// { tx, blockchainHeight, collision }; `collision` is true when a named hash
+// missed while a different same-pid tx exists (the pid-reuse signal — callers
+// alert deduped; it is never itself evidence for the named hash).
 // Incremental scan via the account's lastTxId cursor (full history was
 // O(account age) per tip callback). Guarantee: if the incremental response
-// does not contain OUR pid, fall back to one full scan — the detection
+// does not contain OUR tx/pid, fall back to one full scan — the detection
 // semantics can only match today's, never regress. A mempool tx may lack an
 // id / be excluded from since_tx_id responses, and the fallback covers that
 // too (worst case = fail-open non-exclusion, same as when the account is
@@ -65,19 +75,30 @@ export async function resolveItemSubName (postId, handle) {
 // advance only costs one fuller scan) — and is SKIPPED entirely for the
 // platform rewards account, whose lastTxId belongs to the
 // rewardsWalletObserver (see the guard below). Errors propagate to the caller.
-export async function lookupTipTx (models, monero, account, paymentId) {
-  const lookup = (txs) => {
+export async function lookupTipTxMeta (models, monero, account, paymentId, { txHash = null } = {}) {
+  const match = (txs) => {
+    const byHash = new Map()
     const byPid = new Map()
     for (const t of (txs || [])) {
+      if (t.hash) byHash.set(String(t.hash).toLowerCase(), t)
       if (t.payment_id) byPid.set(String(t.payment_id).toLowerCase(), t)
     }
-    return byPid.get(String(paymentId).toLowerCase()) ?? null
+    // Hash-first (review finding 1): when the claim/row names a hash, a tx
+    // selected by pid is NOT evidence for it — same-pid dust collisions must
+    // not resolve to the wrong tx.
+    if (txHash != null) {
+      const exact = byHash.get(String(txHash).toLowerCase()) ?? null
+      const samePid = byPid.get(String(paymentId).toLowerCase()) ?? null
+      return { tx: exact, collision: exact == null && samePid != null }
+    }
+    return { tx: byPid.get(String(paymentId).toLowerCase()) ?? null, collision: false }
   }
   let resp = await monero.getAddressTxs(account, account.lastTxId ?? 0, null)
-  let tx = lookup(resp.transactions)
-  if (!tx && account.lastTxId != null) {
+  let hit = match(resp.transactions)
+  if (!hit.tx && account.lastTxId != null) {
     resp = await monero.getAddressTxs(account, 0, null)
-    tx = lookup(resp.transactions)
+    const full = match(resp.transactions)
+    hit = { tx: full.tx, collision: hit.collision || full.collision }
   }
   // Forward-only cursor advance (never regresses on concurrent/lws re-sends)
   // — but NEVER for the platform rewards account: its lastTxId is the
@@ -100,7 +121,11 @@ export async function lookupTipTx (models, monero, account, paymentId) {
       }).catch(() => {}) // best-effort: a lost advance only costs one fuller scan
     }
   }
-  return tx
+  return { tx: hit.tx, blockchainHeight: resp.blockchain_height ?? null, collision: hit.collision }
+}
+
+export async function lookupTipTx (models, monero, account, paymentId, opts) {
+  return (await lookupTipTxMeta(models, monero, account, paymentId, opts)).tx
 }
 
 // True when a DETECTED tip's stored amount/txHash disagree with the chain tx
@@ -125,43 +150,67 @@ export function chainMismatch (tip, tx) {
 // evidence exists, so this re-check runs at the last gate before CONFIRMED
 // credit (the webhook N-conf callback and the confirmFinalizer maturity pass —
 // the only two claimers of DETECTED -> CONFIRMED) and at the webhook's first
-// callback that carries a block height. It now performs TWO bindings:
-//   - SELF_SEND (spec §2.3): spent_outputs from the recipient's own wallet ->
-//     claim EXCLUDED from DETECTED (atomic conditional UPDATE, race-safe vs
-//     the CONFIRMED claim), reverse the detection-applied ranking delta via
-//     reverseTip (the same posture as the REORGED reversal in
-//     reverseStaleDetections), write the AbuseSignal.
-//   - CHAIN_MISMATCH (audit 2026-09-11, finding 2): the STORED piconeros or
-//     txHash disagree with the chain tx -> the stored amount was forged
-//     through the pre-verification webhook; same EXCLUDED + reverseTip +
-//     AbuseSignal disposition. This closes the credit path for legacy DETECTED
-//     rows whose stored value no re-verification ever saw: verifyReceiptAmount
-//     binds the CALLBACK to the chain, but the finalizer/webhook credit uses
-//     the STORED amount — only this check compares the stored value itself.
-// All in ONE Serializable transaction.
+// callback that carries a block height.
+//
+// RETURN CONTRACT: { action, reason?, piconeros?, txHash?, rankDelta? }
+//   - 'clean'     — nothing to do (unscannable account, another claimer won
+//                   the transition, or a bound row that matches the chain).
+//                   When a caller loses the correctAndBind binding race, the
+//                   return carries `piconeros` = the amount the winning
+//                   claimer bound, so credit callers never use their stale
+//                   in-memory snapshot (which can be the pre-correction
+//                   provisional amount — a wrong-money credit).
+//   - 'excluded'  — THIS caller claimed DETECTED -> EXCLUDED (reason:
+//                   DIRECT_SELF_TIP | SELF_SEND | CHAIN_MISMATCH |
+//                   TX_NOT_FOUND); the ranking delta was reversed and the
+//                   AbuseSignal written inside the same Serializable tx.
+//   - 'corrected' — THIS caller bound an unbound row (amountVerifiedAt null)
+//                   to the chain tx: reversed the provisional delta, re-applied
+//                   at the chain amount (rankDelta), and stamped
+//                   piconeros/txHash/rankPiconeros/height. Two-phase amount
+//                   correction — an unbound row is TRUSTED-CORRECTED, never
+//                   CHAIN_MISMATCH-excluded; only a BOUND row that still
+//                   disagrees with the chain is forged evidence.
+//   - 'deferred'  — no exclusion claimed; retry later (reason:
+//                   'daemon_unreachable' | 'lws_miss_monerod_has_tx' |
+//                   'amount_unavailable').
+//
+// HASH-FIRST ANCHOR (review finding 1): the row's own txHash — when a valid
+// 64-hex hash — is the only tx that counts as evidence; a same-pid tx selected
+// by payment id alone never resolves for a named hash (lookupTipTxMeta
+// collision signal, alert deduped by pid).
+//
+// FAIL-CLOSED TX_NOT_FOUND: a plain lws miss no longer fails open. Before
+// excluding, the anchored hash is corroborated against monerod (the `daemon`
+// client): monerod unreachable -> 'deferred' (retry next run); monerod still
+// has the tx (lws lag) -> 'deferred'; absent from BOTH -> TX_NOT_FOUND
+// exclusion claim (Serializable, state-guarded, reverseTip + AbuseSignal with
+// the TX_NOT_FOUND_EXCLUDED kind and stored-vs-chain details).
+//
+// Exclusion dispositions (spec §2.3, audit 2026-09-11 finding 2):
+//   - DIRECT_SELF_TIP: tipper == author, no scan needed.
+//   - SELF_SEND: spent_outputs from the recipient's own wallet -> claim
+//     EXCLUDED from DETECTED (atomic conditional UPDATE, race-safe vs the
+//     CONFIRMED claim), reverse the detection-applied ranking delta via
+//     reverseTip, write the AbuseSignal.
+//   - CHAIN_MISMATCH: a BOUND row whose stored piconeros/txHash disagree with
+//     the chain tx — forged through the pre-verification webhook; same
+//     EXCLUDED + reverseTip + AbuseSignal disposition.
+// All exclusion claims in ONE Serializable transaction.
 //
 // Guards mirror the detection-time check: unscannable accounts (view key
-// wiped / INACTIVE) fail open; the DIRECT_SELF_TIP case needs no scan.
-// `prefetchedTx` lets a caller that already fetched the tx (the webhook's C4
-// receipt verification) share its lookup — one lws call per callback. Callers
-// that omit it behave exactly as before (own lookupTipTx).
+// wiped / INACTIVE) return 'clean' (documented fail-open posture); the
+// DIRECT_SELF_TIP case needs no scan. `prefetchedTx` lets a caller that
+// already fetched the tx (the webhook's C4 receipt verification) share its
+// lookup — one lws call per callback; a prefetched tx whose hash is foreign
+// to the row's anchored hash is discarded (it is not evidence).
+// `daemon` (monerod client, optional) powers the TX_NOT_FOUND corroboration;
+// when null the lws miss goes straight to the exclusion claim (dormant until
+// production wiring lands).
 // Streaks granted at DETECTED are an accepted residual (same as REORGED).
-// Returns true when THIS caller claimed the exclusion; lws errors propagate
-// (webhook: non-200 so lws retries; finalizer: skip the tip, retry next run).
-export async function recheckDetectedTip ({ models, monero, tip, confirmations = 0, height = null, prefetchedTx = null }) {
-  const account = tip.recipientAccount
-  if (!account?.viewKey || account.status !== 'ACTIVE') return false
-  const direct = tip.tipperId != null && tip.tipperId === tip.post?.userId
-  let tx = null
-  let reason = null
-  if (!direct) {
-    tx = prefetchedTx ?? await lookupTipTx(models, monero, account, tip.paymentId)
-    if (isSelfSend(account, tx)) reason = 'SELF_SEND'
-    else if (chainMismatch(tip, tx)) reason = 'CHAIN_MISMATCH'
-    if (!reason) return false
-  } else {
-    reason = 'DIRECT_SELF_TIP'
-  }
+// lws errors propagate (webhook: non-200 so lws retries; finalizer: skip the
+// tip, retry next run).
+async function claimExclusion ({ models, tip, reason, confirmations, height, tx }) {
   let claimed = 0
   await models.$transaction(async (txh) => {
     claimed = await txh.$executeRaw`
@@ -174,7 +223,7 @@ export async function recheckDetectedTip ({ models, monero, tip, confirmations =
       const subName = await resolveItemSubName(tip.postId, txh)
       const details = { lateRecheck: true }
       if (reason === 'SELF_SEND') details.note = 'amount recorded as lws reported it (change-output inflation possible)'
-      if (reason === 'CHAIN_MISMATCH') {
+      if (reason === 'CHAIN_MISMATCH' || reason === 'TX_NOT_FOUND') {
         details.storedPiconeros = String(tip.piconeros)
         details.onChainPiconeros = tx?.piconeros == null ? null : String(tx.piconeros)
         details.storedTxHash = tip.txHash ?? null
@@ -182,7 +231,11 @@ export async function recheckDetectedTip ({ models, monero, tip, confirmations =
       }
       await txh.abuseSignal.create({
         data: {
-          kind: reason === 'CHAIN_MISMATCH' ? 'CHAIN_MISMATCH_EXCLUDED' : (direct ? 'SELF_TIP_EXCLUDED' : 'SELF_SEND_EXCLUDED'),
+          kind: reason === 'CHAIN_MISMATCH'
+            ? 'CHAIN_MISMATCH_EXCLUDED'
+            : reason === 'TX_NOT_FOUND'
+              ? 'TX_NOT_FOUND_EXCLUDED'
+              : (tip.tipperId != null && tip.tipperId === tip.post?.userId ? 'SELF_TIP_EXCLUDED' : 'SELF_SEND_EXCLUDED'),
           subjectUserId: tip.post.userId,
           actorUserId: tip.tipperId ?? null,
           tipId: tip.id,
@@ -196,5 +249,100 @@ export async function recheckDetectedTip ({ models, monero, tip, confirmations =
       })
     }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-  return claimed > 0
+  // Terminal TX_NOT_FOUND exclusions only (a won claim, not a lost race or a
+  // different reason): the metric is the operator signal for the fail-closed
+  // disposition — DETECTED rows that exist on neither lws nor monerod.
+  if (claimed > 0 && reason === 'TX_NOT_FOUND') moneroTxNotFoundExclusionsTotal.inc()
+  return claimed > 0 ? { action: 'excluded', reason } : { action: 'clean' }
+}
+
+async function correctAndBind ({ models, tip, tx, confirmations, height }) {
+  // A chain row without an amount is not bindable evidence: binding 0n would
+  // trust-correct the row to zero (and reverse/re-apply its ranking at the
+  // wrong amount). Treat it as unverifiable — no write, no credit, retry next
+  // pass (the same fail-closed posture as an lws miss).
+  if (tx.piconeros == null) return { action: 'deferred', reason: 'amount_unavailable' }
+  const newAmount = BigInt(tx.piconeros)
+  let rankDelta = null
+  let claimed = 0
+  let boundPiconeros = null
+  await models.$transaction(async (txh) => {
+    // Atomic binding claim (review finding 4): only one caller may reverse the
+    // provisional delta and re-apply it. A concurrent finalizer/webhook that
+    // already bound the row loses here (0 rows) instead of double-applying,
+    // and does NOT rely on a Serializable abort (which would 500 the webhook).
+    claimed = await txh.$executeRaw`
+      UPDATE "ObservedTip" SET "amountVerifiedAt" = NOW()
+      WHERE id = ${tip.id} AND state = 'DETECTED' AND "amountVerifiedAt" IS NULL`
+    if (claimed === 0) {
+      // Lost the binding race: the winner bound the row to the chain tx. Read
+      // the row's bound amount inside the same transaction so the caller
+      // credits THAT, never its stale snapshot (which may still hold the
+      // pre-correction provisional amount — a wrong-money credit).
+      const rows = await txh.$queryRaw`
+        SELECT piconeros FROM "ObservedTip" WHERE id = ${tip.id}`
+      boundPiconeros = rows?.[0]?.piconeros == null ? null : BigInt(rows[0].piconeros)
+      return
+    }
+    await reverseTip(tip.postId, tip.tipperId, tip.piconeros, tip.rankPiconeros, txh)
+    rankDelta = await applyTipDetected(tip.postId, tip.tipperId, newAmount, txh)
+    await txh.$executeRaw`
+      UPDATE "ObservedTip"
+      SET piconeros = ${newAmount}, "txHash" = ${tx.hash}, "rankPiconeros" = ${rankDelta},
+          height = COALESCE(height, ${tx.height ?? null}::INT)
+      WHERE id = ${tip.id} AND state = 'DETECTED'`
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  if (claimed === 0) {
+    return boundPiconeros == null ? { action: 'clean' } : { action: 'clean', piconeros: boundPiconeros }
+  }
+  return { action: 'corrected', piconeros: newAmount, txHash: tx.hash, rankDelta }
+}
+
+export async function recheckDetectedTip ({ models, monero, daemon = null, tip, confirmations = 0, height = null, prefetchedTx = null }) {
+  const account = tip.recipientAccount
+  if (!account?.viewKey || account.status !== 'ACTIVE') return { action: 'clean' }
+  const direct = tip.tipperId != null && tip.tipperId === tip.post?.userId
+  if (direct) return claimExclusion({ models, tip, reason: 'DIRECT_SELF_TIP', confirmations, height, tx: null })
+
+  const anchoredHash = /^[0-9a-f]{64}$/i.test(String(tip.txHash || '')) ? String(tip.txHash).toLowerCase() : null
+  let tx = prefetchedTx
+  if (tx && anchoredHash && String(tx.hash || '').toLowerCase() !== anchoredHash) tx = null
+  let collision = false
+  if (!tx) {
+    const meta = await lookupTipTxMeta(models, monero, account, tip.paymentId, { txHash: anchoredHash })
+    tx = meta.tx
+    collision = meta.collision
+  }
+
+  if (!tx) {
+    if (collision) {
+      alert('warn', 'payment-id collision at credit-time recheck',
+        `${tip.paymentId}: stored hash absent while a same-pid tx exists on the account (tip ${tip.id})`,
+        { dedupeKey: `pid-collision-${tip.paymentId}` })
+    }
+    if (daemon && anchoredHash) {
+      let raws
+      try {
+        raws = await daemon.getTransactions([anchoredHash])
+      } catch {
+        return { action: 'deferred', reason: 'daemon_unreachable' }
+      }
+      if (raws.length > 0) return { action: 'deferred', reason: 'lws_miss_monerod_has_tx' }
+    }
+    return claimExclusion({ models, tip, reason: 'TX_NOT_FOUND', confirmations, height, tx: null })
+  }
+
+  if (isSelfSend(account, tx)) return claimExclusion({ models, tip, reason: 'SELF_SEND', confirmations, height, tx })
+  if (!tip.amountVerifiedAt) return correctAndBind({ models, tip, tx, confirmations, height })
+  if (chainMismatch(tip, tx)) return claimExclusion({ models, tip, reason: 'CHAIN_MISMATCH', confirmations, height, tx })
+  // Verified-write rule: a bound row still missing its block height gets it
+  // from the lws tx (never from the callback). The finalizer computes maturity
+  // from this height, so it must land before the credit pass.
+  if (tip.height == null && tx.height != null) {
+    await models.observedTip.updateMany({
+      where: { id: tip.id, state: 'DETECTED', height: null },
+      data: { height: tx.height }
+    })
+  }
+  return { action: 'clean' }
 }

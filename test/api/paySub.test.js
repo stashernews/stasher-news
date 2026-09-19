@@ -161,12 +161,15 @@ describe('paySub re-entry reuse', () => {
     expect(res.id).toBe(987654)
   })
 
-  test('a fully-covered payIn re-quotes the full fee (hint would be null)', async () => {
+  test('a fully-covered payIn returns the SAME payIn with a null URI (waiting state, never a fresh mint)', async () => {
     const { sub, payIn } = await seedPendingFeeSub({ receivedPiconeros: 1_000_000_000n })
     const res = await resolver.Mutation.paySub(null, { name: sub.name }, { me: { id: sub.userId }, models: prisma })
+    // same payIn (no new mint, partials not stranded), null URI -> the modal
+    // renders "payment detected — waiting for confirmation" (2026-09-19 fix)
     expect(res.id).toBe(payIn.id)
-    expect(moneroUriAmountPiconeros(res.moneroUri)).toBe(1_000_000_000n) // remaining <= 0 -> amount = expected
+    expect(res.moneroUri).toBeNull()
     expect(res.receivedPiconeros).toBe(1_000_000_000n)
+    expect(res.expectedPiconeros).toBe(1_000_000_000n)
   })
 })
 

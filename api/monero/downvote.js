@@ -2,6 +2,7 @@ import { makeIntegratedAddress } from './integratedAddress'
 import { generateDownvotePaymentId } from './paymentId'
 import { Prisma } from '@prisma/client'
 import { META_SUB } from '@/lib/constants'
+import { alert } from '@/lib/alert'
 
 // Downvote address + payment_id reverse lookup (spec §3.3).
 //
@@ -87,6 +88,50 @@ export async function applyDownvotePenalty (models, item, userId, piconeros) {
       ORDER BY "Item".id
     ) AS ancestors
     WHERE "Item".id = ancestors.id`
+}
+
+// The exactly-once NULL->verified-height transition for an ObservedDownvote,
+// owned by every attribution path (observer poll, webhook callback, finalizer
+// lws backfill). A row is inserted PROVISIONAL (height NULL) by the observer or
+// the 0-conf webhook; this helper is the ONLY writer of the verified height and
+// the ONLY caller of applyDownvotePenalty, so whichever caller wins the CAS
+// applies the penalty and every other racer sees 0 rows and is a no-op.
+//
+// The CAS writes the verified piconeros (chain amount) and confirmations so the
+// stored row matches the penalty applied — never the provisional amount a
+// daemon/skipped 0-conf callback may have recorded. `height == null` (tx still
+// in the mempool / not chain-visible) is a no-op: the finalizer backfill will
+// resolve it once lws reports the mined height.
+//
+// POSTURE: the CAS commits BEFORE the penalty, so a penalty throw loses that
+// application for good (the backfill will not retry — the height is now set).
+// That is the same accepted posture the observer always had; it is made VISIBLE
+// here with a deduped warn alert instead of being silently swallowed.
+//
+// Returns true when this caller won the transition (and therefore owns the
+// penalty; a failed penalty body still returns true — the transition happened).
+export async function applyDownvoteTransition ({ models, dv, height, piconeros, confirmations = 0 }) {
+  if (height == null) return false
+  const rows = await models.$queryRaw`
+    UPDATE "ObservedDownvote"
+    SET height = ${height}, piconeros = ${piconeros}, confirmations = ${confirmations}
+    WHERE id = ${dv.id} AND state = 'DETECTED' AND height IS NULL
+    RETURNING id`
+  if (!rows || rows.length === 0) return false
+  const item = await models.item.findUnique({ where: { id: dv.postId } })
+  if (item) {
+    try {
+      await applyDownvotePenalty(models, item, dv.downvoterId, piconeros)
+    } catch (err) {
+      console.error(`downvote transition: penalty failed for ${dv.id}:`, err?.message || err)
+      try {
+        alert('warn', 'downvote penalty failed after height transition',
+          `ObservedDownvote ${dv.id}: ${err?.message || err} — height committed; penalty requires manual reconciliation`,
+          { dedupeKey: `downvote-penalty-failed-${dv.id}` })
+      } catch { /* never mask the transition result */ }
+    }
+  }
+  return true
 }
 
 // Inverse of applyDownvotePenalty for the reverseStaleDetections sweep (audit

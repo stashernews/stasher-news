@@ -29,17 +29,17 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
     pollInterval: itemId ? POSTING_FEE_POLL_MS : 0
   })
 
-  const phase = postingFeeModalPhase(data?.item?.feeStatus)
-
   const received = BigInt(data?.item?.feeReceivedPiconeros ?? 0)
-  const hint = phase !== 'paid' ? underpayHint(received, expectedPiconeros) : null
+  const phase = postingFeeModalPhase(data?.item?.feeStatus, received, expectedPiconeros)
+  const hint = phase === 'waiting' ? underpayHint(received, expectedPiconeros) : null
 
   // Top-up URI: the server re-quotes only the REMAINDER after a partial fee
   // (Item.feeTopUpUri, mirrors territoryReentryFunding), so the QR + copyable
-  // amount show what the user still owes instead of the full original fee. The
-  // stored URI is never rewritten, so the observer gate keeps gating on the full
-  // amount. Falls back to the passed URI before the first poll resolves (a
-  // fresh submit has nothing received, so the remainder equals the full fee).
+  // amount show what the user still owes instead of the full original fee. It
+  // is null once the fee is fully OBSERVED (nothing left to pay) — the
+  // 'detected' phase below renders the waiting state instead of a re-quote.
+  // Falls back to the passed URI before the first poll resolves (a fresh submit
+  // has nothing received, so the remainder equals the full fee).
   const displayUri = data?.item?.feeTopUpUri ?? moneroUri
   const displayPiconeros = moneroUriAmountPiconeros(displayUri) ?? expectedPiconeros
 
@@ -58,6 +58,22 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
         <p className='text-muted mt-2'>
           <small>
             final confirmation takes about {REQUIRED_CONFIRMATIONS} blocks
+          </small>
+        </p>
+      </div>
+    )
+  }
+
+  // Fully observed but not yet chain-verified enough to flip: show the waiting
+  // state, never a fresh QR for the full amount (the 2026-09-19 re-quote bug).
+  if (phase === 'detected') {
+    return (
+      <div className='d-flex flex-column align-items-center text-center'>
+        <h6>Payment detected — waiting for confirmation</h6>
+        <p className='text-muted mt-2'>
+          <small>
+            {piconerosToMXmrDual(expectedPiconeros)} received. Your post goes live
+            once the payment is confirmed on-chain (about {REQUIRED_CONFIRMATIONS} blocks).
           </small>
         </p>
       </div>

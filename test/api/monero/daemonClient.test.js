@@ -129,7 +129,7 @@ describe('getTransactions', () => {
     const out = await client.getTransactions(['abc123', 'missing'])
     expect(t.calls[0].url).toBe(`${MONEROD_URL}/get_transactions`)
     expect(JSON.parse(t.calls[0].opts.body)).toEqual({ txs_hashes: ['abc123', 'missing'], decode_as_json: true })
-    expect(out).toEqual([{ hash: 'abc123', extra: Buffer.from([1, 2, 3, 4]) }])
+    expect(out).toEqual([{ hash: 'abc123', extra: Buffer.from([1, 2, 3, 4]), vout: [] }])
   })
 
   test('normalizes a hex-string extra (older monerod builds) to a Buffer', async () => {
@@ -140,6 +140,34 @@ describe('getTransactions', () => {
     const client = makeClient(t)
     const out = await client.getTransactions(['abc'])
     expect(out[0].extra).toEqual(Buffer.from('deadbeef', 'hex'))
+  })
+
+  test('carries vout target keys (legacy and tagged shapes)', async () => {
+    const asJson = JSON.stringify({
+      extra: [1, 2, 3],
+      vout: [{ target: { key: 'aa' } }, { target: { tagged_key: { key: 'bb' } } }]
+    })
+    const t = recordingTransport(() => jsonRes(200, {
+      status: 'OK',
+      txs: [{ tx_hash: 'h', as_json: asJson }]
+    }))
+    const client = makeClient(t)
+    const out = await client.getTransactions(['h'])
+    expect(out[0].vout).toEqual(['aa', 'bb'])
+  })
+
+  test('preserves null for vout entries without a target key', async () => {
+    const asJson = JSON.stringify({
+      extra: [1],
+      vout: [{ target: {} }, { target: { key: 'cc' } }, {}]
+    })
+    const t = recordingTransport(() => jsonRes(200, {
+      status: 'OK',
+      txs: [{ tx_hash: 'h', as_json: asJson }]
+    }))
+    const client = makeClient(t)
+    const out = await client.getTransactions(['h'])
+    expect(out[0].vout).toEqual([null, 'cc', null])
   })
 
   test('omits txs with unparseable as_json rather than throwing', async () => {
@@ -153,7 +181,7 @@ describe('getTransactions', () => {
     }))
     const client = makeClient(t)
     const out = await client.getTransactions(['bad', 'none', 'good'])
-    expect(out).toEqual([{ hash: 'good', extra: Buffer.from([9]) }])
+    expect(out).toEqual([{ hash: 'good', extra: Buffer.from([9]), vout: [] }])
   })
 
   test('throws a DaemonHttpError on a non-2xx status', async () => {
@@ -176,8 +204,8 @@ describe('getTransactions', () => {
     expect(daemon.MAX_TX_HASHES_PER_REQUEST).toBeLessThanOrEqual(100)
     expect(t.calls.map(c => JSON.parse(c.opts.body).txs_hashes.length)).toEqual([50, 50, 20])
     expect(out).toHaveLength(120)
-    expect(out[0]).toEqual({ hash: hashes[0], extra: Buffer.from([1]) })
-    expect(out[119]).toEqual({ hash: hashes[119], extra: Buffer.from([1]) })
+    expect(out[0]).toEqual({ hash: hashes[0], extra: Buffer.from([1]), vout: [] })
+    expect(out[119]).toEqual({ hash: hashes[119], extra: Buffer.from([1]), vout: [] })
   })
 
   test('throws on a non-OK status (restricted-mode cap) instead of returning []', async () => {

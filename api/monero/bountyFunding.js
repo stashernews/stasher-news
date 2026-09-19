@@ -25,13 +25,16 @@ import { alert } from '@/lib/alert'
 // Idempotent across concurrent callers: the ObservedBounty flip + Item update are
 // deterministic by value, and the FeeObservation INSERT carries
 // ON CONFLICT (txHash, recipientMajor, recipientMinor) DO NOTHING, so a retried
-// webhook callback racing the finalizer backstop cannot double-book. Each caller
+// webhook callback racing the finalizer backstop cannot double-book. The receipt
+// INSERT's bare ON CONFLICT DO NOTHING covers both the (bountyId, txHash) and the
+// global txHash unique (one tx = one pid = one bounty, storage-layer backstop). Each caller
 // also filters on state = 'DETECTED' before calling, and Serializable isolation
 // serializes any same-row overlap (a loser aborts and retries on the next run).
-// The funding only confirms once the CUMULATIVE received (sum of receipts)
-// covers declared + fee; a short funding is held at DETECTED (top-up-able) and
-// the 7-day abandonment sweep (worker/bounties.js) is the escape hatch for a
-// funding that never crosses the quote.
+// The funding only confirms once the CUMULATIVE received (sum of height-verified
+// receipts — a provisional daemon-level receipt is display-only) covers declared
+// + fee; a short funding is held at DETECTED (top-up-able) and the 7-day
+// abandonment sweep (worker/bounties.js) is the escape hatch for a funding that
+// never crosses the quote.
 //
 // Expected funding total for a bounty: declared bounty + platform fee (both
 // computed on the DECLARED amount — see driveBountyFunding for why).
@@ -45,26 +48,65 @@ export async function bountyExpectedPiconeros (tx, bounty) {
 }
 
 // Record one funding receipt (idempotent by (bountyId, txHash)) and fold it
-// into ObservedBounty.piconeros as the CUMULATIVE received total. Backfills a
-// non-null height. Returns the cumulative total.
+// into ObservedBounty.piconeros as the CUMULATIVE displayed total. Two
+// eligibility levels (0-conf hardening): the provisional INSERT writes height
+// NULL — a daemon-verified 0-conf receipt whose amount is only a callback claim,
+// so it is DISPLAY-ONLY; a chain-verified sight (the lws callback or the
+// finalizer's lws reconcile) claims the block height through the atomic
+// NULL->height CAS below. The CAS is the exactly-once transition signal: a
+// replay of an already-height receipt matches zero rows, so no value effect can
+// re-fire (RETURNING/xmax-style freshness inference cannot tell a backfill from
+// a same-height replay). Returns { display, counted, transitioned } — every
+// FUNDED/abandonment gate must sum `counted` (height-verified rows only).
 export async function recordBountyReceipt (tx, bounty, { txHash, piconeros, height }) {
-  if (!txHash) return bounty.piconeros
+  if (!txHash) return { display: bounty.piconeros, counted: null, transitioned: false }
   await tx.$queryRaw`
     INSERT INTO "ObservedBountyReceipt" ("bountyId","txHash","piconeros","height","detectedAt")
-    VALUES (${bounty.id}, ${txHash}, ${piconeros}, ${height ?? null}, NOW())
-    ON CONFLICT ("bountyId","txHash") DO NOTHING`
-  const agg = await tx.observedBountyReceipt.aggregate({
+    VALUES (${bounty.id}, ${txHash}, ${piconeros}, NULL, NOW())
+    ON CONFLICT DO NOTHING`
+  let transitioned = false
+  if (height != null) {
+    // Read the provisional amount so a divergence between the callback claim
+    // and the chain-verified amount is surfaced. Only the CAS changes it, and
+    // the CAS only matches height IS NULL — a racing claimer that beats us
+    // turns our CAS into a 0-row no-op, never a second transition.
+    const prior = await tx.$queryRaw`
+      SELECT piconeros FROM "ObservedBountyReceipt"
+      WHERE "bountyId" = ${bounty.id} AND "txHash" = ${txHash} AND height IS NULL
+      LIMIT 1`
+    const previousPiconeros = prior?.[0]?.piconeros ?? null
+    const claimed = await tx.$queryRaw`
+      UPDATE "ObservedBountyReceipt"
+      SET height = ${height}, piconeros = ${piconeros}
+      WHERE "bountyId" = ${bounty.id} AND "txHash" = ${txHash} AND height IS NULL
+      RETURNING id`
+    transitioned = claimed.length > 0
+    if (transitioned && previousPiconeros != null && previousPiconeros !== piconeros) {
+      alert('warn', 'bounty receipt amount corrected at height transition',
+        `bounty ${bounty.id}: receipt ${txHash} verified at ${piconeros} piconeros vs provisional ${previousPiconeros} piconeros; counted amount corrected`,
+        { dedupeKey: `bounty-receipt-corrected-${bounty.id}-${txHash}` })
+    }
+  }
+  const displayAgg = await tx.observedBountyReceipt.aggregate({
     _sum: { piconeros: true },
     where: { bountyId: bounty.id }
   })
-  const cumulative = agg._sum.piconeros ?? 0n
-  const data = { piconeros: cumulative }
-  if (height != null) data.height = height
-  await tx.observedBounty.update({ where: { id: bounty.id }, data })
-  return cumulative
+  const countedAgg = await tx.observedBountyReceipt.aggregate({
+    _sum: { piconeros: true },
+    where: { bountyId: bounty.id, height: { not: null } }
+  })
+  const display = displayAgg._sum.piconeros ?? 0n
+  await tx.observedBounty.update({ where: { id: bounty.id }, data: { piconeros: display } })
+  return { display, counted: countedAgg._sum.piconeros ?? 0n, transitioned }
 }
 
-export async function driveBountyFunding (tx, bounty, { txHash, height, confirmations, piconeros }) {
+// Flip a bounty funding to CONFIRMED / FUNDED once the COUNT-ELIGIBLE receipts
+// (height written from a chain-verified source) cover the quoted total. The
+// gate self-computes from the receipt rows — never a caller-supplied cumulative,
+// which could have been seeded from a provisional (daemon-verified, amount-
+// unverified) callback claim. Books the bounty as counted − fee so dispositions
+// can zero the escrow exactly.
+export async function driveBountyFunding (tx, bounty, { txHash, height, confirmations }) {
   const config = await tx.platformFeeConfig.findUnique({ where: { id: 1 } })
   const item = await tx.item.findUnique({
     where: { id: bounty.postId },
@@ -72,20 +114,26 @@ export async function driveBountyFunding (tx, bounty, { txHash, height, confirma
   })
   const feePiconeros = bountyFeePiconeros(item.bountyPiconeros, config)
   const expected = item.bountyPiconeros + feePiconeros
-  if (piconeros < expected) {
+  const agg = await tx.observedBountyReceipt.aggregate({
+    _sum: { piconeros: true },
+    where: { bountyId: bounty.id, height: { not: null } }
+  })
+  const counted = agg._sum.piconeros ?? 0n
+  if (counted < expected) {
     alert('warn', 'bounty underfunded at confirmation attempt',
-      `bounty item ${bounty.postId}: received ${piconeros} of ${expected} piconeros; funding held at DETECTED awaiting top-up (7-day abandonment window applies)`,
+      `bounty item ${bounty.postId}: received ${counted} of ${expected} piconeros (count-eligible); funding held at DETECTED awaiting top-up (7-day abandonment window applies)`,
       // day-bucketed so the 60s finalizer tick pages at most once per bounty
       // per day (lib/alert's own dedupe window is only 5 minutes)
       { dedupeKey: `bounty-underfunded-${bounty.postId}-${new Date().toISOString().slice(0, 10)}` })
     return false
   }
-  const data = { state: 'CONFIRMED', confirmations, confirmedAt: new Date(), height }
+  const data = { state: 'CONFIRMED', confirmations, confirmedAt: new Date() }
+  if (height != null) data.height = height
   if (txHash) data.txHash = txHash
   await tx.observedBounty.update({ where: { id: bounty.id }, data })
   await tx.item.update({
     where: { id: bounty.postId },
-    data: { bountyStatus: 'FUNDED', bountyPiconeros: piconeros - feePiconeros, bountyConfirmedAt: new Date() }
+    data: { bountyStatus: 'FUNDED', bountyPiconeros: counted - feePiconeros, bountyConfirmedAt: new Date() }
   })
   await tx.$queryRaw`
     INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","height","state","detectedAt","confirmedAt")

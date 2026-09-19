@@ -1,7 +1,16 @@
 /* eslint-env jest */
-import { makeDownvoteAddress, reverseMapPaymentId, reverseDownvotePenalty } from '@/api/monero/downvote'
+import { makeDownvoteAddress, reverseMapPaymentId, reverseDownvotePenalty, applyDownvoteTransition } from '@/api/monero/downvote'
 import { generateDownvotePaymentId, generateTipPaymentId } from '@/api/monero/paymentId'
 import { getInitial } from '@/api/payIn/types/downZap'
+import { alert } from '@/lib/alert'
+
+// The penalty-throw posture alerts (deduped per row) instead of swallowing the
+// failure; capture the calls without a network side effect. Everything else in
+// lib/alert stays real.
+jest.mock(`${process.cwd()}/lib/alert`, () => {
+  const actual = jest.requireActual(`${process.cwd()}/lib/alert`)
+  return { ...actual, alert: jest.fn() }
+})
 
 // Stagenet primary address reused from integratedAddress.test.js so generated
 // integrated addresses share its shape (106 chars, stagenet-integrated prefix).
@@ -138,4 +147,70 @@ test('reverseDownvotePenalty subtracts weight, downPiconeros, and the ancestor r
   expect(sql).toContain('"commentDownPiconeros" = "commentDownPiconeros" - ')
   expect(sql).toContain('"downvotePiconeros" = GREATEST("ItemUserAgg"."downvotePiconeros" - ')
   expect(vals).toContain(500000000n)
+})
+
+// Group E — applyDownvoteTransition (Task 13: the exactly-once NULL->height
+// transition that owns the downvote penalty across every attribution path)
+
+test('applyDownvoteTransition is an atomic exactly-once null->height transition', async () => {
+  const models = {
+    $queryRaw: jest.fn()
+      .mockResolvedValueOnce([{ id: 1n }]) // first caller wins the CAS
+      .mockResolvedValueOnce([]), // second caller loses
+    item: { findUnique: jest.fn().mockResolvedValue(null) } // skip the penalty body
+  }
+  const dv = { id: 1n, postId: 5, downvoterId: 9 }
+  expect(await applyDownvoteTransition({ models, dv, height: 100, piconeros: 1000n })).toBe(true)
+  expect(await applyDownvoteTransition({ models, dv, height: 100, piconeros: 1000n })).toBe(false)
+  expect(models.$queryRaw.mock.calls[0][0].join(' ')).toContain('height IS NULL')
+  // the loser still attempts the CAS (it is the only transition signal)
+  expect(models.$queryRaw).toHaveBeenCalledTimes(2)
+  expect(models.item.findUnique).toHaveBeenCalledTimes(1)
+})
+
+test('applyDownvoteTransition performs NO write while the verified height is unknown', async () => {
+  const models = { $queryRaw: jest.fn(), item: { findUnique: jest.fn() } }
+  const dv = { id: 1n, postId: 5, downvoterId: 9 }
+  expect(await applyDownvoteTransition({ models, dv, height: null, piconeros: 1000n })).toBe(false)
+  expect(models.$queryRaw).not.toHaveBeenCalled()
+  expect(models.item.findUnique).not.toHaveBeenCalled()
+})
+
+test('applyDownvoteTransition alerts deduped per row when the penalty throws after the CAS committed', async () => {
+  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+  const models = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 1n }]),
+    $executeRaw: jest.fn().mockRejectedValue(new Error('ranking CTE boom')),
+    item: { findUnique: jest.fn().mockResolvedValue({ id: 5, parentId: null }) }
+  }
+  try {
+    await expect(
+      applyDownvoteTransition({ models, dv: { id: 1n, postId: 5, downvoterId: 9 }, height: 100, piconeros: 1000n })
+    ).resolves.toBe(true)
+  } finally {
+    errSpy.mockRestore()
+  }
+  expect(alert).toHaveBeenCalledWith(
+    'warn',
+    expect.stringContaining('downvote penalty failed'),
+    expect.stringContaining('ObservedDownvote 1'),
+    expect.objectContaining({ dedupeKey: 'downvote-penalty-failed-1' })
+  )
+})
+
+test('a throwing alert cannot abort applyDownvoteTransition after the CAS committed', async () => {
+  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+  alert.mockImplementationOnce(() => { throw new Error('alert transport down') })
+  const models = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 1n }]),
+    $executeRaw: jest.fn().mockRejectedValue(new Error('ranking CTE boom')),
+    item: { findUnique: jest.fn().mockResolvedValue({ id: 5, parentId: null }) }
+  }
+  try {
+    await expect(
+      applyDownvoteTransition({ models, dv: { id: 1n, postId: 5, downvoterId: 9 }, height: 100, piconeros: 1000n })
+    ).resolves.toBe(true)
+  } finally {
+    errSpy.mockRestore()
+  }
 })

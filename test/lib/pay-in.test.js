@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { isPostingFeeSubmit, shouldShowItemPaidAt, isPendingFeeItem, postingFeeModalPhase, shouldTriggerPaymentSuccess } from '@/lib/pay-in'
+import { isPostingFeeSubmit, shouldShowItemPaidAt, isPendingFeeItem, postingFeeModalPhase, reentryQuote, shouldTriggerPaymentSuccess } from '@/lib/pay-in'
 import { underpayHint, moneroUriAmountPiconeros } from '@/lib/format'
 
 describe('isPostingFeeSubmit', () => {
@@ -56,6 +56,31 @@ describe('postingFeeModalPhase', () => {
     expect(postingFeeModalPhase('PENDING_FEE')).toBe('waiting')
     expect(postingFeeModalPhase('FEE_NOT_REQUIRED')).toBe('waiting')
     expect(postingFeeModalPhase(undefined)).toBe('waiting')
+  })
+
+  test('detected when the full fee is observed but not yet flipped (never re-quote)', () => {
+    expect(postingFeeModalPhase('PENDING_FEE', 1_000_000_000n, 1_000_000_000n)).toBe('detected')
+    expect(postingFeeModalPhase('PENDING_FEE', 1_500_000_000n, 1_000_000_000n)).toBe('detected')
+    expect(postingFeeModalPhase('PENDING_FEE', 400_000_000n, 1_000_000_000n)).toBe('waiting')
+    expect(postingFeeModalPhase('PENDING_FEE', 0n, 1_000_000_000n)).toBe('waiting')
+    // FEE_PAID wins even with stale counters
+    expect(postingFeeModalPhase('FEE_PAID', 0n, 1_000_000_000n)).toBe('paid')
+    // no counters (legacy callers) stays waiting
+    expect(postingFeeModalPhase('PENDING_FEE')).toBe('waiting')
+    expect(postingFeeModalPhase('PENDING_FEE', 1_000_000_000n)).toBe('waiting')
+  })
+})
+
+describe('reentryQuote', () => {
+  test('quotes the remainder while short', () => {
+    expect(reentryQuote(1_000_000_000n, 400_000_000n)).toEqual({ remaining: 600_000_000n, fullyPaid: false, amount: 600_000_000n })
+  })
+  test('nothing received quotes the full fee', () => {
+    expect(reentryQuote(1_000_000_000n, 0n)).toEqual({ remaining: 1_000_000_000n, fullyPaid: false, amount: 1_000_000_000n })
+  })
+  test('fully covered and overpaid are fullyPaid (callers must not re-quote)', () => {
+    expect(reentryQuote(1_000_000_000n, 1_000_000_000n)).toMatchObject({ fullyPaid: true, remaining: 0n })
+    expect(reentryQuote(1_000_000_000n, 1_500_000_000n)).toMatchObject({ fullyPaid: true, remaining: -500_000_000n })
   })
 })
 

@@ -6,6 +6,7 @@ import {
   MAX_TURF_PREMIUM_PICONEROS
 } from '@/api/monero/turfFeeRouting'
 import { territorySchema } from '@/lib/validate'
+import { USER_ID } from '@/lib/constants'
 
 const config = { postingFeeFloorPiconeros: 1_000_000_000n, commentFeePiconeros: 600_000_000n, maxTurfPremiumPiconeros: 10_000_000_000n }
 const sub = (name, userId, post = 0n, comment = 0n) => ({
@@ -128,6 +129,16 @@ describe('resolveOwnerFeeRoute', () => {
       moneroAccount: { findFirst: async () => null }
     }
     expect(await resolveOwnerFeeRoute(noWallet, { subs: [sub('x', 99)], userId: 7 })).toBeNull()
+  })
+
+  it('never routes platform-owned turfs (USER_ID.stasher) even with a wallet registered', async () => {
+    process.env.TURF_OWNER_FEES = '1'
+    const platform = {
+      sub: { findUnique: async () => sub('bounties', USER_ID.stasher) },
+      moneroAccount: { findFirst: async () => ({ id: 1, ownerUserId: USER_ID.stasher, address: 'addr' }) }
+    }
+    expect(await resolveOwnerFeeRoute(platform, { subs: [sub('bounties', USER_ID.stasher)], userId: 7 })).toBeNull()
+    expect(await resolveOwnerFeeRouteForSub(platform, 'bounties')).toBeNull()
   })
 
   it('resolveOwnerFeeRouteForSub returns null for unknown turf', async () => {

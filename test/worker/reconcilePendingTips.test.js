@@ -91,6 +91,177 @@ test('recovers a PENDING tip whose payment_id appears in the lws re-scan (PENDIN
   expect(rankSet.vals).toContain(700000000n)
 })
 
+test('the DETECTED recovery claim stamps amountVerifiedAt (lws-scanned by construction)', async () => {
+  const t = tip({ id: 1n })
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) } }
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [
+        { hash: 'deadbeef', height: 100, payment_id: 'AABBCCDD11223344', piconeros: 1000000000n }
+      ],
+      blockchain_height: 110
+    })
+  }
+  const execs = []
+  const models = {
+    observedTip: { findMany: async () => [t] },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async (fn) => {
+      await fn({
+        $executeRaw: async (...args) => {
+          const q = args[0]
+          execs.push({ sql: Array.isArray(q) ? q.join('') : q.text, vals: [...args].slice(1).flat() })
+          return 1
+        }
+      })
+    }
+  }
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => 700000000n })
+  expect(out.recovered).toBe(1)
+  // The DETECTED claim is the lws binding: the recovered row must carry the
+  // verified stamp so the credit path never re-binds (trust-corrects) it.
+  const detected = execs.find(e => e.sql.includes("state = 'DETECTED'") && e.sql.includes("state = 'PENDING'"))
+  expect(detected).toBeDefined()
+  expect(detected.sql).toContain('"amountVerifiedAt" = NOW()')
+})
+
+test('the DETECTED recovery claim carries the duplicate-txHash guard (NOT EXISTS, global unique)', async () => {
+  // Review follow-up: one tx = one credit (the global ObservedTip.txHash
+  // unique). A hash already credited to another tip must lose the claim here
+  // (0 rows) instead of violating the unique — the tip stays PENDING and
+  // expires at PENDING_EXPIRY_MS like any never-paid tip (the webhook's
+  // detection claim guards the same class).
+  const t = tip({ id: 1n })
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) } }
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [{ hash: 'deadbeef', height: 100, payment_id: 'AABBCCDD11223344', piconeros: 1000000000n }],
+      blockchain_height: 110
+    })
+  }
+  const execs = []
+  const models = {
+    observedTip: { findMany: async () => [t] },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async (fn) => {
+      await fn({
+        $executeRaw: async (...args) => {
+          const q = args[0]
+          execs.push({ sql: Array.isArray(q) ? q.join('') : q.text, vals: [...args].slice(1).flat() })
+          return 1
+        }
+      })
+    }
+  }
+  await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => 700000000n })
+  const detected = execs.find(e => e.sql.includes("state = 'DETECTED'") && e.sql.includes("state = 'PENDING'"))
+  expect(detected).toBeDefined()
+  expect(detected.sql).toContain('NOT EXISTS')
+  expect(detected.sql).toContain('o."txHash"')
+  expect(detected.sql).toContain('o.id <>')
+})
+
+test('the EXCLUDED recovery claim folds a duplicate txHash (CASE guard) — the exclusion itself always completes', async () => {
+  // The exclusion's effect is load-bearing (no ranking credit, AbuseSignal —
+  // which keeps its own txHash copy); the row's txHash is informational. A
+  // hash already credited to another tip is simply not re-stored, so the
+  // claim can never violate the global unique.
+  const t = tip({ id: 12n, tipperId: 5, post: { userId: 5 } })
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: {}, subaddresses: [] }
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [{ hash: 'deadbeef', height: 100, payment_id: 'AABBCCDD11223344', piconeros: 1000000000n, spent_outputs: [] }],
+      blockchain_height: 110
+    })
+  }
+  const execs = []
+  const models = {
+    observedTip: { findMany: async () => [t] },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async (fn) => {
+      await fn({
+        $executeRaw: async (...args) => {
+          const q = args[0]
+          execs.push({ sql: Array.isArray(q) ? q.join('') : q.text, vals: [...args].slice(1).flat() })
+          return 1
+        },
+        $queryRaw: async () => [{ subName: null }],
+        abuseSignal: { create: async () => {} }
+      })
+    }
+  }
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => {} })
+  expect(out.excluded).toBe(1)
+  const excluded = execs.find(e => e.sql.includes("state = 'EXCLUDED'") && e.sql.includes("state = 'PENDING'"))
+  expect(excluded).toBeDefined()
+  expect(excluded.sql).toContain('CASE WHEN EXISTS')
+  expect(excluded.sql).toContain('o."txHash"')
+  expect(excluded.sql).toContain('o.id <>')
+})
+
+test('a unique-violation on the claim is folded into a clean no-op (deduped alert, tip not credited)', async () => {
+  // Concurrent-race shape: two claims for different pids collide inside the
+  // Serializable transaction despite the NOT EXISTS. The catch folds the
+  // P2002 into the same clean refusal as the webhook's — alert deduped on the
+  // hash (shared dedupeKey), tip not credited, run continues.
+  const t = tip({ id: 1n })
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) } }
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [{ hash: 'deadbeef', height: 100, payment_id: 'AABBCCDD11223344', piconeros: 1000000000n }],
+      blockchain_height: 110
+    })
+  }
+  let applied = false
+  const models = {
+    observedTip: { findMany: async () => [t] },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async (fn) => {
+      await fn({
+        $executeRaw: async (...args) => {
+          const sql = Array.isArray(args[0]) ? args[0].join('') : args[0].text
+          if (sql.includes("state = 'DETECTED'")) {
+            throw Object.assign(new Error('Unique constraint failed on the fields: (`txHash`)'), { code: 'P2002' })
+          }
+          return 1
+        }
+      })
+    }
+  }
+  const out = await runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => { applied = true } })
+  expect(out).toEqual({ recovered: 0, expired: 0, excluded: 0, pidFallback: 0 })
+  expect(applied).toBe(false)
+  expect(alert).toHaveBeenCalledWith('warn', 'tip txHash collision refused',
+    expect.stringContaining('deadbeef'),
+    expect.objectContaining({ dedupeKey: 'tip-collision-deadbeef' }))
+})
+
+test('a non-unique claim error still propagates (no blanket swallow)', async () => {
+  const t = tip({ id: 1n })
+  const account = { id: 7, address: 'ADDR', status: 'ACTIVE', viewKey: { ciphertext: Buffer.alloc(0) } }
+  const lws = {
+    getAddressTxs: async () => ({
+      transactions: [{ hash: 'deadbeef', height: 100, payment_id: 'AABBCCDD11223344', piconeros: 1000000000n }],
+      blockchain_height: 110
+    })
+  }
+  const models = {
+    observedTip: { findMany: async () => [t] },
+    moneroAccount: { findMany: async () => [account] },
+    $transaction: async (fn) => {
+      await fn({
+        $executeRaw: async (...args) => {
+          const sql = Array.isArray(args[0]) ? args[0].join('') : args[0].text
+          if (sql.includes("state = 'DETECTED'")) throw new Error('connection reset')
+          return 1
+        }
+      })
+    }
+  }
+  await expect(runReconcilePendingTipsOnce({ models, lwsClient: lws, apply: async () => {} }))
+    .rejects.toThrow('connection reset')
+})
+
 test('expires a PENDING tip with no matching payment after PENDING_EXPIRY_MS (-> EXPIRED)', async () => {
   const expiredDate = new Date(Date.now() - (8 * 24 * 60 * 60 * 1000))
   const t = tip({ id: 2n, detectedAt: expiredDate })

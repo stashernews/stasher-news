@@ -1,0 +1,23 @@
+{
+  "_note": "Generated 2026-09-19 by a throwaway /tmp/opencode script; NOTHING here uses api/monero/pidDecrypt.js. Keys: monero-ts 0.11.12 MoneroWalletKeys (stagenet throwaway keypair; private view key + public spend key). Stagenet address: 5ABfnULstuW62M1eqBReD4cj8Ked4mpAzhPRGQjTZuHs6J6H2famyWtiHxWoDtPtnvRynVBaBVkXUfpD4w1uveXp3T8tFRD Regtest (FAKECHAIN, mainnet-prefix) miner address holding the same keys: 49ydhdRvFJQ62M1eqBReD4cj8Ked4mpAzhPRGQjTZuHs6J6H2famyWtiHxWoDtPtnvRynVBaBVkXUfpD4w1uveXp3PvQ5Lb Chain: offline monerod --regtest on 127.0.0.1:39081; coinbase block height 2 hash d89f5dd1f41a47235e4f27f053a7ddf7dbacc64d0fbc7aadd8a70ff59f073b5a, miner tx 68694b9752294f5b4a92a3db5748b090a7f45599480666eb033bec4baefd1334. voutKeys[0] is the on-chain one-time output key P computed by monero-core when mining (read back from monerod decode_as_json). txPubKeys[0] is R, the tag-0x01 tx public key in the coinbase tx extra (cns005 layout [0x01][32B R]); monero-ts MoneroUtils.getLastTxPubKey is buggy for extras with trailing fields (it returned 00 here), so R is sliced directly. foreignVoutKey is a second monero-ts throwaway wallet's public spend key (valid unrelated point). These keys are a throwaway with no funds on any public network.",
+  "address": "5ABfnULstuW62M1eqBReD4cj8Ked4mpAzhPRGQjTZuHs6J6H2famyWtiHxWoDtPtnvRynVBaBVkXUfpD4w1uveXp3T8tFRD",
+  "viewKeyHex": "c713ee00f8eafc8aa06f3608c7b95641db855f6ca081997b7dbf2b4b2bf9ce0a",
+  "publicViewKeyHex": "a79f58b4626b95f6def462ce2cd0b39557049ff666c613e80da797658d39b715",
+  "spendKeyHex": "dc71eea13a32311e081ce5fb00f68fd597fb452a6457aff1748b318fb4f5421f",
+  "privateSpendKeyHex": "c3bde28143224132c930e137d25d411979bd1235fedbd370631789c35fb4a104",
+  "voutKeys": [
+    "838ad4f37b00f6844e8f7a6a14fa5ed4cd735bf6efc1ad1d0b92c9b39c5abc5d"
+  ],
+  "txPubKeys": [
+    "c02286875b681d30dc1bbc0274771bcef7ee6552a56e4f3d130666eae54a2771"
+  ],
+  "foreignVoutKey": "6b2b679aa5c54aea03962aa7067a5d01513130b3f0beeef5d8b231a476186105",
+  "_provenance": {
+    "monerod": "regtest offline",
+    "height": 2,
+    "blockHash": "d89f5dd1f41a47235e4f27f053a7ddf7dbacc64d0fbc7aadd8a70ff59f073b5a",
+    "minerTxHash": "68694b9752294f5b4a92a3db5748b090a7f45599480666eb033bec4baefd1334",
+    "rFrom": "cns005 slice of the on-chain tx extra (monero-ts getLastTxPubKey is buggy here)",
+    "pFrom": "on-chain vout (monero-core)"
+  }
+}

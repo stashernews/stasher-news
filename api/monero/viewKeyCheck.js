@@ -32,6 +32,12 @@ export function publicViewKeyFromAddress (address) {
   return Buffer.from(base58xmr.decode(address).slice(33, 65)).toString('hex')
 }
 
+// The public spend key sits at bytes 1..33 (after the network byte). Used by
+// the 0-conf ownership proof (isOutputOwned) as the B term of P = Hs(·)G + B.
+export function publicSpendKeyFromAddress (address) {
+  return Buffer.from(base58xmr.decode(address).slice(1, 33)).toString('hex')
+}
+
 export function classifyViewKey (address, viewKeyHex) {
   if (typeof viewKeyHex !== 'string' || !/^[0-9a-fA-F]{64}$/.test(viewKeyHex)) return 'malformed'
   const vk = viewKeyHex.toLowerCase()

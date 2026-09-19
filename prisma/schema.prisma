@@ -1433,11 +1433,17 @@ model ObservedTip {
   webhookEventId     String?
   detectedAt         DateTime            @default(now())
   confirmedAt        DateTime?
+  amountVerifiedAt   DateTime?
 
   post             Item          @relation(fields: [postId], references: [id])
   recipientAccount MoneroAccount @relation(fields: [recipientAccountId], references: [id])
   abuseSignal      AbuseSignal?
 
+  // One Monero tx carries exactly ONE payment id, so a txHash can fund exactly
+  // one tip. The global unique is the storage-layer backstop for the
+  // pid-binding class of replay attacks (2026-09-19 review finding): even if a
+  // claim path were ever bypassed, the same tx can never seed two tip rows.
+  @@unique([txHash])
   @@unique([txHash, recipientAccountId, recipientMajor, recipientMinor])
   @@index([postId])
   @@index([state])
@@ -1448,6 +1454,7 @@ enum TipExclusionReason {
   DIRECT_SELF_TIP
   SELF_SEND
   CHAIN_MISMATCH
+  TX_NOT_FOUND
 }
 
 // Deterministic self-tip abuse events (spec §3). One row per excluded
@@ -1457,6 +1464,7 @@ enum AbuseSignalKind {
   SELF_TIP_EXCLUDED
   SELF_SEND_EXCLUDED
   CHAIN_MISMATCH_EXCLUDED
+  TX_NOT_FOUND_EXCLUDED
 }
 
 model AbuseSignal {
@@ -1558,6 +1566,10 @@ model ObservedBountyReceipt {
 
   bounty ObservedBounty @relation(fields: [bountyId], references: [id], onDelete: Cascade)
 
+  // One tx = one payment id = one bounty funding, ever. Global unique is the
+  // storage-layer backstop against re-attributing a real funding tx to a second
+  // bounty's pid (escrow over-commitment; 2026-09-19 review finding).
+  @@unique([txHash])
   @@unique([bountyId, txHash])
   @@index([bountyId])
 }
@@ -1745,6 +1757,11 @@ model ObservedSubFee {
   detectedAt    DateTime      @default(now()) @map("detected_at")
   confirmedAt   DateTime?     @map("confirmed_at")
 
+  // One tx = one payment id = one fee leg, ever. Global unique is the
+  // storage-layer backstop against re-attributing a real fee tx to another
+  // pending pid on the same owner account (wrong-leg flips; 2026-09-19 review
+  // finding).
+  @@unique([txHash])
   @@unique([txHash, paymentId])
   @@index([payInId])
   @@index([subName, state])

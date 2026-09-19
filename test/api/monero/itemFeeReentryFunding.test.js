@@ -30,6 +30,7 @@ describe('itemFeeReentryFunding', () => {
     expect(moneroUriAmountPiconeros(res.moneroUri)).toBe(600_000_000n) // 1.0 - 0.4 remainder
     expect(res.receivedPiconeros).toBe(400_000_000n)
     expect(res.expectedPiconeros).toBe(1_000_000_000n)
+    expect(res.fullyPaid).toBe(false)
   })
 
   test('owner leg: underpayment counts ObservedSubFee receipts, remainder re-quoted not full', async () => {
@@ -43,6 +44,7 @@ describe('itemFeeReentryFunding', () => {
     expect(res.receivedPiconeros).toBe(1_000_000_000n)
     expect(res.expectedPiconeros).toBe(3_000_000_000n)
     expect(moneroUriAmountPiconeros(res.moneroUri)).toBe(2_000_000_000n)
+    expect(res.fullyPaid).toBe(false)
   })
 
   test('nothing received -> full fee', async () => {
@@ -50,9 +52,21 @@ describe('itemFeeReentryFunding', () => {
     expect(moneroUriAmountPiconeros(res.moneroUri)).toBe(1_000_000_000n)
   })
 
-  test('fully covered -> full fee (clamped, hint would be null)', async () => {
+  test('fully covered -> null URI + fullyPaid (never re-quote the full fee)', async () => {
+    // 2026-09-19 fix: the old fallback re-quoted the FULL amount once received
+    // covered the fee, so the modal showed "pay the full fee again" after a
+    // complete payment. Fully observed = nothing left to pay.
     const res = await itemFeeReentryFunding(models(1_000_000_000n), { feeStatus: 'PENDING_FEE', feePayInId: 1, parentId: null })
-    expect(moneroUriAmountPiconeros(res.moneroUri)).toBe(1_000_000_000n)
+    expect(res.moneroUri).toBeNull()
+    expect(res.fullyPaid).toBe(true)
+    expect(res.receivedPiconeros).toBe(1_000_000_000n)
+    expect(res.expectedPiconeros).toBe(1_000_000_000n)
+  })
+
+  test('overpaid -> null URI + fullyPaid', async () => {
+    const res = await itemFeeReentryFunding(models(1_500_000_000n), { feeStatus: 'PENDING_FEE', feePayInId: 1, parentId: null })
+    expect(res.moneroUri).toBeNull()
+    expect(res.fullyPaid).toBe(true)
   })
 
   test('null when the item is not PENDING_FEE', async () => {

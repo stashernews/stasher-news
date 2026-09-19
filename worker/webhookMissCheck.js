@@ -1,16 +1,18 @@
 import { alert } from '@/lib/alert'
 import { WEBHOOK_MISS_CHECK_DELAY_SECONDS } from '@/lib/constants'
 
-// Delayed half of the webhook receipt alert split (2026-09-15). The receiver's
-// early lookup for a tip callback can miss a mempool tx lws has just announced
-// (the benign 0-conf race): verifyReceiptAmount returns tx_not_found, the
-// receiver logs it, and every observed case self-resolves within minutes (the
-// next confirmation callback or reconcilePendingTips). Alerting on that first
-// miss is pure noise, so the receiver schedules this one-shot instead
-// (startafter = WEBHOOK_MISS_CHECK_DELAY_SECONDS, singletonKey per paymentId).
-// By then a genuine miss is unambiguous: every recovery path — lws's per-block
-// callbacks, the 2-min reconcile scan, and its raw-decrypt pid fallback — has
-// run. Only a still-PENDING ObservedTip pages.
+// Delayed half of the webhook receipt alert split (2026-09-15). A 0-conf
+// tx_not_found now means BOTH sources missed: lws's REST API cannot see mempool
+// txs (the structural cause of the early-callback miss — not a benign race),
+// AND the daemon fallback (monerod raw-tx lookup, detection branches only) did
+// not return the callback hash either — the tx is foreign, not yet relayed, or
+// monerod is unreachable. That is no longer a routine lws-only miss: the
+// receiver logs it and schedules this one-shot instead of alerting on the spot
+// (startafter = WEBHOOK_MISS_CHECK_DELAY_SECONDS, singletonKey per paymentId),
+// because most misses still self-resolve within minutes — the next confirmation
+// callback brings the mined tx into lws, or reconcilePendingTips (including its
+// raw-decrypt pid fallback) recovers it. By then a genuine miss is
+// unambiguous. Only a still-PENDING ObservedTip pages.
 export async function runWebhookMissCheckOnce ({ models, data }) {
   const { paymentId, piconeros, context } = data || {}
   if (!paymentId) {
@@ -24,7 +26,7 @@ export async function runWebhookMissCheckOnce ({ models, data }) {
     select: { id: true, state: true }
   })
   if (!tip || tip.state !== 'PENDING') {
-    // DETECTED/CONFIRMED: the race resolved (the normal case). EXPIRED: the
+    // DETECTED/CONFIRMED: detection landed (the normal case). EXPIRED: the
     // intent expired before the payment. EXCLUDED/REORGED: the payment landed
     // but was excluded or reversed. No row: not a tip pid (only tip callers
     // schedule this job). None of these is a miss.

@@ -5,11 +5,15 @@
 //   - the TURF_OWNER_FEES=1 env gate is set,
 //   - no upload fees are folded into the payment (media cost stays platform),
 //   - the fee resolves to exactly ONE non-owned turf (posts: the target turf;
-//     comments: the root post's turfs; boosts: the item's single turf), and
+//     comments: the root post's turfs; boosts: the item's single turf),
+//   - that turf is NOT owned by the platform account (USER_ID.stasher — the
+//     seeded default turfs are platform-owned and never billed, so their fees
+//     belong to the rewards pool, not a personal wallet), and
 //   - that turf's owner has a registered MoneroAccount.
 // Everything else keeps today's rewards-wallet subaddress routing.
 
 import { postingFeePiconeros, commentFeePiconeros } from '@/api/monero/postingFee'
+import { USER_ID } from '@/lib/constants'
 
 export function turfOwnerFeesEnabled () {
   return process.env.TURF_OWNER_FEES === '1'
@@ -62,6 +66,12 @@ export function commentFloorPiconerosForSubs (config, nonOwnedSubs) {
 export async function resolveOwnerFeeRouteForSub (models, subName) {
   const sub = await models.sub.findUnique({ where: { name: subName } })
   if (!sub) return null
+  // Platform-owned turfs (the seeded defaults: bounties, bitcoin, crypto, jobs,
+  // memes, monero, stasher, tech — all USER_ID.stasher, billingType ONCE,
+  // never billed) never route owner-direct: their fees fund the rewards pool
+  // via the rewards-wallet fallback, not a personal wallet. Same for anything
+  // later transferred to the platform account.
+  if (Number(sub.userId) === USER_ID.stasher) return null
   const ownerAccount = await models.moneroAccount.findFirst({ where: { ownerUserId: sub.userId } })
   if (!ownerAccount) return null
   return { sub, ownerAccount }

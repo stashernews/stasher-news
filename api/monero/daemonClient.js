@@ -183,18 +183,21 @@ export function createDaemonClient (options = {}) {
 
   /**
    * Fetch raw transactions by hash via the plain (non-json_rpc)
-   * /get_transactions endpoint, returning each tx's extra blob. Only the
-   * extra is surfaced — the caller (reconcilePendingTips' wrong-pid
-   * fallback) needs the tx public key(s) + encrypted payment id, not the
-   * full serialization. decode_as_json hands back the parsed tx as a JSON
-   * string; monerod serializes `extra` as a byte array (older builds: hex
-   * string) — both are normalized to a Buffer. Restricted RPC permits this
-   * endpoint but caps a single request at 100 hashes, so hashes are batched
-   * at MAX_TX_HASHES_PER_REQUEST and a non-OK status throws instead of
-   * returning an empty list. Mempool txs are returned too (in_pool). Missed
-   * hashes are omitted.
+   * /get_transactions endpoint, returning each tx's extra blob plus its vout
+   * target keys. The caller (reconcilePendingTips' wrong-pid fallback) needs
+   * the tx public key(s) + encrypted payment id from the extra; the vout keys
+   * feed the recipient ownership proof (a 0-conf tx is only credited when one
+   * of its outputs derives to the claimed recipient). decode_as_json hands
+   * back the parsed tx as a JSON string; monerod serializes `extra` as a byte
+   * array (older builds: hex string) — both are normalized to a Buffer. vout
+   * entries are reduced to their one-time key (legacy `target.key` or v2
+   * `target.tagged_key.key`), with null preserved for entries that carry no
+   * key. Restricted RPC permits this endpoint but caps a single request at 100
+   * hashes, so hashes are batched at MAX_TX_HASHES_PER_REQUEST and a non-OK
+   * status throws instead of returning an empty list. Mempool txs are returned
+   * too (in_pool). Missed hashes are omitted.
    * @param {string[]} hashes
-   * @returns {Promise<Array<{hash: string, extra: Buffer}>>}
+   * @returns {Promise<Array<{hash: string, extra: Buffer, vout: Array<string|null>}>>}
    */
   async function getTransactions (hashes) {
     if (!Array.isArray(hashes) || hashes.length === 0) return []
@@ -205,16 +208,20 @@ export function createDaemonClient (options = {}) {
       for (const tx of txs) {
         if (!tx || !tx.tx_hash) continue
         let extra = null
+        let vout = []
         if (typeof tx.as_json === 'string' && tx.as_json) {
           try {
             const parsed = JSON.parse(tx.as_json)
             if (Array.isArray(parsed.extra)) extra = Buffer.from(parsed.extra)
             else if (typeof parsed.extra === 'string') extra = Buffer.from(parsed.extra, 'hex')
+            if (Array.isArray(parsed.vout)) {
+              vout = parsed.vout.map((o) => o?.target?.key ?? o?.target?.tagged_key?.key ?? null)
+            }
           } catch {
             // unparseable as_json: omit the tx (caller treats as not-found)
           }
         }
-        if (extra != null) out.push({ hash: tx.tx_hash, extra })
+        if (extra != null) out.push({ hash: tx.tx_hash, extra, vout })
       }
     }
     return out

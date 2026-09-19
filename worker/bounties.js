@@ -27,10 +27,12 @@ export async function runBountiesOnce ({ models, sendBountyPayments = defaultSen
   })
 
   // 1.5 Abandon underfunded funding attempts: a DETECTED bounty whose
-  // cumulative receipts never covered declared + fee within the top-up window
-  // flips to EXPIRED with bountyPiconeros rewritten to the RECEIVED total and
-  // a zero-fee BOUNTY_FEE row — so the author's reclaimBounty is a fee-waived
-  // 100% refund of what they actually sent (rollover pays received + 0 too).
+  // count-eligible (height-verified) receipts never covered declared + fee
+  // within the top-up window flips to EXPIRED with bountyPiconeros rewritten to
+  // the COUNT-ELIGIBLE received total and a zero-fee BOUNTY_FEE row — so the
+  // author's reclaimBounty is a fee-waived refund of what was verified on chain
+  // (rollover pays received + 0 too). A provisional daemon-level claim is
+  // display-only: it neither holds the abandonment open nor sets the refund.
   const abandonCutoff = new Date(Date.now() - BOUNTY_UNDERPAY_ABANDON_DAYS * 24 * 60 * 60 * 1000)
   const staleUnderfunded = await models.observedBounty.findMany({
     where: { state: 'DETECTED', detectedAt: { lt: abandonCutoff } },
@@ -39,10 +41,18 @@ export async function runBountiesOnce ({ models, sendBountyPayments = defaultSen
   for (const bounty of staleUnderfunded) {
     const fee = bountyFeePiconeros(bounty.post.bountyPiconeros, config)
     const expected = bounty.post.bountyPiconeros + fee
-    if (bounty.piconeros >= expected) continue // fully received — confirmFinalizer will fund it
+    // Count-eligible receipts only: the display fold may include provisional
+    // (height-null) daemon claims, which must never hold the abandonment open
+    // (a 7-day-old provisional funding will never confirm) nor set the refund
+    // total (an unverified amount must never move value out of escrow).
+    const countedAgg = await models.observedBountyReceipt.aggregate({
+      _sum: { piconeros: true },
+      where: { bountyId: bounty.id, height: { not: null } }
+    })
+    if ((countedAgg._sum.piconeros ?? 0n) >= expected) continue // fully received — confirmFinalizer will fund it
     // TOCTOU guard: the reads above raced a possible top-up receipt + webhook
     // funding. Re-validate inside the transaction — the state must still be
-    // DETECTED and the cumulative receipts must still be short — else skip
+    // DETECTED and the count-eligible receipts must still be short — else skip
     // silently (a funded bounty belongs to the webhook/finalizer path).
     let abandoned = null // { received, expected } once the flip commits
     await models.$transaction(async (tx) => {
@@ -53,9 +63,9 @@ export async function runBountiesOnce ({ models, sendBountyPayments = defaultSen
       if (!fresh || fresh.state !== 'DETECTED') return
       const agg = await tx.observedBountyReceipt.aggregate({
         _sum: { piconeros: true },
-        where: { bountyId: bounty.id }
+        where: { bountyId: bounty.id, height: { not: null } }
       })
-      const received = agg._sum.piconeros ?? fresh.piconeros
+      const received = agg._sum.piconeros ?? 0n
       const freshExpected = fresh.post.bountyPiconeros + bountyFeePiconeros(fresh.post.bountyPiconeros, config)
       if (received >= freshExpected) return
       abandoned = { received, expected: freshExpected }
@@ -80,7 +90,7 @@ export async function runBountiesOnce ({ models, sendBountyPayments = defaultSen
     })
     if (!abandoned) continue
     alert('warn', 'bounty funding abandoned (underpaid)',
-      `bounty item ${bounty.postId}: received ${abandoned.received} of ${abandoned.expected} piconeros within ${BOUNTY_UNDERPAY_ABANDON_DAYS} days; flipped to EXPIRED — the author can now reclaim what they sent (fee waived)`,
+      `bounty item ${bounty.postId}: received ${abandoned.received} of ${abandoned.expected} piconeros (count-eligible) within ${BOUNTY_UNDERPAY_ABANDON_DAYS} days; flipped to EXPIRED — the author can now reclaim what they sent (fee waived)`,
       { dedupeKey: `bounty-abandoned-${bounty.postId}` })
   }
 

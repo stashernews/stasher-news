@@ -113,6 +113,40 @@ test('rewardsWalletObserver maps a payment_id to a postId, creates ObservedDownv
   expect(map.consumedAt).toBeInstanceOf(Date)
 })
 
+test('rewardsWalletObserver inserts the ObservedDownvote PROVISIONAL (height NULL) and lets the shared transition own the penalty', async () => {
+  const userId = await createUser()
+  const postId = await createRoot(userId, 'observer-null-insert')
+  const paymentId = await seedMap(postId, userId)
+  const PICONEROS = 1_000_000_000n
+  const HEIGHT = 4_242_000
+  // Capture the SQL shapes while the real queries execute: the insert must be
+  // height-NULL (setting the height there makes the transition CAS
+  // unreachable, silently losing the penalty on the observer-first path) and
+  // the NULL->height transition must be the shared helper's CAS.
+  const sqls = []
+  const original = prisma.$queryRaw.bind(prisma)
+  const spy = jest.spyOn(prisma, '$queryRaw').mockImplementation((strings, ...vals) => {
+    sqls.push(Array.isArray(strings) ? strings.join('') : String(strings))
+    return original(strings, ...vals)
+  })
+  try {
+    await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsDownvoteTx('c9' + '34'.repeat(31), paymentId, PICONEROS, HEIGHT)] })
+  } finally {
+    spy.mockRestore()
+  }
+
+  const insert = sqls.find(s => s.includes('INSERT INTO "ObservedDownvote"'))
+  expect(insert).toBeTruthy()
+  expect(insert).toContain('NULL')
+  expect(sqls.some(s => s.includes('UPDATE "ObservedDownvote"') && s.includes('height IS NULL'))).toBe(true)
+
+  const downvote = await prisma.observedDownvote.findFirst({ where: { postId } })
+  expect(downvote.height).toBe(HEIGHT)
+  expect(downvote.piconeros).toBe(PICONEROS)
+  const item = await prisma.item.findUnique({ where: { id: postId }, select: { downPiconeros: true } })
+  expect(item.downPiconeros).toBe(PICONEROS)
+})
+
 test('rewardsWalletObserver is idempotent across re-polls (no duplicate ObservedDownvote, no double downPiconeros)', async () => {
   const userId = await createUser()
   const postId = await createRoot(userId, 'idempotent-downvote')

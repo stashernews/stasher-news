@@ -168,3 +168,54 @@ export function paymentIdCandidates (extra, viewKeyHex) {
   }
   return out
 }
+
+// Monero's varint (base-128, little-endian groups) — the output index suffix
+// of derive_public_key's hash. Indices are tiny, but the loop is the spec.
+function encodeVarint (n) {
+  const out = []
+  while (n >= 0x80) { out.push((n & 0x7f) | 0x80); n = Math.floor(n / 128) }
+  out.push(n)
+  return Buffer.from(out)
+}
+
+/**
+ * Recipient ownership proof for a tx output: does any on-chain output key P_i
+ * derive from the recipient's keys and one of the tx pubkeys?
+ *
+ *   P_i = Hs(8·a·R ‖ varint(i))·G + B
+ *
+ * — monero's generate_key_derivation + derive_public_key, byte for byte. Only
+ * the holder of the private view key can compute the derivation, so a match is
+ * cryptographic proof the tx pays this recipient (the 0-conf credit gate).
+ * Malformed inputs return false rather than throwing.
+ * @param {object} params
+ * @param {Array<string|null>} params.voutKeys on-chain output keys (hex)
+ * @param {Array<string|Uint8Array>} params.txPubKeys tx pubkeys (hex or raw bytes) from the tx extra
+ * @param {string} params.viewKeyHex recipient PRIVATE view key (hex)
+ * @param {string} params.spendKeyHex recipient PUBLIC spend key (hex compressed point)
+ * @returns {boolean}
+ */
+export function isOutputOwned ({ voutKeys, txPubKeys, viewKeyHex, spendKeyHex }) {
+  if (!Array.isArray(voutKeys) || !voutKeys.length || !Array.isArray(txPubKeys) || !txPubKeys.length) return false
+  let B
+  try { B = ed25519.ExtendedPoint.fromHex(spendKeyHex) } catch { return false }
+  for (const pubKey of txPubKeys) {
+    let derivation
+    try {
+      // Chain JSON hands us hex strings while parseTxExtra yields raw bytes;
+      // keyDerivation takes point bytes, so normalize either form here.
+      const pubKeyBytes = typeof pubKey === 'string' ? Buffer.from(pubKey, 'hex') : Buffer.from(pubKey ?? [])
+      derivation = keyDerivation(pubKeyBytes, viewKeyHex)
+    } catch { continue }
+    for (let i = 0; i < voutKeys.length; i++) {
+      const expected = voutKeys[i]
+      if (!expected) continue
+      const hash = Buffer.from(keccak256(Buffer.concat([Buffer.from(derivation), encodeVarint(i)])), 'hex')
+      const scalar = bytesToScalarLE(hash)
+      let P
+      try { P = ed25519.ExtendedPoint.BASE.multiply(scalar).add(B) } catch { continue }
+      if (Buffer.from(P.toRawBytes()).toString('hex') === String(expected).toLowerCase()) return true
+    }
+  }
+  return false
+}

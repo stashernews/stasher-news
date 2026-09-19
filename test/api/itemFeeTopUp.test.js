@@ -97,10 +97,10 @@ describe('Item.feeTopUpUri', () => {
     expect(moneroUriAmountPiconeros(res)).toBe(1_000_000_000n)
   })
 
-  test('a fully-covered payIn re-quotes the full fee (hint would be null)', async () => {
+  test('a fully-covered payIn returns a null URI (nothing left to pay, never a re-quote)', async () => {
     const { userId, item } = await seedPendingFeeItem({ receivedPiconeros: 1_000_000_000n })
     const res = await resolver.Item.feeTopUpUri(item, null, { models: prisma, me: { id: userId } })
-    expect(moneroUriAmountPiconeros(res)).toBe(1_000_000_000n)
+    expect(res).toBeNull()
   })
 
   test('null for a non-PENDING_FEE item', async () => {

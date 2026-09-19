@@ -17,7 +17,9 @@ import {
   moneroMonerodHeight,
   moneroReorgsTotal,
   moneroOpsPendingPiconeros,
-  workerPgjobsFailedTotal
+  workerPgjobsFailedTotal,
+  moneroDetectionLevelTotal,
+  moneroTxNotFoundExclusionsTotal
 } from '@/lib/metrics'
 
 const ALL_NAMES = [
@@ -33,7 +35,9 @@ const ALL_NAMES = [
   'monero_monerod_height',
   'monero_reorgs_total',
   'monero_ops_pending_piconeros',
-  'worker_pgjobs_failed_total'
+  'worker_pgjobs_failed_total',
+  'monero_detection_level_total',
+  'monero_tx_not_found_exclusions_total'
 ]
 
 beforeEach(() => {
@@ -57,7 +61,8 @@ test('every metric is exported as a prom-client metric instance', () => {
     moneroPendingTips, moneroRewardsWalletBalancePiconeros, moneroDistributionStatus,
     moneroWebhooksReceivedTotal, moneroTipsRecoveredTotal, moneroTipsExpiredTotal, moneroJobDurationSeconds, moneroLwsUp,
     moneroMonerodUp, moneroMonerodHeight, moneroReorgsTotal,
-    moneroOpsPendingPiconeros, workerPgjobsFailedTotal
+    moneroOpsPendingPiconeros, workerPgjobsFailedTotal,
+    moneroDetectionLevelTotal, moneroTxNotFoundExclusionsTotal
   ]
   for (const m of metrics) {
     expect(m).toBeTruthy()
@@ -83,6 +88,18 @@ test('tip outcome counters accumulate (.inc(n))', async () => {
   moneroTipsExpiredTotal.inc()
   expect(await valueOf('monero_tips_recovered_total')).toBe(3)
   expect(await valueOf('monero_tips_expired_total')).toBe(1)
+})
+
+test('detection-level counter accumulates per level label and the exclusion counter accumulates', async () => {
+  moneroDetectionLevelTotal.inc({ level: 'lws' })
+  moneroDetectionLevelTotal.inc({ level: 'daemon' })
+  moneroDetectionLevelTotal.inc({ level: 'daemon' })
+  moneroTxNotFoundExclusionsTotal.inc()
+  const levels = Object.fromEntries(
+    (await moneroDetectionLevelTotal.get()).values.map(v => [v.labels.level, v.value])
+  )
+  expect(levels).toEqual({ lws: 1, daemon: 2 })
+  expect((await moneroTxNotFoundExclusionsTotal.get()).values[0].value).toBe(1)
 })
 
 test('histogram observes per label and emits bucket/sum/count series', async () => {

@@ -223,9 +223,11 @@ async function work () {
   }
 
   // webhookMissCheck: one-shot delayed follow-up scheduled by the webhook
-  // receiver when a tip receipt verdict is tx_not_found (the benign 0-conf
-  // race). Event-driven — no seed/self-requeue. Pages only when the
-  // ObservedTip is still PENDING when the delay elapses (money never landed).
+  // receiver when a tip receipt verdict is tx_not_found (BOTH lws and monerod
+  // missed: lws's REST view omits mempool txs and the daemon fallback lacked
+  // the hash or was unreachable — not a benign race). Event-driven — no
+  // seed/self-requeue. Pages only when the ObservedTip is still PENDING when
+  // the delay elapses (money never landed).
   await boss.work('webhookMissCheck', { includeMetadata: true }, jobWrapper(webhookMissCheck))
 
   // webhookCleanup: hourly sweep of orphaned lws webhooks (CONFIRMED/EXPIRED tips).

@@ -6,8 +6,10 @@ import {
   maskFromDerivation,
   maskFromTxPubKey,
   xorWithMask,
-  paymentIdCandidates
+  paymentIdCandidates,
+  isOutputOwned
 } from '@/api/monero/pidDecrypt'
+import ownershipFixture from './fixtures/ownership-fixture.json'
 
 // Monero scalar/point encodings are little-endian byte strings; noble takes
 // BigInts. These helpers convert for test-vector construction.
@@ -161,5 +163,59 @@ describe('paymentIdCandidates (wrong-pid fallback core)', () => {
     const extra = buildExtra({ txPubKey: Buffer.from(randomBytes(32)), plainPid: plain })
     const candidates = paymentIdCandidates(extra, scalarToLEHex(randomScalar()))
     expect(candidates).toEqual([plain.toString('hex')])
+  })
+})
+
+// Fixture: a REAL monero-core-computed output from an offline regtest coinbase
+// (see fixtures/ownership-fixture.json _note — keys via monero-ts, P from the
+// chain, R sliced from the on-chain extra; none of it uses pidDecrypt).
+describe('isOutputOwned (recipient ownership proof)', () => {
+  test('accepts the recipient-owned output and rejects a foreign output', () => {
+    expect(isOutputOwned({
+      voutKeys: ownershipFixture.voutKeys,
+      txPubKeys: ownershipFixture.txPubKeys,
+      viewKeyHex: ownershipFixture.viewKeyHex,
+      spendKeyHex: ownershipFixture.spendKeyHex
+    })).toBe(true)
+    expect(isOutputOwned({
+      voutKeys: [ownershipFixture.foreignVoutKey],
+      txPubKeys: ownershipFixture.txPubKeys,
+      viewKeyHex: ownershipFixture.viewKeyHex,
+      spendKeyHex: ownershipFixture.spendKeyHex
+    })).toBe(false)
+  })
+
+  test('rejects the owned output under a different (valid) view key', () => {
+    expect(isOutputOwned({
+      voutKeys: ownershipFixture.voutKeys,
+      txPubKeys: ownershipFixture.txPubKeys,
+      viewKeyHex: ownershipFixture.privateSpendKeyHex,
+      spendKeyHex: ownershipFixture.spendKeyHex
+    })).toBe(false)
+  })
+
+  test('accepts raw-byte tx pubkeys (parseTxExtra shape) as well as hex', () => {
+    expect(isOutputOwned({
+      voutKeys: ownershipFixture.voutKeys,
+      txPubKeys: ownershipFixture.txPubKeys.map((hex) => Buffer.from(hex, 'hex')),
+      viewKeyHex: ownershipFixture.viewKeyHex,
+      spendKeyHex: ownershipFixture.spendKeyHex
+    })).toBe(true)
+  })
+
+  test('returns false (never throws) on malformed inputs', () => {
+    const base = {
+      voutKeys: ownershipFixture.voutKeys,
+      txPubKeys: ownershipFixture.txPubKeys,
+      viewKeyHex: ownershipFixture.viewKeyHex,
+      spendKeyHex: ownershipFixture.spendKeyHex
+    }
+    expect(isOutputOwned({ ...base, voutKeys: [] })).toBe(false)
+    expect(isOutputOwned({ ...base, txPubKeys: [] })).toBe(false)
+    expect(isOutputOwned({ ...base, voutKeys: [null] })).toBe(false)
+    expect(isOutputOwned({ ...base, spendKeyHex: 'not-a-compressed-point' })).toBe(false)
+    expect(isOutputOwned({ ...base, viewKeyHex: 'zz' })).toBe(false)
+    expect(isOutputOwned({ ...base, viewKeyHex: undefined })).toBe(false)
+    expect(isOutputOwned({})).toBe(false)
   })
 })

@@ -3,7 +3,7 @@ import {
   REWARDS_POSTING_MAJOR,
   FEE_MAJORS
 } from '@/api/monero/feePool'
-import { reverseMapPaymentId, applyDownvotePenalty } from '@/api/monero/downvote'
+import { reverseMapPaymentId, applyDownvoteTransition } from '@/api/monero/downvote'
 import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
 import { createReorgDetector } from '@/lib/reorgDetector'
 import { moneroUriAmountPiconeros } from '@/lib/format'
@@ -24,8 +24,10 @@ import { logError } from '@/lib/logger'
 //     gated Item.feeStatus PENDING_FEE -> FEE_PAID (or Sub.billingStatus), taking
 //     the post/territory live.
 //   - primary address + payment_id (Phase 4): reverses the payment_id via the
-//     DownvotePidMap, idempotently records an ObservedDownvote (DETECTED), and applies
-//     the LOG-scaled ranking penalty (weightedDownVotes/downPiconeros) at DETECTION.
+//     DownvotePidMap, idempotently records an ObservedDownvote (DETECTED), and
+//     transitions it to the verified height via applyDownvoteTransition, which
+//     owns the LOG-scaled ranking penalty (weightedDownVotes/downPiconeros) —
+//     exactly once, on the NULL->height transition (Task 13).
 // The confirmFinalizer matures FeeObservation/ObservedDownvote DETECTED -> CONFIRMED
 // at REQUIRED_CONFIRMATIONS (separate concern, separate job). Reorg reversal is
 // deferred (accepted v1 limitation — consistent with the tip flow).
@@ -119,9 +121,12 @@ async function attributeFeeBySubaddress (models, tx) {
   // paid item is a no-op. On a conflict re-poll of an underpaid tx the same
   // console.warn fires again — simplest consistent behavior, and harmless.
   const expected = payIn.moneroUri ? moneroUriAmountPiconeros(payIn.moneroUri) : null
+  // Countable states only (review follow-up): a REORGED row (reorg sweeper) or
+  // any other dead state must neither open this flip gate nor inflate the
+  // cumulative that feeInvestmentPiconeros records.
   const agg = await models.feeObservation.aggregate({
     _sum: { piconeros: true },
-    where: { payInId: payIn.id }
+    where: { payInId: payIn.id, state: { in: ['DETECTED', 'CONFIRMED'] } }
   })
   const cumulative = agg._sum.piconeros ?? 0n
   if (expected === null || cumulative >= expected) {
@@ -186,31 +191,36 @@ export async function reverseBoostDetected (models, payIn, piconeros) {
 
 // Attribute a primary-address output carrying a payment_id to a downvote. Looks
 // up the payment_id in the DownvotePidMap reverse map; if found, idempotently
-// records an ObservedDownvote (DETECTED) and applies the LOG-scaled ranking penalty
-// (ported from the legacy downZap.js onPaid SQL to piconeros). The penalty fires
-// exactly once per (txHash, paymentId) — the ON CONFLICT DO NOTHING guard returns
-// a row only on the fresh insert, so a re-poll never double-penalises.
+// records an ObservedDownvote (DETECTED) and marks the map consumed. The row is
+// inserted PROVISIONAL (height NULL) even when lws already reports a height:
+// the penalty is owned by applyDownvoteTransition's NULL->height CAS, so writing
+// the height into the insert would make that CAS unreachable and silently lose
+// the penalty on the observer-first path (Task 13). The insert's ON CONFLICT DO
+// NOTHING guard makes a re-poll (or a raced webhook insert) a no-op; only the
+// fresh insert reaches the transition.
 async function attributeDownvoteByPaymentId (models, tx) {
   const map = await reverseMapPaymentId(tx.payment_id, models)
   if (!map) return null
 
   const rows = await models.$queryRaw`
     INSERT INTO "ObservedDownvote" ("txHash","postId","downvoterId","paymentId","piconeros","height","state","detectedAt")
-    VALUES (${tx.hash}, ${map.postId}, ${map.userId}::INT, ${tx.payment_id}, ${tx.piconeros}, ${tx.height ?? null}, 'DETECTED'::"ObservedState", NOW())
+    VALUES (${tx.hash}, ${map.postId}, ${map.userId}::INT, ${tx.payment_id}, ${tx.piconeros}, NULL, 'DETECTED'::"ObservedState", NOW())
     ON CONFLICT ("txHash","paymentId") DO NOTHING
     RETURNING id`
   if (!rows || rows.length === 0) return null
 
-  const item = await models.item.findUnique({ where: { id: map.postId } })
-  if (item) {
-    try {
-      await applyDownvotePenalty(models, item, map.userId, tx.piconeros)
-    } catch (err) {
-      // Don't crash the indexer on a ranking-CTE failure; the ObservedDownvote row
-      // already records the downvote. (Item columns can be repaired separately.)
-      console.error(`rewardsWalletObserver: ranking penalty failed for post ${map.postId}:`, err?.message || err)
-    }
-  }
+  // The shared transition owns the penalty (exactly once). A still-mempool tx
+  // (lws height null) stays provisional. Recovery is automatic: while the
+  // rewards account is unscannable the finalizer's backfill skips and retries
+  // each run; once scannable, the transition (and penalty) fire exactly once —
+  // deferred, not lost (observer/fee attribution/health probe share the account
+  // and fail loudly meanwhile).
+  await applyDownvoteTransition({
+    models,
+    dv: { id: rows[0].id, postId: map.postId, downvoterId: map.userId },
+    height: tx.height,
+    piconeros: tx.piconeros
+  })
 
   await models.downvotePidMap.update({ where: { paymentId: tx.payment_id }, data: { consumedAt: new Date() } })
   return rows[0].id

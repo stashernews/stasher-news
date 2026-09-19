@@ -28,6 +28,14 @@ stasher.news {
 		reverse_proxy minio:9000
 	}
 
+	# lws confirmation webhook: internal-only. lws delivers container-to-container
+	# (direct to app:3000), never through the edge, so any public hit is a probe or
+	# forgery attempt — 404 before the catch-all proxy.
+	@webhook path /api/monero/webhook /api/monero/webhook/*
+	handle @webhook {
+		respond 404
+	}
+
 	handle {
 		reverse_proxy app:3000 {
 			# preserve the original Host so proxy.js's getDomainMapping(host) sees

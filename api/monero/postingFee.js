@@ -10,6 +10,7 @@
 
 import { buildMoneroUri } from '@/api/monero/uri'
 import { moneroUriAddress, moneroUriAmountPiconeros } from '@/lib/format'
+import { reentryQuote } from '@/lib/pay-in'
 import { FREE_COMMENTS_PER_DAY, FREE_COMMENTS_PER_DAY_LOW_REP, FREE_POSTS_PER_MONTH, FREE_POSTS_LOW_REP } from '@/lib/constants'
 
 const DAY_MS = 86_400_000
@@ -135,20 +136,21 @@ export async function postingFeePrivatesFor (models, user, viewerId) {
 // Cumulative fee received on-chain for a fee PayIn, across BOTH observation
 // tables: platform-routed legs record FeeObservation rows (rewards-wallet
 // subaddresses, observed by rewardsWalletObserver) while owner-routed legs
-// record ObservedSubFee rows (fee: payment-ID legs, observed by the lws
-// webhook). A PayIn is exactly one or the other, so the sum is the payee's
-// cumulative received. No state filter — DETECTED and CONFIRMED both count,
-// matching the webhook's cumulative gate. Drives Item.feeReceivedPiconeros
-// (underpayment hint) and itemFeeReentryFunding (top-up remainder).
+// record ObservedSubFee rows (fee: payment-ID legs, observed by the lws webhook).
+// A PayIn is exactly one or the other, so the sum is the payee's cumulative
+// received. Countable states only (DETECTED/CONFIRMED) — REORGED, EXPIRED, and
+// refused (EXCLUDED) receipts must not read as payment progress. Drives
+// Item.feeReceivedPiconeros (underpayment hint) and itemFeeReentryFunding
+// (top-up remainder).
 export async function feeReceivedPiconerosForPayIn (models, payInId) {
   const [feeAgg, subFeeAgg] = await Promise.all([
     models.feeObservation.aggregate({
       _sum: { piconeros: true },
-      where: { payInId }
+      where: { payInId, state: { in: ['DETECTED', 'CONFIRMED'] } }
     }),
     models.observedSubFee.aggregate({
       _sum: { piconeros: true },
-      where: { payInId }
+      where: { payInId, state: { in: ['DETECTED', 'CONFIRMED'] } }
     })
   ])
   return (feeAgg._sum.piconeros ?? 0n) + (subFeeAgg._sum.piconeros ?? 0n)
@@ -172,11 +174,18 @@ export async function itemFeeReentryFunding (models, item) {
   const expected = moneroUriAmountPiconeros(payIn.moneroUri)
   if (expected == null) return null
   const received = await feeReceivedPiconerosForPayIn(models, payIn.id)
-  const remaining = expected - received
-  const amount = remaining > 0n ? remaining : expected
-  const moneroUri = buildMoneroUri(
-    [{ address, amount }],
-    { description: `StasherNews ${item.parentId ? 'comment' : 'posting'} fee top-up` }
-  )
-  return { payIn, moneroUri, feePiconeros: expected, receivedPiconeros: received, expectedPiconeros: expected }
+  const { fullyPaid, amount } = reentryQuote(expected, received)
+  // Fully observed (received >= expected) but not yet chain-verified enough to
+  // flip: there is nothing more to pay. Return the funding info with a null URI
+  // so the caller renders the "payment detected — waiting for confirmation"
+  // state instead of re-quoting the full fee (2026-09-19 fix: the old
+  // `remaining > 0 ? remaining : expected` fallback re-quoted the FULL amount,
+  // which the modal showed as "pay 0.0006 again" after a complete payment).
+  const moneroUri = fullyPaid
+    ? null
+    : buildMoneroUri(
+      [{ address, amount }],
+      { description: `StasherNews ${item.parentId ? 'comment' : 'posting'} fee top-up` }
+    )
+  return { payIn, moneroUri, fullyPaid, feePiconeros: expected, receivedPiconeros: received, expectedPiconeros: expected }
 }

@@ -268,8 +268,10 @@ async function seedEscrowAccount () {
 
 // A partially-funded DETECTED bounty: declared 1e12 (fee would be pinned by
 // config below to 1e10, expected 1.01e12) but only 6e11 ever arrived, detected
-// ABANDON_DAYS ago.
-async function seedUnderfundedBounty (userId, { received = 600_000_000_000n, ageDays = BOUNTY_UNDERPAY_ABANDON_DAYS + 1 } = {}) {
+// ABANDON_DAYS ago. The receipt mirrors real funding state: one received tx at
+// known height by default; receiptHeight null models a daemon-verified
+// provisional receipt (display-only, never refundable by abandonment).
+async function seedUnderfundedBounty (userId, { received = 600_000_000_000n, ageDays = BOUNTY_UNDERPAY_ABANDON_DAYS + 1, receiptHeight = 100 } = {}) {
   const escrow = await seedEscrowAccount()
   itemSeq += 1
   const item = await prisma.item.create({
@@ -290,12 +292,17 @@ async function seedUnderfundedBounty (userId, { received = 600_000_000_000n, age
       recipientAccountId: escrow.id,
       paymentId: 'bn' + item.id,
       piconeros: received,
-      height: 100,
+      height: receiptHeight,
       state: 'DETECTED',
       detectedAt: new Date(Date.now() - ageDays * 24 * 60 * 60 * 1000)
     }
   })
   created.bounties.push(bounty.id)
+  if (received > 0n) {
+    await prisma.observedBountyReceipt.create({
+      data: { bountyId: bounty.id, txHash: 'ufr-' + item.id, piconeros: received, height: receiptHeight }
+    })
+  }
   return { item, bounty }
 }
 
@@ -341,6 +348,25 @@ test('a fully-received DETECTED bounty past the window is NOT abandoned (awaitin
 
   const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
   expect(afterItem.bountyStatus).toBe('PENDING_FUNDING')
+})
+
+test('abandonment counts only chain-verified receipts: a provisional (height-null) claim cannot cover the quote', async () => {
+  // The display fold covers the full quote, but the only receipt is a
+  // daemon-verified 0-conf claim (height NULL, amount unverifiable) — it must
+  // not hold the abandonment open nor be refunded as "received".
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const { item } = await seedUnderfundedBounty(userId, { received: 1_010_000_000_000n, receiptHeight: null })
+
+  await runBountiesOnce({ models: prisma, sendBountyPayments: jest.fn().mockResolvedValue({ sent: 0, failed: 0, skipped: 0 }), getHeight: async () => 1_000_000 })
+
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('EXPIRED')
+  // Nothing count-eligible was received, so the refund is booked at zero —
+  // a provisional claim never sets the refund total.
+  expect(afterItem.bountyPiconeros).toBe(0n)
+  const bounty = await prisma.observedBounty.findFirst({ where: { postId: item.id } })
+  expect(bounty.state).toBe('EXPIRED')
 })
 
 test('SENT payouts with a deferred fee are offered to the signer for fee settlement', async () => {

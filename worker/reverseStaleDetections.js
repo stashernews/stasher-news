@@ -9,19 +9,26 @@ import { alert } from '@/lib/alert'
 // reverseStaleDetections — closes the 0-conf double-spend window (audit A-1).
 //
 // Benefits are granted at 0-conf DETECTION (rank, upvotes, tip totals, boost
-// weight, downvote penalties, fee-gated item liveness) and NOTHING previously
-// reversed them: confirmFinalizer only scans height-set rows, reverseTip had no
+// weight, fee-gated item liveness; downvote penalties at the verified
+// NULL->height transition, Task 13) and NOTHING previously reversed them:
+// confirmFinalizer only scans height-set rows, reverseTip had no
 // production caller, and reorg reconciliation is explicitly deferred. A
 // double-spent or mempool-evicted tx therefore kept every benefit forever.
 //
-// This sweep flips DETECTED rows whose height is STILL NULL after
-// STALE_DETECTED_EXPIRY_MS (48h — far beyond the ~20 min a real tx needs for
-// 10 confirmations, within Monero's mempool eviction horizon) to the existing
-// REORGED terminal state (the tip/downvote modals already render it) and
-// reverses the effects:
+// This sweep flips DETECTED rows past STALE_DETECTED_EXPIRY_MS (48h — far
+// beyond the ~20 min a real tx needs for 10 confirmations, within Monero's
+// mempool eviction horizon) to the existing REORGED terminal state (the
+// tip/downvote modals already render it) and reverses the effects:
 //   ObservedTip       -> reverseTip (rank terms, upvotes, totals, ItemUserAgg,
-//                        anon bucket — Task 2 exact inverse)
-//   ObservedDownvote  -> reverseDownvotePenalty (Task 3)
+//                        anon bucket — Task 2 exact inverse); height-NULL only
+//   ObservedDownvote  -> reverseDownvotePenalty (Task 3), but ONLY for rows
+//                        whose verified height is set: Task 13's transition
+//                        (applyDownvoteTransition) is the sole penalty writer,
+//                        so a height-NULL row never applied one and is skipped
+//                        here (it stays DETECTED awaiting the finalizer's
+//                        height backfill). Reversing it anyway would subtract
+//                        an amount that was never added, driving
+//                        Item.downPiconeros / commentDownPiconeros negative.
 //   FeeObservation    -> ledger row to REORGED; BOOST legs give back their
 //                        platform-routed boost weight; TERRITORY_* legs revert
 //                        Sub.billingStatus PAID->PENDING_FEE (re-arming the
@@ -34,10 +41,10 @@ import { alert } from '@/lib/alert'
 //                        legs (Task 4)
 //
 // Money-safety: every claim is a conditional UPDATE (... WHERE state='DETECTED'
-// AND height IS NULL) inside a Serializable transaction; only the claimer
-// (rowCount > 0) reverses — the webhook/reconcile/finalizer idiom, so a row
-// that mines at the last moment cannot be double-reversed. A tx that mines
-// AFTER the flip arrives to a REORGED row the receiver treats as terminal
+// and the branch's height predicate) inside a Serializable transaction; only
+// the claimer (rowCount > 0) reverses — the webhook/reconcile/finalizer idiom,
+// so a row that mines at the last moment cannot be double-reversed. A tx that
+// mines AFTER the flip arrives to a REORGED row the receiver treats as terminal
 // (200 no-op); the sweep alerts per-run so operators notice patterns.
 //
 // Recurrence is cron-owned (pgboss.schedule row reverseStaleDetections, every
@@ -76,13 +83,21 @@ export async function runReverseStaleDetectionsOnce ({
   }
 
   // --- ObservedDownvote ---
-  const downvotes = await models.observedDownvote.findMany({ where: stale, take: SCAN_BATCH_SIZE })
+  // Task 13 moved the penalty onto the verified NULL->height transition
+  // (applyDownvoteTransition) — the ONLY penalty writer — so a height-NULL row
+  // has nothing to reverse and must be skipped here: reversing it would
+  // subtract an amount that was never added, driving the ranking aggregates
+  // negative. Only a transitioned row (height set) carries a live provisional
+  // penalty; one still DETECTED at 48h is a reorg/stuck-maturity case. The
+  // height-NULL rows stay DETECTED awaiting the finalizer's height backfill.
+  const staleDownvotes = { state: 'DETECTED', height: { not: null }, detectedAt: { lt: cutoff } }
+  const downvotes = await models.observedDownvote.findMany({ where: staleDownvotes, take: SCAN_BATCH_SIZE })
   for (const dv of downvotes) {
     let claimed = false
     await models.$transaction(async (tx) => {
       const n = await tx.$executeRaw`
         UPDATE "ObservedDownvote" SET state = 'REORGED'
-        WHERE id = ${dv.id} AND state = 'DETECTED' AND height IS NULL`
+        WHERE id = ${dv.id} AND state = 'DETECTED' AND height IS NOT NULL`
       if (n > 0) {
         claimed = true
         const item = await tx.item.findUnique({ where: { id: dv.postId } })

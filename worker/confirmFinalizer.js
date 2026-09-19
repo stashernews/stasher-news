@@ -2,12 +2,14 @@ import { Prisma } from '@prisma/client'
 import { daemonClient } from '@/api/monero/daemonClient'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { findRewardsAccount } from './rewardsWalletObserver'
+import { applyDownvoteTransition } from '@/api/monero/downvote'
 import { driveBountyFunding, recordBountyReceipt } from '@/api/monero/bountyFunding'
 import { bountyFeePiconeros } from '@/api/monero/bounties'
-import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
+import { DETECTED_NULL_HEIGHT_BACKSTOP_AGE_MS, REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { createReorgDetector } from '@/lib/reorgDetector'
 import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { recheckDetectedTip } from '@/api/monero/selfTip'
+import { alert } from '@/lib/alert'
 
 // confirmFinalizer — matures provisional tips (Task 7 / spec §5.5, Q5).
 //
@@ -25,6 +27,17 @@ import { recheckDetectedTip } from '@/api/monero/selfTip'
 // stackedPiconeros lifetime-received denorm (spec Q5: stackedPiconeros = sum
 // of CONFIRMED ObservedTip.piconeros, mirroring SN's stackedMsats).
 //
+// NULL-height backstop: a tip detected at 0-conf (daemon level) is left
+// DETECTED with height NULL, and if every later mined webhook is lost nothing
+// scans it (the maturity scans require height NOT NULL; reconcilePendingTips
+// and webhookMissCheck are PENDING-only) — until the 48h stale sweep reverses
+// it. runConfirmFinalizerOnce therefore runs a bounded pass over DETECTED
+// height-NULL tips older than DETECTED_NULL_HEIGHT_BACKSTOP_AGE_MS and
+// re-checks them through recheckDetectedTip (anchored-hash lookup: backfill
+// height, correct the amount, defer, or corroborated exclusion). The pass runs
+// AFTER the credit pass and never credits: a backfilled row matures on a later
+// tick through the normal height-not-null pass.
+//
 // ATOMICITY (deliberate): the state flip and the author denorm bump run in a
 // SINGLE Prisma $transaction. Unlike a create+side-effect split (which has a
 // known partial-failure hazard elsewhere), the flip+denorm here must never
@@ -33,8 +46,9 @@ import { recheckDetectedTip } from '@/api/monero/selfTip'
 //
 // Scope: ObservedTip, FeeObservation, ObservedSubFee, AND ObservedDownvote. The
 // tip flip is coupled to the author stackedPiconeros denorm (atomic); the fee,
-// sub-fee (turf-owner), and downvote flips are ledger-only (their ranking/
-// visibility effects already applied at DETECTION).
+// sub-fee (turf-owner), and downvote flips are ledger-only. Downvote penalties
+// are applied by the shared NULL->height transition (applyDownvoteTransition),
+// not here; fee/sub-fee gating effects apply at DETECTION.
 // Reorg reversal is NOT implemented — deferred as an accepted v1 limitation
 // (consistent with the tip flow; a >10-block Monero reorg is negligible).
 //
@@ -65,6 +79,12 @@ import { recheckDetectedTip } from '@/api/monero/selfTip'
 // poll picks up the overflow. Pagination by cursor is unnecessary because the
 // query is state-filtered (DETECTED) and DETECTED rows only shrink over time.
 const SCAN_BATCH_SIZE = 500
+
+// Smaller bound for the NULL-height tip backstop: each scanned tip costs an
+// lws lookup (and possibly a monerod corroboration), and this pass heals an
+// exceptional condition (lost webhook chain), not a normal flow. 100/run at
+// the 60s cadence drains any realistic backlog within a few ticks.
+const NULL_HEIGHT_BACKSTOP_BATCH_SIZE = 100
 
 // Per-worker reorg detector (Task D5). Tracks the last chain height seen by
 // this job across runs and fires a debounced critical alert on regression.
@@ -117,22 +137,35 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     // detection-time self-send check can have failed open. The tx is mined
     // now (height is set), so the evidence exists — this is the last gate
     // before stackedPiconeros. The SAME check binds the stored amount/txHash
-    // to the chain tx (CHAIN_MISMATCH): the flip below credits the STORED
-    // tip.piconeros, which verifyReceiptAmount's callback-vs-chain binding
-    // never vouched for — a legacy DETECTED row forged through the
-    // pre-verification webhook is excluded here instead of credited.
-    // The webhook N-conf callback races us for the claim and runs the same
-    // check, so a wash or forged tip is excluded regardless of which claimer
-    // wins. An lws failure skips the tip this run (fail closed on the credit
-    // path); recurrence is cron-owned, so the next tick retries.
-    let excluded = false
+    // to the chain tx: a BOUND row that disagrees with the chain
+    // (CHAIN_MISMATCH) is excluded here instead of credited, while an UNBOUND
+    // row (amountVerifiedAt null) is trust-corrected to the chain amount and
+    // that corrected amount is what gets credited below. The webhook N-conf
+    // callback races us for the claim and runs the same check, so a wash or
+    // forged tip is excluded regardless of which claimer wins. An lws failure
+    // skips the tip this run (fail closed on the credit path); recurrence is
+    // cron-owned, so the next tick retries. A 'deferred' verdict means the
+    // lws miss was corroborated by (or could not be cleared against) monerod:
+    // never credit or exclude on it — alert and retry next tick.
+    let recheck
     try {
-      excluded = await recheckDetectedTip({ models, monero: lws, tip, confirmations })
+      recheck = await recheckDetectedTip({ models, monero: lws, daemon: client, tip, confirmations })
     } catch (err) {
       console.warn(`confirmFinalizer: self-send recheck failed for tip ${tip.id}: ${err && err.message}`)
       continue
     }
-    if (excluded) continue
+    if (recheck.action === 'excluded') continue
+    if (recheck.action === 'deferred') {
+      alert('warn', 'tip credit deferred: lws miss with on-chain tx',
+        `tip ${tip.id}: ${recheck.reason} — no credit this pass; will retry`,
+        { dedupeKey: `tip-credit-deferred-${tip.id}` })
+      continue
+    }
+    // Credit the amount the re-check reports when it carries one: the corrected
+    // chain amount, or — when it lost the binding race to the webhook — the
+    // amount the winner bound. Only the unscannable early-clean has no amount,
+    // and that documented fail-open edge falls back to the row snapshot.
+    const creditAmount = recheck.piconeros ?? tip.piconeros
 
     // Resolve the author via the tipped post. The ObservedTip.postId FK is
     // ON DELETE RESTRICT (non-nullable), so the Item cannot be deleted while
@@ -146,7 +179,7 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
       if (claimed > 0 && authorId != null && tip.recipientAccount?.label !== 'platform_rewards') {
         await tx.user.update({
           where: { id: authorId },
-          data: { stackedPiconeros: { increment: tip.piconeros } }
+          data: { stackedPiconeros: { increment: creditAmount } }
         })
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
@@ -164,6 +197,39 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
       console.log(`confirmFinalizer: tip ${tip.id} flipped to CONFIRMED (rewards-pool recipient); stackedPiconeros not bumped`)
     }
     confirmed += 1
+  }
+
+  // PASS 1b (NULL-height backstop): a DETECTED tip whose height is still NULL
+  // after the grace period may have lost every mined webhook. Nothing else
+  // scans it (maturity requires height NOT NULL; reconcilePendingTips and
+  // webhookMissCheck are PENDING-only) and the 48h stale sweep would reverse a
+  // real, paid tip. Re-check it through the same recheckDetectedTip gate the
+  // credit paths use: an anchored-hash lookup that backfills the height,
+  // trust-corrects the amount, defers (lws miss corroborated by monerod), or
+  // claims the corroborated TX_NOT_FOUND exclusion. Deliberately placed AFTER
+  // the credit pass and this pass does NOT credit: the next tick's
+  // height-not-null pass re-reads the row fresh and re-runs the same gate
+  // before any credit. Only anchored (64-hex) hashes are scanned — the
+  // fail-closed TX_NOT_FOUND corroboration is hash-keyed, so a row without a
+  // valid anchor is left to the existing sweeps rather than excluded on an
+  // uncheckable lws miss. Bounded by NULL_HEIGHT_BACKSTOP_BATCH_SIZE.
+  const backstopBefore = new Date(Date.now() - DETECTED_NULL_HEIGHT_BACKSTOP_AGE_MS)
+  const nullHeightTips = (await models.observedTip.findMany({
+    where: { state: 'DETECTED', height: null, detectedAt: { lt: backstopBefore } },
+    include: {
+      post: { select: { userId: true } },
+      recipientAccount: { select: { id: true, label: true, address: true, status: true, viewKey: true, lastTxId: true, subaddresses: { select: { majorIndex: true, minorIndex: true } } } }
+    },
+    take: NULL_HEIGHT_BACKSTOP_BATCH_SIZE
+  })).filter(tip => /^[0-9a-f]{64}$/i.test(tip.txHash))
+  for (const tip of nullHeightTips) {
+    try {
+      await recheckDetectedTip({ models, monero: lws, daemon: client, tip })
+    } catch (err) {
+      // Same fail-closed posture as the credit pass's re-check: skip this tip
+      // this run (recurrence is cron-owned, the next tick retries).
+      console.warn(`confirmFinalizer: NULL-height backstop re-check failed for tip ${tip.id}: ${err && err.message}`)
+    }
   }
 
   // Fee observations (rewardsWalletObserver): mature DETECTED fee
@@ -216,11 +282,13 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
 
   // ObservedDownvote (rewardsWalletObserver): mature DETECTED downvotes to
   // CONFIRMED at the same confirmation threshold. The ranking penalty
-  // (weightedDownVotes/downPiconeros) was already applied at DETECTION — mirroring
-  // how tips apply their effect at DETECTION — so CONFIRMED just finalizes the
-  // ledger row. Reorg reversal is deferred (consistent with the tip flow: a
-  // >10-block Monero reorg is negligible; consequence is minor ranking drift,
-  // not fund loss).
+  // (weightedDownVotes/downPiconeros) is applied by the shared verified
+  // NULL->height transition (applyDownvoteTransition), NOT at DETECTION: every
+  // insert path writes height NULL, so by the time a row is height-set here the
+  // transition whose CAS won has already applied the penalty exactly once.
+  // CONFIRMED just finalizes the ledger row. Reorg reversal is deferred
+  // (consistent with the tip flow: a >10-block Monero reorg is negligible;
+  // consequence is minor ranking drift, not fund loss).
   const downvotes = await models.observedDownvote.findMany({
     where: { state: 'DETECTED', height: { not: null } },
     take: SCAN_BATCH_SIZE
@@ -252,16 +320,29 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
   //     aborts and retries next run).
   const detectedBounties = await models.observedBounty.findMany({
     where: { state: 'DETECTED' },
-    include: { post: { select: { bountyPiconeros: true } } },
+    include: {
+      post: { select: { bountyPiconeros: true } },
+      receipts: { select: { piconeros: true, height: true } }
+    },
     take: SCAN_BATCH_SIZE
   })
   if (detectedBounties.length) {
-    // Skip fully-covered height-set bounties to bound the lws work — they only
-    // await the funding pass below. Shortness is computed the same way the
-    // 7-day sweep computes it (fee on the DECLARED amount, one config read).
+    // Skip fully-covered, fully-verified height-set bounties to bound the lws
+    // work — they only await the funding pass below. Eligibility is keyed off
+    // the COUNT-ELIGIBLE receipts (height-verified), never the display fold:
+    // ANY provisional (height-NULL) receipt needs this pass to claim its height
+    // from lws, and a mixed funding whose display fold crosses the quote while
+    // the counted sum does not would otherwise strand that top-up forever
+    // (PASS 2 refuses to fund; the 7-day sweep refunds the verified portion
+    // only). Shortness is computed the same way the 7-day sweep computes it
+    // (fee on the DECLARED amount, one config read).
     const bountyConfig = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
-    const reconcileBounties = detectedBounties.filter(b =>
-      b.height == null || b.piconeros < b.post.bountyPiconeros + bountyFeePiconeros(b.post.bountyPiconeros, bountyConfig))
+    const reconcileBounties = detectedBounties.filter(b => {
+      if (b.height == null || b.receipts.some(r => r.height == null)) return true
+      const expected = b.post.bountyPiconeros + bountyFeePiconeros(b.post.bountyPiconeros, bountyConfig)
+      const counted = b.receipts.reduce((sum, r) => r.height != null ? sum + r.piconeros : sum, 0n)
+      return counted < expected
+    })
     if (reconcileBounties.length) {
       await backfillNullBountyHeights({ models, lws, bounties: reconcileBounties })
     }
@@ -275,8 +356,12 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     const confirmations = chainHeight - bounty.height + 1
     if (confirmations < REQUIRED_CONFIRMATIONS) continue
     await models.$transaction(async (tx) => {
+      // driveBountyFunding self-computes its gate from the COUNT-ELIGIBLE
+      // receipts (height-verified). A bounty whose receipts are all provisional
+      // (daemon-level, amount-unverified) stays DETECTED until an lws sight
+      // claims their height via the atomic CAS.
       await driveBountyFunding(tx, bounty, {
-        txHash: bounty.txHash, height: bounty.height, confirmations, piconeros: bounty.piconeros
+        txHash: bounty.txHash, height: bounty.height, confirmations
       })
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   }
@@ -293,8 +378,10 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
 // cumulative sum. lws watches the bounty escrow account and reports each
 // incoming tx's block height, so a single get_address_txs scan per account
 // recovers every stranded bounty on it. Mirrors the reconcilePendingTips
-// lws-resolution pattern. The height column is only backfilled here when NULL
-// (set to the max matched tx height); the funding decision runs in
+// lws-resolution pattern. The height column is ADVANCED-ONLY here: a NULL row
+// is resolved to the max matched tx height and a height-set row advances to a
+// later top-up's height, but a matched tx below the stored anchor never lowers
+// it. The funding decision runs in
 // runConfirmFinalizerOnce's funding pass (which re-fetches height-not-null
 // rows), so a still-mempool tx (height null on lws too) is left untouched and
 // retries next run.
@@ -337,9 +424,13 @@ export async function backfillNullBountyHeights ({ models, lws, bounties }) {
         await recordBountyReceipt(models, bounty, { txHash: tx.hash, piconeros: tx.piconeros, height: tx.height })
         if (maxHeight == null || tx.height > maxHeight) maxHeight = tx.height
       }
-      // Only backfill once lws has a block height; a still-mempool tx (height
-      // null) stays NULL and retries next run.
-      if (maxHeight != null && bounty.height == null) {
+      // Advance the bounty's height to the max matched lws height (a NULL row
+      // is resolved; a height-set row with a later top-up advances to the
+      // newest receipt, so the maturity pass below is computed from the
+      // shallowest receipt). A still-mempool tx (height null) stays untouched
+      // and retries next run. Receipts themselves carry the count-eligible
+      // heights — this column is the funding row's display/maturity anchor.
+      if (maxHeight != null && (bounty.height == null || maxHeight > bounty.height)) {
         await models.observedBounty.update({
           where: { id: bounty.id },
           data: { height: maxHeight }
@@ -357,6 +448,10 @@ export async function backfillNullBountyHeights ({ models, lws, bounties }) {
 // get_address_txs scan of the platform rewards account resolves every stranded
 // row on it, matched by txHash. Still-mempool txs (height null on lws too) are
 // left untouched and retry next run. Mirrors backfillNullBountyHeights.
+// The downvote height resolution runs through applyDownvoteTransition, which
+// owns the ranking penalty on that NULL->height transition (Task 13) — a row
+// already transitioned by the webhook/observer CAS is a no-op here.
+// FeeObservation heights remain a plain ledger backfill (no ranking effect).
 export async function backfillNullObservationHeights ({ models, lws, downvotes, fees }) {
   if (!downvotes.length && !fees.length) return
   const account = await findRewardsAccount(models)
@@ -377,9 +472,17 @@ export async function backfillNullObservationHeights ({ models, lws, downvotes, 
   for (const dv of downvotes) {
     const tx = byHash.get(String(dv.txHash).toLowerCase())
     if (tx && tx.height != null) {
-      await models.observedDownvote.update({
-        where: { id: dv.id },
-        data: { height: tx.height, confirmations: tx.confirmations ?? 0 }
+      // The shared transition owns the penalty: this lws sight is the first
+      // verified height, so it also applies the LOG-scaled ranking penalty
+      // exactly once (the CAS is the gate — a webhook or observer that already
+      // transitioned the row makes this a no-op). The lws amount/txHash are the
+      // chain-verified values; any provisional callback amount is corrected here.
+      await applyDownvoteTransition({
+        models,
+        dv,
+        height: tx.height,
+        piconeros: tx.piconeros,
+        confirmations: tx.confirmations ?? 0
       })
     }
   }

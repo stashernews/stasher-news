@@ -357,7 +357,10 @@ export default {
       // Re-entry: a PENDING_FEE turf with a billing PayIn gets the SAME subaddress
       // back with a remainder-quoted URI — no new PayIn, no new subaddress, no
       // re-point of billingPayInId. Top-ups to the original address now complete
-      // the fee instead of stranding partials on an orphaned subaddress.
+      // the fee instead of stranding partials on an orphaned subaddress. When the
+      // fee is fully observed but not yet flipped (fullyPaid), return the payIn
+      // with a NULL URI: the client shows "waiting for confirmation" and must
+      // never fall through to the fresh mint (that would strand the partials).
       const reentry = await territoryReentryFunding(models, sub)
       if (reentry) {
         return {
@@ -565,9 +568,11 @@ export default {
     feeReceivedPiconeros: async (sub, args, { me, models }) => {
       if (!me || Number(sub.userId) !== Number(me.id)) return null
       if (!sub.billingPayInId) return 0n
+      // Countable states only — REORGED/EXPIRED rows must not read as payment
+      // progress (keeps the modal poll consistent with the reentry quote).
       const agg = await models.feeObservation.aggregate({
         _sum: { piconeros: true },
-        where: { payInId: sub.billingPayInId }
+        where: { payInId: sub.billingPayInId, state: { in: ['DETECTED', 'CONFIRMED'] } }
       })
       return agg._sum.piconeros ?? 0n
     },

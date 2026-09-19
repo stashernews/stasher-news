@@ -1,6 +1,7 @@
 /* eslint-env jest */
 import { runReverseStaleDetectionsOnce } from '@/worker/reverseStaleDetections'
 import { reverseBoostDetected } from '@/worker/rewardsWalletObserver'
+import { reverseDownvotePenalty } from '@/api/monero/downvote'
 import { alert } from '@/lib/alert'
 import { STALE_DETECTED_EXPIRY_MS } from '@/lib/constants'
 
@@ -11,6 +12,9 @@ import { STALE_DETECTED_EXPIRY_MS } from '@/lib/constants'
 // pages are assertable without a network side effect.
 jest.mock(`${process.cwd()}/worker/rewardsWalletObserver`, () => ({
   reverseBoostDetected: jest.fn().mockResolvedValue(undefined)
+}))
+jest.mock(`${process.cwd()}/api/monero/downvote`, () => ({
+  reverseDownvotePenalty: jest.fn().mockResolvedValue(undefined)
 }))
 jest.mock(`${process.cwd()}/lib/alert`, () => ({
   alert: jest.fn()
@@ -112,6 +116,80 @@ test('a lost claim (concurrent webhook advanced the row) reverses nothing', asyn
   }
   const out = await runReverseStaleDetectionsOnce({ models, monero: {}, reverse: async () => { throw new Error('must not reverse') } })
   expect(out.tips).toBe(0)
+})
+
+// --- ObservedDownvote (penalty applied ONLY by the NULL->height transition,
+// so only height-set DETECTED rows have something to reverse) ---
+
+// Emulates the DB applying the scan's WHERE clause so a missing/incorrect
+// height term in the sweep fails these tests loudly (mock normalization, same
+// idiom as the tip "skips rows with a height" test above).
+function filterDownvotes (rows, where) {
+  return rows.filter(r =>
+    r.state === where.state &&
+    (where.height === null
+      ? r.height === null
+      : where.height?.not === null
+        ? r.height !== null
+        : true) &&
+    (where.detectedAt?.lt ? r.detectedAt < where.detectedAt.lt : true))
+}
+
+function downvoteRow (overrides) {
+  return {
+    id: 7n,
+    postId: 42,
+    downvoterId: 5,
+    paymentId: 'dd01',
+    piconeros: 1000000000n,
+    height: null,
+    detectedAt: STALE,
+    state: 'DETECTED',
+    ...overrides
+  }
+}
+
+test('a stale NULL-height DETECTED downvote is NOT reversed (no penalty was ever applied)', async () => {
+  const execs = []
+  const models = {
+    observedTip: { findMany: async () => [], findFirst: async () => null },
+    observedDownvote: {
+      findMany: async ({ where }) => filterDownvotes([downvoteRow({ height: null })], where),
+      findFirst: async () => null
+    },
+    feeObservation: { findMany: async () => [] },
+    observedSubFee: { findMany: async () => [] },
+    $transaction: async (fn) => { await fn(claimTx(execs)) }
+  }
+  const out = await runReverseStaleDetectionsOnce({ models, monero: {}, reverse: async () => {} })
+  expect(out.downvotes).toBe(0)
+  expect(reverseDownvotePenalty).not.toHaveBeenCalled()
+  expect(execs.map(e => String(e.sql)).some(s => s.includes('"ObservedDownvote"') && s.includes("state = 'REORGED'"))).toBe(false)
+})
+
+test('a stale DETECTED downvote whose penalty WAS applied (verified height set) is reversed', async () => {
+  const execs = []
+  const models = {
+    observedTip: { findMany: async () => [], findFirst: async () => null },
+    observedDownvote: {
+      findMany: async ({ where }) => filterDownvotes([downvoteRow({ height: 2186635 })], where),
+      findFirst: async () => null
+    },
+    feeObservation: { findMany: async () => [] },
+    observedSubFee: { findMany: async () => [] },
+    $transaction: async (fn) => { await fn(claimTx(execs)) }
+  }
+  const out = await runReverseStaleDetectionsOnce({ models, monero: {}, reverse: async () => {} })
+  expect(out.downvotes).toBe(1)
+  expect(reverseDownvotePenalty).toHaveBeenCalledTimes(1)
+  expect(reverseDownvotePenalty).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ id: 42 }),
+    5,
+    1000000000n
+  )
+  const claim = execs.map(e => String(e.sql)).find(s => s.includes('"ObservedDownvote"') && s.includes("state = 'REORGED'"))
+  expect(claim).toContain('height IS NOT NULL')
 })
 
 test('fee reversal soft-deletes the live item only when NO CONFIRMED receipt exists', async () => {

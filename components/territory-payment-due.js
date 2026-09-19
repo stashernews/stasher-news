@@ -113,7 +113,11 @@ function PendingFeeRepay ({ sub }) {
       if (error) throw error
       if (payError) return
       const response = data?.paySub
-      if (response?.moneroUri) {
+      // Open on a URI-bearing response (still owed) OR a counter-bearing
+      // response with a NULL URI — the fully-observed-but-not-flipped state
+      // (the modal renders "waiting for confirmation", never a re-quote). The
+      // bare ACTIVE early-return has neither, so it stays modal-free.
+      if (response?.moneroUri || response?.expectedPiconeros != null) {
         showModal(onClose => (
           <TerritoryPendingFeeModal
             moneroUri={response.moneroUri}

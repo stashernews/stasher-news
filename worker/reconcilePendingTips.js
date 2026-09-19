@@ -7,6 +7,7 @@ import { applyTipDetected } from '@/api/monero/ranking'
 import { shouldExcludeTip, resolveItemSubName } from '@/api/monero/selfTip'
 import { RECONCILE_PENDING_AGE_MS, PENDING_EXPIRY_MS } from '@/lib/constants'
 import { alert } from '@/lib/alert'
+import { isUniqueViolation } from '@/lib/error'
 import { moneroPendingTips, moneroTipsRecoveredTotal, moneroTipsExpiredTotal } from '@/lib/metrics'
 
 // reconcilePendingTips — recover tips stranded in PENDING by a missed 0-conf webhook.
@@ -56,57 +57,96 @@ const RECONCILE_RECOVERED_CRITICAL = Number(process.env.RECONCILE_RECOVERED_CRIT
 
 // The atomic PENDING claim shared by the pid-keyed pass and the raw-decrypt
 // fallback: DETECTED or EXCLUDED, exactly-once vs the webhook and each other.
+// Duplicate-hash fold (review follow-up): the global ObservedTip.txHash unique
+// (one tx = one credit) must never turn a hash already credited to another tip
+// into an unhandled error that fails the cron run — the DETECTED claim guards
+// it with NOT EXISTS (a collision means the credit is taken: refuse cleanly,
+// the tip stays PENDING and expires at PENDING_EXPIRY_MS), the EXCLUDED claim
+// writes the hash only when free (the exclusion is the load-bearing effect;
+// the AbuseSignal keeps its own txHash copy), and the catch folds the
+// concurrent-race violation into the same clean no-op with a deduped alert
+// (same dedupeKey as the webhook's collision alert, so both collapse).
 async function claimTip ({ models, apply, tip, tx, amount, direct, isExcluded }) {
-  if (isExcluded) {
-    let excluded = false
+  try {
+    if (isExcluded) {
+      let excluded = false
+      await models.$transaction(async (txdb) => {
+        // Atomic conditional claim: only the first flipper (us or the
+        // webhook) wins. EXCLUDED is terminal — no apply, no streaks.
+        const claimed = await txdb.$executeRaw`
+          UPDATE "ObservedTip"
+          SET state = 'EXCLUDED', "exclusionReason" = ${direct ? 'DIRECT_SELF_TIP' : 'SELF_SEND'}::"TipExclusionReason",
+              "txHash" = CASE WHEN EXISTS (
+                SELECT 1 FROM "ObservedTip" o
+                WHERE o."txHash" = ${tx.hash} AND o.id <> ${tip.id}
+              ) THEN "txHash" ELSE ${tx.hash} END,
+              height = ${tx.height ?? null}, piconeros = ${amount}, confirmations = 0
+          WHERE id = ${tip.id} AND state = 'PENDING'`
+        if (claimed > 0) {
+          const subName = await resolveItemSubName(tip.postId, txdb)
+          await txdb.abuseSignal.create({
+            data: {
+              kind: direct ? 'SELF_TIP_EXCLUDED' : 'SELF_SEND_EXCLUDED',
+              subjectUserId: tip.post?.userId,
+              actorUserId: tip.tipperId ?? null,
+              tipId: tip.id,
+              postId: tip.postId,
+              subName,
+              piconeros: amount,
+              txHash: tx.hash,
+              paymentId: tip.paymentId,
+              details: direct
+                ? undefined
+                : { note: 'amount recorded as lws reported it (change-output inflation possible)' }
+            }
+          })
+          excluded = true
+        }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      return { excluded }
+    }
+    // Atomic conditional claim: only the first flipper (us or the webhook) wins.
+    // The recovery is an lws scan by construction, so the DETECTED row is
+    // stamped amountVerifiedAt: the credit path treats it as bound evidence and
+    // never trust-corrects it (a bound mismatch is forgery, not a correction).
+    // The NOT EXISTS is the duplicate-hash guard: a hash already credited to
+    // another tip loses the claim here (0 rows, recovered stays false) — the
+    // tip is left PENDING and expires at PENDING_EXPIRY_MS like any never-paid
+    // tip (the webhook's detection claim guards the same class).
+    let recovered = false
     await models.$transaction(async (txdb) => {
-      // Atomic conditional claim: only the first flipper (us or the
-      // webhook) wins. EXCLUDED is terminal — no apply, no streaks.
       const claimed = await txdb.$executeRaw`
         UPDATE "ObservedTip"
-        SET state = 'EXCLUDED', "exclusionReason" = ${direct ? 'DIRECT_SELF_TIP' : 'SELF_SEND'}::"TipExclusionReason",
-            "txHash" = ${tx.hash}, height = ${tx.height ?? null}, piconeros = ${amount}, confirmations = 0
-        WHERE id = ${tip.id} AND state = 'PENDING'`
+        SET state = 'DETECTED', "txHash" = ${tx.hash},
+            height = ${tx.height ?? null}, piconeros = ${amount}, confirmations = 0,
+            "amountVerifiedAt" = NOW()
+        WHERE id = ${tip.id} AND state = 'PENDING'
+          AND NOT EXISTS (
+            SELECT 1 FROM "ObservedTip" o
+            WHERE o."txHash" = ${tx.hash} AND o.id <> ${tip.id}
+          )`
       if (claimed > 0) {
-        const subName = await resolveItemSubName(tip.postId, txdb)
-        await txdb.abuseSignal.create({
-          data: {
-            kind: direct ? 'SELF_TIP_EXCLUDED' : 'SELF_SEND_EXCLUDED',
-            subjectUserId: tip.post?.userId,
-            actorUserId: tip.tipperId ?? null,
-            tipId: tip.id,
-            postId: tip.postId,
-            subName,
-            piconeros: amount,
-            txHash: tx.hash,
-            paymentId: tip.paymentId,
-            details: direct
-              ? undefined
-              : { note: 'amount recorded as lws reported it (change-output inflation possible)' }
-          }
-        })
-        excluded = true
+        const rankDelta = await apply(tip.postId, tip.tipperId, amount, txdb)
+        await txdb.$executeRaw`
+          UPDATE "ObservedTip" SET "rankPiconeros" = ${rankDelta}
+          WHERE id = ${tip.id} AND state = 'DETECTED'`
+        recovered = true
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-    return { excluded }
-  }
-  // Atomic conditional claim: only the first flipper (us or the webhook) wins.
-  let recovered = false
-  await models.$transaction(async (txdb) => {
-    const claimed = await txdb.$executeRaw`
-      UPDATE "ObservedTip"
-      SET state = 'DETECTED', "txHash" = ${tx.hash},
-          height = ${tx.height ?? null}, piconeros = ${amount}, confirmations = 0
-      WHERE id = ${tip.id} AND state = 'PENDING'`
-    if (claimed > 0) {
-      const rankDelta = await apply(tip.postId, tip.tipperId, amount, txdb)
-      await txdb.$executeRaw`
-        UPDATE "ObservedTip" SET "rankPiconeros" = ${rankDelta}
-        WHERE id = ${tip.id} AND state = 'DETECTED'`
-      recovered = true
+    return { recovered }
+  } catch (err) {
+    // Two concurrent claims for different pids can still collide inside the
+    // Serializable transaction (the NOT EXISTS above loses the common race).
+    // Either way the verdict is the same: the hash is already credited —
+    // refuse, alert (deduped with the webhook's collision alert), continue.
+    if (isUniqueViolation(err)) {
+      alert('warn', 'tip txHash collision refused',
+        `tip ${tip.id} recovery replayed tx ${tx.hash} already credited to another tip — no-op`,
+        { dedupeKey: `tip-collision-${tx.hash}` })
+      return { recovered: false, excluded: false, collision: true }
     }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-  return { recovered }
+    throw err
+  }
 }
 
 // One account's wrong-pid pass: match unmatched PENDING tips against the

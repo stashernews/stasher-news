@@ -22,6 +22,18 @@
 import { PrismaClient } from '@prisma/client'
 import { runConfirmFinalizerOnce, backfillNullBountyHeights, backfillNullObservationHeights } from '@/worker/confirmFinalizer'
 import { bountyFeePiconeros } from '@/api/monero/bounties'
+import { recheckDetectedTip } from '@/api/monero/selfTip'
+import { DETECTED_NULL_HEIGHT_BACKSTOP_AGE_MS } from '@/lib/constants'
+
+// Credit callers consume recheckDetectedTip's object contract; spy at the
+// module boundary (same pattern as test/api/monero/webhook.test.js) so the
+// lost-binding-race test can pin the caller's use of the winner-bound amount.
+// The default implementation stays REAL, so every other test exercises the
+// production re-check against the live DB.
+jest.mock(`${process.cwd()}/api/monero/selfTip`, () => {
+  const actual = jest.requireActual(`${process.cwd()}/api/monero/selfTip`)
+  return { ...actual, recheckDetectedTip: jest.fn(actual.recheckDetectedTip) }
+})
 
 const prisma = new PrismaClient()
 
@@ -137,11 +149,11 @@ function emptyLws () {
 // exercises ONLY the confirmFinalizer flip path. txHash must be unique under
 // the @@unique([txHash, recipientAccountId, recipientMajor, recipientMinor]).
 let tipSeq = 0
-async function seedTip ({ postId, piconeros, height, recipientAccountId }) {
+async function seedTip ({ postId, piconeros, height, recipientAccountId, txHash }) {
   tipSeq += 1
   const tip = await prisma.observedTip.create({
     data: {
-      txHash: 'cf' + String(tipSeq),
+      txHash: txHash ?? 'cf' + String(tipSeq),
       postId,
       tipperId: null,
       recipientAccountId,
@@ -175,13 +187,13 @@ function readUser (id) {
 // exercises ONLY the confirmFinalizer flip path. txHash/paymentId must be
 // unique under the @@unique([txHash, paymentId]).
 let downvoteSeq = 0
-async function seedDownvote ({ postId, piconeros, height }) {
+async function seedDownvote ({ postId, piconeros, height, downvoterId = null }) {
   downvoteSeq += 1
   const downvote = await prisma.observedDownvote.create({
     data: {
       txHash: 'odv' + String(downvoteSeq),
       postId,
-      downvoterId: null,
+      downvoterId,
       paymentId: 'odvtest' + String(downvoteSeq).padStart(8, '0') + '00000000',
       piconeros,
       height,
@@ -305,7 +317,9 @@ test('a mature DETECTED tip whose stored amount disagrees with the chain is EXCL
   const tip = await seedTip({ postId, piconeros: 5_000_000n, height: 200, recipientAccountId: account.id })
   // Post-detection state: the forged amount was applied at DETECTED (pre-
   // verification webhook callback) — mirror exactly what applyTipDetected did.
-  await prisma.observedTip.update({ where: { id: tip.id }, data: { tipperId, rankPiconeros: 3_500_000n } })
+  // amountVerifiedAt is SET: only a BOUND row disagreeing with the chain is
+  // forged evidence (CHAIN_MISMATCH); an unbound row would be trust-corrected.
+  await prisma.observedTip.update({ where: { id: tip.id }, data: { tipperId, rankPiconeros: 3_500_000n, amountVerifiedAt: new Date('2026-09-01T00:00:00Z') } })
   await prisma.itemUserAgg.create({ data: { userId: tipperId, itemId: postId, tipPiconeros: 5_000_000n } })
   await prisma.item.update({ where: { id: postId }, data: { upvotes: 1, piconeros: 5_000_000n, tipRankPiconeros: 3_500_000n, weightedVotes: 1.0 } })
 
@@ -339,6 +353,238 @@ test('a mature DETECTED tip whose stored amount disagrees with the chain is EXCL
   expect(signal.details.onChainPiconeros).toBe('1000000')
 })
 
+test('an unbound DETECTED tip is credited with the corrected chain amount, not the provisional one', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const tipperId = await createUser(); created.users.push(tipperId)
+  const postId = await createRoot(authorId, 'corrected-credit'); created.items.push(postId)
+  const account = await seedAccountWithViewKey()
+  // Provisional 1000n recorded at DETECTED by the pre-verification write; the
+  // row is UNBOUND (amountVerifiedAt null), so the re-check TRUST-CORRECTS it
+  // to the chain amount (400n) instead of excluding it.
+  const tip = await seedTip({ postId, piconeros: 1_000n, height: 200, recipientAccountId: account.id, txHash: 'bb'.repeat(32) })
+  // Post-detection state mirroring the CHAIN_MISMATCH test: the provisional
+  // delta was applied at DETECTED. The correction reverses it and re-applies
+  // at 400n inside recheckDetectedTip.
+  await prisma.observedTip.update({ where: { id: tip.id }, data: { tipperId, rankPiconeros: 700n } })
+  await prisma.itemUserAgg.create({ data: { userId: tipperId, itemId: postId, tipPiconeros: 1_000n } })
+  await prisma.item.update({ where: { id: postId }, data: { upvotes: 1, piconeros: 1_000n, tipRankPiconeros: 700n, weightedVotes: 1.0 } })
+
+  // lws reports the SAME tx hash at 400n — a correction, not a mismatch.
+  const correctedLws = {
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ hash: tip.txHash, height: 200, payment_id: tip.paymentId, piconeros: 400n, spent_outputs: [] }]
+    })
+  }
+
+  const baseline = (await prisma.user.findUnique({ where: { id: authorId }, select: { stackedPiconeros: true } })).stackedPiconeros
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(209), lwsClient: correctedLws })
+  const after = await prisma.user.findUnique({ where: { id: authorId }, select: { stackedPiconeros: true } })
+
+  const row = await readTip(tip.id)
+  expect(row.state).toBe('CONFIRMED')
+  expect(row.amountVerifiedAt).toBeInstanceOf(Date)
+  expect(after.stackedPiconeros - baseline).toBe(400n)
+})
+
+test('a lost binding race credits the amount the re-check reports, not the stale snapshot', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'lost-race-credit'); created.items.push(postId)
+  const account = await seedAccount()
+  // The finalizer's snapshot read is the provisional 1000n, but the re-check
+  // reports the row was already bound to the chain's 400n — the webhook won
+  // the binding race. The credit must use 400n, never the snapshot.
+  const tip = await seedTip({ postId, piconeros: 1_000n, height: 200, recipientAccountId: account.id })
+
+  const realRecheck = recheckDetectedTip.getMockImplementation()
+  recheckDetectedTip.mockImplementation(async (args) =>
+    args.tip.id === tip.id ? { action: 'clean', piconeros: 400n } : realRecheck(args))
+  try {
+    const baseline = (await readUser(authorId)).stackedPiconeros
+    await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(209), lwsClient: emptyLws() })
+    const after = await readUser(authorId)
+    expect((await readTip(tip.id)).state).toBe('CONFIRMED')
+    expect(after.stackedPiconeros - baseline).toBe(400n)
+  } finally {
+    recheckDetectedTip.mockImplementation(realRecheck)
+  }
+})
+
+test('a deferred re-check (lws miss corroborated by monerod) never credits or excludes, and retries next pass', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'deferred-credit'); created.items.push(postId)
+  const account = await seedAccountWithViewKey()
+  const tip = await seedTip({ postId, piconeros: 5_000_000n, height: 200, recipientAccountId: account.id, txHash: 'cc'.repeat(32) })
+  const baseline = (await readUser(authorId)).stackedPiconeros
+  // lws cannot see the tx but monerod still has it: the fail-closed verdict is
+  // 'deferred' — this pass must neither credit nor exclude.
+  const daemon = {
+    getHeight: async () => 209,
+    getTransactions: async () => [{ hash: tip.txHash }]
+  }
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: daemon, lwsClient: emptyLws() })
+
+  const after = await readTip(tip.id)
+  expect(after.state).toBe('DETECTED')
+  expect(after.amountVerifiedAt).toBeNull()
+  expect((await readUser(authorId)).stackedPiconeros).toBe(baseline)
+  const signal = await prisma.abuseSignal.findUnique({ where: { tipId: tip.id } })
+  expect(signal).toBeNull()
+})
+
+// PR1 credit-hole lock-in (audit 2026-09-11, finding 2; Task 4/5 object
+// contract): a forged DETECTED row whose tx exists NOWHERE — absent from lws
+// AND absent from monerod. The fail-closed corroboration must claim
+// TX_NOT_FOUND (EXCLUDED + AbuseSignal) and the credit pass must never bump the
+// author. (The deferred test above is the same lws miss when monerod still HAS
+// the tx — deferral, not exclusion.)
+test('a forged DETECTED tip whose tx never existed is excluded, never credited', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'forged-no-tx'); created.items.push(postId)
+  // The account must be scannable (view key present) or the re-check fails
+  // open with 'clean' before reaching the lws/monerod evidence.
+  const account = await seedAccountWithViewKey()
+  // Distinct from the deferred test's 'cc…' fixture: the global txHash unique
+  // (2026-09-19 hardening) makes duplicate hashes unrepresentable.
+  const tip = await seedTip({ postId, piconeros: 5_000n, height: 200, recipientAccountId: account.id, txHash: 'ce'.repeat(32) })
+  expect(tip.amountVerifiedAt).toBeNull()
+  const baseline = (await readUser(authorId)).stackedPiconeros
+
+  // lws reports no txs for the account and monerod does not know the anchored
+  // hash either — the tx never existed. Scope the empty monerod answer to OUR
+  // hash so any other live-DB DETECTED tip resolves 'deferred' (retry), never
+  // excluded by this run.
+  const daemon = {
+    getHeight: jest.fn().mockResolvedValue(209),
+    getTransactions: jest.fn().mockImplementation(async (hashes) =>
+      hashes.includes(tip.txHash) ? [] : [{ hash: hashes[0] }])
+  }
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: daemon, lwsClient: emptyLws() })
+
+  const after = await readTip(tip.id)
+  expect(after.state).toBe('EXCLUDED')
+  expect(after.exclusionReason).toBe('TX_NOT_FOUND')
+  // the author was never credited
+  expect((await readUser(authorId)).stackedPiconeros).toBe(baseline)
+  // the exclusion wrote its abuse signal transactionally (stored side recorded,
+  // on-chain side absent)
+  const signal = await prisma.abuseSignal.findUnique({ where: { tipId: tip.id } })
+  expect(signal.kind).toBe('TX_NOT_FOUND_EXCLUDED')
+  expect(signal.subjectUserId).toBe(authorId)
+  expect(signal.actorUserId).toBeNull()
+  expect(signal.details.storedPiconeros).toBe('5000')
+  expect(signal.details.onChainPiconeros).toBeNull()
+  expect(signal.details.storedTxHash).toBe(tip.txHash)
+  // the anchored hash was corroborated against monerod
+  expect(daemon.getTransactions).toHaveBeenCalledWith([tip.txHash])
+})
+
+// I3 (final whole-branch review): a tip detected at 0-conf (daemon level) can
+// sit DETECTED with height NULL. If every later mined webhook is lost, nothing
+// scans it — the maturity pass requires height NOT NULL, reconcilePendingTips
+// scans PENDING only, webhookMissCheck pages PENDING only — and at 48h
+// reverseStaleDetections would flip it REORGED, silently reversing a real,
+// paid tip. The bounded NULL-height backstop re-checks such rows through the
+// same recheckDetectedTip gate; it never credits in the same run (the credit
+// pass runs first), so a backfilled row is credited by the NEXT tick's
+// height-not-null pass after a fresh re-read.
+
+function backdated (ms) {
+  return new Date(Date.now() - ms)
+}
+
+test('the NULL-height DETECTED backstop backfills a mined tip older than the grace period (next run credits it)', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'null-height-backstop'); created.items.push(postId)
+  const account = await seedAccountWithViewKey()
+  // A bound row (amount already lws-verified; only the height is missing) —
+  // the shape left by a mempool-shaped lws sight. Backdate detection past the
+  // grace period so the backstop is willing to scan it.
+  const tip = await seedTip({ postId, piconeros: 5_000_000n, height: null, recipientAccountId: account.id, txHash: 'ab'.repeat(32) })
+  await prisma.observedTip.update({
+    where: { id: tip.id },
+    data: {
+      amountVerifiedAt: new Date(),
+      detectedAt: backdated(DETECTED_NULL_HEIGHT_BACKSTOP_AGE_MS + 60_000)
+    }
+  })
+  const lws = {
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: tip.txHash, height: 700, payment_id: tip.paymentId, piconeros: 5_000_000n, spent_outputs: [] }],
+      blockchain_height: 709
+    })
+  }
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(709), lwsClient: lws })
+
+  // Backstop run: height backfilled, but NOT credited in this same pass.
+  let after = await readTip(tip.id)
+  expect(after.height).toBe(700)
+  expect(after.state).toBe('DETECTED')
+  expect((await readUser(authorId)).stackedPiconeros).toBe(0n)
+
+  // Next run: the row is height-set and mature, so the normal credit pass
+  // (fresh DB re-read + re-check) credits it.
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(709), lwsClient: lws })
+  after = await readTip(tip.id)
+  expect(after.state).toBe('CONFIRMED')
+  expect(after.confirmations).toBe(10)
+  expect((await readUser(authorId)).stackedPiconeros).toBe(5_000_000n)
+})
+
+test('a fresh NULL-height DETECTED tip (inside the grace period) is NOT scanned by the backstop', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'fresh-null-height'); created.items.push(postId)
+  const account = await seedAccountWithViewKey()
+  const tip = await seedTip({ postId, piconeros: 5_000_000n, height: null, recipientAccountId: account.id, txHash: 'cd'.repeat(32) })
+  await prisma.observedTip.update({ where: { id: tip.id }, data: { amountVerifiedAt: new Date() } })
+  // The lws scan WOULD resolve this tip if the backstop scanned it — proving
+  // the absence of a scan via the row staying height-NULL and no lookup for
+  // this account.
+  const lws = {
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ id: 1, hash: tip.txHash, height: 700, payment_id: tip.paymentId, piconeros: 5_000_000n, spent_outputs: [] }],
+      blockchain_height: 709
+    })
+  }
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(709), lwsClient: lws })
+
+  const after = await readTip(tip.id)
+  expect(after.height).toBeNull()
+  expect(after.state).toBe('DETECTED')
+  const scansForAccount = lws.getAddressTxs.mock.calls.filter(call => call[0].id === account.id)
+  expect(scansForAccount).toHaveLength(0)
+})
+
+test('a stale NULL-height DETECTED tip whose tx is absent everywhere is corroborated and excluded (never silently stranded to REORGED)', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createRoot(authorId, 'absent-null-height'); created.items.push(postId)
+  const account = await seedAccountWithViewKey()
+  const tip = await seedTip({ postId, piconeros: 5_000n, height: null, recipientAccountId: account.id, txHash: 'ef'.repeat(32) })
+  await prisma.observedTip.update({
+    where: { id: tip.id },
+    data: { detectedAt: backdated(DETECTED_NULL_HEIGHT_BACKSTOP_AGE_MS + 60_000) }
+  })
+  const baseline = (await readUser(authorId)).stackedPiconeros
+  // monerod also has no such tx (only the anchored hash is asked; every other
+  // hash resolves non-empty so no unrelated live-DB row is excluded by this run).
+  const daemon = {
+    getHeight: jest.fn().mockResolvedValue(709),
+    getTransactions: jest.fn().mockImplementation(async (hashes) =>
+      hashes.includes(tip.txHash) ? [] : [{ hash: hashes[0] }])
+  }
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: daemon, lwsClient: emptyLws() })
+
+  const after = await readTip(tip.id)
+  expect(after.state).toBe('EXCLUDED')
+  expect(after.exclusionReason).toBe('TX_NOT_FOUND')
+  expect((await readUser(authorId)).stackedPiconeros).toBe(baseline)
+  const signal = await prisma.abuseSignal.findUnique({ where: { tipId: tip.id } })
+  expect(signal.kind).toBe('TX_NOT_FOUND_EXCLUDED')
+  expect(daemon.getTransactions).toHaveBeenCalledWith([tip.txHash])
+})
+
 test('a DETECTED ObservedDownvote becomes CONFIRMED at 10 confirmations', async () => {
   const authorId = await createUser(); created.users.push(authorId)
   const postId = await createRoot(authorId, 'downvote-confirm-target'); created.items.push(postId)
@@ -362,6 +608,40 @@ test('a DETECTED ObservedDownvote stays DETECTED below 10 confirmations', async 
   const after = await prisma.observedDownvote.findUnique({ where: { id: downvote.id } })
   expect(after.state).toBe('DETECTED')
   expect(after.confirmedAt).toBeNull()
+})
+
+// Task 13: a NULL-height downvote (observer/webhook detected the mempool tx
+// before it was mined) is transitioned by the lws backfill through the shared
+// applyDownvoteTransition — height AND the ranking penalty are applied exactly
+// once, no matter how many finalizer runs see the row.
+test('a NULL-height DETECTED downvote is transitioned via lws and penalised exactly once across two runs', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const downvoterId = await createUser(); created.users.push(downvoterId)
+  const postId = await createRoot(authorId, 'downvote-null-height'); created.items.push(postId)
+  const downvote = await seedDownvote({ postId, piconeros: 1_000_000_000n, height: null, downvoterId })
+  const HEIGHT = 2186635
+  const lws = {
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [{ hash: downvote.txHash, height: HEIGHT, confirmations: 12, piconeros: 1_000_000_000n }],
+      blockchain_height: HEIGHT + 10
+    })
+  }
+
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(HEIGHT + 10), lwsClient: lws })
+
+  let after = await prisma.observedDownvote.findUnique({ where: { id: downvote.id } })
+  expect(after.height).toBe(HEIGHT)
+  expect(after.state).toBe('CONFIRMED')
+  let item = await prisma.item.findUnique({ where: { id: postId } })
+  expect(item.downPiconeros).toBe(1_000_000_000n)
+
+  // Second run: the row is no longer height-NULL, so the transition CAS (and
+  // the penalty) must not fire again.
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(HEIGHT + 10), lwsClient: lws })
+  after = await prisma.observedDownvote.findUnique({ where: { id: downvote.id } })
+  expect(after.state).toBe('CONFIRMED')
+  item = await prisma.item.findUnique({ where: { id: postId } })
+  expect(item.downPiconeros).toBe(1_000_000_000n)
 })
 
 // Seed a DETECTED ObservedSubFee directly (bypassing the webhook) so the test
@@ -470,6 +750,11 @@ test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs d
   const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
   const feePiconeros = bountyFeePiconeros(5_000_000_000n, config)
   const bounty = await seedBounty({ postId, piconeros: 5_000_000_000n + feePiconeros, height: 700, recipientAccountId: account.id })
+  // Real fundings always carry the detection-time receipt (the webhook records
+  // it at DETECTED); the funding pass self-computes its gate from these rows.
+  await prisma.observedBountyReceipt.create({
+    data: { bountyId: bounty.id, txHash: 'rcpt' + bounty.id, piconeros: 5_000_000_000n + feePiconeros, height: 700 }
+  })
 
   await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(709), lwsClient: emptyLws() })
 
@@ -646,6 +931,61 @@ test('a HEIGHT-set short DETECTED bounty is reconciled too: both txs folded, hei
   expect(after.height).toBe(101)
 })
 
+// Fix round 1 regression (reconcile filter keys off the COUNT-ELIGIBLE sum, not
+// the display fold): a MIXED funding — one height-verified receipt + one
+// height-NULL receipt whose display fold crosses the quote while the counted sum
+// does not — must still reach backfillNullBountyHeights. On the old display
+// filter this bounty was excluded (display >= expected, height set), so the
+// provisional receipt's height was never claimed from lws, PASS 2 refused to
+// fund the counted-short sum, and at 7 days the sweep would abandon with the
+// verified portion refunded and the top-up stranded in escrow.
+test('a height-set bounty whose DISPLAY fold covers the quote but whose COUNTED sum is short is still reconciled (null-height receipt claimed via lws)', async () => {
+  const authorId = await createUser(); created.users.push(authorId)
+  const postId = await createBountyRoot(authorId, 'bounty-display-vs-counted', 1_000_000_000_000n)
+  const account = await seedAccountWithViewKey()
+  const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const expected = 1_000_000_000_000n + bountyFeePiconeros(1_000_000_000_000n, config)
+  // Split the quote across two receipts: verified (height 100) + provisional
+  // (height NULL, its webhook callbacks all lost). Display fold = expected, so
+  // the display-only filter skipped the reconcile; counted = verified only.
+  const verified = expected / 2n
+  const provisional = expected - verified
+  const bounty = await seedBounty({ postId, piconeros: expected, height: 100, recipientAccountId: account.id })
+  await prisma.observedBountyReceipt.create({
+    data: { bountyId: bounty.id, txHash: 'dv'.repeat(31) + '1', piconeros: verified, height: 100 }
+  })
+  await prisma.observedBountyReceipt.create({
+    data: { bountyId: bounty.id, txHash: 'dv'.repeat(31) + '2', piconeros: provisional, height: null }
+  })
+
+  // lws still sees both txs; the provisional one is now mined at height 101.
+  const lws = {
+    getAddressTxs: jest.fn().mockResolvedValue({
+      transactions: [
+        { payment_id: bounty.paymentId, hash: 'dv'.repeat(31) + '1', height: 100, piconeros: verified },
+        { payment_id: bounty.paymentId, hash: 'dv'.repeat(31) + '2', height: 101, piconeros: provisional }
+      ],
+      blockchain_height: 150
+    })
+  }
+  await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(150), lwsClient: lws })
+
+  // The bounty reached the reconcile set: its escrow account was scanned and
+  // the provisional receipt's height was claimed from lws. (Old filter: no scan
+  // for this account, receipt stayed NULL, bounty stayed DETECTED.)
+  const scannedIds = lws.getAddressTxs.mock.calls.map(c => c[0].id)
+  expect(scannedIds).toContain(account.id)
+  const receipts = await prisma.observedBountyReceipt.findMany({ where: { bountyId: bounty.id }, orderBy: { id: 'asc' } })
+  expect(receipts.map(r => r.height)).toEqual([100, 101])
+
+  // Counted now covers the quote, so the same run's funding pass funds it.
+  const after = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(after.state).toBe('CONFIRMED')
+  expect(after.height).toBe(101)
+  const item = await prisma.item.findUnique({ where: { id: postId } })
+  expect(item.bountyStatus).toBe('FUNDED')
+})
+
 test('invokes the reorg detector with the current chain height (Task D5 wiring)', async () => {
   const detectReorg = jest.fn()
   await runConfirmFinalizerOnce({ models: prisma, daemonClient: mockClient(210), detectReorg, lwsClient: emptyLws() })
@@ -708,18 +1048,20 @@ describe('backfillNullBountyHeights', () => {
 // match the actual interface. Everything else is verbatim from the plan.
 describe('backfillNullObservationHeights', () => {
   test('backfills NULL heights for DETECTED downvotes and fees from the lws rewards scan, keyed by txHash', async () => {
-    const downvote = { id: 1n, txHash: 'aaa', postId: 572, state: 'DETECTED', height: null }
+    const downvote = { id: 1n, txHash: 'aaa', postId: 572, downvoterId: 860, state: 'DETECTED', height: null }
     const fee = { id: 2n, txHash: 'bbb', feeType: 'POSTING', state: 'DETECTED', height: null }
     const account = { id: 2047, label: 'platform_rewards', status: 'ACTIVE', viewKey: { ciphertext: 'x' } }
     const models = {
       moneroAccount: { findFirst: jest.fn().mockResolvedValue(account) },
       observedDownvote: { update: jest.fn().mockResolvedValue({}) },
-      feeObservation: { update: jest.fn().mockResolvedValue({}) }
+      feeObservation: { update: jest.fn().mockResolvedValue({}) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      item: { findUnique: jest.fn().mockResolvedValue(null) }
     }
     const lws = {
       getAddressTxs: jest.fn().mockResolvedValue({
         transactions: [
-          { hash: 'aaa', height: 2186635, confirmations: 12, payment_id: 'bb82f32561ab78d1' },
+          { hash: 'aaa', height: 2186635, confirmations: 12, piconeros: 1_000_000_000n, payment_id: 'bb82f32561ab78d1' },
           { hash: 'bbb', height: null }, // still mempool on lws — must stay NULL
           { hash: 'ccc', height: 2186640 } // unrelated tx — no row to update
         ]
@@ -728,11 +1070,45 @@ describe('backfillNullObservationHeights', () => {
 
     await backfillNullObservationHeights({ models, lws, downvotes: [downvote], fees: [fee] })
 
-    expect(models.observedDownvote.update).toHaveBeenCalledWith({
-      where: { id: 1n },
-      data: { height: 2186635, confirmations: 12 }
-    })
+    // The downvote height is resolved through the shared transition CAS (which
+    // owns the penalty) — never a bare observedDownvote.update.
+    expect(models.observedDownvote.update).not.toHaveBeenCalled()
+    const [strings, ...vals] = models.$queryRaw.mock.calls[0]
+    const sql = strings.join(' ')
+    expect(sql).toContain('UPDATE "ObservedDownvote"')
+    expect(sql).toContain('height IS NULL')
+    expect(vals).toEqual(expect.arrayContaining([2186635, 1_000_000_000n, 12, 1n]))
     expect(models.feeObservation.update).not.toHaveBeenCalled() // bbb still mempool
+  })
+
+  test('applies the penalty exactly once across two runs (the second run is a no-op)', async () => {
+    const downvote = { id: 1n, txHash: 'aaa', postId: 572, downvoterId: 860, state: 'DETECTED', height: null }
+    const account = { id: 2047, label: 'platform_rewards', status: 'ACTIVE', viewKey: { ciphertext: 'x' } }
+    // The fake row state: the first CAS claims the transition (height now set);
+    // every later CAS on the same row matches 0 rows.
+    let heightSet = false
+    const models = {
+      moneroAccount: { findFirst: jest.fn().mockResolvedValue(account) },
+      $queryRaw: jest.fn(async () => {
+        if (heightSet) return []
+        heightSet = true
+        return [{ id: 1n }]
+      }),
+      item: { findUnique: jest.fn().mockResolvedValue({ id: 572, parentId: null }) },
+      $executeRaw: jest.fn().mockResolvedValue(1)
+    }
+    const lws = {
+      getAddressTxs: jest.fn().mockResolvedValue({
+        transactions: [{ hash: 'aaa', height: 2186635, confirmations: 12, piconeros: 1_000_000_000n }]
+      })
+    }
+
+    await backfillNullObservationHeights({ models, lws, downvotes: [downvote], fees: [] })
+    await backfillNullObservationHeights({ models, lws, downvotes: [downvote], fees: [] })
+
+    expect(models.$queryRaw).toHaveBeenCalledTimes(2) // both runs attempt the CAS
+    expect(models.item.findUnique).toHaveBeenCalledTimes(1) // only the winner reaches the penalty
+    expect(models.$executeRaw).toHaveBeenCalledTimes(1) // the ranking CTE ran exactly once
   })
 
   test('skips unscannable accounts (no view key) without throwing', async () => {

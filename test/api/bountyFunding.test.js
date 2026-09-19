@@ -20,6 +20,15 @@ import { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros, handl
 import { updateItem } from '@/api/resolvers/item'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
 import { bountyFeePiconeros } from '@/api/monero/bounties'
+import { alert } from '@/lib/alert'
+
+// The corrected-amount alert (provisional callback amount != lws-verified
+// amount at the height transition) pages operators; capture the calls without
+// a network side effect. Everything else in lib/alert stays real.
+jest.mock(`${process.cwd()}/lib/alert`, () => {
+  const actual = jest.requireActual(`${process.cwd()}/lib/alert`)
+  return { ...actual, alert: jest.fn() }
+})
 
 // item.js statically imports @/lib/lexical/server/mentions (ESM-only
 // mdast-util-from-markdown) via the payIn engine, and @/lib/lexical/server/html
@@ -214,7 +223,8 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   expect(feePiconeros).toBe(10_000_000_000n)
   const txHash = 'ab'.repeat(32)
   await prisma.$transaction(async (tx) => {
-    await driveBountyFunding(tx, bounty, { txHash, height: 123456, confirmations: 10, piconeros: observed })
+    await recordBountyReceipt(tx, bounty, { txHash, piconeros: observed, height: 123456 })
+    await driveBountyFunding(tx, bounty, { txHash, height: 123456, confirmations: 10 })
   })
 
   const afterBounty = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
@@ -271,7 +281,8 @@ test('driveBountyFunding books the fee from the DECLARED bounty: a minimum bount
   const observed = 12_000_000_000n
   const txHash = '52'.repeat(32)
   await prisma.$transaction(async (tx) => {
-    await driveBountyFunding(tx, bounty, { txHash, height: 123457, confirmations: 10, piconeros: observed })
+    await recordBountyReceipt(tx, bounty, { txHash, piconeros: observed, height: 123457 })
+    await driveBountyFunding(tx, bounty, { txHash, height: 123457, confirmations: 10 })
   })
 
   // Booked exactly the declared minimum — never below BOUNTY_MIN_PICONEROS.
@@ -534,7 +545,8 @@ test('driveBountyFunding holds an underfunded bounty at DETECTED, books no fee, 
 
   let funded
   await prisma.$transaction(async (tx) => {
-    funded = await driveBountyFunding(tx, bounty, { txHash: 'ab'.repeat(32), height: 100, confirmations: 10, piconeros: shortObserved })
+    await recordBountyReceipt(tx, bounty, { txHash: 'ab'.repeat(32), piconeros: shortObserved, height: 100 })
+    funded = await driveBountyFunding(tx, bounty, { txHash: 'ab'.repeat(32), height: 100, confirmations: 10 })
   })
 
   expect(funded).toBe(false)
@@ -558,20 +570,23 @@ test('receipts accumulate: a top-up crosses the quote and funds with the cumulat
   created.bounties.push(bounty.id)
 
   // two partial payments: 0.6 XMR then 0.41 XMR — cumulative 1.01 = the quote
-  let cumulative
+  let receipt
   await prisma.$transaction(async (tx) => {
-    cumulative = await recordBountyReceipt(tx, bounty, { txHash: 'cd'.repeat(32), piconeros: 600_000_000_000n, height: 100 })
-    cumulative = await recordBountyReceipt(tx, bounty, { txHash: 'ce'.repeat(32), piconeros: 410_000_000_000n, height: 101 })
-    // retried callback for the FIRST tx is a no-op (idempotent by txHash)
-    cumulative = await recordBountyReceipt(tx, bounty, { txHash: 'cd'.repeat(32), piconeros: 600_000_000_000n, height: 100 })
+    receipt = await recordBountyReceipt(tx, bounty, { txHash: 'cd'.repeat(32), piconeros: 600_000_000_000n, height: 100 })
+    receipt = await recordBountyReceipt(tx, bounty, { txHash: 'ce'.repeat(32), piconeros: 410_000_000_000n, height: 101 })
+    // retried callback for the FIRST tx is a no-op (idempotent by txHash; its
+    // height was already claimed, so the CAS matches 0 rows)
+    const replay = await recordBountyReceipt(tx, bounty, { txHash: 'cd'.repeat(32), piconeros: 600_000_000_000n, height: 100 })
+    expect(replay.transitioned).toBe(false)
   })
-  expect(cumulative).toBe(1_010_000_000_000n)
+  expect(receipt.display).toBe(1_010_000_000_000n)
+  expect(receipt.counted).toBe(1_010_000_000_000n)
   expect(await bountyExpectedPiconeros(prisma, bounty)).toBe(1_010_000_000_000n)
 
   await prisma.bountyPidMap.update({ where: { paymentId: out.paymentId }, data: { consumedAt: new Date() } })
   let funded
   await prisma.$transaction(async (tx) => {
-    funded = await driveBountyFunding(tx, bounty, { txHash: 'ce'.repeat(32), height: 101, confirmations: 10, piconeros: cumulative })
+    funded = await driveBountyFunding(tx, bounty, { txHash: 'ce'.repeat(32), height: 101, confirmations: 10 })
   })
 
   expect(funded).toBe(true)
@@ -580,6 +595,145 @@ test('receipts accumulate: a top-up crosses the quote and funds with the cumulat
   expect(afterItem.bountyPiconeros).toBe(1_010_000_000_000n - 10_000_000_000n)
   const feeRows = await prisma.feeObservation.findMany({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })
   expect(feeRows).toHaveLength(1)
+})
+
+// --- zero-conf count-eligibility (Task 11) ---
+//
+// A receipt recorded from a daemon-level (0-conf) verdict is provisional: the
+// tx + payment id + recipient output are proven, but the RingCT amount is not,
+// so the row is inserted with height NULL and is DISPLAY-ONLY. Only the atomic
+// NULL->height CAS (claimed by a chain-verified source: the lws callback or the
+// finalizer's lws reconcile) makes a receipt count toward FUNDED. Replaying an
+// already-height receipt matches zero CAS rows, so no value effect re-fires.
+
+test('a provisional (height-null) receipt is displayed but never gates FUNDED', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+
+  const out = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } })
+  const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
+  created.bounties.push(bounty.id)
+
+  // The daemon-verified 0-conf callback already claimed PENDING -> DETECTED
+  // (the claim is what admits a provisional receipt); the pid map is consumed.
+  await prisma.$executeRaw`
+    UPDATE "ObservedBounty"
+    SET state = 'DETECTED', "txHash" = ${'f1'.repeat(32)}, height = NULL,
+        piconeros = ${1_010_000_000_000n}, confirmations = 0
+    WHERE id = ${bounty.id}`
+  await prisma.bountyPidMap.update({ where: { paymentId: out.paymentId }, data: { consumedAt: new Date() } })
+
+  // The full quote arrived as a daemon-verified 0-conf callback: the amount is
+  // the callback's claim, the height is unknown (mempool) — display-only.
+  const txHash = 'f1'.repeat(32)
+  const provisional = 1_010_000_000_000n
+  let receipt
+  await prisma.$transaction(async (tx) => {
+    receipt = await recordBountyReceipt(tx, bounty, { txHash, piconeros: provisional, height: null })
+  })
+  expect(receipt.display).toBe(provisional)
+  expect(receipt.counted).toBe(0n)
+  expect(receipt.transitioned).toBe(false)
+
+  // The display fold covers the quote...
+  const displayed = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(displayed.piconeros).toBe(provisional)
+
+  // ...but the FUNDED gate must ignore the provisional receipt entirely.
+  let funded
+  await prisma.$transaction(async (tx) => {
+    funded = await driveBountyFunding(tx, bounty, { txHash, height: 100, confirmations: 10 })
+  })
+  expect(funded).toBe(false)
+  const afterBounty = await prisma.observedBounty.findUnique({ where: { id: bounty.id } })
+  expect(afterBounty.state).toBe('DETECTED')
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('PENDING_FUNDING')
+  const feeRows = await prisma.feeObservation.findMany({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })
+  expect(feeRows).toHaveLength(0)
+})
+
+test('backfilling height makes the receipt count-eligible; the funding flips FUNDED on counted-fee and a replay never re-fires', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+
+  const out = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } })
+  const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
+  created.bounties.push(bounty.id)
+
+  const txHash = 'f1'.repeat(32)
+  const observed = 1_010_000_000_000n
+  // Provisional first (daemon verdict), then the lws sight that claims the
+  // block height through the atomic NULL->height CAS.
+  await prisma.$transaction(async (tx) => {
+    await recordBountyReceipt(tx, bounty, { txHash, piconeros: observed, height: null })
+  })
+  let claimed
+  await prisma.$transaction(async (tx) => {
+    claimed = await recordBountyReceipt(tx, bounty, { txHash, piconeros: observed, height: 100 })
+  })
+  expect(claimed.transitioned).toBe(true)
+  expect(claimed.counted).toBe(observed)
+
+  // Replaying the same already-height receipt (lws retry, reconcile re-scan):
+  // the CAS matches zero rows — no second transition, no double count.
+  let replay
+  await prisma.$transaction(async (tx) => {
+    replay = await recordBountyReceipt(tx, bounty, { txHash, piconeros: observed, height: 100 })
+  })
+  expect(replay.transitioned).toBe(false)
+  expect(replay.counted).toBe(observed)
+
+  let funded
+  await prisma.$transaction(async (tx) => {
+    funded = await driveBountyFunding(tx, bounty, { txHash, height: 100, confirmations: 10 })
+  })
+  expect(funded).toBe(true)
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('FUNDED')
+  // Booked from the COUNTED amount (1.01e12 - 1e10 floor fee), not the display fold.
+  expect(afterItem.bountyPiconeros).toBe(1_000_000_000_000n)
+  const fee = await prisma.feeObservation.findFirst({ where: { txHash, feeType: 'BOUNTY_FEE' } })
+  expect(fee).toMatchObject({ piconeros: 10_000_000_000n, height: 100, state: 'CONFIRMED' })
+})
+
+test('a diverging provisional amount is corrected at the height transition and alerts (deduped per bounty+tx)', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+
+  const out = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } })
+  const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
+  created.bounties.push(bounty.id)
+
+  const txHash = 'f3'.repeat(32)
+  // The daemon-level callback claims the inflated amount (RingCT unverifiable
+  // at that level), then the lws sight proves the real on-chain amount.
+  await prisma.$transaction(async (tx) => {
+    await recordBountyReceipt(tx, bounty, { txHash, piconeros: 2_000_000_000_000n, height: null })
+  })
+  let claimed
+  await prisma.$transaction(async (tx) => {
+    claimed = await recordBountyReceipt(tx, bounty, { txHash, piconeros: 1_000_000_000_000n, height: 100 })
+  })
+  expect(claimed.transitioned).toBe(true)
+  expect(claimed.counted).toBe(1_000_000_000_000n)
+  const row = await prisma.observedBountyReceipt.findFirst({ where: { bountyId: bounty.id, txHash } })
+  expect(row.piconeros).toBe(1_000_000_000_000n)
+  expect(alert).toHaveBeenCalledWith(
+    'warn',
+    'bounty receipt amount corrected at height transition',
+    expect.stringContaining(txHash),
+    { dedupeKey: `bounty-receipt-corrected-${bounty.id}-${txHash}` }
+  )
 })
 
 function fire (body) {

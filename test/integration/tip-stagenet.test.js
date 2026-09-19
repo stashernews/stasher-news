@@ -22,6 +22,11 @@
 //   RUN_STAGENET_INTEGRATION=1
 // so a normal CI/local test run skips it (it needs a live stagenet stack and
 // ~20 min of wall-clock for confirmation). See the describe.skip block below.
+//
+// REAL SPENDS: when RUN_STAGENET_INTEGRATION=1 it BROADCASTS REAL STAGENET XMR
+// (a live tip tx to the author's integrated address, plus programmatic sends
+// when STAGENET_SENDER_SEED is set). Leave the gate unset except for a
+// deliberate run against throwaway stagenet wallets (see AGENTS.md).
 // -----------------------------------------------------------------------------
 //
 // =============================================================================
@@ -292,6 +297,55 @@ async function sendTipManual (integratedAddress, moneroUri, amountPiconeros) {
       throw err
     }
     console.log(`  DETECTED: tip id=${detected.id} piconeros=${detected.piconeros.toString()} height=${detected.height ?? 'mempool'}`)
+
+    // ---- 6b. 0-conf assertion: DETECTED with height NULL before mining ------
+    // Exit-gate property: the tip is observed (0-conf webhook, or the daemon
+    // mempool fallback / reconcile backstop) while still in the mempool, so the
+    // DETECTED row must carry height NULL. GUARD (never flake on a slow scan or
+    // a mining race): only assert when chain state PROVES the tx is unmined.
+    // lws's REST API cannot see mempool txs (0-conf design, Component C), so an
+    // lws sighting means the tx is mined; monerod seeing the tx while lws does
+    // not is the mempool signal. If the tx is already mined (or neither source
+    // can see it), log and move on instead of failing the run.
+    const detectionHash = /^[0-9a-f]{64}$/i.test(String(detected.txHash || run.tipHash || ''))
+      ? String(detected.txHash || run.tipHash).toLowerCase()
+      : null
+    let preMiningVerified = false
+    let guardSkipReason = 'no tx hash recorded on the DETECTED row'
+    if (detectionHash) {
+      try {
+        const guardAccount = await prisma.moneroAccount.findUnique({
+          where: { id: account.id },
+          include: { viewKey: true }
+        })
+        if (!guardAccount?.viewKey) {
+          guardSkipReason = 'author account has no view key; cannot consult lws for the mined state'
+        } else {
+          const lwsRes = await lwsClient.getAddressTxs(guardAccount, 0, null)
+          const lwsTx = (lwsRes.transactions || []).find(
+            (t) => String(t.hash || '').toLowerCase() === detectionHash
+          )
+          if (lwsTx) {
+            guardSkipReason = `tip tx already mined at lws height ${lwsTx.height ?? 'unknown'} by detection time`
+          } else {
+            const daemonTxs = await daemonClient.getTransactions([detectionHash])
+            const daemonTx = daemonTxs.find(
+              (t) => String(t.hash || '').toLowerCase() === detectionHash
+            )
+            if (daemonTx) preMiningVerified = true
+            else guardSkipReason = 'tip tx not visible to monerod or lws (scan lag?)'
+          }
+        }
+      } catch (err) {
+        guardSkipReason = `chain guard lookup failed (${err && err.message})`
+      }
+    }
+    if (preMiningVerified) {
+      expect(detected.height).toBeNull()
+      console.log('  0-conf assertion passed: DETECTED with height NULL while the tip tx is still in the mempool')
+    } else {
+      console.log(`  0-conf height===null assertion skipped: ${guardSkipReason}`)
+    }
 
     const tipAmount = detected.piconeros
 
