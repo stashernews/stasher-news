@@ -89,6 +89,20 @@ export async function runEmailDigest ({ models, transport, now = new Date() }) {
         continue
       }
 
+      // Defense-in-depth against address/hint drift (e.g. a dev tool or manual
+      // edit overwriting users.email before the ciphertext backfill): refuse to
+      // mail an address the user would not recognize in settings. Same
+      // skip-empty semantics — advance the watermark; re-linking rewrites
+      // ciphertext and hint together, making the user eligible again.
+      const to = decryptEmail(user.emailCiphertext)
+      if (user.emailHint && maskEmail({ email: to }) !== user.emailHint) {
+        logWarn(`emailDigest: user ${user.id} skipped: decrypted address does not match emailHint`)
+        await models.user.update({ where: { id: user.id }, data: { emailDigestSentAt: now } })
+        stats.skipped += 1
+        consecutiveFailures = 0
+        continue
+      }
+
       const unsubscribeUrl = `${siteUrl}/api/email/unsubscribe?u=${user.id}&t=${createUnsubscribeToken(user.id)}`
       const highlights = await getCommunityHighlights({
         models,
@@ -106,7 +120,7 @@ export async function runEmailDigest ({ models, transport, now = new Date() }) {
       })
 
       await transport.sendMail({
-        to: decryptEmail(user.emailCiphertext),
+        to,
         from,
         replyTo,
         subject: rendered.subject,
