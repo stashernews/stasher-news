@@ -112,14 +112,14 @@ async function seedAccount () {
 // treats it as scannable. The lwsClient is mocked in those tests, so the dummy
 // envelope is never actually decrypted — it just needs to be truthy.
 let viewAccountSeq = 1000
-async function seedAccountWithViewKey () {
+async function seedAccountWithViewKey ({ label = 'test', network = 'STAGENET' } = {}) {
   viewAccountSeq += 1
   const account = await prisma.moneroAccount.create({
     data: {
       ownerUserId: null,
       address: ADDR + 'vk' + String(viewAccountSeq),
-      label: 'test',
-      network: 'STAGENET',
+      label,
+      network,
       status: 'ACTIVE'
     }
   })
@@ -619,6 +619,14 @@ test('a NULL-height DETECTED downvote is transitioned via lws and penalised exac
   const downvoterId = await createUser(); created.users.push(downvoterId)
   const postId = await createRoot(authorId, 'downvote-null-height'); created.items.push(postId)
   const downvote = await seedDownvote({ postId, piconeros: 1_000_000_000n, height: null, downvoterId })
+  // The lws backfill resolves the scan account via findRewardsAccount — a
+  // platform_rewards row with a view key. A fresh CI database never has one
+  // (prisma seed creates no monero accounts), so the test provides its own;
+  // the network mirrors findRewardsAccount's env-derived filter.
+  await seedAccountWithViewKey({
+    label: 'platform_rewards',
+    network: (process.env.MONERO_NETWORK || 'STAGENET').toUpperCase()
+  })
   const HEIGHT = 2186635
   const lws = {
     getAddressTxs: jest.fn().mockResolvedValue({
