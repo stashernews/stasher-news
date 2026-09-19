@@ -5,11 +5,16 @@
 //   docker exec -w /app app npx tsx --tsconfig jsconfig.json \
 //     scripts/backfill-email-ciphertext.js --apply
 //
-// Pass 1: legacy plaintext `users.email` rows -> encrypt. The plaintext column
-// is nulled ONLY when the stored emailHash still matches the address (login
-// keeps working via the hash); no-hash or stale-hash rows keep plaintext.
-// Pass 2: ListMonk list-2 enabled subscribers -> hashEmail -> match emailHash.
-// Addresses are never printed; only counts and user ids.
+// Pass 1: legacy plaintext `users.email` rows -> encrypt. ONLY hash-verified
+// rows are touched: a stale/absent emailHash means users.email has drifted
+// from what the user actually verified (e.g. a dev login tool overwrote it) —
+// encrypting such a row would promote the drifted address into the digest
+// pipeline, and the send-boundary emailHint guard (maskEmail: first char +
+// domain) cannot disambiguate same-domain siblings. Stale rows are SKIPPED
+// entirely and reported; hash-verified plaintext is nulled after encryption
+// (login keeps working via the hash). Pass 2: ListMonk list-2 enabled
+// subscribers -> hashEmail -> match emailHash (hash-verified by
+// construction). Addresses are never printed; only counts and user ids.
 //
 // Before --apply on the VPS: confirm EMAIL_MASTER_KEY from the SOPS loader is the
 // intended persistent key, take a DB snapshot first, and never rotate
@@ -50,23 +55,28 @@ async function backfillPlaintext () {
   })
   let encrypted = 0
   let plaintextNulled = 0
-  const keepPlaintext = []
+  const skippedStaleHash = []
+  const skippedNoHash = []
   for (const row of rows) {
-    const nullPlaintext = row.emailHash != null && hashEmail({ email: row.email }) === row.emailHash
+    // Hash-verified only. A stale/absent emailHash means the stored plaintext
+    // may have drifted from what the user verified — the digest would mail a
+    // wrong address and the send-boundary emailHint guard (maskEmail: first
+    // char + domain) cannot catch same-domain siblings. Skip and report.
+    if (row.emailHash == null) { skippedNoHash.push(row.id); continue }
+    if (hashEmail({ email: row.email }) !== row.emailHash) { skippedStaleHash.push(row.id); continue }
     const envelope = encryptChecked(row.email, row.id)
-    if (!apply) { encrypted += 1; if (nullPlaintext) plaintextNulled += 1; else keepPlaintext.push(row.id); continue }
+    if (!apply) { encrypted += 1; plaintextNulled += 1; continue }
     await prisma.user.update({
       where: { id: row.id },
       data: {
         emailCiphertext: envelope,
-        ...(nullPlaintext ? { email: null } : {})
+        email: null
       }
     })
     encrypted += 1
-    if (nullPlaintext) plaintextNulled += 1
-    else keepPlaintext.push(row.id)
+    plaintextNulled += 1
   }
-  return { scanned: rows.length, encrypted, plaintextNulled, keepPlaintext }
+  return { scanned: rows.length, encrypted, plaintextNulled, skippedStaleHash, skippedNoHash }
 }
 
 async function fetchListMonkSubscribers () {
@@ -123,8 +133,11 @@ async function main () {
 
   const plaintext = await backfillPlaintext()
   console.log(`pass 1 (legacy plaintext): scanned ${plaintext.scanned}, encrypt ${plaintext.encrypted}, null plaintext ${plaintext.plaintextNulled}`)
-  if (plaintext.keepPlaintext.length) {
-    console.log(`pass 1: ${plaintext.keepPlaintext.length} row(s) keep plaintext (no emailHash or hash mismatch; login fallback): users ${plaintext.keepPlaintext.join(', ')}`)
+  if (plaintext.skippedStaleHash.length) {
+    console.log(`pass 1: ${plaintext.skippedStaleHash.length} row(s) SKIPPED (stale emailHash — stored email does not match what the user verified; kept as plaintext, NOT encrypted): users ${plaintext.skippedStaleHash.join(', ')}`)
+  }
+  if (plaintext.skippedNoHash.length) {
+    console.log(`pass 1: ${plaintext.skippedNoHash.length} row(s) SKIPPED (no emailHash): users ${plaintext.skippedNoHash.join(', ')}`)
   }
 
   const listmonk = await backfillListMonk()
