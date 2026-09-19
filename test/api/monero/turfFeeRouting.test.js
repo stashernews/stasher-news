@@ -7,7 +7,7 @@ import {
 } from '@/api/monero/turfFeeRouting'
 import { territorySchema } from '@/lib/validate'
 
-const config = { postingFeeFloorPiconeros: 1_000_000_000n, maxTurfPremiumPiconeros: 10_000_000_000n }
+const config = { postingFeeFloorPiconeros: 1_000_000_000n, commentFeePiconeros: 600_000_000n, maxTurfPremiumPiconeros: 10_000_000_000n }
 const sub = (name, userId, post = 0n, comment = 0n) => ({
   name, userId, postPremiumPiconeros: post, commentPremiumPiconeros: comment
 })
@@ -35,16 +35,21 @@ describe('premium math', () => {
     expect(postFeePiconerosForSubs(config, [sub('a', 1, 100n), sub('b', 2, 200n)])).toBe(2_000_000_300n)
   })
   it('adds single-sub comment premium only (multi-turf roots collect none)', () => {
-    expect(commentFeePiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n)])).toBe(1_700_000_000n)
-    expect(commentFeePiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n), sub('b', 2)])).toBe(1_000_000_000n)
+    expect(commentFeePiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n)])).toBe(1_300_000_000n)
+    expect(commentFeePiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n), sub('b', 2)])).toBe(600_000_000n)
   })
   it('floor-only helpers quote the platform FALLBACK charge even with stored premiums', () => {
     expect(postFloorPiconerosForSubs(config, [sub('a', 1, 500_000_000n), sub('b', 2, 200n)])).toBe(2_000_000_000n)
-    expect(commentFloorPiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n)])).toBe(1_000_000_000n)
+    expect(commentFloorPiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n)])).toBe(600_000_000n)
   })
   it('tolerates missing premium fields (legacy rows)', () => {
     expect(premiumPiconeros(config, {}, 'post')).toBe(0n)
-    expect(commentFeePiconerosForSubs(config, [{}])).toBe(1_000_000_000n)
+    expect(commentFeePiconerosForSubs(config, [{}])).toBe(600_000_000n)
+  })
+  it('prices comments from commentFeePiconeros, decoupled from the post floor', () => {
+    expect(postFloorPiconerosForSubs(config, [sub('a', 1)])).toBe(1_000_000_000n)
+    expect(commentFloorPiconerosForSubs(config, [sub('a', 1)])).toBe(600_000_000n)
+    expect(commentFeePiconerosForSubs(config, [sub('a', 1, 0n, 700_000_000n)])).toBe(1_300_000_000n)
   })
 })
 
@@ -76,7 +81,7 @@ describe('premiumPiconeros flag gate + config clamp', () => {
     delete process.env.TURF_OWNER_FEES
     const s = sub('turf', 2, 5_000_000_000n, 3_000_000_000n)
     expect(postFeePiconerosForSubs(config, [s])).toBe(1_000_000_000n)
-    expect(commentFeePiconerosForSubs(config, [s])).toBe(1_000_000_000n)
+    expect(commentFeePiconerosForSubs(config, [s])).toBe(600_000_000n)
   })
 })
 

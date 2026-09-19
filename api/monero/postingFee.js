@@ -26,6 +26,12 @@ export function postingFeePiconeros (config) {
   return config.postingFeeFloorPiconeros
 }
 
+/** The flat comment/reply fee, in piconeros (operator-tunable, decoupled from
+ * the posting floor so comments can be priced below posts). */
+export function commentFeePiconeros (config) {
+  return config.commentFeePiconeros
+}
+
 /** Daily free-comment quota for the user's current tier (2 low-rep, 5 established). */
 export function freeCommentsQuota (user, config) {
   if (!user) return 0

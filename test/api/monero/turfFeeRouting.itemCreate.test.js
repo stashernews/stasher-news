@@ -15,6 +15,7 @@
 
 import { getInitial } from '@/api/payIn/types/itemCreate'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
+import { moneroUriAmountPiconeros } from '@/lib/format'
 
 jest.mock('../../../lib/lexical/server/mentions', () => ({
   __esModule: true, extractMentions: () => ({ userNames: [], itemIds: [] })
@@ -42,7 +43,7 @@ jest.mock('../../../api/monero/lwsClient', () => ({
 // base58+checksum, so makeIntegratedAddress can derive an integrated address.
 const PRIMARY = '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
 
-const config = { postingFeeFloorPiconeros: 1_000_000_000n, maxTurfPremiumPiconeros: 10_000_000_000n, freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7, minTipPiconeros: 100_000_000n }
+const config = { postingFeeFloorPiconeros: 1_000_000_000n, commentFeePiconeros: 600_000_000n, maxTurfPremiumPiconeros: 10_000_000_000n, freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7, minTipPiconeros: 100_000_000n }
 
 // 'turf' is owned by userId 42 (with optional premiums); 'other' is owned by
 // userId 99 with no premiums (the cross-post test's second turf).
@@ -163,7 +164,7 @@ describe('ITEM_CREATE getInitial routing', () => {
     const r = await getInitial(m, { parentId: '123', subNames: null }, { me: lowRepMe })
     expect(r.moneroPaymentId).toMatch(/^[0-9a-f]{16}$/)
     expect(reserveFeeSubaddress).not.toHaveBeenCalled()
-    expect(r.moneroUri).toContain('tx_amount=0.0012')
+    expect(moneroUriAmountPiconeros(r.moneroUri)).toBe(800_000_000n)
   })
 
   it('comments fall back to the platform subaddress charging FLOOR ONLY (no premium)', async () => {
@@ -176,7 +177,7 @@ describe('ITEM_CREATE getInitial routing', () => {
     const r = await getInitial(m, { parentId: '123', subNames: null }, { me: lowRepMe })
     expect(r.moneroPaymentId).toBeUndefined()
     expect(reserveFeeSubaddress).toHaveBeenCalled()
-    expect(r.moneroUri).toContain('tx_amount=0.001')
-    expect(r.moneroUri).not.toContain('0.0012')
+    expect(moneroUriAmountPiconeros(r.moneroUri)).toBe(600_000_000n)
+    expect(r.moneroUri).not.toContain('0.0008')
   })
 })

@@ -9,7 +9,7 @@
 //   - that turf's owner has a registered MoneroAccount.
 // Everything else keeps today's rewards-wallet subaddress routing.
 
-import { postingFeePiconeros } from '@/api/monero/postingFee'
+import { postingFeePiconeros, commentFeePiconeros } from '@/api/monero/postingFee'
 
 export function turfOwnerFeesEnabled () {
   return process.env.TURF_OWNER_FEES === '1'
@@ -44,7 +44,7 @@ export function postFeePiconerosForSubs (config, nonOwnedSubs) {
  */
 export function commentFeePiconerosForSubs (config, nonOwnedSubs) {
   const premium = nonOwnedSubs.length === 1 ? premiumPiconeros(config, nonOwnedSubs[0], 'comment') : 0n
-  return postingFeePiconeros(config) + premium
+  return commentFeePiconeros(config) + premium
 }
 
 /** Floor-only variants: what a platform-wallet FALLBACK charges. Owner
@@ -56,7 +56,7 @@ export function postFloorPiconerosForSubs (config, nonOwnedSubs) {
 }
 
 export function commentFloorPiconerosForSubs (config, nonOwnedSubs) {
-  return postingFeePiconeros(config)
+  return commentFeePiconeros(config)
 }
 
 export async function resolveOwnerFeeRouteForSub (models, subName) {

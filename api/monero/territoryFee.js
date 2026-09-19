@@ -28,8 +28,9 @@ export const TERRITORY_FEE_PRIVATES_ZERO = {
 }
 
 // UserPrivates bundle (self-view only): the live territory fees plus the flat
-// comment fee (the posting-fee floor — comments beyond the 15/month freebie
-// quota cost the same as a low-rep posting fee).
+// comment fee (the commentFeePiconeros config knob — comments beyond the daily
+// freebie quota (2/day low-rep, 5/day established) pay this instead of the
+// posting floor).
 export async function territoryFeePrivatesFor (models, viewerId) {
   if (!viewerId) return { ...TERRITORY_FEE_PRIVATES_ZERO }
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
@@ -38,7 +39,7 @@ export async function territoryFeePrivatesFor (models, viewerId) {
     territoryMonthlyPiconeros: config.territoryMonthlyPiconeros,
     territoryYearlyPiconeros: config.territoryYearlyPiconeros,
     territoryOncePiconeros: config.territoryOncePiconeros,
-    commentFeePiconeros: config.postingFeeFloorPiconeros
+    commentFeePiconeros: config.commentFeePiconeros
   }
 }
 

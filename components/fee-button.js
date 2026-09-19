@@ -5,7 +5,7 @@ import Info from './info'
 import styles from './fee-button.module.css'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
-import { ANON_COMMENT_FEE_MULTIPLIER, ANON_POST_FEE_MULTIPLIER, DEFAULT_POSTING_FEE_PICONEROS, FAST_POLL_INTERVAL_MS, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, SSR } from '@/lib/constants'
+import { ANON_COMMENT_FEE_MULTIPLIER, ANON_POST_FEE_MULTIPLIER, DEFAULT_COMMENT_FEE_PICONEROS, DEFAULT_POSTING_FEE_PICONEROS, FAST_POLL_INTERVAL_MS, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, SSR } from '@/lib/constants'
 import { piconerosToMXmr } from '@/lib/format'
 import { useMe } from './me'
 import AnonIcon from '@/svgs/spy-fill.svg'
@@ -30,17 +30,16 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
         }
       }
 
-  // Comments and bios: free while the monthly freebie quota lasts (bios are
+  // Comments and bios: free while the daily freebie quota lasts (bios are
   // always freebies); beyond the quota each comment costs the flat comment fee
-  // (commentFeePiconeros — the postingFeeFloorPiconeros default) to the
-  // platform rewards wallet.
+  // (the commentFeePiconeros config knob) to the platform rewards wallet.
   if (comment || bio) {
     const nonOwnedSubs = me ? subs.filter(s => Number(s.userId) !== Number(me.id)) : subs
     const ownerFree = subs.length > 0 && nonOwnedSubs.length === 0
     const freebie = ownerFree || !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
     const commentFee = me?.privates?.commentFeePiconeros
       ? BigInt(me.privates.commentFeePiconeros)
-      : (me ? 0n : DEFAULT_POSTING_FEE_PICONEROS)
+      : (me ? 0n : DEFAULT_COMMENT_FEE_PICONEROS)
     if (freebie) {
       return {
         baseCost: {
@@ -64,7 +63,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
         term: `+ ${piconerosToMXmr(commentFee)}`,
         label: 'comment fee',
         // base line so the itemRepetition multiplier (op '*') scales it
-        // server-side too: 0.001 x 1.5^n (sortHelper runs _ first, then * and /)
+        // server-side too: 0.0006 x 1.5^n (sortHelper runs _ first, then * and /)
         op: '_',
         modifier: () => Number(commentFee / 1000n),
         allowFreebies: false,

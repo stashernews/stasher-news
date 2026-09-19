@@ -93,8 +93,8 @@ export async function getInitial (models, args, { me }) {
   // piconeros=0 -> payInState=PAID; the post's VISIBILITY is gated independently by
   // Item.feeStatus (set in onBegin), which the rewardsWalletObserver flips PENDING_FEE ->
   // FEE_PAID when it observes the fee output.
-  // Comments are free within the 15/month freebie quota; beyond it each comment
-  // costs the flat comment fee (see below).
+  // Comments are free within the daily freebie quota (2/day low-rep, 5/day
+  // established); beyond it each comment costs the flat comment fee (see below).
   const beneficiaries = []
   let uploadFeesPiconeros = 0n
   if (args.uploadIds?.length) {
@@ -161,7 +161,8 @@ export async function getInitial (models, args, { me }) {
   if (args.parentId) {
     // StasherNews comment fee (spec §6.2): comments are free while the author has
     // freebies left (2/day low-rep, 5/day established, resetting 00:00 UTC); beyond
-    // the quota each comment costs the flat comment fee (postingFeeFloorPiconeros)
+    // the quota each comment costs the flat comment fee (commentFeePiconeros,
+    // the operator-tunable flat comment fee)
     // to the platform rewards wallet, observed by the rewardsWalletObserver like
     // the posting fee. The fee is FLAT — it never scales with the root post's
     // turfs. Anon comments pay the comment fee x ANON_COMMENT_FEE_MULTIPLIER.

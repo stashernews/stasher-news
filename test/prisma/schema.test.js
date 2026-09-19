@@ -241,6 +241,13 @@ test('PlatformFeeConfig has the A-13 bounty fee fields', () => {
   expect(byName.bountyExpiryDays.default).toBe(30)
 })
 
+test('PlatformFeeConfig has the commentFeePiconeros knob', () => {
+  const fields = allModels.find(m => m.name === 'PlatformFeeConfig').fields
+  const byName = Object.fromEntries(fields.map(f => [f.name, f]))
+  expect(byName.commentFeePiconeros.type).toBe('BigInt')
+  expect(byName.commentFeePiconeros.default).toBe('600000000')
+})
+
 test('User and AuthChallenge have the recovery-phrase auth fields', () => {
   const userFields = fieldsOf('User')
   expect(userFields).toContain('phrasePubkey')

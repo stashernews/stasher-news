@@ -23,6 +23,7 @@ import { onPaid, getInitial } from '@/api/payIn/types/itemCreate'
 import { performBotBehavior, countNonOwnedSubs } from '@/api/payIn/lib/item'
 import { flipPendingToLive } from '@/worker/rewardsWalletObserver'
 import { USER_ID } from '@/lib/constants'
+import { moneroUriAmountPiconeros } from '@/lib/format'
 
 // itemCreate.js statically imports @/lib/lexical/server/mentions (ESM-only
 // mdast-util-from-markdown, which next/jest does not transform from node_modules)
@@ -240,7 +241,7 @@ test('getInitial returns a posting-fee URI for established authors who exhausted
   expect(result.moneroSubaddressMajor).toBe(1)
 })
 
-// --- Fix 4: comments beyond the 15/month freebie quota pay a flat comment fee ---
+// --- Fix 4: comments beyond the daily freebie quota pay a flat comment fee ---
 test('getInitial returns a comment-fee URI for authors past the freebie quota', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
@@ -250,7 +251,7 @@ test('getInitial returns a comment-fee URI for authors past the freebie quota', 
   const result = await getInitial(prisma, { parentId: '999' }, { me: { id: userId } })
   expect(result.piconeros).toBe(0n)
   expect(result.moneroUri).toMatch(/^monero:/)
-  expect(result.moneroUri).toContain('tx_amount=0.001')
+  expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(600_000_000n)
   expect(result.moneroSubaddressMajor).toBe(1)
 })
 
@@ -260,7 +261,7 @@ test('getInitial returns a x3 anon comment-fee URI for anonymous comments', asyn
   const result = await getInitial(prisma, { parentId: '999' }, { me: { id: USER_ID.anon } })
   expect(result.piconeros).toBe(0n)
   expect(result.moneroUri).toMatch(/^monero:/)
-  expect(result.moneroUri).toContain('tx_amount=0.003') // 0.001 x 3
+  expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(1_800_000_000n) // 0.0006 x 3
   expect(result.moneroSubaddressMajor).toBe(1)
 })
 
@@ -304,7 +305,7 @@ test('getInitial escalates the comment fee x1.5 for a repeat reply within 10m', 
   created.items.push(replyId)
   const result = await getInitial(prisma, { parentId: String(parentId) }, { me: { id: userId } })
   expect(result.moneroUri).toMatch(/^monero:/)
-  expect(result.moneroUri).toContain('tx_amount=0.0015') // 0.001 x 1.5^1
+  expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(900_000_000n) // 0.0006 x 1.5^1
 })
 
 // --- A-07: uploads over 10MB are charged on new posts ---
@@ -528,7 +529,7 @@ describe('getInitial — turf-owner fee waiver', () => {
     expect(result.moneroUri).toContain('tx_amount=0.02')
   })
 
-  test('a comment past quota in a 2-non-owned-turf thread charges the flat 0.001 XMR fee', async () => {
+  test('a comment past quota in a 2-non-owned-turf thread charges the flat 0.0006 XMR fee', async () => {
     const userId = await createUser()
     const otherId = await createUser()
     await ensureFeeConfig()
@@ -550,13 +551,13 @@ describe('getInitial — turf-owner fee waiver', () => {
     created.items.push(rootId)
     const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: userId } })
     expect(result.moneroUri).toMatch(/^monero:/)
-    expect(result.moneroUri).toContain('tx_amount=0.001')
+    expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(600_000_000n)
   })
 
   // --- the comment fee is flat: it never scales with the root post's turfs ---
   // (only top-level posts pay per non-owned turf; a replier's cost must not
   // depend on how many turfs the AUTHOR chose to post to)
-  test('a comment past quota in a mixed (1 owned + 1 non-owned) turf thread charges the flat 0.001 XMR fee', async () => {
+  test('a comment past quota in a mixed (1 owned + 1 non-owned) turf thread charges the flat 0.0006 XMR fee', async () => {
     const ownerId = await createUser()
     const otherId = await createUser()
     await ensureFeeConfig()
@@ -577,10 +578,10 @@ describe('getInitial — turf-owner fee waiver', () => {
     created.items.push(rootId)
     const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: ownerId } })
     expect(result.moneroUri).toMatch(/^monero:/)
-    expect(result.moneroUri).toContain('tx_amount=0.001')
+    expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(600_000_000n)
   })
 
-  test('an anon comment in a 2-non-owned-turf thread pays the flat 0.003 XMR fee (x3 anon, no turf scaling)', async () => {
+  test('an anon comment in a 2-non-owned-turf thread pays the flat 0.0018 XMR fee (x3 anon, no turf scaling)', async () => {
     await ensureFeeConfig()
     const otherId = await createUser()
     const a = `anonc-a-${Date.now()}`
@@ -599,7 +600,7 @@ describe('getInitial — turf-owner fee waiver', () => {
     created.items.push(rootId)
     const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: USER_ID.anon } })
     expect(result.moneroUri).toMatch(/^monero:/)
-    expect(result.moneroUri).toContain('tx_amount=0.003') // 0.001 x 3 anon — not x2 turfs
+    expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(1_800_000_000n) // 0.0006 x 3 anon — not x2 turfs
   })
 })
 

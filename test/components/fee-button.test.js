@@ -62,11 +62,11 @@ describe('postCommentBaseLineItems — posts', () => {
   test('anonymous comments show the comment fee x3', () => {
     const lines = postCommentBaseLineItems({ comment: true, me: null })
     expect(Object.keys(lines).sort()).toEqual(['anonCharge', 'commentFee'])
-    // base comment fee (0.001) then x3 anon mult -> total 0.003
+    // base comment fee (0.0006) then x3 anon mult -> total 0.0018
     const total = [lines.commentFee, lines.anonCharge]
       .sort((a, b) => (a.op === '_' ? -1 : 1))
       .reduce((cost, line) => line.modifier(cost), 0)
-    expect(piconerosToMXmr(BigInt(total) * 1000n)).toBe('3 mXMR')
+    expect(piconerosToMXmr(BigInt(total) * 1000n)).toBe('1.8 mXMR')
   })
 })
 
