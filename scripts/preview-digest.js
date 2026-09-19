@@ -77,7 +77,7 @@ async function main () {
   })
 
   console.log(`subject: ${rendered.subject}`)
-  console.log(`activity: ${sections.replies.length} replies, ${sections.mentions.length + sections.itemMentions.length} mentions, ${sections.subscriptions.length} subscriptions, ${sections.money.rows.length} money rows, ${highlights.length} highlights\n`)
+  console.log(`activity: ${sections.replies.length} replies, ${sections.mentions.length + sections.itemMentions.length} mentions, ${sections.subscriptions.length} subscriptions, ${highlights.length} highlights\n`)
   console.log(rendered.text)
 
   fs.writeFileSync(htmlPath, rendered.html)
