@@ -90,9 +90,13 @@ async function main () {
       process.exit(1)
     }
     const transport = nodemailer.createTransport(process.env.LOGIN_EMAIL_SERVER)
+    const from = process.env.DIGEST_EMAIL_FROM || process.env.LOGIN_EMAIL_FROM
+    if (!process.env.DIGEST_EMAIL_FROM) {
+      console.warn('DIGEST_EMAIL_FROM unset; sending from LOGIN_EMAIL_FROM')
+    }
     await transport.sendMail({
       to,
-      from: process.env.DIGEST_EMAIL_FROM || process.env.LOGIN_EMAIL_FROM,
+      from,
       replyTo: process.env.DIGEST_EMAIL_REPLY_TO || undefined,
       subject: `[preview] ${rendered.subject}`,
       text: rendered.text,

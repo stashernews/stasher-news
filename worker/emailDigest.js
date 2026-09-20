@@ -63,7 +63,11 @@ function isQuotaError (err) {
 
 export async function runEmailDigest ({ models, transport, now = new Date() }) {
   const siteUrl = process.env.NEXT_PUBLIC_URL
-  const from = process.env.DIGEST_EMAIL_FROM || process.env.LOGIN_EMAIL_FROM
+  const digestFrom = process.env.DIGEST_EMAIL_FROM
+  const from = digestFrom || process.env.LOGIN_EMAIL_FROM
+  if (!digestFrom) {
+    logWarn('emailDigest: DIGEST_EMAIL_FROM unset; falling back to LOGIN_EMAIL_FROM')
+  }
   const replyTo = process.env.DIGEST_EMAIL_REPLY_TO || undefined
   const budget = dailyBudget()
 
