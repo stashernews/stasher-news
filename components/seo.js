@@ -31,6 +31,26 @@ function capturePath ({ path, branding }) {
   return `/~${branding.subName}${path}`
 }
 
+const OG_IMAGE_WIDTH = 1200
+const OG_IMAGE_HEIGHT = 630
+const OG_IMAGE_TYPE = 'image/png'
+
+function captureImageMeta (url, alt) {
+  return {
+    image: {
+      url,
+      width: OG_IMAGE_WIDTH,
+      height: OG_IMAGE_HEIGHT,
+      type: OG_IMAGE_TYPE,
+      alt
+    },
+    twitterMetas: [
+      { name: 'twitter:image', content: url },
+      { name: 'twitter:image:alt', content: alt }
+    ]
+  }
+}
+
 export function SeoSearch ({ sub }) {
   const router = useRouter()
   const { branding, brand, siteName, twitter } = useSiteSeo()
@@ -42,6 +62,7 @@ export function SeoSearch ({ sub }) {
   const desc = branding
     ? `${brand} search: ${query}`
     : `SN${subStr} search: ${query}`
+  const { image, twitterMetas } = captureImageMeta('https://capture.stasher.news' + imagePath, title)
 
   return (
     <NextSeo
@@ -50,14 +71,11 @@ export function SeoSearch ({ sub }) {
       openGraph={{
         title,
         description: desc,
-        images: [
-          {
-            url: 'https://capture.stasher.news' + imagePath
-          }
-        ],
+        images: [image],
         site_name: siteName
       }}
       twitter={twitter}
+      additionalMetaTags={twitterMetas}
     />
   )
 }
@@ -108,6 +126,8 @@ export default function Seo ({ sub, item, user }) {
     desc = `@${user.name} has [${user.optional.stacked ? `${piconerosToMXmr(BigInt(user.optional.stacked))} stashed,` : ''}${numWithUnits(user.nitems, { unitSingular: 'item', unitPlural: 'items' })}]`
   }
 
+  const { image, twitterMetas } = captureImageMeta('https://capture.stasher.news' + imagePath, fullTitle)
+
   return (
     <NextSeo
       title={fullTitle}
@@ -115,14 +135,11 @@ export default function Seo ({ sub, item, user }) {
       openGraph={{
         title: fullTitle,
         description: desc,
-        images: [
-          {
-            url: 'https://capture.stasher.news' + imagePath
-          }
-        ],
+        images: [image],
         site_name: siteName
       }}
       twitter={twitter}
+      additionalMetaTags={twitterMetas}
     />
   )
 }

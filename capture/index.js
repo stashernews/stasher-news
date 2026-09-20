@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import express from 'express'
 import puppeteer from 'puppeteer-core'
 import mediaCheck from './media-check.js'
@@ -54,6 +55,8 @@ const args = [
   '--use-mock-keychain'
 ]
 
+const fallbackImage = readFileSync(new URL('./fallback.png', import.meta.url))
+
 let browser
 let browserPromise
 let browserResetRequestedAt = null
@@ -62,11 +65,15 @@ let activeCaptures = 0
 let captureCount = 0
 const inflightCaptures = new Map()
 const app = express()
-const retryLaterResult = {
-  status: 503,
-  headers: {
-    'Cache-Control': 'no-store',
-    'Retry-After': '1'
+
+function fallbackResult () {
+  return {
+    status: 200,
+    headers: {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=60'
+    },
+    body: fallbackImage
   }
 }
 
@@ -212,14 +219,79 @@ async function addCaptureCleanupScript (page) {
         .d-block.d-md-none:has(.navbar) {
           display: none !important;
         }
+        html {
+          font-size: 106% !important;
+        }
+        body {
+          padding-top: 96px !important;
+        }
+        #sn-capture-brand {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 108px;
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          padding: 0 36px;
+          background: linear-gradient(to bottom, var(--bs-body-bg, #121214) 75%, transparent);
+          pointer-events: none;
+          z-index: 2147483646;
+        }
+        #sn-capture-brand .sn-capture-mono {
+          width: 52px;
+          height: 52px;
+          display: block;
+        }
+        #sn-capture-brand .sn-capture-word {
+          height: 30px;
+          width: auto;
+          display: block;
+        }
+        #sn-capture-fade {
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          height: 64px;
+          background: linear-gradient(to bottom, transparent, var(--bs-body-bg, #121214));
+          pointer-events: none;
+          z-index: 2147483645;
+        }
       `
       ;(document.head ?? document.documentElement).appendChild(style)
+    }
+
+    function installCaptureBrand () {
+      if (document.getElementById('sn-capture-brand')) return
+      const brand = document.createElement('div')
+      brand.id = 'sn-capture-brand'
+      const mono = document.createElement('img')
+      mono.className = 'sn-capture-mono'
+      mono.src = '/icons/icon_x128.png'
+      mono.alt = ''
+      const word = document.createElement('img')
+      word.className = 'sn-capture-word'
+      word.src = '/stasher-news-wordmark.png'
+      word.alt = 'stasher news'
+      brand.appendChild(mono)
+      brand.appendChild(word)
+      const fade = document.createElement('div')
+      fade.id = 'sn-capture-fade'
+      document.body.appendChild(brand)
+      document.body.appendChild(fade)
     }
 
     if (document.documentElement) {
       installCaptureCss()
     } else {
       document.addEventListener('DOMContentLoaded', installCaptureCss, { once: true })
+    }
+    if (document.body) {
+      installCaptureBrand()
+    } else {
+      document.addEventListener('DOMContentLoaded', installCaptureBrand, { once: true })
     }
   })
 }
@@ -235,12 +307,12 @@ async function captureImage (url, timeLabel) {
     await resetBrowserIfIdle()
     if (browserResetRequestedAt !== null) {
       console.timeLog(timeLabel, 'browser reset pending', 'active captures', activeCaptures)
-      return retryLaterResult
+      return fallbackResult()
     }
 
     if (activeCaptures >= maxPages) {
       console.timeLog(timeLabel, 'too many captures')
-      return retryLaterResult
+      return fallbackResult()
     }
     activeCaptures++
     captured = true
@@ -260,12 +332,9 @@ async function captureImage (url, timeLabel) {
     const status = response?.status()
     console.timeLog(timeLabel, 'page loaded', 'status', status)
 
-    if (status === 429 || status >= 500) {
-      console.timeLog(timeLabel, 'upstream error')
-      const retryAfter = response.headers()['retry-after']
-      const headers = { 'Cache-Control': 'no-store' }
-      if (retryAfter) headers['Retry-After'] = retryAfter
-      return { status, headers }
+    if (status === 404 || status === 410 || status === 429 || status >= 500) {
+      console.timeLog(timeLabel, 'upstream error', 'status', status)
+      return fallbackResult()
     }
 
     if (commentId) {
@@ -310,12 +379,7 @@ async function captureImage (url, timeLabel) {
     if (isProtocolError(err)) {
       requestBrowserReset(captureBrowser)
     }
-    return {
-      status: 500,
-      headers: {
-        'Cache-Control': 'no-store'
-      }
-    }
+    return fallbackResult()
   } finally {
     if (captured) activeCaptures = Math.max(0, activeCaptures - 1)
     console.timeEnd(timeLabel, 'active captures', activeCaptures)

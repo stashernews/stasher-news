@@ -58,6 +58,16 @@ media.stasher.news {
 	reverse_proxy imgproxy:8080
 }
 
+# Capture service host. Serves the 1200x630 og:image screenshots wired in
+# components/seo.js. Cert is issued via the global Let's Encrypt automation
+# above. The XFF overwrite mirrors the app block (audit B-2).
+capture.stasher.news {
+	encode zstd gzip
+	reverse_proxy capture:5678 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+
 # www -> apex. www.stasher.news resolves in DNS but had no site block, so
 # www visitors got no certificate and no serve path. 301 preserves path+query.
 www.stasher.news {
