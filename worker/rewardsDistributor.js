@@ -244,9 +244,11 @@ async function distribute (models) {
     // payouts. Curators with no MoneroAccount(ownerUserId) are excluded — their
     // share rolls over (it stays in poolPiconeros - distributedPiconeros).
     const payoutRows = []
+    const paidCuratorIds = new Set()
     for (const share of shares) {
       const account = await tx.moneroAccount.findFirst({ where: { ownerUserId: share.curatorId } })
       if (!account) continue
+      paidCuratorIds.add(share.curatorId)
       payoutRows.push({
         curatorId: share.curatorId,
         recipientAddress: account.address,
@@ -267,6 +269,10 @@ async function distribute (models) {
     const referralByReferrer = new Map() // referrerId -> { piconeros }
     for (const share of shares) {
       if (share.sharePiconeros <= 0n) continue
+      // R04: referral payouts are earned on PAID curator shares only. A
+      // wallet-less curator's share rolls over — 10% of money that was never
+      // paid must not leak to their referrer.
+      if (!paidCuratorIds.has(share.curatorId)) continue
       const curator = await tx.user.findUnique({
         where: { id: share.curatorId },
         select: { referrerId: true }

@@ -968,6 +968,52 @@ test('a referrer who is ALSO a paid curator gets exactly one FOREVER_REFERRAL Ea
   expect(total).toBe(dist.distributedPiconeros)
 })
 
+test('R04: referral payouts are computed from PAID curators only (a wallet-less curator\'s share earns their referrer nothing)', async () => {
+  // Same clearing pattern as the referral tests above: the week's window is
+  // occupied by the previous test's distribution, so remove it (Earn ->
+  // payout -> distribution, FK-safe) for a fresh run.
+  const current = await prisma.rewardDistribution.findFirst({ where: { periodEnd: { gte: new Date(Date.now() - 7 * DAY) } } })
+  if (current) {
+    await prisma.earn.deleteMany({ where: { distributionId: current.id } })
+    await prisma.rewardPayout.deleteMany({ where: { distributionId: current.id } })
+    await prisma.rewardDistribution.deleteMany({ where: { id: current.id } })
+  }
+
+  const referrer = await createUser()
+  await createPayoutAccount(referrer) // referrer must be able to RECEIVE
+  const author = await createUser()
+  const curatorPaid = await createUser()
+  await prisma.user.update({ where: { id: curatorPaid }, data: { referrerId: referrer } })
+  await createPayoutAccount(curatorPaid)
+  // Wallet-less curator with the SAME referrer: their share rolls over and
+  // must NOT generate referral income for the referrer (the R04 bug).
+  const curatorWalletless = await createUser()
+  await prisma.user.update({ where: { id: curatorWalletless }, data: { referrerId: referrer } })
+
+  const recipientAccount = await createRecipientAccount()
+  // weightedVotes 3e6 strictly outranks the prior referral tests' posts (2e6,
+  // 1e6) and the beforeAll post, so this is unambiguously the top post and
+  // only its curators clear minPayout.
+  const post = await createRootPost(author, 3_000_000, new Date(Date.now() - DAY))
+  await seedTip({ postId: post, tipperId: curatorPaid, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 1000), recipientAccountId: recipientAccount.id })
+  await seedTip({ postId: post, tipperId: curatorWalletless, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 61000), recipientAccountId: recipientAccount.id })
+
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  created.distributions.push(dist.id)
+
+  const paidPayout = dist.payouts.find(p => p.curatorId === curatorPaid)
+  expect(paidPayout).toBeDefined()
+  expect(paidPayout.state).toBe('SENT')
+  // the wallet-less curator has no payout row — their share rolled over
+  expect(dist.payouts.some(p => p.curatorId === curatorWalletless)).toBe(false)
+
+  const referralPayout = dist.payouts.find(p => p.curatorId === referrer)
+  expect(referralPayout).toBeDefined()
+  // exactly 10% of the PAID curator's share — under the bug this was
+  // 10% of BOTH shares (paid + rolled-over)
+  expect(referralPayout.piconeros).toBe(paidPayout.piconeros / 10n)
+})
+
 test('a previous weekly run whose periodEnd sits at this run\'s periodStart boundary does not skip (no jitter coin flip)', async () => {
   // Regression: the guard compared periodEnd >= periodStart with zero slack.
   // Consecutive weekly runs land L1/L2 ms after Monday 00:00 UTC (pg-boss
