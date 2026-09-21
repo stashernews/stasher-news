@@ -1,16 +1,19 @@
 // Turf-owner fee routing (2026-08-21 turf-owner-revenue design).
 //
-// A posting/comment fee or boost routes OWNER-DIRECT (one payment, 100% to the
+// A posting/comment fee routes OWNER-DIRECT (one payment, 100% to the
 // turf owner's registered wallet via a fee: payment-ID leg) iff:
 //   - the TURF_OWNER_FEES=1 env gate is set,
 //   - no upload fees are folded into the payment (media cost stays platform),
 //   - the fee resolves to exactly ONE non-owned turf (posts: the target turf;
-//     comments: the root post's turfs; boosts: the item's single turf),
+//     comments: the root post's turfs),
 //   - that turf is NOT owned by the platform account (USER_ID.stasher — the
 //     seeded default turfs are platform-owned and never billed, so their fees
 //     belong to the rewards pool, not a personal wallet), and
 //   - that turf's owner has a registered MoneroAccount.
-// Everything else keeps today's rewards-wallet subaddress routing.
+// Everything else keeps today's rewards-wallet subaddress routing. BOOSTS are
+// platform-only since R08 (2026-09-21): the boost owner-direct leg was removed
+// after an item author round-tripped boost money to a colluding turf owner
+// while buying rank — see api/payIn/types/boost.js.
 
 import { postingFeePiconeros, commentFeePiconeros } from '@/api/monero/postingFee'
 import { USER_ID } from '@/lib/constants'

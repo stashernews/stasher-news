@@ -78,7 +78,7 @@ To make referring stashers easy, clicking on `...` next to a post or comment and
 
 **4. Turfs**
 
-Founding a turf is the last way to put XMR to work, though it is not a recommended way to earn XMR for new stashers: you need to pay for the turf in advance. Turf founders do earn revenue: 100% of the posting fees, comment fees, and boosts paid in their turf (the standard fee plus any premium they set) go directly to their registered Monero wallet. Cross-posts and cases where the payer has no wallet attached still pay the platform rewards pool.
+Founding a turf is the last way to put XMR to work, though it is not a recommended way to earn XMR for new stashers: you need to pay for the turf in advance. Turf founders do earn revenue: 100% of the posting fees and comment fees paid in their turf (the standard fee plus any premium they set) go directly to their registered Monero wallet. Boosts, cross-posts, and cases where the payer has no wallet attached still pay the platform rewards pool.
 
 ---
 
@@ -162,7 +162,7 @@ If you switch from monthly to yearly billing, you pay the yearly fee at the swit
 
 ### Do I earn XMR from turfs?
 
-Yes. As a turf founder, you receive 100% of the posting fees, comment fees, and boosts paid in your turf — the standard fee plus any premium you set — paid directly to your registered Monero wallet. This applies when the payment is to a single turf you don't own and you have a wallet attached; cross-posts to multiple turfs and cases where the payer has no wallet attached still pay the platform rewards pool, which is distributed weekly to the best curators.
+Yes. As a turf founder, you receive 100% of the posting fees and comment fees paid in your turf — the standard fee plus any premium you set — paid directly to your registered Monero wallet. This applies when the payment is to a single turf you don't own and you have a wallet attached; boosts, cross-posts to multiple turfs, and cases where the payer has no wallet attached still pay the platform rewards pool, which is distributed weekly to the best curators.
 
 ---
 

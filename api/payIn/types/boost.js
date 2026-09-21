@@ -3,17 +3,19 @@ import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { piconerosToXmr, xmrToPiconeros } from '@/lib/format'
 import { GqlInputError } from '@/lib/error'
-import { getItemResult, getSubs } from '../lib/item'
-import { turfOwnerFeesEnabled, resolveOwnerFeeRouteForSub } from '@/api/monero/turfFeeRouting'
-import { createOwnerFeeLeg } from '@/api/monero/ownerFeeLeg'
-import { lwsClient } from '@/api/monero/lwsClient'
+import { getItemResult } from '../lib/item'
 
 // StasherNews boost (A-14) — upstream-faithful one-time permanent ranking
-// weight, 1:1 with tips. When the boosted item sits in exactly ONE turf whose
-// owner has a registered wallet (and TURF_OWNER_FEES is on), the boost routes
-// 100% owner-direct via a fee: payment-ID leg; everything else is paid to the
-// platform rewards wallet via a DEDICATED major-5 fee subaddress (DONATE
-// pattern, NOT the legacy custodial sats path).
+// weight, 1:1 with tips. EVERY boost pays the platform rewards wallet via a
+// DEDICATED major-5 fee subaddress (DONATE pattern, NOT the legacy custodial
+// sats path). R08: the owner-direct leg was REMOVED — a boost on an item in a
+// single owned turf used to route 100% to that turf's owner when the owner had
+// a registered wallet; an item author could boost their own post in a
+// colluding owner's turf, paying the owner (minus tx fees) and getting the
+// money back privately while buying rank at network-fee cost. Boosts now
+// behave like every other platform-leg boost; in-flight owner-leg boosts
+// created before the change are still applied by
+// api/monero/subFeeObservation.js.
 //
 // The payIn is born PAID (fee payIns resolve to PAID at creation with
 // piconeros=0n — the FeeObservation carries the real on-chain amount): the
@@ -44,41 +46,6 @@ export async function getInitial (models, { id, piconeros }, { me }) {
 
   const item = await models.item.findUnique({ where: { id: parseInt(id) } })
   if (!item) throw new GqlInputError('item not found')
-
-  // Top-level posts key on their own subNames; comments carry none — resolve
-  // the root post's turfs (same walk as comment posting fees, getSubs) so a
-  // comment boost in a single-owner turf routes owner-direct like its fee.
-  let routeSubs = item.subNames?.length === 1 ? item.subNames : null
-  if (!routeSubs && item.parentId) {
-    const rootSubs = await getSubs(models, { parentId: item.parentId })
-    routeSubs = rootSubs.length === 1 ? [rootSubs[0].name] : null
-  }
-  const route = turfOwnerFeesEnabled() && routeSubs
-    ? await resolveOwnerFeeRouteForSub(models, routeSubs[0])
-    : null
-
-  // owner-direct only when the payer is NOT the turf owner: an owner boosting
-  // in their own turf would pay themselves (minus tx fees) — a ranking sybil —
-  // so they fall through to the platform rewards-wallet leg
-  const eligible = route && Number(route.sub.userId) !== Number(me.id) ? route : null
-
-  if (eligible) {
-    // owner-direct boost: 100% to the turf owner (fee: leg, webhook-observed)
-    const leg = await createOwnerFeeLeg(models, lwsClient, {
-      ownerAccount: eligible.ownerAccount,
-      subName: eligible.sub.name,
-      amountPiconeros: amount,
-      description: 'StasherNews boost'
-    })
-    return {
-      payInType: 'BOOST',
-      userId: me.id,
-      piconeros: 0n,
-      moneroUri: leg.moneroUri,
-      moneroPaymentId: leg.paymentId,
-      itemPayIn: { itemId: parseInt(id) }
-    }
-  }
 
   const sub = await reserveFeeSubaddress(models, 'BOOST', { me })
   const moneroUri = buildMoneroUri(

@@ -1,29 +1,25 @@
 /* eslint-env jest */
 
-// BOOST owner-direct fee routing (Task 8, turf-owner-revenue):
-// mock-based unit tests of getInitial's routing decision — a boost on an item
-// in exactly ONE turf whose owner has a registered wallet routes 100%
-// owner-direct via a fee: payment-ID leg (TURF_OWNER_FEES gate on);
-// cross-posts, non-turf items, walletless owners, and gate-off keep the
-// platform rewards-wallet major-5 subaddress flow. Min-tip floor is unchanged.
+// BOOST fee routing (Task 8 turf-owner-revenue; revised for R08 2026-09-21):
+// a boost ALWAYS routes to the platform rewards wallet via a DEDICATED major-5
+// fee subaddress — never owner-direct, even for a single-turf item with a
+// walleted owner. The owner-direct leg was removed because an item author
+// could boost their own post in a colluding owner's turf, paying the owner
+// (minus tx fees) and receiving the money back privately while buying ranking
+// weight (boost feeds ranking 1:1) at network-fee cost. In-flight owner-leg
+// boosts created before the change are still applied by
+// api/monero/subFeeObservation.js.
 //
-// The jest.mock preamble mirrors test/api/monero/turfFeeRouting.itemCreate.test.js
-// (which mirrors test/engine/payInItemCreate.test.js:37-68). Relative paths are
-// required in jest.mock because next/jest registers no `@/*` moduleNameMapper —
-// the task brief's '../../api/monero/...' depth was off by one for this
-// spec's location (test/api/monero/) and is corrected to '../../../'. The
-// feePool stub's address must be a VALID 95-char base58 primary (not the
-// brief's 'BOOSTSUB' placeholder): the fallback branches build a monero: URI
-// and buildMoneroUri validates the charset (api/monero/uri.js MONERO_ADDR_RE).
-// babel-jest hoists these jest.mock calls above the ES imports below, so the
-// stubs register before boost.js is evaluated.
+// The jest.mock preamble mirrors test/api/monero/turfFeeRouting.itemCreate.test.js.
+// Relative paths are required in jest.mock because next/jest registers no `@/*`
+// moduleNameMapper for jest.mock specifiers. The fixture deliberately keeps a
+// walleted owner and the old-route machinery (moneroAccount/subFeePidMap/
+// lwsClient stubs) so the platform-routing assertions below would fail if
+// owner-direct boost routing were reintroduced.
 
 import { getInitial } from '@/api/payIn/types/boost'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 
-jest.mock('../../../api/monero/lwsClient', () => ({
-  __esModule: true, lwsClient: { addWebhook: jest.fn(async () => ({ event_id: 1 })) }
-}))
 jest.mock('../../../api/monero/feePool', () => ({
   __esModule: true,
   reserveFeeSubaddress: jest.fn(async () => ({
@@ -34,8 +30,14 @@ jest.mock('../../../api/monero/feePool', () => ({
   }))
 }))
 
-// stagenet primary (payInItemCreate.test.js / ownerFeeLeg.test.js): valid
-// base58+checksum, so makeIntegratedAddress can derive an integrated address.
+// lwsClient stub so a regression to owner-direct boost routing would fail on
+// the assertions below rather than a real webhook call.
+jest.mock('../../../api/monero/lwsClient', () => ({
+  __esModule: true, lwsClient: { addWebhook: jest.fn(async () => ({ event_id: 1 })) }
+}))
+
+// stagenet primary (turfFeeRouting tests): valid base58+checksum, so the old
+// owner-direct route's makeIntegratedAddress would derive an address.
 const PRIMARY = '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
 
 const config = { minTipPiconeros: 100_000_000n }
@@ -43,16 +45,17 @@ const config = { minTipPiconeros: 100_000_000n }
 function models ({ subNames = ['turf'], ownerHasWallet = true, parentId = null, rootSubs = null } = {}) {
   return {
     platformFeeConfig: { findUnique: async () => config },
-    // comments carry subNames: null and a parentId — their turf comes from the
-    // root post via getSubs' $queryRaw walk (rootSubs below)
     item: { findUnique: async () => ({ id: 1, subNames, parentId }) },
-    $queryRaw: async (strings, ...values) => {
-      const sql = Array.isArray(strings) ? strings.join('') : String(strings)
-      if (sql.includes('"Sub"')) return rootSubs ?? []
-      return []
-    },
+    // old-route machinery: kept so a reintroduced owner-direct branch would
+    // resolve the route (ownerHasWallet defaults true) and fail the platform
+    // assertions — the tests must be able to catch that regression.
+    $queryRaw: async () => rootSubs ?? [],
     sub: { findUnique: async () => ({ name: 'turf', userId: 42 }) },
-    moneroAccount: { findFirst: async () => ownerHasWallet ? { id: 9, ownerUserId: 42, address: PRIMARY } : null },
+    moneroAccount: {
+      findFirst: async () => ownerHasWallet
+        ? { id: 9, ownerUserId: 42, address: PRIMARY }
+        : null
+    },
     subFeePidMap: { create: async () => ({}) }
   }
 }
@@ -61,51 +64,32 @@ const me = { id: 7 }
 beforeEach(() => { process.env.TURF_OWNER_FEES = '1'; jest.clearAllMocks() })
 afterEach(() => { delete process.env.TURF_OWNER_FEES })
 
-describe('BOOST getInitial routing', () => {
-  it('routes owner-direct for a single-turf item with a walleted owner', async () => {
+describe('BOOST getInitial routing (platform-only after R08)', () => {
+  it('routes a single-turf item with a walleted owner to the platform major-5 subaddress', async () => {
     const r = await getInitial(models(), { id: '1', piconeros: '500000000' }, { me })
-    expect(r.moneroPaymentId).toMatch(/^[0-9a-f]{16}$/)
-    expect(r.moneroSubaddressMajor).toBeUndefined()
-    expect(reserveFeeSubaddress).not.toHaveBeenCalled()
+    expect(r.moneroPaymentId).toBeUndefined()
+    expect(r.moneroSubaddressMajor).toBe(5)
+    expect(r.moneroUri).toMatch(/^monero:/)
+    expect(reserveFeeSubaddress).toHaveBeenCalledWith(expect.anything(), 'BOOST', { me })
   })
-  it('routes a COMMENT boost owner-direct via the root post’s single turf', async () => {
+  it('routes a COMMENT boost in a single-turf root to the platform major-5 subaddress', async () => {
     const r = await getInitial(
       models({ subNames: null, parentId: 42, rootSubs: [{ name: 'turf', userId: 42 }] }),
       { id: '1', piconeros: '2000000000' }, { me })
-    expect(r.moneroPaymentId).toMatch(/^[0-9a-f]{16}$/)
-    expect(r.moneroSubaddressMajor).toBeUndefined()
-    expect(reserveFeeSubaddress).not.toHaveBeenCalled()
-  })
-  it('comment boosts in multi-turf roots fall back to major-5', async () => {
-    const r = await getInitial(
-      models({ subNames: null, parentId: 42, rootSubs: [{ name: 'a', userId: 42 }, { name: 'b', userId: 99 }] }),
-      { id: '1', piconeros: '2000000000' }, { me })
     expect(r.moneroPaymentId).toBeUndefined()
     expect(r.moneroSubaddressMajor).toBe(5)
   })
-  it('comment boosts fall back when the root owner has no wallet', async () => {
-    const r = await getInitial(
-      models({ subNames: null, parentId: 42, ownerHasWallet: false, rootSubs: [{ name: 'turf', userId: 42 }] }),
-      { id: '1', piconeros: '2000000000' }, { me })
-    expect(r.moneroPaymentId).toBeUndefined()
-    expect(r.moneroSubaddressMajor).toBe(5)
-  })
-  it('falls back to major-5 for cross-posted items', async () => {
+  it('routes cross-posted items to the platform', async () => {
     const r = await getInitial(models({ subNames: ['a', 'b'] }), { id: '1', piconeros: '500000000' }, { me })
     expect(r.moneroPaymentId).toBeUndefined()
     expect(r.moneroSubaddressMajor).toBe(5)
   })
-  it('falls back for non-turf items (subNames empty)', async () => {
+  it('routes non-turf items (subNames empty) to the platform', async () => {
     const r = await getInitial(models({ subNames: [] }), { id: '1', piconeros: '500000000' }, { me })
     expect(r.moneroPaymentId).toBeUndefined()
     expect(r.moneroSubaddressMajor).toBe(5)
   })
-  it('falls back when the owner has no wallet', async () => {
-    const r = await getInitial(models({ ownerHasWallet: false }), { id: '1', piconeros: '500000000' }, { me })
-    expect(r.moneroPaymentId).toBeUndefined()
-    expect(r.moneroSubaddressMajor).toBe(5)
-  })
-  it('falls back when the booster IS the turf owner (self-boost sybil)', async () => {
+  it('routes owner self-boosts to the platform', async () => {
     const r = await getInitial(models(), { id: '1', piconeros: '500000000' }, { me: { id: 42 } })
     expect(r.moneroPaymentId).toBeUndefined()
     expect(r.moneroSubaddressMajor).toBe(5)
@@ -114,6 +98,11 @@ describe('BOOST getInitial routing', () => {
   it('keeps platform routing with the gate off', async () => {
     delete process.env.TURF_OWNER_FEES
     const r = await getInitial(models(), { id: '1', piconeros: '500000000' }, { me })
+    expect(r.moneroPaymentId).toBeUndefined()
     expect(r.moneroSubaddressMajor).toBe(5)
+  })
+  it('still enforces the min-tip floor', async () => {
+    await expect(getInitial(models(), { id: '1', piconeros: '99999999' }, { me }))
+      .rejects.toThrow(/below minimum/)
   })
 })
