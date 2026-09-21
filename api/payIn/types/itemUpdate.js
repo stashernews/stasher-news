@@ -3,7 +3,7 @@ import { GqlInputError } from '@/lib/error'
 import { alert } from '@/lib/alert'
 import { logWarn } from '@/lib/logger'
 import { uploadFees } from '../../resolvers/upload'
-import { getItemMentions, getMentions, performBotBehavior } from '../lib/item'
+import { getItemMentions, getMentions, performBotBehavior, getSubs } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
 import { canonicalizeItemText } from '@/lib/url'
 import { notifyItemMention, notifyMention } from '@/lib/webPush'
@@ -11,8 +11,8 @@ import * as MEDIA_UPLOAD from './mediaUpload'
 import { getItem } from '@/api/resolvers/item'
 import { subsDiff } from '@/lib/subs'
 import { getTempImgproxyUrls } from '../lib/upload'
-import { reserveFeeSubaddress } from '@/api/monero/feePool'
-import { buildMoneroUri } from '@/api/monero/uri'
+import { postFloorPiconerosForSubs, postFeePiconerosForSubs } from '@/api/monero/turfFeeRouting'
+import { escalatedFeePiconeros, feeLegOrSubaddress } from './itemCreate'
 import { serializePayInArgs, deserializePayInArgs } from '../lib/payInArgs'
 
 export const anonable = true
@@ -41,26 +41,60 @@ export async function getInitial (models, { id, uploadIds = [], bio, subNames },
     }
   }
 
-  let moneroUri = null
-  let moneroSubaddressMajor = null
-  let moneroSubaddressMinor = null
-  if (uploadFeesPiconeros > 0n) {
-    const sub = await reserveFeeSubaddress(models, 'POSTING', { me })
-    moneroUri = buildMoneroUri(
-      [{ address: sub.address, amount: uploadFeesPiconeros }],
-      { description: 'StasherNews upload fee' }
-    )
-    moneroSubaddressMajor = sub.major
-    moneroSubaddressMinor = sub.minor
+  // R10: charge for turfs ADDED by this edit, exactly as creation would price
+  // them — the escalated platform floor for every added non-owned turf, with
+  // the owner premium riding the owner-direct leg when the added set resolves
+  // to one walleted owner and no upload fees are folded in (feeLegOrSubaddress
+  // owns that decision). Additions only: removals and owned-turf additions are
+  // free. Top-level posts only — the resolver strips comments and bios to
+  // text-only edits — and only when the client actually sent subNames
+  // (applyItemUpdate's [] default is deliberately untouched for callers that
+  // omit the field).
+  let addedSubs = []
+  let turfFeePiconeros = 0n
+  let turfPremiumPiconeros = 0n
+  if (subNames != null) {
+    const old = await models.item.findUnique({
+      where: { id: parseInt(id) },
+      select: { subNames: true, parentId: true }
+    })
+    if (old && !old.parentId) {
+      addedSubs = await getSubs(models, { subNames: subsDiff(subNames, old.subNames ?? []) })
+      const nonOwnedAdded = addedSubs.filter(s => Number(s.userId) !== Number(me.id))
+      if (nonOwnedAdded.length > 0) {
+        const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+        if (!config) throw new GqlInputError('fee config not initialized')
+        turfFeePiconeros = await escalatedFeePiconeros(models, {
+          parentId: null,
+          userId: me.id,
+          basePiconeros: postFloorPiconerosForSubs(config, nonOwnedAdded)
+        })
+        turfPremiumPiconeros = postFeePiconerosForSubs(config, nonOwnedAdded) - postFloorPiconerosForSubs(config, nonOwnedAdded)
+      }
+    }
+  }
+
+  if (turfFeePiconeros + turfPremiumPiconeros > 0n || uploadFeesPiconeros > 0n) {
+    return await feeLegOrSubaddress(models, {
+      subs: addedSubs,
+      userId: me.id,
+      fee: turfFeePiconeros,
+      premiumPiconeros: turfPremiumPiconeros,
+      uploadFeesPiconeros,
+      description: turfFeePiconeros + turfPremiumPiconeros > 0n ? 'StasherNews posting fee' : 'StasherNews upload fee',
+      payInType: 'ITEM_UPDATE',
+      itemPayIn: { itemId: parseInt(id) },
+      beneficiaries
+    })
   }
 
   return {
     payInType: 'ITEM_UPDATE',
     userId: me?.id,
     piconeros: 0n,
-    moneroUri,
-    moneroSubaddressMajor,
-    moneroSubaddressMinor,
+    moneroUri: null,
+    moneroSubaddressMajor: null,
+    moneroSubaddressMinor: null,
     itemPayIn: { itemId: parseInt(id) },
     beneficiaries
   }
@@ -70,14 +104,15 @@ export async function onBegin (tx, payInId, args) {
   const payIn = await tx.payIn.findUnique({ where: { id: payInId } })
 
   // StasherNews: a fee-bearing edit (getInitial reserved a POSTING fee
-  // subaddress because the edit attached >10MB uploads) is NOT applied here.
+  // subaddress for upload fees and/or added-turf fees, OR routed owner-direct
+  // for a single added turf's fee+premium) is NOT applied here.
   // The edit is stored and rewardsWalletObserver.flipPendingToLive applies it
   // once the covering fee is observed on the rewards wallet — applying at
   // creation let a user attach >10MB media for free by dismissing the fee QR
   // (found 2026-09-17 on post 351432). A never-paid row is purged after
   // FEE_ITEM_ABANDON_DAYS and its unattached upload is reaped by
   // deleteUnusedImages.
-  if (payIn.moneroSubaddressMajor != null) {
+  if (payIn.moneroSubaddressMajor != null || payIn.moneroPaymentId != null) {
     const item = await tx.item.findUnique({
       where: { id: parseInt(args.id) },
       select: { userId: true, text: true }

@@ -31,7 +31,7 @@ export const paymentMethods = [
 // users pay it; steep enough that sustained spam compounds into real XMR.
 // Anons use interval '0' so item_spam returns 0 (their x10/x3 is a separate
 // flat multiplier handled in the anon branch).
-async function escalatedFeePiconeros (models, { parentId, userId, basePiconeros }) {
+export async function escalatedFeePiconeros (models, { parentId, userId, basePiconeros }) {
   if (basePiconeros <= 0n) return basePiconeros
   const within = userId === USER_ID.anon ? ANON_ITEM_SPAM_INTERVAL : ITEM_SPAM_INTERVAL
   const [{ n }] = await models.$queryRaw`
@@ -47,7 +47,12 @@ async function escalatedFeePiconeros (models, { parentId, userId, basePiconeros 
 // math only; `premiumPiconeros` (the turf-owner surcharge delta) is added
 // EXCLUSIVELY on the owner-routed leg — a premium must never be charged when
 // the payment would land in the platform wallet.
-async function feeLegOrSubaddress (models, { subs, userId, fee, premiumPiconeros = 0n, uploadFeesPiconeros, description, beneficiaries }) {
+//
+// R10: shared with api/payIn/types/itemUpdate.js for edit-time turf-addition
+// fees. Callers pass `payInType`/`itemPayIn` when the prospect belongs to a
+// non-ITEM_CREATE flow; the routing/pricing math is identical, so an editor
+// adding turfs pays exactly what a creator would have.
+export async function feeLegOrSubaddress (models, { subs, userId, fee, premiumPiconeros = 0n, uploadFeesPiconeros, description, payInType = 'ITEM_CREATE', itemPayIn = undefined, beneficiaries }) {
   const route = await resolveOwnerFeeRoute(models, { subs, userId, uploadFeesPiconeros })
   if (route) {
     const leg = await createOwnerFeeLeg(models, lwsClient, {
@@ -57,11 +62,12 @@ async function feeLegOrSubaddress (models, { subs, userId, fee, premiumPiconeros
       description
     })
     return {
-      payInType: 'ITEM_CREATE',
+      payInType,
       userId,
       piconeros: 0n,
       moneroUri: leg.moneroUri,
       moneroPaymentId: leg.paymentId,
+      ...(itemPayIn ? { itemPayIn } : {}),
       beneficiaries
     }
   }
@@ -71,12 +77,13 @@ async function feeLegOrSubaddress (models, { subs, userId, fee, premiumPiconeros
     { description }
   )
   return {
-    payInType: 'ITEM_CREATE',
+    payInType,
     userId,
     piconeros: 0n,
     moneroUri,
     moneroSubaddressMajor: sub.major,
     moneroSubaddressMinor: sub.minor,
+    ...(itemPayIn ? { itemPayIn } : {}),
     beneficiaries
   }
 }

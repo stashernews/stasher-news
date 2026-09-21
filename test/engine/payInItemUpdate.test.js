@@ -29,9 +29,20 @@
 // was in flight is dropped (the upload stays paid and is re-attachable); free
 // edits still apply at onBegin.
 //
+// R10 turf-addition fees (2026-09-21). An edit that ADDS non-owned turfs is
+// priced exactly as creation would price them (escalated platform floor per
+// added non-owned turf; owner premium rides the owner-direct leg when the
+// added set resolves to one walleted owner and no uploads are folded in) and
+// is deferred until the covering fee is observed — the SAME PendingItemUpdate
+// machinery as upload fees. The deferral gate covers both legs
+// (moneroSubaddressMajor OR moneroPaymentId). Removals and owned-turf
+// additions are free. Only top-level posts can carry subNames (the resolver
+// strips comments/bios).
+//
 // Real-DB integration test (mirrors test/engine/payInItemCreate.test.js):
 //   docker exec -u apprunner app npx jest test/engine/payInItemUpdate.test.js
 
+import { randomUUID } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import pay from '@/api/payIn/index'
 import { getInitial } from '@/api/payIn/types/itemUpdate'
@@ -39,6 +50,9 @@ import { getItem } from '@/api/resolvers/item'
 import { flipPendingToLive } from '@/worker/rewardsWalletObserver'
 import { logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
+import { applySubFeeReceipt } from '@/api/monero/subFeeObservation'
+import { moneroUriAmountPiconeros } from '@/lib/format'
+import { ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_INTERVAL } from '@/lib/constants'
 
 // itemUpdate.js statically imports @/lib/lexical/server/mentions (ESM-only
 // mdast-util-from-markdown) and @/api/resolvers/item (getItem), neither of
@@ -61,6 +75,12 @@ jest.mock('../../api/monero/feePool', () => ({
     minor: 1,
     address: '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqA1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
   }))
+}))
+// lwsClient stub so owner-leg edit fees register no real webhook (R10). The
+// event id is a STRING because SubFeePidMap.webhookEventId is String? (the real
+// lws returns a UUID); an Int here fails Prisma validation on the DB-backed path.
+jest.mock('../../api/monero/lwsClient', () => ({
+  __esModule: true, lwsClient: { addWebhook: jest.fn(async () => ({ event_id: '1' })) }
 }))
 // The observer's ITEM_UPDATE branch and applyPendingItemUpdate log/alert on
 // drops and apply failures; mock both so the tests assert them directly and the
@@ -87,7 +107,7 @@ jest.mock('../../api/payIn/types', () => {
 
 const prisma = new PrismaClient()
 
-const created = { users: [], items: [], payIns: [], uploads: [] }
+const created = { users: [], items: [], payIns: [], uploads: [], subs: [], accounts: [], subFeePids: [] }
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -96,22 +116,49 @@ async function createUser () {
   return id
 }
 
-// Root post with a paid ITEM_CREATE payIn attached — an update can only charge
-// upload fees when such a payIn exists (the fee attaches to it).
-async function createRootPost (userId) {
-  const rows = await prisma.$queryRaw`
-    INSERT INTO "Item" ("userId", title, "created_at")
-    VALUES (${userId}::int, ${'upload-fee update test post'}, now())
-    RETURNING id::int AS id`
-  const id = rows[0].id
-  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(id)}::ltree WHERE id = ${id}::int`
-  created.items.push(id)
+// stagenet primary (turfFeeRouting tests): valid base58+checksum, so
+// makeIntegratedAddress can derive an integrated address.
+const PRIMARY = '5AWPhvfMuvWeePRNT192gwa9m63XHdzBmMxfizUhBJedJSqY1Y1BViTETV6uxyCS8Zf8Tz2KKEhHC8FjSRvuDgsd2JuAX6J'
+
+// Root post with a paid ITEM_CREATE payIn attached. Optional subNames seed the
+// scalar column AND the ItemSub rows (the DB trigger keeps the scalar in sync).
+async function createRootPost (userId, { subNames = [] } = {}) {
+  const item = await prisma.item.create({
+    data: {
+      userId,
+      title: 'upload-fee update test post',
+      subNames,
+      ...(subNames.length > 0
+        ? { subs: { create: subNames.map(subName => ({ subName })) } }
+        : {})
+    }
+  })
+  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(item.id)}::ltree WHERE id = ${item.id}::int`
+  created.items.push(item.id)
   const payIn = await prisma.payIn.create({
     data: { userId, payInType: 'ITEM_CREATE', payInState: 'PAID', piconeros: 0n }
   })
   created.payIns.push(payIn.id)
-  await prisma.itemPayIn.create({ data: { itemId: id, payInId: payIn.id } })
-  return { id, payInId: payIn.id }
+  await prisma.itemPayIn.create({ data: { itemId: item.id, payInId: payIn.id } })
+  return { id: item.id, payInId: payIn.id }
+}
+
+async function createSub (ownerId, name, { postPremiumPiconeros = 0n } = {}) {
+  await prisma.sub.create({
+    data: { name, userId: ownerId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postPremiumPiconeros }
+  })
+  created.subs.push(name)
+  return name
+}
+
+// Replicates itemCreate.escalatedFeePiconeros' math independently (constants
+// imported, formula hand-written) so the test checks the wiring, not itself.
+async function expectedEscalatedFloor (userId, basePiconeros) {
+  const [{ n }] = await prisma.$queryRaw`
+    SELECT item_spam(NULL::INTEGER, ${userId}::INTEGER, ${ITEM_SPAM_INTERVAL}::INTERVAL)::INTEGER AS n`
+  const multiplier = ITEM_SPAM_FEE_ESCALATION_NUMERATOR ** BigInt(n)
+  const divisor = ITEM_SPAM_FEE_ESCALATION_DENOMINATOR ** BigInt(n)
+  return (basePiconeros * multiplier + divisor / 2n) / divisor
 }
 
 async function createUpload (userId, { size }) {
@@ -144,11 +191,15 @@ afterAll(async () => {
   for (const id of created.items) {
     await deleteJobsForItem(id)
   }
+  await prisma.observedSubFee.deleteMany({ where: { paymentId: { in: created.subFeePids } } }).catch(() => {})
+  await prisma.subFeePidMap.deleteMany({ where: { paymentId: { in: created.subFeePids } } }).catch(() => {})
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } }).catch(() => {})
   await prisma.upload.deleteMany({ where: { id: { in: created.uploads } } }).catch(() => {})
   for (const id of created.items) {
     await prisma.item.deleteMany({ where: { id } }).catch(() => {})
   }
+  await prisma.sub.deleteMany({ where: { name: { in: created.subs } } }).catch(() => {})
+  for (const id of created.accounts) await prisma.moneroAccount.deleteMany({ where: { id } }).catch(() => {})
   for (const id of created.users) await prisma.user.deleteMany({ where: { id } }).catch(() => {})
   if (feeConfigCreated) {
     await prisma.platformFeeConfig.delete({ where: { id: 1 } }).catch(() => {})
@@ -376,4 +427,153 @@ test('an unexpected apply failure is contained by flipPendingToLive and does not
   )
 
   await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
+})
+
+// --- R10: turf-addition fees on edit ---
+
+test('an edit adding 2 non-owned turfs defers and charges the escalated posting fee (R10)', async () => {
+  const userId = await createUser()
+  const owner = await createUser()
+  await ensureFeeConfig()
+  const { id: itemId } = await createRootPost(userId, { subNames: [] })
+  const subA = `r10-a-${Date.now()}`
+  const subB = `r10-b-${Date.now()}`
+  await createSub(owner, subA)
+  await createSub(owner, subB)
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: 'now in two turfs', subNames: [subA, subB] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+
+  // pricing: escalated platform floor x 2 (two non-owned turfs -> no
+  // single-owner route), no owner leg
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(result.moneroSubaddressMajor).toBe(1) // feePool stub
+  expect(result.moneroPaymentId).toBeNull()
+  const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const expected = await expectedEscalatedFloor(userId, config.postingFeeFloorPiconeros * 2n)
+  expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(expected)
+
+  // deferred: turf list and text are NOT applied until the fee is observed
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeTruthy()
+  const item = await prisma.item.findUnique({ where: { id: itemId } })
+  expect(item.text).toBeNull()
+  expect(item.subNames).toEqual([])
+
+  // fee observed -> the edit applies and the turfs land
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+  await flipPendingToLive(prisma, payInRow, expected)
+  const liveItem = await prisma.item.findUnique({ where: { id: itemId } })
+  expect(liveItem.text).toBe('now in two turfs')
+  expect([...liveItem.subNames].sort()).toEqual([subA, subB].sort())
+})
+
+test('an edit adding exactly one non-owned walleted turf routes owner-direct and still defers (R10)', async () => {
+  const userId = await createUser()
+  const owner = await createUser()
+  await ensureFeeConfig()
+  const subName = `r10-owner-${Date.now()}`
+  await createSub(owner, subName, { postPremiumPiconeros: 500_000_000n })
+  const account = await prisma.moneroAccount.create({
+    data: { ownerUserId: owner, address: PRIMARY, label: 'test-turf-owner', network: 'STAGENET', status: 'ACTIVE' }
+  })
+  created.accounts.push(account.id)
+  const { id: itemId } = await createRootPost(userId, { subNames: [] })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  process.env.TURF_OWNER_FEES = '1'
+  let result
+  try {
+    result = await pay(
+      'ITEM_UPDATE',
+      { id: String(itemId), text: 'one wallet turf', subNames: [subName] },
+      { me: { id: userId } }
+    )
+  } finally {
+    delete process.env.TURF_OWNER_FEES
+  }
+  created.payIns.push(result.id)
+  created.subFeePids.push(result.moneroPaymentId)
+
+  expect(result.moneroPaymentId).toMatch(/^[0-9a-f]{16}$/)
+  expect(result.moneroSubaddressMajor).toBeNull()
+  // the R10 gate fix: owner-leg payIns carry moneroPaymentId, not a
+  // subaddress — they must defer too, or the edit would apply before payment
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeTruthy()
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).subNames).toEqual([])
+
+  // independently recompute the quote: escalated floor + the owner premium,
+  // which is NOT escalated (it rides the owner leg as-is)
+  const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const expected = await expectedEscalatedFloor(userId, config.postingFeeFloorPiconeros) + 500_000_000n
+  expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(expected)
+
+  // a chain-verified receipt opens the cumulative gate and applies the edit
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+  await applySubFeeReceipt(prisma, {
+    feePayIn: payInRow,
+    paymentId: result.moneroPaymentId,
+    txHash: randomUUID().replaceAll('-', ''),
+    piconeros: expected,
+    height: 1234,
+    confirmations: 10
+  })
+  const liveItem = await prisma.item.findUnique({ where: { id: itemId } })
+  expect(liveItem.text).toBe('one wallet turf')
+  expect(liveItem.subNames).toEqual([subName])
+})
+
+test('removing turfs and adding owned turfs stay free and apply immediately (R10)', async () => {
+  const userId = await createUser()
+  const oldA = `r10-old-a-${Date.now()}`
+  const oldB = `r10-old-b-${Date.now()}`
+  const ownedNew = `r10-owned-${Date.now()}`
+  await createSub(userId, oldA)
+  await createSub(userId, oldB)
+  await createSub(userId, ownedNew)
+  const { id: itemId } = await createRootPost(userId, { subNames: [oldA, oldB] })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: 'swap', subNames: [ownedNew] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+
+  expect(result.moneroUri).toBeNull()
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeNull()
+  const item = await prisma.item.findUnique({ where: { id: itemId } })
+  expect(item.text).toBe('swap')
+  expect(item.subNames).toEqual([ownedNew])
+})
+
+test('a combined upload + turf-add edit quotes ONE platform URI covering both (R10)', async () => {
+  const userId = await createUser()
+  const owner = await createUser()
+  await ensureFeeConfig()
+  const subName = `r10-combined-${Date.now()}`
+  await createSub(owner, subName)
+  const { id: itemId } = await createRootPost(userId, { subNames: [] })
+  const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: `x ![](http://media.test/uploads/${uploadId})`, uploadIds: [uploadId], subNames: [subName] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+
+  // upload fees force the platform leg (no premium, no owner-direct)
+  expect(result.moneroSubaddressMajor).toBe(1)
+  expect(result.moneroPaymentId).toBeNull()
+  const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const expected = 1_000_000_000n + await expectedEscalatedFloor(userId, config.postingFeeFloorPiconeros)
+  expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(expected)
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeTruthy()
 })

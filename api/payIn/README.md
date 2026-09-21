@@ -206,6 +206,21 @@ re-attachable). `abandonFeeItems` purges unobserved pending rows after
 `FEE_ITEM_ABANDON_DAYS` and deletes their payIn, so a never-paid edit leaves the item
 untouched and its unattached upload is reaped by `deleteUnusedImages`.
 
+**ITEM_UPDATE turf-addition fees (R10, 2026-09-21):** an edit that ADDS turfs is
+priced exactly as creation would price them — the escalated platform posting
+floor for every added non-owned turf, with the turf-owner premium riding the
+owner-direct leg when the added set resolves to one walleted owner and no
+upload fees are folded in. The charge shares the upload-fee machinery: it rides
+the edit's `moneroUri`, the edit is stored in `PendingItemUpdate` until the
+covering fee is observed, and the deferral gate now covers BOTH fee legs
+(`moneroSubaddressMajor` or `moneroPaymentId`). Additions only — removals and
+owned-turf additions are free. Edits that omit `subNames` are not priced (the
+web client always sends the full list; comments and bios are stripped to
+text-only edits by the resolver and can never change turfs). The escalation
+count is the user's live `item_spam` value, which includes the post being
+edited, so an in-window edit quotes the same `(3/2)^n` a fresh post at that
+moment would — it never undercharges.
+
 **Counters:** `User.freePostCount` / `freePostResetAt` track the monthly post quota. The
 `incrementFreePostCount` hook (in `api/payIn/lib/freebie.js`) runs in ITEM_CREATE `onPaid`
 and bumps the counter atomically (optimistic-concurrency guarded: no-op for comments, bios,
