@@ -455,6 +455,12 @@ model Item {
   feePayInId Int?          @unique
   feePayIn   PayIn?        @relation("ItemFeePayIn", fields: [feePayInId], references: [id])
 
+  // R01: true when this PENDING_FEE item was within free-quota terms at
+  // creation (its only on-chain cost was the upload fee) — flipPendingToLive
+  // consumes its free post/comment quota when the fee is observed and the
+  // item goes live.
+  feeQuotaEligible Boolean @default(false)
+
   // Bounties (A-13): the funded bounty amount + status lifecycle. UNFUNDED posts
   // are invisible until the funding payment confirms (mirrors the feeStatus gate).
   bountyPiconeros       BigInt          @default(0)

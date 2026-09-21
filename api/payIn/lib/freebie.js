@@ -124,6 +124,50 @@ export async function incrementFreePostCount (tx, { item, userId }) {
   }
 }
 
+/**
+ * Consume the free quota for a PENDING_FEE item at its fee flip
+ * (worker/rewardsWalletObserver.js flipPendingToLive) — the R01 fix.
+ *
+ * The creation-time incrementFree* calls skip items that aren't freeborn
+ * (freebie=false / feeStatus=PENDING_FEE), so an in-quota author whose only
+ * on-chain cost was the upload fee never consumed quota. onBegin marks such
+ * items feeQuotaEligible; this runs inside the winning flip transaction,
+ * exactly once (re-polls match zero rows and never reach here).
+ *
+ * Unlike incrementFreeCommentCount/incrementFreePostCount this FORCE-increments
+ * without a `count < quota` precondition and NEVER throws: at flip time the
+ * fee is already paid and the item must go live — a throw here would freeze
+ * ALL fee attribution. An over-quota count is inert (free-left clamps at 0;
+ * the window reset re-baselines).
+ *
+ * @param {Object} tx - Prisma transaction (the flip's tx)
+ * @param {Object} params - { item, userId }
+ */
+export async function consumeQuotaForFlippedItem (tx, { item, userId }) {
+  if (!item?.feeQuotaEligible || userId === USER_ID.anon) return
+  try {
+    const user = await tx.user.findUnique({ where: { id: userId } })
+    if (!user) return
+    const now = new Date()
+    if (item.parentId) {
+      if (user.freeCommentResetAt && now < new Date(user.freeCommentResetAt)) {
+        await tx.user.update({ where: { id: userId }, data: { freeCommentCount: { increment: 1 } } })
+      } else {
+        await tx.user.update({ where: { id: userId }, data: { freeCommentCount: 1, freeCommentResetAt: getNextDayStart() } })
+      }
+    } else {
+      if (user.freePostResetAt && now < new Date(user.freePostResetAt)) {
+        await tx.user.update({ where: { id: userId }, data: { freePostCount: { increment: 1 } } })
+      } else {
+        await tx.user.update({ where: { id: userId }, data: { freePostCount: 1, freePostResetAt: getNextMonthStart() } })
+      }
+    }
+  } catch (error) {
+    // Never let a quota bookkeeping failure roll back the fee flip.
+    console.error('consumeQuotaForFlippedItem: quota consumption failed (flip proceeds)', error)
+  }
+}
+
 // Bridge re-export: existing consumers (api/payIn/types/itemCreate.js,
 // api/resolvers/user.js) still import commentsFreeLeft from '@/api/payIn/lib/freebie'.
 // Tasks 3/4 switch them to import directly from '@/api/monero/postingFee'.

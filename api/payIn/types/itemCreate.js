@@ -355,6 +355,29 @@ export async function onBegin (tx, payInId, args) {
   const feeRequired = payIn.moneroSubaddressMajor != null || payIn.moneroPaymentId != null
   const feeStatus = feeRequired ? 'PENDING_FEE' : 'FEE_NOT_REQUIRED'
 
+  // R01: an in-quota item whose only on-chain cost is the upload fee is born
+  // PENDING_FEE, so the creation-time incrementFree* calls skip it (not
+  // freeborn). Mark it here to consume its free quota at the fee flip
+  // (flipPendingToLive). Only items that would have been free but for the
+  // upload fee are marked: over-quota authors, anons, bios, and owner-free
+  // items never consume quota. Recomputed here rather than threaded from
+  // getInitial — the same-payer row lock serializes this user's payIn
+  // operations, so it agrees with getInitial's branch decision.
+  let feeQuotaEligible = false
+  if (feeRequired && !data.bio && payIn.userId !== USER_ID.anon) {
+    const markerSubs = await getSubs(tx, { subNames, parentId })
+    const ownerFree = markerSubs.length > 0 && countNonOwnedSubs(markerSubs, payIn.userId) === 0
+    if (!ownerFree) {
+      const quotaConfig = await tx.platformFeeConfig.findUnique({ where: { id: 1 } })
+      const payer = quotaConfig ? await tx.user.findUnique({ where: { id: payIn.userId } }) : null
+      if (payer) {
+        feeQuotaEligible = parentId
+          ? commentsFreeLeft(payer, quotaConfig) > 0
+          : postsFreeLeft(payer, quotaConfig) > 0
+      }
+    }
+  }
+
   const { userNames, itemIds } = extractMentions(data.text)
   const mentions = await getMentions(tx, { names: userNames, userId: payIn.userId })
   const itemMentions = await getItemMentions(tx, { itemIds, userId: payIn.userId })
@@ -382,6 +405,7 @@ export async function onBegin (tx, payInId, args) {
     freebie: isFreebie,
     imgproxyUrls,
     feeStatus,
+    feeQuotaEligible,
     feePayInId: feeStatus === 'PENDING_FEE' ? payInId : null,
     itemPayIns: {
       create: [{ payInId }]

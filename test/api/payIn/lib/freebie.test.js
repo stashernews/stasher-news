@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { incrementFreeCommentCount, incrementFreePostCount, getNextDayStart } from '@/api/payIn/lib/freebie'
+import { incrementFreeCommentCount, incrementFreePostCount, getNextDayStart, consumeQuotaForFlippedItem } from '@/api/payIn/lib/freebie'
 
 // A mock tx whose user.update is a jest.fn; config always resolves so the helpers
 // proceed to the quota/branch logic. We assert which calls reach `update`.
@@ -89,4 +89,73 @@ test('incrementFreeCommentCount rolls a stale counter over to a fresh daily wind
   } finally {
     jest.useRealTimers()
   }
+})
+
+// --- consumeQuotaForFlippedItem (R01: flip-time quota consumption) ---
+
+test('consumeQuotaForFlippedItem is a no-op without the feeQuotaEligible marker', async () => {
+  const tx = mkTx({ freeCommentCount: 0, freeCommentResetAt: null })
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: false, parentId: 1 }, userId: 5 })
+  expect(tx.user.update).not.toHaveBeenCalled()
+})
+
+test('consumeQuotaForFlippedItem is a no-op for anon', async () => {
+  const tx = mkTx({ freeCommentCount: 0, freeCommentResetAt: null })
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: ANON })
+  expect(tx.user.update).not.toHaveBeenCalled()
+})
+
+test('consumeQuotaForFlippedItem is a no-op when the user row is missing', async () => {
+  const tx = mkTx(null)
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: 5 })
+  expect(tx.user.update).not.toHaveBeenCalled()
+})
+
+test('consumeQuotaForFlippedItem opens a fresh daily window for a comment when none is open', async () => {
+  const tx = mkTx({ freeCommentCount: 4, freeCommentResetAt: null })
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: 5 })
+  expect(tx.user.update).toHaveBeenCalledWith({
+    where: { id: 5 },
+    data: { freeCommentCount: 1, freeCommentResetAt: expect.any(Date) }
+  })
+})
+
+test('consumeQuotaForFlippedItem force-increments the comment counter with NO quota precondition', async () => {
+  // count 9 (over any quota) still increments — the flip must never be rejected
+  const tx = mkTx({ freeCommentCount: 9, freeCommentResetAt: new Date(Date.now() + 86_400_000) })
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: 5 })
+  expect(tx.user.update).toHaveBeenCalledWith({
+    where: { id: 5 },
+    data: { freeCommentCount: { increment: 1 } }
+  })
+})
+
+test('consumeQuotaForFlippedItem force-increments the post counter for a top-level item', async () => {
+  const tx = mkTx({ freePostCount: 5, freePostResetAt: new Date(Date.now() + 30 * 86_400_000) })
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: null }, userId: 5 })
+  expect(tx.user.update).toHaveBeenCalledWith({
+    where: { id: 5 },
+    data: { freePostCount: { increment: 1 } }
+  })
+})
+
+test('consumeQuotaForFlippedItem rolls a stale post window over to a fresh month', async () => {
+  jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 8, 21, 10, 30, 0)))
+  try {
+    const stale = new Date(Date.UTC(2026, 8, 1, 0, 0, 0))
+    const tx = mkTx({ freePostCount: 5, freePostResetAt: stale })
+    await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: null }, userId: 5 })
+    expect(tx.user.update).toHaveBeenCalledWith({
+      where: { id: 5 },
+      data: { freePostCount: 1, freePostResetAt: new Date(Date.UTC(2026, 9, 1, 0, 0, 0)) }
+    })
+  } finally {
+    jest.useRealTimers()
+  }
+})
+
+test('consumeQuotaForFlippedItem NEVER throws — a failed update is swallowed (the flip must proceed)', async () => {
+  const tx = mkTx({ freeCommentCount: 0, freeCommentResetAt: null })
+  tx.user.update = jest.fn(async () => { throw new Error('db blip') })
+  await expect(consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: 5 })).resolves.toBeUndefined()
 })

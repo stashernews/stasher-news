@@ -10,6 +10,7 @@ import { moneroUriAmountPiconeros } from '@/lib/format'
 import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
 import { alert } from '@/lib/alert'
 import { logError } from '@/lib/logger'
+import { consumeQuotaForFlippedItem } from '@/api/payIn/lib/freebie'
 
 // rewardsWalletObserver — observes posting/territory fees AND downvote payments paid to
 // the platform rewards wallet (Phase 3 Task 5 + Phase 4 Task 4 / spec §3.3, §5.6,
@@ -291,6 +292,13 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
           user: true
         }
       })
+      // R01: an item that was in-quota at creation but born PENDING_FEE (its
+      // only cost was the upload fee) consumes its free quota HERE — the
+      // creation-time increments skip non-freeborn items. Exactly-once (only
+      // the winning flip transaction runs this) and best-effort (a failure
+      // logs but never rolls the flip back — a throw would freeze ALL fee
+      // attribution).
+      await consumeQuotaForFlippedItem(tx, { item, userId: payIn.userId })
       await denormalizeComment(tx, item)
       return item
     })

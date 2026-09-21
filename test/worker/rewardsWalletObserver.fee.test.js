@@ -513,3 +513,47 @@ test('an underpaid TERRITORY fee does not flip billingStatus to PAID', async () 
   const sub = await prisma.sub.findUnique({ where: { name: subName } })
   expect(sub.billingStatus).toBe('PENDING_FEE')
 })
+
+// --- R01: feeQuotaEligible items consume their free quota at the flip ---
+
+test('a feeQuotaEligible COMMENT consumes its free-comment quota when it flips live (R01)', async () => {
+  const { comment, major, minor } = await seedPendingFeeComment(401)
+  await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('a7' + '89'.repeat(31), '1000000000', major, minor)] })
+  const live = await prisma.item.findUnique({ where: { id: comment.id } })
+  expect(live.feeStatus).toBe('FEE_PAID')
+  const user = await prisma.user.findUnique({ where: { id: comment.userId } })
+  expect(user.freeCommentCount).toBe(1)
+  expect(user.freeCommentResetAt).toBeTruthy()
+})
+
+test('a feeQuotaEligible POST consumes its free-post quota when it flips live (R01)', async () => {
+  const { item, major, minor } = await seedPendingFeePost(402)
+  await prisma.item.update({ where: { id: item.id }, data: { feeQuotaEligible: true } })
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('b8' + '9a'.repeat(31), '1000000000', major, minor)] })
+  const live = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(live.feeStatus).toBe('FEE_PAID')
+  const user = await prisma.user.findUnique({ where: { id: item.userId } })
+  expect(user.freePostCount).toBe(1)
+  expect(user.freePostResetAt).toBeTruthy()
+})
+
+test('an UNMARKED pending-fee item consumes no quota on flip (over-quota / anon / bio paths)', async () => {
+  const { comment, major, minor } = await seedPendingFeeComment(403)
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('c9' + 'ab'.repeat(31), '1000000000', major, minor)] })
+  const live = await prisma.item.findUnique({ where: { id: comment.id } })
+  expect(live.feeStatus).toBe('FEE_PAID')
+  const user = await prisma.user.findUnique({ where: { id: comment.userId } })
+  expect(user.freeCommentCount).toBe(0) // never touched
+  expect(user.freeCommentResetAt).toBeNull() // never touched
+})
+
+test('quota consumption is exactly-once across re-polls (R01)', async () => {
+  const { comment, major, minor } = await seedPendingFeeComment(404)
+  await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
+  const tx = lwsFeeTx('da' + 'bc'.repeat(31), '1000000000', major, minor)
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
+  const user = await prisma.user.findUnique({ where: { id: comment.userId } })
+  expect(user.freeCommentCount).toBe(1)
+})

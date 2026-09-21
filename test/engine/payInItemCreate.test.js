@@ -396,6 +396,8 @@ test('pay("ITEM_CREATE", { uploadIds }) completes without flipping the upload; t
   created.items.push(item.id)
   expect(item.feeStatus).toBe('PENDING_FEE')
   expect(item.feePayInId).toBe(result.id)
+  // past the quota: an over-quota item is never marked quota-eligible (R01)
+  expect(item.feeQuotaEligible).toBe(false)
 
   // drive the observation-time flip: the observer sees the covering fee on the
   // rewards wallet (0.002 XMR = posting fee + upload fee) and flips the upload
@@ -408,6 +410,86 @@ test('pay("ITEM_CREATE", { uploadIds }) completes without flipping the upload; t
   // the onPaid streak job references the test user (deleted in afterAll); drop
   // it here so the worker never executes it against a deleted row
   await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
+})
+
+// --- R01: onBegin marks in-quota upload-fee items for flip-time quota consumption ---
+//
+// An in-quota author whose item's only on-chain cost is the >10MB upload fee is
+// born PENDING_FEE (feeRequired), so the creation-time incrementFree* calls skip
+// it. onBegin sets feeQuotaEligible and flipPendingToLive consumes the quota at
+// the fee flip. Over-quota (pinned by the e2e above), owner-free, bio, and anon
+// items are never marked.
+describe('onBegin — feeQuotaEligible marker (R01)', () => {
+  async function createItemViaPay (userId, args) {
+    const result = await pay(
+      'ITEM_CREATE',
+      { userId, text: '', ...args },
+      { me: { id: userId } }
+    )
+    created.payIns.push(result.id)
+    const itemPayIn = await prisma.itemPayIn.findFirst({ where: { payInId: result.id } })
+    const item = await prisma.item.findUnique({ where: { id: itemPayIn.itemId } })
+    created.items.push(item.id)
+    return { result, item }
+  }
+
+  test('an in-quota established post carrying only the upload fee is marked', async () => {
+    const userId = await createUser()
+    await ensureFeeConfig()
+    await prisma.$executeRaw`
+      UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days'
+      WHERE id = ${userId}::int`
+    const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+    const { result, item } = await createItemViaPay(userId, {
+      title: 'r01 in-quota post ' + Date.now(),
+      url: 'https://example.com/' + Date.now(),
+      uploadIds: [uploadId],
+      subNames: []
+    })
+    // the fee URI is the upload fee alone — the posting fee is waived by quota
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(item.feeStatus).toBe('PENDING_FEE')
+    expect(item.feeQuotaEligible).toBe(true)
+  })
+
+  test('an in-quota established comment carrying only the upload fee is marked', async () => {
+    const authorId = await createUser()
+    const userId = await createUser()
+    await ensureFeeConfig()
+    await prisma.$executeRaw`
+      UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days'
+      WHERE id = ${userId}::int`
+    const parentId = await createRootPost(authorId)
+    const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+    const { result, item } = await createItemViaPay(userId, {
+      parentId: String(parentId),
+      text: 'r01 in-quota comment',
+      uploadIds: [uploadId]
+    })
+    expect(result.moneroUri).toMatch(/^monero:/)
+    expect(item.feeStatus).toBe('PENDING_FEE')
+    expect(item.feeQuotaEligible).toBe(true)
+  })
+
+  test('an owner-free post with an upload is NOT marked (the perk already waives quota)', async () => {
+    const userId = await createUser()
+    await ensureFeeConfig()
+    const turfName = `r01owner-${userId}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+    const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+    const { result, item } = await createItemViaPay(userId, {
+      title: 'r01 owner-free post ' + Date.now(),
+      url: 'https://example.com/' + Date.now(),
+      uploadIds: [uploadId],
+      subNames: [turfName]
+    })
+    expect(result.moneroUri).toMatch(/^monero:/) // the upload fee is still charged
+    expect(item.feeStatus).toBe('PENDING_FEE')
+    expect(item.feeQuotaEligible).toBe(false)
+  })
 })
 
 // --- turf-owner free posting: countNonOwnedSubs scales the fee by non-owned turfs ---
