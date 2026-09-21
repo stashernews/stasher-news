@@ -36,6 +36,25 @@ export const ITEM_FIELDS = gql`
         retryCount
       }
     }
+    moneroWall {
+      pricePiconeros
+      thresholdPiconeros
+      enabledAt
+      frozen
+      publiclyUnlocked
+      locked
+      myContributionPiconeros
+      myRateablePiconeros
+      progressPiconeros
+      remainingPiconeros
+    }
+    moneroWallRating {
+      average
+      count
+      myStars
+      canRate
+      pendingRating
+    }
     otsHash
     position
     piconeros
@@ -216,5 +235,17 @@ export const RELATED_ITEMS_WITH_ITEM = gql`
 export const UPDATE_ITEM_USER_VIEW = gql`
   mutation updateCommentsViewAt($id: ID!, $meCommentsViewedAt: Date!) {
     updateCommentsViewAt(id: $id, meCommentsViewedAt: $meCommentsViewedAt)
+  }
+`
+
+// One-way author removal (bypasses the edit window). Returns the full item so
+// the response can be written back into the cache; the server also serves the
+// now-public full text on the following refetch.
+export const REMOVE_MONERO_WALL = gql`
+  ${ITEM_FIELDS}
+  mutation removeMoneroWall($id: ID!) {
+    removeMoneroWall(id: $id) {
+      ...ItemFields
+    }
   }
 `

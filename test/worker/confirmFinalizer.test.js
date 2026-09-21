@@ -49,6 +49,19 @@ const created = { users: [], items: [], accounts: [], tips: [], downvotes: [], s
 const FEE_CONFIG = { bountyFeeMinPiconeros: 10_000_000_000n, bountyFeePct: 1 }
 let feeConfigSnapshot = null
 
+// The finalizer upserts the shared chain_state tip (id=1) on every run, which
+// would otherwise leave mock heights (e.g. 209) in the dev DB after the suite
+// (self-healing at the worker's next tick, but trace-ful). Snapshot the live
+// row up front and restore it in afterAll — same regime as feeConfigSnapshot.
+// No row at snapshot time means the suite's upsert CREATES it: delete instead
+// of restoring a bogus one.
+let chainStateSnapshot = null
+
+beforeAll(async () => {
+  const row = await prisma.chainState.findUnique({ where: { id: 1 } })
+  if (row) chainStateSnapshot = { chainHeight: row.chainHeight, updatedAt: row.updatedAt }
+})
+
 afterAll(async () => {
   // AbuseSignal rows FK-reference ObservedTip (RESTRICT) — delete before the tips.
   await prisma.abuseSignal.deleteMany({ where: { tipId: { in: created.tips } } })
@@ -71,6 +84,14 @@ afterAll(async () => {
   if (feeConfigSnapshot) {
     await prisma.platformFeeConfig.update({ where: { id: 1 }, data: feeConfigSnapshot })
     feeConfigSnapshot = null
+  }
+  // Restore the live dev chain tip the mock heights overwrote (explicit
+  // updatedAt included, so the staleness window the wall loader reads stays
+  // intact); drop the row entirely when the suite created it.
+  if (chainStateSnapshot) {
+    await prisma.chainState.update({ where: { id: 1 }, data: chainStateSnapshot })
+  } else {
+    await prisma.chainState.deleteMany({ where: { id: 1 } })
   }
   await prisma.$disconnect()
 })

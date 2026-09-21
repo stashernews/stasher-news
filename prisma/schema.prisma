@@ -130,6 +130,7 @@ model User {
   bountyPayments        BountyPayment[]
   abuseSignalsAsSubject AbuseSignal[]   @relation("AbuseSignalSubject")
   abuseSignalsAsActor   AbuseSignal[]   @relation("AbuseSignalActor")
+  moneroWallRatings     MoneroWallRating[]
 
   @@index([photoId])
   @@index([createdAt], map: "users.created_at_index")
@@ -479,11 +480,22 @@ model Item {
   bountyWinnerComment   Item?           @relation("BountyAwardWinner", fields: [bountyWinnerCommentId], references: [id])
   bountyPayments        BountyPayment[]
 
+  // Monerowall (paywalled posts). enabledAt null = no wall ever; removedAt
+  // is stamped by removeMoneroWall (one-way — X/T/enabledAt are kept for
+  // rating-eligibility derivation). price/threshold nullable and independent.
+  // Progress/entitlement are derived from ObservedTip rows since enabledAt —
+  // see lib/monero-wall/.
+  moneroWallPricePiconeros     BigInt?
+  moneroWallThresholdPiconeros BigInt?
+  moneroWallEnabledAt          DateTime?
+  moneroWallRemovedAt          DateTime?
+
   // back-relations for observed Monero tips/downvotes (ObservedTip/ObservedDownvote)
   observedTips      ObservedTip[]
   observedDownvotes ObservedDownvote[]
   observedBounties  ObservedBounty[]
   abuseSignals      AbuseSignal[]
+  moneroWallRatings MoneroWallRating[]
 
   @@index([uploadId])
   @@index([lastTipAt])
@@ -1423,6 +1435,24 @@ model SubaddressIndex {
   @@index([accountId, state])
 }
 
+// Post-unlock quality rating for Monerowalled posts. Insert-only — the
+// @@unique is the locked-forever rule (no update/delete paths exist).
+// Eligibility (viewer's confirmed tips >= the wall's price) is derived at
+// request time; see lib/monero-wall/rating-loader.js.
+model MoneroWallRating {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+  itemId    Int      @map("item_id")
+  userId    Int      @map("user_id")
+  stars     Int
+  item      Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, userId])
+  @@index([itemId])
+  @@map("monero_wall_rating")
+}
+
 // An observed incoming tip (the non-custodial replacement for PayInBolt11).
 model ObservedTip {
   id                 BigInt              @id @default(autoincrement())
@@ -1459,6 +1489,8 @@ model ObservedTip {
   @@index([postId])
   @@index([state])
   @@index([state, confirmedAt])
+  @@index([postId, tipperId, state])
+  @@index([postId, state])
 }
 
 enum TipExclusionReason {
@@ -1854,4 +1886,16 @@ model PlatformFeeConfig {
   // trust-walk heartbeat (HealthSnapshot.trustCompletedAt) or an empty trust
   // table forces 1.0 (fail-safe, see worker/rewardsDistributor.js).
   curatorTrustWeightFloor            Float  @default(1.0)
+}
+
+// Singleton (id=1) cache of the monerod chain tip, written by the
+// confirmFinalizer cron each tick. Read-side consumers (monerowall loaders)
+// need chain depth without a daemon call per request; a stale row must be
+// treated as absent (see CHAIN_TIP_MAX_AGE_MS).
+model ChainState {
+  id          Int      @id @default(1)
+  chainHeight Int
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("chain_state")
 }

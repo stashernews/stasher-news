@@ -213,7 +213,12 @@ export function SubMultiSelect ({ prependSubs, subs, onChange, size, appendSubs,
             return
           } else if (router.pathname.startsWith('/~')) {
             // are we in a sub aware route?
-            // if we are, go to the same path but in the sub
+            // if we are, go to the same path but in the sub. An empty
+            // selection must not build a /~undefined path (that 404s): on an
+            // already-unscoped path there is nothing to navigate to and the
+            // form field has already been cleared, so leave the URL alone
+            // (2026-09-23 draft/turf bug).
+            if (!sub) return
             asPath = `/~${sub}` + router.asPath
           } else {
             // otherwise, just go to the sub

@@ -96,6 +96,18 @@ const detectReorg = createReorgDetector()
 // CONFIRMED (useful for logs/metrics; not asserted by tests).
 export async function runConfirmFinalizerOnce ({ models, daemonClient: client = daemonClient, detectReorg: detect = detectReorg, lwsClient: lws = lwsClient } = {}) {
   const chainHeight = await client.getHeight()
+  // Cache the chain tip for read-path depth derivations (monerowall rating
+  // tier). Best-effort: a failed write leaves the previous tip; readers
+  // treat stale tips as absent (CHAIN_TIP_MAX_AGE_MS).
+  try {
+    await models.chainState.upsert({
+      where: { id: 1 },
+      create: { id: 1, chainHeight },
+      update: { chainHeight }
+    })
+  } catch (err) {
+    console.warn('confirmFinalizer: chainState upsert failed:', err)
+  }
   detect(chainHeight)
 
   // PASS 0 (backfill): resolve NULL heights for poll-detected DETECTED rows so

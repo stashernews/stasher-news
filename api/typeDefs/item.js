@@ -25,13 +25,18 @@ export default gql`
     deleteItem(id: ID): Item
     upsertLink(
       id: ID, subNames: [String!], title: String!, url: String!, text: String,
+      moneroWallPricePiconeros: BigInt, moneroWallThresholdPiconeros: BigInt,
       hash: String, hmac: String, sendProtocolId: Int): PayIn!
     upsertDiscussion(
       id: ID, subNames: [String!], title: String!, text: String,
+      moneroWallPricePiconeros: BigInt, moneroWallThresholdPiconeros: BigInt,
       hash: String, hmac: String, sendProtocolId: Int): PayIn!
     upsertBounty(
       id: ID, subNames: [String!], title: String!, text: String, bountyPiconeros: BigInt,
+      moneroWallPricePiconeros: BigInt, moneroWallThresholdPiconeros: BigInt,
       hash: String, hmac: String, sendProtocolId: Int): PayIn!
+    removeMoneroWall(id: ID!): Item!
+    rateMoneroWallPost(itemId: ID!, stars: Int!): Item!
     upsertJob(
       id: ID, subNames: [String!], title: String!, company: String!, location: String, remote: Boolean,
       text: String!, url: String!, status: String, logo: Int, sendProtocolId: Int): PayIn!
@@ -88,6 +93,28 @@ export default gql`
     FEE_NOT_REQUIRED
     PENDING_FEE
     FEE_PAID
+  }
+
+  type MoneroWall {
+    pricePiconeros: BigInt
+    thresholdPiconeros: BigInt
+    enabledAt: Date!
+    frozen: Boolean!
+    publiclyUnlocked: Boolean!
+    locked: Boolean!
+    myContributionPiconeros: BigInt!
+    myRateablePiconeros: BigInt!
+    progressPiconeros: BigInt!
+    remainingPiconeros: BigInt!
+  }
+
+  type MoneroWallRatingAgg {
+    average: Float!
+    count: Int!
+    myStars: Int
+    canRate: Boolean!
+    # true when the viewer paid >= X at 0-conf but rating depth (3 confs) hasn't arrived yet
+    pendingRating: Boolean!
   }
 
   type Item {
@@ -169,6 +196,8 @@ export default gql`
     feeTopUpUri: String
     cost: Int!
     payIn: PayIn
+    moneroWall: MoneroWall
+    moneroWallRating: MoneroWallRatingAgg!
     meCommentsViewedAt: Date
   }
 `

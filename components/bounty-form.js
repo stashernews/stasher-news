@@ -14,6 +14,8 @@ import { piconerosToXmrDecimal, xmrToPiconeros } from '@/lib/format'
 import { MXmrFieldHint } from './mxmr-hint'
 import { BOUNTY_DEFAULT_XMR, BOUNTY_MIN_XMR, bountyPiconerosOf } from '@/lib/bounty'
 import { useRef } from 'react'
+import AdvPostForm from './adv-post-form'
+import MoneroWallFields, { moneroWallInitialValues } from './monero-wall-form-fields'
 
 // Decimal XMR entry (mirrors the tip modal's amount field + xmrAmountSchema);
 // the submit path converts to piconeros for the bountyPiconeros upsert arg.
@@ -51,7 +53,8 @@ export function BountyForm ({
       // author edits it)
       amount: item?.bountyPiconeros != null
         ? piconerosToXmrDecimal(bountyPiconerosOf(item.bountyPiconeros))
-        : BOUNTY_DEFAULT_XMR
+        : BOUNTY_DEFAULT_XMR,
+      ...moneroWallInitialValues(item)
     },
     // on create, route to the funding view instead of the feed redirect; on
     // edit, keep the normal redirect back to the item
@@ -118,6 +121,9 @@ export function BountyForm ({
         minRows={6}
         hint={EditInfo}
       />
+      <AdvPostForm>
+        <MoneroWallFields item={item} />
+      </AdvPostForm>
       <ItemButtonBar itemId={item?.id} canDelete={false} />
     </Form>
   )

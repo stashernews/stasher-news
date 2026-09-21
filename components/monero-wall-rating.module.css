@@ -1,0 +1,74 @@
+.footer {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--stealth-border);
+  padding-top: 0.875rem;
+}
+.label {
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffb347;
+  margin: 0 0 0.625rem;
+}
+.starRow {
+  display: flex;
+  gap: 0.125rem;
+}
+.star {
+  font-size: 2.6rem;
+  line-height: 1;
+  background: none;
+  border: none;
+  padding: 0 0.125rem;
+  cursor: pointer;
+  color: var(--bs-body-color);
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+.star:hover { transform: scale(1.04); }
+.star:active { transform: scale(0.96); }
+.starOn { color: #ffc83d; }
+.caption {
+  color: #ffb347;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  margin: 0.5rem 0 0;
+  min-height: 1.2em;
+}
+.row {
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.625rem;
+}
+.readonlyStars {
+  font-size: 2.2rem;
+  color: #ffc83d;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  margin: 0 0 0.375rem;
+}
+.aggregate {
+  color: var(--stealth-muted, #969696);
+  font-size: 0.82rem;
+  margin: 0;
+}
+/* Proportional aggregate stars for the aggregate-only view: muted base row
+   with a golden overlay clipped to average/3 (same technique as the title
+   badge). */
+.aggStars {
+  display: inline-block;
+  position: relative;
+  letter-spacing: 0.04em;
+}
+.aggStarsBase {
+  color: var(--stealth-muted, #969696);
+}
+.aggStarsFill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #ffc83d;
+}

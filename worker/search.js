@@ -1,6 +1,7 @@
 import { gql } from 'graphql-tag'
 import search from '@/api/search/index'
 import removeMd from 'remove-markdown'
+import { indexableMoneroWallText } from '@/lib/monero-wall'
 
 const ITEM_SEARCH_FIELDS = gql`
   fragment ItemSearchFields on Item {
@@ -78,9 +79,6 @@ async function _indexItem (item, { models, updatedAt }) {
   if (item.location || item.remote) {
     itemcp.title += ` \\ ${item.location || ''}${item.location && item.remote ? ' or ' : ''}${item.remote ? 'Remote' : ''}`
   }
-  if (item.text) {
-    itemcp.text = removeMd(item.text)
-  }
 
   // Keep territory metadata in a flat array because ingest processing can
   // strip nested object fields (like sub.name) from _source.
@@ -88,11 +86,23 @@ async function _indexItem (item, { models, updatedAt }) {
 
   const itemdb = await models.item.findUnique({
     where: { id: Number(item.id) },
-    select: { weightedVotes: true, weightedDownVotes: true, ranktop: true }
+    select: { weightedVotes: true, weightedDownVotes: true, ranktop: true, text: true, moneroWallEnabledAt: true, moneroWallRemovedAt: true }
   })
 
   itemcp.wvotes = itemdb.weightedVotes - itemdb.weightedDownVotes
   itemcp.ranktop = itemdb.ranktop
+
+  // Body text from the DB, not the GraphQL-sourced `item.text` (which is
+  // viewer-relative): walled posts index the teaser only, removed walls index
+  // the full body.
+  const indexText = indexableMoneroWallText({
+    text: itemdb.text,
+    moneroWallEnabledAt: itemdb.moneroWallEnabledAt,
+    moneroWallRemovedAt: itemdb.moneroWallRemovedAt
+  })
+  if (indexText != null) {
+    itemcp.text = removeMd(indexText)
+  }
 
   // metadata: docType for filtering, textLength for scoring
   itemcp.docType = item.parentId ? 'comment' : 'post'
@@ -267,6 +277,8 @@ export async function indexAllItems ({ models, boss }) {
           weightedVotes: true,
           weightedDownVotes: true,
           ranktop: true,
+          moneroWallEnabledAt: true,
+          moneroWallRemovedAt: true,
           user: { select: { name: true } },
           root: { select: { subNames: true } },
           Bookmark: { select: { userId: true } }
@@ -293,7 +305,7 @@ export async function indexAllItems ({ models, boss }) {
         if (item.location || item.remote) {
           doc.title = `${doc.title} \\ ${item.location || ''}${item.location && item.remote ? ' or ' : ''}${item.remote ? 'Remote' : ''}`
         }
-        if (item.text) doc.text = removeMd(item.text)
+        if (item.text) doc.text = removeMd(indexableMoneroWallText(item))
         doc.textLength = doc.text ? doc.text.length : 0
 
         // clean up relation/raw fields not needed in the index

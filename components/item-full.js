@@ -29,6 +29,8 @@ import Embed from './embed'
 import { XPreviewCard } from './x-preview'
 import useCommentsView from './use-comments-view'
 import useCallbackRef from './use-callback-ref'
+import MoneroWallPanel from './monero-wall'
+import MoneroWallRating from './monero-wall-rating'
 
 function BioItem ({ item, handleClick }) {
   const { me } = useMe()
@@ -110,6 +112,8 @@ function TopLevelItem ({ item, noReply, ...props }) {
     >
       <article className={classNames(styles.fullItemContainer, 'topLevel')} ref={textRef}>
         {item.text && <ItemText item={item} readerRef={onReaderRef} />}
+        <MoneroWallPanel item={item} />
+        <MoneroWallRating item={item} />
         {item.url && !isBelowFilter && <ItemEmbed url={item.url} imgproxyUrls={item.imgproxyUrls} xPreview={item.xPreview} />}
         {item.poll && <Poll item={item} />}
         {item.bounty &&

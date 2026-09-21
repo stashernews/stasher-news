@@ -1,0 +1,94 @@
+/* Monerowall panel (stealth palette). Colors come from the stealth custom
+   properties so the light theme adapts; the ember accent stays hardcoded like
+   the rest of the rebrand (styles/stealth-theme.scss). */
+
+.wall {
+  margin-top: 16px;
+}
+
+.rule {
+  border-top: 1px solid var(--stealth-border);
+}
+
+.inner {
+  padding-top: 14px;
+}
+
+.title {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ff6600;
+}
+
+.progressTrack {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--stealth-border);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff6600, #ffb347);
+  transition: width 0.3s ease;
+}
+
+.copy {
+  color: var(--stealth-muted);
+  font-size: 0.85rem;
+  margin: 0 0 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.help {
+  color: var(--stealth-muted);
+  font-size: 0.72rem;
+  margin: 12px 0 0;
+}
+
+.rows {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.84rem;
+  color: var(--bs-body-color);
+  border-bottom: 1px dashed var(--stealth-border);
+  padding-bottom: 5px;
+}
+
+.rowValue {
+  color: #ffb347;
+  font-variant-numeric: tabular-nums;
+}
+
+.remove {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--stealth-muted);
+  text-decoration: underline;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.remove:hover {
+  color: var(--bs-body-color);
+}
+
+.remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

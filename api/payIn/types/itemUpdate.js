@@ -10,6 +10,7 @@ import { notifyItemMention, notifyMention } from '@/lib/webPush'
 import * as MEDIA_UPLOAD from './mediaUpload'
 import { getItem } from '@/api/resolvers/item'
 import { subsDiff } from '@/lib/subs'
+import { moneroWallEnabled } from '@/lib/monero-wall'
 import { getTempImgproxyUrls } from '../lib/upload'
 import { postFloorPiconerosForSubs, postFeePiconerosForSubs } from '@/api/monero/turfFeeRouting'
 import { escalatedFeePiconeros, feeLegOrSubaddress } from './itemCreate'
@@ -176,6 +177,47 @@ export async function applyItemUpdate (tx, payIn, args) {
   // update cost if the update has a cost (e.g., moving to new territory ... or adding images)
   // cost is denominated in the fork's legacy sats (1 sats == 1000 piconeros)
   const additionalCost = Number(BigInt(payIn.piconeros) / 1000n)
+  // Monerowall: the update path never stamps or clears the enable window.
+  // Walls are created with the post (createItem stamps); removal goes
+  // through the removeMoneroWall mutation only (2026-09-21 amendment).
+  delete data.moneroWallEnabledAt
+  // Deferred fee-bearing edits re-enter here long after assertMoneroWallWrite
+  // ran (onBegin stores them; flipPendingToLive applies them once the fee
+  // lands), so the resolver's freeze check can be stale: a tip observed while
+  // the fee was in flight freezes the wall, yet the stored args still carry the
+  // X/T delta. Re-check against the row loaded above and strip just the wall
+  // keys — keeping the rest of the paid edit — when the wall is no longer
+  // active or a tip has landed at/after its enable window.
+  if (data.moneroWallPricePiconeros !== undefined || data.moneroWallThresholdPiconeros !== undefined) {
+    let dropWall = !moneroWallEnabled(old)
+    if (!dropWall) {
+      // submitted legs may be BigInt, decimal strings or null (one leg
+      // cleared); normalize before comparing and never let a bad value throw
+      const toPiconeros = value => value == null ? null : BigInt(value)
+      let changed
+      try {
+        const oldPrice = toPiconeros(old.moneroWallPricePiconeros)
+        const oldThreshold = toPiconeros(old.moneroWallThresholdPiconeros)
+        const price = data.moneroWallPricePiconeros === undefined ? oldPrice : toPiconeros(data.moneroWallPricePiconeros)
+        const threshold = data.moneroWallThresholdPiconeros === undefined ? oldThreshold : toPiconeros(data.moneroWallThresholdPiconeros)
+        changed = price !== oldPrice || threshold !== oldThreshold
+      } catch {
+        changed = true
+      }
+      if (changed) {
+        // mirror assertMoneroWallWrite's freeze query exactly
+        const detected = await tx.observedTip.findFirst({
+          where: { postId: old.id, detectedAt: { gte: old.moneroWallEnabledAt } },
+          select: { id: true }
+        })
+        dropWall = !!detected
+      }
+    }
+    if (dropWall) {
+      delete data.moneroWallPricePiconeros
+      delete data.moneroWallThresholdPiconeros
+    }
+  }
   await tx.item.update({
     where: { id: parseInt(id) },
     data: {

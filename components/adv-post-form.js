@@ -13,8 +13,9 @@ export default function AdvPostForm ({ children }) {
   const [show, setShow] = useState(false)
 
   useEffect(() => {
-    // if the adv post form is dirty on first render, show the accordian
-    if (router.query?.type === 'link' && formik?.values.text !== '') {
+    // if the adv post form is dirty on first render, show the accordian;
+    // a monerowall means live settings an author may need to reach on edit
+    if ((router.query?.type === 'link' && formik?.values.text !== '') || formik?.values.moneroWallEnabled) {
       setShow(FormStatus.DIRTY)
     }
   }, [formik?.values, router.query?.type])

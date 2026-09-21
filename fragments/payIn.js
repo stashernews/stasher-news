@@ -242,8 +242,10 @@ export const PAY_BOUNTY_MUTATION = gql`
 export const UPSERT_DISCUSSION = gql`
   ${PAY_IN_FIELDS}
   mutation upsertDiscussion($subNames: [String!]!, $id: ID, $title: String!, $text: String,
+    $moneroWallPricePiconeros: BigInt, $moneroWallThresholdPiconeros: BigInt,
     ${HASH_HMAC_INPUT_1}, $sendProtocolId: Int) {
     upsertDiscussion(subNames: $subNames, id: $id, title: $title, text: $text,
+      moneroWallPricePiconeros: $moneroWallPricePiconeros, moneroWallThresholdPiconeros: $moneroWallThresholdPiconeros,
       ${HASH_HMAC_INPUT_2}, sendProtocolId: $sendProtocolId) {
       ...PayInFields
     }
@@ -272,8 +274,10 @@ export const UPSERT_JOB = gql`
 export const UPSERT_LINK = gql`
   ${PAY_IN_FIELDS}
   mutation upsertLink($subNames: [String!]!, $id: ID, $title: String!, $url: String!,
-    $text: String, ${HASH_HMAC_INPUT_1}, $sendProtocolId: Int) {
+    $text: String, $moneroWallPricePiconeros: BigInt, $moneroWallThresholdPiconeros: BigInt,
+    ${HASH_HMAC_INPUT_1}, $sendProtocolId: Int) {
     upsertLink(subNames: $subNames, id: $id, title: $title, url: $url, text: $text,
+      moneroWallPricePiconeros: $moneroWallPricePiconeros, moneroWallThresholdPiconeros: $moneroWallThresholdPiconeros,
       ${HASH_HMAC_INPUT_2}, sendProtocolId: $sendProtocolId) {
       ...PayInFields
     }
@@ -294,8 +298,10 @@ export const UPSERT_POLL = gql`
 export const UPSERT_BOUNTY = gql`
   ${PAY_IN_FIELDS}
   mutation upsertBounty($subNames: [String!]!, $id: ID, $title: String!, $bountyPiconeros: BigInt,
-    $text: String, $sendProtocolId: Int) {
+    $text: String, $moneroWallPricePiconeros: BigInt, $moneroWallThresholdPiconeros: BigInt,
+    $sendProtocolId: Int) {
     upsertBounty(subNames: $subNames, id: $id, title: $title, bountyPiconeros: $bountyPiconeros, text: $text,
+      moneroWallPricePiconeros: $moneroWallPricePiconeros, moneroWallThresholdPiconeros: $moneroWallThresholdPiconeros,
       sendProtocolId: $sendProtocolId) {
       ...PayInFields
     }

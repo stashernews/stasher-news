@@ -39,13 +39,23 @@ const TIP_SLIDER_MIN = 1000000000n
 const TIP_SLIDER_MAX = 25000000000n
 const TIP_SLIDER_STEP = 1000000000n
 
-export default function TipModal ({ item, onClose }) {
+// Unlock mode reuses the tip flow for monerowall unlocks: `fixedAmount`
+// (piconeros) locks the amount to the wall price and hides presets/random,
+// `unlockMode` swaps the copy after detection — entitlement lands at DETECTED
+// (0-conf), so the success view reports the post as open while confirmation
+// continues in the background. `onDetected` is an optional unlock-mode
+// callback for the caller behind the modal (the wall panel refetches to
+// unlock); normal tips never pass it.
+export default function TipModal ({ item, onClose, fixedAmount, unlockMode, onDetected }) {
   const client = useApolloClient()
   const { me } = useMe()
   const animate = useAnimation()
   const toaster = useToast()
   const [initiateTip] = useMutation(INITIATE_TIP)
-  const [amount, setAmount] = useState(() => initialTipAmount(me?.privates))
+  const fixedPiconeros = fixedAmount != null ? BigInt(fixedAmount) : null
+  const [amount, setAmount] = useState(() => fixedPiconeros != null
+    ? piconerosToXmrDecimal(fixedPiconeros)
+    : initialTipAmount(me?.privates))
   const [tip, setTip] = useState(null) // { uri, paymentId, piconeros, recipient }
   const authorIsAnon = Number(item?.user?.id) === USER_ID.anon
   const [tipPaid, setTipPaid] = useState(false)
@@ -69,7 +79,7 @@ export default function TipModal ({ item, onClose }) {
     }
   }, [initiateTip, amount, item.id, toaster])
 
-  const onDetected = useCallback(() => {
+  const handleDetected = useCallback(() => {
     // Transition to the success state FIRST so a cosmetic side-effect below
     // (cache bump / animation) can never prevent the success view or auto-close.
     setTipPaid(true)
@@ -77,12 +87,20 @@ export default function TipModal ({ item, onClose }) {
     const piconeros = Number(BigInt(tip.piconeros))
     bumpActCache(client.cache, { id: item.id, piconeros, act: 'TIP', path: item.path }, me)
     animate()
-  }, [client, tip, item.id, item.path, me, animate])
+    // Unlock mode: tell the panel a payment was detected — its refetch (and
+    // this one) re-queries entitlement, which counts DETECTED tips (0-conf),
+    // so the wall behind the modal unlocks now; confirmation continues in the
+    // background.
+    if (unlockMode) {
+      onDetected?.()
+      client.refetchQueries({ include: ['Item'] }).catch(() => {})
+    }
+  }, [client, tip, item.id, item.path, me, animate, unlockMode, onDetected])
 
   if (tipPaid) {
     return (
       <PaymentSuccessView
-        title='Payment detected — your tip is on its way!'
+        {...successViewProps(unlockMode)}
         autoCloseMs={5000}
         onAutoClose={onClose}
       />
@@ -92,18 +110,20 @@ export default function TipModal ({ item, onClose }) {
   if (tip) {
     return (
       <TipPaymentView
-        uri={tip.uri} paymentId={tip.paymentId} amount={tip.piconeros} recipient={tip.recipient} onDetected={onDetected} onClose={onClose}
+        uri={tip.uri} paymentId={tip.paymentId} amount={tip.piconeros} recipient={tip.recipient} onDetected={handleDetected} onClose={onClose} unlockMode={unlockMode}
       />
     )
   }
 
   return (
     <div className='d-flex flex-column'>
-      <h6 className='text-start' style={{ fontFamily: DISPLAY_FONT }}>Tip</h6>
+      <h6 className='text-start' style={{ fontFamily: DISPLAY_FONT }}>{unlockMode ? 'Unlock this post' : 'Tip'}</h6>
       <p className='text-muted text-start'>
         {authorIsAnon
           ? <>This author has no wallet. Your tip up-ranks the post and funds the curator rewards pool.</>
-          : <>100% of this tip goes directly to the author, wallet-to-wallet.</>}
+          : unlockMode
+            ? <>100% of this unlock goes directly to the author, wallet-to-wallet.</>
+            : <>100% of this tip goes directly to the author, wallet-to-wallet.</>}
       </p>
 
       <BootstrapForm.Group className='my-2'>
@@ -119,37 +139,40 @@ export default function TipModal ({ item, onClose }) {
             placeholder='0.001'
             value={amount}
             onChange={e => setAmount(e.target.value)}
+            disabled={fixedPiconeros != null}
             autoFocus
           />
           <InputGroup.Text className='text-monospace'>XMR</InputGroup.Text>
         </InputGroup>
         <MXmrHint value={amount} />
-        <BootstrapForm.Range
-          className='mt-2'
-          min={Number(TIP_SLIDER_MIN)}
-          max={Number(TIP_SLIDER_MAX)}
-          step={Number(TIP_SLIDER_STEP)}
-          value={Math.min(Number(TIP_SLIDER_MAX), Math.max(Number(TIP_SLIDER_MIN), Number(xmrToPiconerosSafe(amount))))}
-          onChange={e => setAmount(piconerosToXmrDecimal(BigInt(e.target.value)))}
-        />
+        {fixedPiconeros == null &&
+          <BootstrapForm.Range
+            className='mt-2'
+            min={Number(TIP_SLIDER_MIN)}
+            max={Number(TIP_SLIDER_MAX)}
+            step={Number(TIP_SLIDER_STEP)}
+            value={Math.min(Number(TIP_SLIDER_MAX), Math.max(Number(TIP_SLIDER_MIN), Number(xmrToPiconerosSafe(amount))))}
+            onChange={e => setAmount(piconerosToXmrDecimal(BigInt(e.target.value)))}
+          />}
       </BootstrapForm.Group>
 
-      <div className='d-flex flex-wrap gap-2 my-2'>
-        {PRESETS.map(p => (
-          <Button
-            key={p}
-            size='sm'
-            variant={amount === p ? 'primary' : 'outline-primary'}
-            onClick={() => setAmount(p)}
-          >
-            <UpArrow className='me-1' width={14} height={14} />{piconerosToMXmr(xmrToPiconeros(p))}
-          </Button>
-        ))}
-      </div>
+      {fixedPiconeros == null &&
+        <div className='d-flex flex-wrap gap-2 my-2'>
+          {PRESETS.map(p => (
+            <Button
+              key={p}
+              size='sm'
+              variant={amount === p ? 'primary' : 'outline-primary'}
+              onClick={() => setAmount(p)}
+            >
+              <UpArrow className='me-1' width={14} height={14} />{piconerosToMXmr(xmrToPiconeros(p))}
+            </Button>
+          ))}
+        </div>}
 
       <div className='d-flex mt-3'>
         <Button variant='primary' className='ms-auto px-4' onClick={onSubmit}>
-          generate tip
+          {unlockMode ? 'unlock' : 'generate tip'}
         </Button>
       </div>
 
@@ -188,7 +211,22 @@ export function tipStatusCopy (state) {
   }
 }
 
-function TipPaymentView ({ uri, paymentId, amount, recipient, onDetected, onClose }) {
+// Success copy for both the callback-driven and poll-driven success paths.
+// Unlock mode sets 0-conf expectations (2026-09-22 spec): the wall's refetch
+// grants entitlement at DETECTED, so the post is already open behind the modal
+// when this view shows — confirmation merely continues in the background. A
+// sub-price contribution counts immediately too, and unlocks the post the
+// moment the running total covers the price.
+function successViewProps (unlockMode) {
+  return unlockMode
+    ? {
+        title: 'Payment detected — confirming…',
+        note: 'your post unlocks the moment your total covers the price — confirmation finishes in the background'
+      }
+    : { title: 'Payment detected — your tip is on its way!' }
+}
+
+function TipPaymentView ({ uri, paymentId, amount, recipient, onDetected, onClose, unlockMode }) {
   const { state } = useWatchTip({ paymentId, onDetected })
   const statusCopy = tipStatusCopy(state)
   // Render the success view directly from the polled state (mirrors the posting-fee
@@ -198,7 +236,7 @@ function TipPaymentView ({ uri, paymentId, amount, recipient, onDetected, onClos
   if (shouldTriggerPaymentSuccess(state)) {
     return (
       <PaymentSuccessView
-        title='Payment detected — your tip is on its way!'
+        {...successViewProps(unlockMode)}
         autoCloseMs={5000}
         onAutoClose={onClose}
       />
@@ -208,7 +246,7 @@ function TipPaymentView ({ uri, paymentId, amount, recipient, onDetected, onClos
     <MoneroPaymentView
       moneroUri={uri}
       amountPiconeros={BigInt(amount)}
-      heading='Pay this tip'
+      heading={unlockMode ? 'Pay to unlock' : 'Pay this tip'}
       description={recipient === 'REWARDS'
         ? `Scan to send ${piconerosToMXmrDual(BigInt(amount))} to the rewards pool — the author has no Monero wallet.`
         : `Scan to send ${piconerosToMXmrDual(BigInt(amount))} directly to the author.`}

@@ -33,6 +33,9 @@ import pay from '../payIn'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { resolveItemComments } from './comment-tree'
 import { itemFeeReentryFunding, feeReceivedPiconerosForPayIn } from '@/api/monero/postingFee'
+import {
+  moneroWallEnabled, splitMoneroWallText, stripMoneroWallMarker, buildMoneroWallView, moneroWallUpdateError
+} from '@/lib/monero-wall'
 
 export async function getItem (parent, { id }, { me, models }) {
   const [item] = await getItemsById([id], { me, models })
@@ -177,14 +180,47 @@ const relationClause = (type) => {
   return clause
 }
 
+// Full body text to serve/render. A removed wall is inert but removal never
+// rewrites the stored text, so the now-meaningless marker line is stripped;
+// items that never had a wall are served verbatim.
+function moneroWallFullText (item) {
+  if (item.moneroWallRemovedAt != null) return stripMoneroWallMarker(item.text)
+  return item.text
+}
+
+/**
+ * Monerowall view for the current viewer, or null for non-walled items (and
+ * removed walls). One DataLoader load per walled item per request.
+ */
+export async function moneroWallStateFor (item, { me, moneroWallLoader }) {
+  if (!moneroWallEnabled(item)) return null
+  const state = await moneroWallLoader.load({ id: item.id, enabledAt: item.moneroWallEnabledAt })
+  return buildMoneroWallView({ item, meId: me?.id ?? null, ...state })
+}
+
+// Text to render for the current viewer: full (marker stripped) when
+// entitled/author, teaser otherwise.
+async function moneroWallRenderText (item, ctx) {
+  if (!moneroWallEnabled(item)) return moneroWallFullText(item)
+  const view = await moneroWallStateFor(item, ctx)
+  if (!view || !view.locked) return stripMoneroWallMarker(item.text)
+  return splitMoneroWallText(item.text).teaserText
+}
+
+export const excerptResolver = async (item, args, ctx) => {
+  if (item.excerpt != null) return item.excerpt
+  if (!moneroWallEnabled(item)) return makeExcerpt(moneroWallFullText(item))
+  const view = await moneroWallStateFor(item, ctx)
+  if (view?.publiclyUnlocked) return makeExcerpt(stripMoneroWallMarker(item.text))
+  return makeExcerpt(splitMoneroWallText(item.text).teaserText)
+}
+
 // True iff the item was created as a freebie: a zero-cost comment or bio.
 // Reads the stored `Item.freebie` column, NOT `cost === 0` — a post is never a
 // freebie, even when its `cost` is 0 (e.g. a post that paid the posting fee but
 // carried no per-item cost). Keeps the badge (components/item-info.js) and the
 // `freebies` feed filter consistent with creation semantics in
 // api/payIn/types/itemCreate.js.
-export const excerptResolver = (item) => item.excerpt ?? makeExcerpt(item.text)
-
 export function isFreebieItem (item) {
   return !!item.freebie
 }
@@ -818,6 +854,41 @@ export default {
         return await createItem(parent, item, { me, models, headers })
       }
     },
+    removeMoneroWall: async (parent, { id }, { me, models }) => {
+      if (!me) throw new GqlAuthenticationError()
+      const item = await models.item.findUnique({ where: { id: Number(id) } })
+      if (!item) throw new GqlInputError('item not found')
+      if (Number(item.userId) !== Number(me.id)) throw new GqlInputError('item does not belong to you')
+      if (item.moneroWallEnabledAt == null) throw new GqlInputError('this post has no monerowall')
+      if (item.moneroWallRemovedAt != null) throw new GqlInputError('the monerowall was already removed')
+      return await models.item.update({
+        where: { id: item.id },
+        data: { moneroWallRemovedAt: new Date() }
+      })
+    },
+    rateMoneroWallPost: async (parent, { itemId, stars }, { me, models, moneroWallLoader }) => {
+      if (!me) throw new GqlAuthenticationError()
+      if (!Number.isInteger(stars) || stars < 1 || stars > 3) throw new GqlInputError('rating must be 1, 2 or 3 stars')
+      const item = await models.item.findUnique({
+        where: { id: Number(itemId) },
+        select: { id: true, userId: true, moneroWallPricePiconeros: true, moneroWallEnabledAt: true }
+      })
+      if (!item) throw new GqlInputError('item not found')
+      if (Number(item.userId) === Number(me.id)) throw new GqlInputError('you cannot rate your own post')
+      if (item.moneroWallEnabledAt == null) throw new GqlInputError('this post has no monerowall')
+      if (item.moneroWallPricePiconeros == null) throw new GqlInputError('only posts with an individual unlock threshold can be rated')
+      const { myRateablePiconeros } = await moneroWallLoader.load({ id: item.id, enabledAt: item.moneroWallEnabledAt })
+      if (BigInt(myRateablePiconeros ?? 0n) < BigInt(item.moneroWallPricePiconeros)) {
+        throw new GqlInputError('unlock this post before rating it')
+      }
+      try {
+        await models.moneroWallRating.create({ data: { itemId: item.id, userId: Number(me.id), stars } })
+      } catch (e) {
+        if (e?.code === 'P2002') throw new GqlInputError('already rated — ratings are permanent')
+        throw e
+      }
+      return await models.item.findUnique({ where: { id: item.id } })
+    },
     upsertPoll: async (parent, { id, ...item }, { me, models, headers }) => {
       const numExistingChoices = id
         ? await models.pollOption.count({
@@ -940,6 +1011,17 @@ export default {
 
   Item: {
     excerpt: excerptResolver,
+    text: async (item, args, ctx) => {
+      if (!moneroWallEnabled(item)) return moneroWallFullText(item)
+      const { me } = ctx
+      const view = await moneroWallStateFor(item, ctx)
+      // the author needs the raw text (marker included) to keep editing the wall
+      if (!view.locked && Number(item.userId) === Number(me?.id)) return item.text
+      if (!view.locked) return stripMoneroWallMarker(item.text)
+      return splitMoneroWallText(item.text).teaserText
+    },
+    moneroWall: async (item, args, ctx) => await moneroWallStateFor(item, ctx),
+    moneroWallRating: async (item, args, ctx) => await ctx.moneroWallRatingLoader.load(Number(item.id)),
     payIn: async (item, args, { models }) => {
       if (typeof item.payIn !== 'undefined') {
         return item.payIn
@@ -1290,10 +1372,10 @@ export default {
         AND state = 'created'`
       return reminderJobs[0]?.startafter ?? null
     },
-    lexicalState: async (item, args, { lexicalStateLoader }) => {
+    lexicalState: async (item, args, { me, moneroWallLoader, lexicalStateLoader }) => {
       if (!item.text) return null
       return lexicalStateLoader.load({
-        text: item.text,
+        text: await moneroWallRenderText(item, { me, moneroWallLoader }),
         context: {
           imgproxyUrls: item.imgproxyUrls,
           rel: item.rel,
@@ -1303,11 +1385,11 @@ export default {
         }
       })
     },
-    html: async (item, args, { lexicalStateLoader }) => {
+    html: async (item, args, { me, moneroWallLoader, lexicalStateLoader }) => {
       if (!item.text) return null
       try {
         const lexicalState = await lexicalStateLoader.load({
-          text: item.text,
+          text: await moneroWallRenderText(item, { me, moneroWallLoader }),
           context: {
             imgproxyUrls: item.imgproxyUrls,
             rel: item.rel,
@@ -1375,6 +1457,15 @@ export const updateItem = async (parent, { hash, hmac, sendProtocolId, ...item }
       throw new GqlInputError('territories can only be changed with the repost action')
     }
   }
+
+  // Forms send explicit null wall vars from initial values; null-null on
+  // update means "untouched" (removal goes through removeMoneroWall only).
+  if (item.moneroWallPricePiconeros == null && item.moneroWallThresholdPiconeros == null) {
+    delete item.moneroWallPricePiconeros
+    delete item.moneroWallThresholdPiconeros
+  }
+  delete item.moneroWallEnabledAt // clients can never move the window; create stamps it once
+  await assertMoneroWallWrite({ models, me, item, old })
 
   // A bounty's amount is escrow-backed: once funding has been initiated
   // (PENDING_FUNDING) or completed (FUNDED onward), changing bountyPiconeros
@@ -1468,6 +1559,56 @@ export const repostItem = async (parent, { id, subName }, { me, models }) => {
   return await pay('ITEM_UPDATE', { id: Number(id), userId: old.userId, subNames: [...current, subName] }, { models, me })
 }
 
+// Validate a create/update wall write. Throws GqlInputError on violation.
+// Walls are create-time only and removal is one-way (2026-09-21 amendment):
+// update calls may only tweak X/T on an existing active unfrozen wall;
+// enabling at edit, re-adding after removal, and nulling both settings are
+// rejected here or in moneroWallUpdateError.
+async function assertMoneroWallWrite ({ models, me, item, old }) {
+  const hasNew = item.moneroWallPricePiconeros !== undefined || item.moneroWallThresholdPiconeros !== undefined
+  const text = item.text ?? old?.text
+
+  if (!hasNew) {
+    // No wall args: on a post without an active wall the [monerowall] marker
+    // must not appear in the text either (marker requires a wall).
+    if (!moneroWallEnabled(old) && splitMoneroWallText(text ?? '').hasMarker) {
+      throw new GqlInputError('the [monerowall] marker requires a monerowall')
+    }
+    return
+  }
+
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  if (!config) throw new GqlInputError('fee config not initialized')
+
+  let frozen = false
+  if (moneroWallEnabled(old) && old?.id) {
+    const detected = await models.observedTip.findFirst({
+      where: { postId: old.id, detectedAt: { gte: old.moneroWallEnabledAt } },
+      select: { id: true }
+    })
+    frozen = !!detected
+  }
+
+  const error = moneroWallUpdateError({
+    old,
+    nextPrice: item.moneroWallPricePiconeros,
+    nextThreshold: item.moneroWallThresholdPiconeros,
+    frozen,
+    minTipPiconeros: config.minTipPiconeros,
+    text
+  })
+  if (error) throw new GqlInputError(error)
+
+  if (old) return // update path: wall already exists, account was checked at create
+  if (item.moneroWallPricePiconeros == null && item.moneroWallThresholdPiconeros == null) return
+  if (me?.id == null) throw new GqlInputError('sign up to enable a monerowall')
+  const account = await models.moneroAccount.findFirst({
+    where: { ownerUserId: Number(me.id), status: 'ACTIVE' },
+    select: { id: true }
+  })
+  if (!account) throw new GqlInputError('add a Monero wallet before enabling a monerowall')
+}
+
 export const createItem = async (parent, { sendProtocolId, ...item }, { me, models, headers }) => {
   // Turf repost (2026-09-24): creation is single-turf. Additional turfs are
   // added after the post is live via repostItem — one paid repost per turf,
@@ -1478,6 +1619,18 @@ export const createItem = async (parent, { sendProtocolId, ...item }, { me, mode
 
   // abuse gate BEFORE any DB work or fee-subaddress reservation (audit A-3)
   await assertItemCreateAllowance({ models, me, headers })
+
+  // Forms send explicit null wall vars from initial values; on create that
+  // means "no wall" — strip them so assertMoneroWallWrite sees no wall args.
+  if (item.moneroWallPricePiconeros == null && item.moneroWallThresholdPiconeros == null) {
+    delete item.moneroWallPricePiconeros
+    delete item.moneroWallThresholdPiconeros
+  }
+
+  await assertMoneroWallWrite({ models, me, item, old: null })
+  if ((item.moneroWallPricePiconeros != null || item.moneroWallThresholdPiconeros != null) && item.moneroWallEnabledAt == null) {
+    item.moneroWallEnabledAt = new Date()
+  }
 
   item.userId = me ? Number(me.id) : USER_ID.anon
 

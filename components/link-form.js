@@ -16,6 +16,7 @@ import { UPSERT_LINK } from '@/fragments/payIn'
 import { usePostFormShared } from './use-post-form-shared'
 import useDebounceCallback from './use-debounce-callback'
 import { ensureProtocol } from '@/lib/url'
+import MoneroWallFields, { moneroWallInitialValues } from './monero-wall-form-fields'
 
 const LOOKUP_DEBOUNCE_MS = 500
 const DUPES_DEBOUNCE_MS = 500
@@ -42,7 +43,8 @@ export function LinkForm ({ item, subs, EditInfo, children }) {
     schemaFn: linkSchema,
     storageKeyPrefix: 'link',
     extraInitialValues: {
-      url: item?.url || shareUrl || ''
+      url: item?.url || shareUrl || '',
+      ...moneroWallInitialValues(item)
     }
   })
 
@@ -189,6 +191,7 @@ export function LinkForm ({ item, subs, EditInfo, children }) {
           name='text'
           minRows={2}
         />
+        <MoneroWallFields item={item} />
       </AdvPostForm>
       <ItemButtonBar itemId={item?.id} disable={postDisabled}>
         {!item && postDisabled &&

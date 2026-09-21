@@ -23,6 +23,7 @@ import removeMd from 'remove-markdown'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseInternalLinks } from '@/lib/url'
 import ItemPopover from './item-popover'
 import Boost from './boost-button'
+import MoneroWallRatingBadge from './monero-wall-rating-badge'
 import { useMe } from './me'
 import { SearchText } from './text'
 
@@ -134,9 +135,13 @@ export default function Item ({
                 ? <span className={styles.icon}><VideoIcon className='fill-grey ms-2' height={16} width={16} /></span>
                 : media === 'image' && <span className={styles.icon}><ImageIcon className='fill-grey ms-2' height={16} width={16} /></span>}
             </Link>
+            <MoneroWallRatingBadge rating={item.moneroWallRating} />
             {item.url && !media && !showXPreview && <ItemLink url={item.url} rel={item.rel} />}
           </div>
           {excerpt && <p className='item-excerpt'>{excerpt}</p>}
+          {!full && item.moneroWall?.locked && !props.noMoneroWallChip && (
+            <span className={`badge ms-2 ${styles.moneroWallChip}`}>monerowalled</span>
+          )}
           {!full && showXPreview && <XPreviewCard xPreview={item.xPreview} url={item.url} feed />}
           <ItemInfo
             full={full} item={item}

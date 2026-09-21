@@ -107,7 +107,7 @@ jest.mock('../../api/payIn/types', () => {
 
 const prisma = new PrismaClient()
 
-const created = { users: [], items: [], payIns: [], uploads: [], subs: [], accounts: [], subFeePids: [] }
+const created = { users: [], items: [], payIns: [], uploads: [], subs: [], accounts: [], subFeePids: [], tips: [] }
 
 async function createUser () {
   const rows = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -167,6 +167,56 @@ async function createUpload (userId, { size }) {
   return upload.id
 }
 
+// --- Monerowall freeze re-check on deferred apply (TOCTOU) fixtures ---
+const WALL_ENABLED_AT = new Date('2026-09-20T00:00:00Z')
+const WALL_TIP_TX_PREFIX = 'iu-wall-test-'
+
+async function seedWall (itemId, { price = 1_000_000_000n } = {}) {
+  await prisma.item.update({
+    where: { id: itemId },
+    data: {
+      moneroWallPricePiconeros: price,
+      moneroWallThresholdPiconeros: null,
+      moneroWallEnabledAt: WALL_ENABLED_AT
+    }
+  })
+}
+
+// ObservedTip requires a MoneroAccount recipient (FK) and a unique txHash. The
+// prefix marks the row as test residue, purged in afterAll before the item and
+// account deletes (their FKs would otherwise silently block both).
+async function seedObservedTip (postId, { detectedAt }) {
+  const account = await prisma.moneroAccount.create({
+    data: { address: `${WALL_TIP_TX_PREFIX}${randomUUID()}`, label: 'iu-wall-test', network: 'STAGENET', status: 'ACTIVE' }
+  })
+  created.accounts.push(account.id)
+  const tip = await prisma.observedTip.create({
+    data: {
+      txHash: `${WALL_TIP_TX_PREFIX}${randomUUID()}`,
+      postId,
+      recipientAccountId: account.id,
+      paymentId: randomUUID(),
+      piconeros: 1_000_000_000n,
+      detectedAt
+    }
+  })
+  created.tips.push(tip.id)
+}
+
+// A fee-bearing (deferred) wall edit: the >10MB upload makes it quote a fee on
+// its moneroUri, so onBegin stores it in PendingItemUpdate instead of applying.
+async function deferredWallEdit (userId, itemId, wallArgs) {
+  const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: 'walled edit', uploadIds: [uploadId], ...wallArgs },
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+  return result
+}
+
 // PlatformFeeConfig id=1 exists in the dev DB with @default values; create it
 // only if absent so the tests stay self-contained on a fresh database.
 let feeConfigCreated = false
@@ -191,6 +241,8 @@ afterAll(async () => {
   for (const id of created.items) {
     await deleteJobsForItem(id)
   }
+  // before the item/account deletes: ObservedTip's FKs would block them
+  await prisma.observedTip.deleteMany({ where: { id: { in: created.tips } } }).catch(() => {})
   await prisma.observedSubFee.deleteMany({ where: { paymentId: { in: created.subFeePids } } }).catch(() => {})
   await prisma.subFeePidMap.deleteMany({ where: { paymentId: { in: created.subFeePids } } }).catch(() => {})
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } }).catch(() => {})
@@ -633,4 +685,55 @@ test('two concurrent deferred reposts both land — a paid-for turf is never del
   // both paid-for turfs survive — A must not be deleted by B's stale full-set list
   const item = await prisma.item.findUnique({ where: { id: itemId } })
   expect([...item.subNames].sort()).toEqual([home, subA, subB].sort())
+})
+
+// --- Monerowall freeze re-check on deferred apply (TOCTOU) ---
+//
+// assertMoneroWallWrite freezes an active wall's X/T at REQUEST time. A
+// fee-bearing edit is stored in PendingItemUpdate and applied later by
+// flipPendingToLive, so a tip observed while its fee was in flight must also
+// block the wall delta at apply time. The rest of the paid edit still applies
+// (the fee must not be stranded).
+test('a deferred wall edit applies an X/T change while the wall is unfrozen (control)', async () => {
+  const userId = await createUser()
+  const { id: itemId } = await createRootPost(userId)
+  await seedWall(itemId)
+
+  const result = await deferredWallEdit(userId, itemId, {
+    moneroWallPricePiconeros: '2000000000',
+    moneroWallThresholdPiconeros: null
+  })
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+  await flipPendingToLive(prisma, payInRow, 1_000_000_000n)
+
+  const item = await prisma.item.findUnique({ where: { id: itemId } })
+  expect(item.text).toBe('walled edit')
+  expect(item.moneroWallPricePiconeros).toBe(2_000_000_000n)
+
+  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
+})
+
+test('a deferred wall edit strips the X/T change when a tip landed since the wall was enabled', async () => {
+  const userId = await createUser()
+  const { id: itemId } = await createRootPost(userId)
+  await seedWall(itemId)
+
+  const result = await deferredWallEdit(userId, itemId, {
+    moneroWallPricePiconeros: 3_000_000_000n,
+    moneroWallThresholdPiconeros: null
+  })
+  // the freeze marker lands while the fee is in flight: detectedAt >=
+  // moneroWallEnabledAt (the resolver's query)
+  await seedObservedTip(itemId, { detectedAt: WALL_ENABLED_AT })
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+  await flipPendingToLive(prisma, payInRow, 1_000_000_000n)
+
+  const item = await prisma.item.findUnique({ where: { id: itemId } })
+  // the deferred edit still lands, minus the now-frozen wall delta
+  expect(item.text).toBe('walled edit')
+  expect(item.moneroWallPricePiconeros).toBe(1_000_000_000n)
+  expect(item.moneroWallThresholdPiconeros).toBeNull()
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeNull()
+
+  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })

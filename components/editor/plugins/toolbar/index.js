@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, forwardRef, useCallback } from 'react'
 import BoldIcon from '@/svgs/editor/toolbar/inline/bold.svg'
 import ItalicIcon from '@/svgs/editor/toolbar/inline/italic.svg'
 import LinkIcon from '@/svgs/editor/toolbar/inline/link.svg'
+import LockIcon from '@/svgs/lock-line.svg'
 import QuoteIcon from '@/svgs/editor/toolbar/block/quote-text.svg'
 import CodeIcon from '@/svgs/editor/toolbar/inline/code.svg'
 import Dropdown from 'react-bootstrap/Dropdown'
@@ -42,6 +43,7 @@ import { $isCodeNode } from '@lexical/code-core'
 import { normalizeCodeLanguage } from '@lexical/code-shiki'
 import { ListNode } from '@lexical/list'
 import { SN_INSERT_MATH_COMMAND } from '@/lib/lexical/commands/math'
+import { SN_INSERT_MONEROWALL_COMMAND } from '@/lib/lexical/commands/monero-wall'
 import MathIcon from '@/svgs/editor/toolbar/inserts/formula.svg'
 import MathOperationsIcon from '@/svgs/editor/toolbar/inserts/math-operations.svg'
 import { useEditorMode } from '@/components/editor/contexts/mode'
@@ -278,6 +280,9 @@ export function ToolbarPlugin ({ name, topLevel }) {
           </ToolbarButton>
           <ToolbarButton id='link' isActive={toolbarState.isLink} onClick={() => handleToggleLink()} tooltip='link'>
             <LinkIcon />
+          </ToolbarButton>
+          <ToolbarButton id='moneroWall' onClick={() => editor.dispatchCommand(SN_INSERT_MONEROWALL_COMMAND)} tooltip='monerowall (hide content below)'>
+            <LockIcon />
           </ToolbarButton>
           <span className={styles.divider} />
           <ToolbarDropdown

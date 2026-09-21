@@ -40,8 +40,9 @@ function schemaMutationNames () {
 // cases). Keep the two lists disjoint and both anchored to the schema.
 const REVIEWED_NON_SENSITIVE = new Set([
   // content creation / moderation
-  'bookmarkItem', 'deleteItem', 'deleteMessage', 'pinItem', 'upsertBio',
-  'upsertBounty', 'upsertComment', 'upsertDiscussion', 'upsertJob',
+  'bookmarkItem', 'deleteItem', 'deleteMessage', 'pinItem', 'removeMoneroWall',
+  'rateMoneroWallPost',
+  'upsertBio', 'upsertBounty', 'upsertComment', 'upsertDiscussion', 'upsertJob',
   'upsertLink', 'upsertPoll', 'upsertSubBranding',
   // turf repost (2026-09-24): adds a paid turf to one of the author's own
   // posts — same posting-fee money flow as the upsert* mutations above.

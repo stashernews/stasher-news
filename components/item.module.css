@@ -291,3 +291,10 @@ a.link:visited {
 .skeleton .otherItemLonger {
     width: 60px;
 }
+
+/* "monerowalled" feed chip: the theme's primary orange (Monero #FF6600),
+   with the theme-computed foreground so turf-level primary overrides adapt. */
+.moneroWallChip {
+    background: var(--bs-primary);
+    color: var(--theme-primary-text);
+}

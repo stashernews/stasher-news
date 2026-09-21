@@ -4,6 +4,8 @@ import { MAX_TITLE_LENGTH } from '@/lib/constants'
 import { ItemButtonBar } from './post'
 import { UPSERT_DISCUSSION } from '@/fragments/payIn'
 import { usePostFormShared } from './use-post-form-shared'
+import AdvPostForm from './adv-post-form'
+import MoneroWallFields, { moneroWallInitialValues } from './monero-wall-form-fields'
 
 export function DiscussionForm ({
   item, subs, EditInfo, titleLabel = 'title',
@@ -15,7 +17,8 @@ export function DiscussionForm ({
     subs,
     mutation: UPSERT_DISCUSSION,
     storageKeyPrefix: 'discussion',
-    schemaFn: discussionSchema
+    schemaFn: discussionSchema,
+    extraInitialValues: moneroWallInitialValues(item)
   })
   return (
     <Form
@@ -40,6 +43,9 @@ export function DiscussionForm ({
         minRows={6}
         hint={EditInfo}
       />
+      <AdvPostForm>
+        <MoneroWallFields item={item} />
+      </AdvPostForm>
       <ItemButtonBar itemId={item?.id} />
     </Form>
   )
