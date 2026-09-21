@@ -23,7 +23,7 @@
 // worker/opsSweep.js owns it as a delayed one-shot enqueued by the handler.
 
 import { PrismaClient } from '@prisma/client'
-import { runDistributionOnce, finalizeDistribution } from '@/worker/rewardsDistributor'
+import { runDistributionOnce, finalizeDistribution, recoverStaleDistributions } from '@/worker/rewardsDistributor'
 import { applyTipDetected } from '@/api/monero/ranking'
 
 // lib/alert is mocked so operator pages are assertable without a network side
@@ -913,6 +913,114 @@ test('R03: a distribution with a pre-existing FAILED payout that sends its remai
     'rewards distribution completed with FAILED payouts — manual re-entry required',
     expect.stringContaining(String(failedPayout.id)),
     expect.objectContaining({ dedupeKey: `dist-${dist.id}-complete-with-failures` }))
+})
+
+test('R02 hardening: terminal writes are CAS-guarded — a stale finalizer cannot clobber a newer owner', async () => {
+  // A distribution currently SENDING (a live/newer owner) as seen by a STALE
+  // process whose in-memory copy still says PENDING with nothing queued. The
+  // !hasQueued terminal write must no-op instead of flipping it COMPLETE.
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 36 * DAY),
+      periodEnd: new Date(Date.now() - 35 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 1,
+      status: 'SENDING',
+      startedAt: new Date()
+    }
+  })
+  created.distributions.push(dist.id)
+  await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  alert.mockClear()
+  await finalizeDistribution(prisma, { ...dist, status: 'PENDING', payouts: [] }, fakeSigner)
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('SENDING') // not clobbered
+})
+
+test('R02: a stale SENDING distribution is watchdog-flipped FAILED, alerted, and re-driven to COMPLETE', async () => {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 31 * DAY),
+      periodEnd: new Date(Date.now() - 30 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 1,
+      status: 'SENDING',
+      startedAt: new Date(Date.now() - 48 * 60 * 60 * 1000) // 48h stale > 24h threshold
+    }
+  })
+  created.distributions.push(dist.id)
+  const payout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  alert.mockClear()
+  await recoverStaleDistributions(prisma, { sendPayouts: fakeSigner })
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('COMPLETE')
+  const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
+  expect(payoutAfter.state).toBe('SENT')
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    'rewards distribution stuck SENDING — watchdog failed it',
+    expect.stringContaining(String(dist.id)),
+    expect.objectContaining({ dedupeKey: `dist-${dist.id}-stale-sending` }))
+})
+
+test('R02: a FRESH SENDING distribution is untouched by the watchdog', async () => {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 32 * DAY),
+      periodEnd: new Date(Date.now() - 31 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 1,
+      status: 'SENDING',
+      startedAt: new Date() // fresh: a live sender may own this row
+    }
+  })
+  created.distributions.push(dist.id)
+  await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  const invocationsBefore = signerInvocations
+  await recoverStaleDistributions(prisma, { sendPayouts: fakeSigner })
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('SENDING')
+  expect(signerInvocations).toBe(invocationsBefore)
+})
+
+test('R02: runDistributionOnce wires the watchdog — a stale row is recovered by a normal run', async () => {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 33 * DAY),
+      periodEnd: new Date(Date.now() - 32 * DAY),
+      poolPiconeros: 1_000_000_000n,
+      distributedPiconeros: 1_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 1,
+      status: 'SENDING',
+      startedAt: new Date(Date.now() - 48 * 60 * 60 * 1000)
+    }
+  })
+  created.distributions.push(dist.id)
+  await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  // The week's distribution (beforeAll result) occupies the idempotency
+  // window, so this run only exercises the watchdog + a no-op finalize.
+  await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('COMPLETE')
 })
 
 test('a second run within the same week is idempotent (returns the existing distribution)', async () => {

@@ -52,8 +52,12 @@ export async function runDistributionOnce ({ models, sendPayouts: injectSendPayo
   const ownsClient = !models
   const db = ownsClient ? createPrisma() : models
   try {
+    const sendPayouts = injectSendPayouts || defaultSendPayouts
+    // R02: recover distributions stranded in SENDING by a dead process BEFORE
+    // this run's own work, so their QUEUED payouts are re-driven.
+    await recoverStaleDistributions(db, { sendPayouts })
     const distribution = await distribute(db)
-    await finalizeDistribution(db, distribution, injectSendPayouts || defaultSendPayouts)
+    await finalizeDistribution(db, distribution, sendPayouts)
     return await db.rewardDistribution.findUnique({
       where: { id: distribution.id },
       include: { payouts: true }
@@ -457,10 +461,9 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
     // COMPLETE without ever entering SENDING. R03: the stranded-FAILED alert
     // fires first so the terminal flip can never silently mask them.
     warnPayoutsStranded(distribution, payouts)
-    await models.rewardDistribution.update({
-      where: { id: distribution.id },
-      data: { status: 'COMPLETE', completedAt: new Date() }
-    })
+    await models.$queryRaw`
+      UPDATE "RewardDistribution" SET status = 'COMPLETE', "completedAt" = NOW()
+      WHERE id = ${distribution.id} AND status IN ('PENDING','FAILED') RETURNING id`
     moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.COMPLETE)
     return
   }
@@ -482,31 +485,83 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
         `distribution ${distribution.id}: sent ${sendSummary.sent}, skipped ${sendSummary.skipped}, failed ${sendSummary.failed}, unpersisted ${sendSummary.unpersisted ?? 0}; marked FAILED (resumable) — payouts remain QUEUED` +
         ((sendSummary.unpersisted || 0) > 0 ? '. WARNING: unpersisted payouts WERE relayed on-chain; the next run reconciles them from wallet history — do NOT manually re-send them.' : ''),
         { dedupeKey: `dist-${distribution.id}-send-incomplete` })
-      await models.rewardDistribution.update({
-        where: { id: distribution.id },
-        data: { status: 'FAILED' }
-      })
+      // Conditional on SENDING closes the ordinary races (e.g. a stale sender
+      // whose row was watchdog-recovered and re-driven, R02, must not clobber
+      // the newer owner's state). A sender genuinely alive beyond the stale
+      // timeout is the documented, accepted tail.
+      await models.$queryRaw`
+        UPDATE "RewardDistribution" SET status = 'FAILED'
+        WHERE id = ${distribution.id} AND status = 'SENDING' RETURNING id`
       moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
       return
     }
     // R03: a mixed FAILED+QUEUED distribution must not flip COMPLETE silently
     // over stranded funds — warn before the success-path terminal write too.
     warnPayoutsStranded(distribution, payouts)
-    await models.rewardDistribution.update({
-      where: { id: distribution.id },
-      data: { status: 'COMPLETE', completedAt: new Date() }
-    })
+    await models.$queryRaw`
+      UPDATE "RewardDistribution" SET status = 'COMPLETE', "completedAt" = NOW()
+      WHERE id = ${distribution.id} AND status = 'SENDING' RETURNING id`
     moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.COMPLETE)
   } catch (err) {
     logError({ distributionId: distribution.id, err }, 'rewardsDistributor: finalization failed')
     alert('critical', 'rewards distribution finalization failed',
       `distribution ${distribution.id}: ${err?.message || err}`,
       { dedupeKey: `dist-${distribution.id}-failed` })
-    await models.rewardDistribution.update({
-      where: { id: distribution.id },
-      data: { status: 'FAILED' }
-    })
+    await models.$queryRaw`
+      UPDATE "RewardDistribution" SET status = 'FAILED'
+      WHERE id = ${distribution.id} AND status = 'SENDING' RETURNING id`
     moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
+  }
+}
+
+// R02: how long a distribution may stay SENDING before the watchdog declares
+// it stranded. Worst-case genuine send = singleton wallet open (restore-height
+// sync dominates — minutes to low hours) + per-run incremental syncs + <=6
+// bucket create/relay cycles + row persists. 24h is ~10-100x that margin; it
+// is the ONLY bound against flipping a genuinely-live sender (which would let
+// a second sendPayouts double-pay), so never configure it within an order of
+// magnitude of a plausible send duration.
+const REWARDS_SENDING_STALE_HOURS = Number(process.env.REWARDS_SENDING_STALE_HOURS) || 24
+
+// R02 watchdog: a process death between the SENDING CAS and the terminal
+// write (OOM, deploy restart, host crash) strands the row forever — the weekly
+// run early-returns on SENDING, the CLI takes the same path, and opsSweep
+// skips it. Flip stale rows to FAILED (the finalize CAS resumes FAILED) and
+// re-drive them immediately: sendPayouts re-sends only QUEUED rows and its
+// wallet-history reconciliation (reconcileUnpersistedPayouts) absorbs
+// relayed-but-unpersisted rows from the dead process without re-sending.
+// Runs at the top of runDistributionOnce (weekly cron + manual/CLI runs); no
+// self-requeue, no new schedule row.
+export async function recoverStaleDistributions (models, { sendPayouts, staleHours = REWARDS_SENDING_STALE_HOURS } = {}) {
+  const staleBefore = new Date(Date.now() - staleHours * 60 * 60 * 1000)
+  const stale = await models.rewardDistribution.findMany({
+    where: { status: 'SENDING', startedAt: { lt: staleBefore } },
+    orderBy: { id: 'asc' }
+  })
+  for (const dist of stale) {
+    try {
+      // The staleness predicate is part of the CAS, not just the read above:
+      // two overlapping runs can both read this stale row, run A's re-drive
+      // gives it a fresh SENDING + startedAt (TOCTOU), and run B's CAS — issued
+      // from its earlier read — must not flip that newer owner back to FAILED
+      // and re-drive the same QUEUED rows (double pay).
+      const flipped = await models.$queryRaw`
+        UPDATE "RewardDistribution" SET status = 'FAILED'
+        WHERE id = ${dist.id} AND status = 'SENDING' AND "startedAt" < ${staleBefore} RETURNING id`
+      if (!flipped || flipped.length === 0) continue // state moved underneath us
+      moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
+      logError({ distributionId: dist.id, startedAt: dist.startedAt }, 'rewardsDistributor: CRITICAL — distribution stuck SENDING; watchdog failed it, re-driving now')
+      alert('critical', 'rewards distribution stuck SENDING — watchdog failed it',
+        `distribution ${dist.id} has been SENDING since ${dist.startedAt?.toISOString()} (> ${staleHours}h). The watchdog flipped it FAILED and is re-driving the send now. If some payouts were already relayed before the crash, wallet-history reconciliation prevents a double pay.`,
+        { dedupeKey: `dist-${dist.id}-stale-sending` })
+      const fresh = await models.rewardDistribution.findUnique({ where: { id: dist.id }, include: { payouts: true } })
+      await finalizeDistribution(models, fresh, sendPayouts || defaultSendPayouts)
+    } catch (err) {
+      logError({ distributionId: dist.id, err }, 'rewardsDistributor: stale-SENDING recovery failed')
+      alert('critical', 'rewards stale-SENDING recovery failed',
+        `distribution ${dist.id}: recovery threw ${err?.message || err}; the row stays FAILED-resumable and the next run retries`,
+        { dedupeKey: `dist-${dist.id}-stale-recovery-failed` })
+    }
   }
 }
 
