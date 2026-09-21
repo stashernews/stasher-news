@@ -8,8 +8,8 @@ export default function ActionDropdown ({ children }) {
   }
   return (
     <Dropdown className={`pointer ${styles.dropdown}`} as='span'>
-      <Dropdown.Toggle variant='success' as='a' onPointerDown={e => e.preventDefault()}>
-        <MoreIcon className='fill-grey ms-1' height={16} width={16} />
+      <Dropdown.Toggle variant='success' as='a' aria-label='more options' onPointerDown={e => e.preventDefault()}>
+        <MoreIcon aria-hidden='true' focusable='false' className='fill-grey ms-1' height={16} width={16} />
       </Dropdown.Toggle>
       <Dropdown.Menu>
         {children}

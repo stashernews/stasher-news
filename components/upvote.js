@@ -66,10 +66,30 @@ export default function UpVote ({ item, className, collapsed }) {
   }), [color])
 
   return (
-    <div className='upvoteParent' onClick={handlePress}>
+    // skeletons render us without an item: keep them out of the a11y tree and tab order
+    <div
+      className='upvoteParent'
+      onClick={handlePress}
+      {...(item
+        ? {
+            role: 'button',
+            tabIndex: 0,
+            'aria-label': 'upvote',
+            'aria-disabled': disabled || undefined,
+            onKeyDown: (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                handlePress()
+              }
+            }
+          }
+        : {})}
+    >
       <ActionTooltip notForm disable={disabled} overlayText={overlayText}>
         <div className={classNames(disabled && styles.noSelfTips, styles.upvoteWrapper)}>
           <UpArrow
+            aria-hidden='true'
+            focusable='false'
             width={26}
             height={26}
             className={classNames(styles.upvote,
