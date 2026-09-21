@@ -26,6 +26,13 @@ import { PrismaClient } from '@prisma/client'
 import { runDistributionOnce, finalizeDistribution } from '@/worker/rewardsDistributor'
 import { applyTipDetected } from '@/api/monero/ranking'
 
+// lib/alert is mocked so operator pages are assertable without a network side
+// effect (same pattern as test/worker/reconcilePendingTips.test.js).
+import { alert } from '@/lib/alert'
+jest.mock(`${process.cwd()}/lib/alert`, () => ({
+  alert: jest.fn()
+}))
+
 // The beforeAll hook seeds + runs a real distribution against the live dev DB;
 // on a busy stack (residue purge, seeding, curator-share computation) it can
 // exceed Jest's 5s default. Give the hooks headroom.
@@ -621,6 +628,7 @@ test('a zero-payout distribution skips SENDING and goes straight to COMPLETE', a
   expect(updated.completedAt).toBeTruthy()
   expect(updated.startedAt).toBeNull() // never entered SENDING on an empty week
   expect(called).toBe(false) // signer not invoked
+  expect(alert).not.toHaveBeenCalledWith('critical', 'rewards distribution completed with FAILED payouts — manual re-entry required', expect.any(String), expect.anything())
 })
 
 test('a catastrophic signer failure marks the distribution FAILED (payouts keep their state)', async () => {
@@ -825,6 +833,86 @@ test('a FAILED distribution with all payouts SENT reconciles to COMPLETE on the 
   expect(updated.completedAt).toBeTruthy()
   expect(updated.opsSweepState).toBe('FAILED') // untouched — finalize never sweeps
   expect(signerCalled).toBe(false) // !hasQueued branch skips the signer
+})
+
+test('R03: a FAILED distribution with FAILED payouts + no QUEUED is completed WITH a critical stranded-funds alert', async () => {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 35 * DAY),
+      periodEnd: new Date(Date.now() - 34 * DAY),
+      poolPiconeros: 1_900_000_000n,
+      distributedPiconeros: 1_900_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 2,
+      status: 'FAILED'
+    }
+  })
+  created.distributions.push(dist.id)
+  const sentPayout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'SENT', txHash: 'ab'.repeat(32) }
+  })
+  const failedPayout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 900_000_000n, state: 'FAILED' }
+  })
+  alert.mockClear()
+  await finalizeDistribution(prisma, { ...dist, payouts: [sentPayout, failedPayout] }, fakeSigner)
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('COMPLETE')
+  expect(updated.completedAt).toBeTruthy()
+  // the already-SENT payout is untouched by the terminal transition
+  const sentAfter = await prisma.rewardPayout.findUnique({ where: { id: sentPayout.id } })
+  expect(sentAfter.state).toBe('SENT')
+  expect(alert).toHaveBeenCalledTimes(1)
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    'rewards distribution completed with FAILED payouts — manual re-entry required',
+    expect.stringContaining(String(failedPayout.id)),
+    expect.objectContaining({ dedupeKey: `dist-${dist.id}-complete-with-failures` }))
+})
+
+test('R03: a distribution with a pre-existing FAILED payout that sends its remaining QUEUED payout still alerts at COMPLETE', async () => {
+  // The !hasQueued branch is not the only COMPLETE path: a FAILED payout can
+  // coexist with a QUEUED one that a later run delivers successfully. The
+  // terminal flip must still page — otherwise the stranded funds read clean.
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 37 * DAY),
+      periodEnd: new Date(Date.now() - 36 * DAY),
+      poolPiconeros: 1_900_000_000n,
+      distributedPiconeros: 1_900_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 2,
+      status: 'FAILED'
+    }
+  })
+  created.distributions.push(dist.id)
+  const queuedPayout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+  })
+  const failedPayout = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 900_000_000n, state: 'FAILED' }
+  })
+  alert.mockClear()
+  await finalizeDistribution(prisma, { ...dist, payouts: [failedPayout, queuedPayout] }, async (rows, { models }) => {
+    for (const p of rows) {
+      if (p.state === 'QUEUED') {
+        await models.rewardPayout.update({ where: { id: p.id }, data: { state: 'SENT', txHash: 'ab'.repeat(32) } })
+      }
+    }
+    return { sent: 1, failed: 0, skipped: 0 }
+  })
+  const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+  expect(updated.status).toBe('COMPLETE')
+  expect(updated.completedAt).toBeTruthy()
+  const queuedAfter = await prisma.rewardPayout.findUnique({ where: { id: queuedPayout.id } })
+  expect(queuedAfter.state).toBe('SENT')
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    'rewards distribution completed with FAILED payouts — manual re-entry required',
+    expect.stringContaining(String(failedPayout.id)),
+    expect.objectContaining({ dedupeKey: `dist-${dist.id}-complete-with-failures` }))
 })
 
 test('a second run within the same week is idempotent (returns the existing distribution)', async () => {

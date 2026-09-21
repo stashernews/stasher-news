@@ -396,6 +396,21 @@ function toBigInt (v) {
   return BigInt(v)
 }
 
+// R03: FAILED payouts strand their funds (counted as distributed, excluded from
+// rollover, re-entered only by manual reconciliation). Called at every
+// transition to COMPLETE so the terminal state can never read clean while
+// FAILED payouts exist. Logs + alerts only: no DB work, never throws.
+function warnPayoutsStranded (distribution, payouts) {
+  const failedPayouts = payouts.filter(p => p.state === 'FAILED')
+  if (failedPayouts.length === 0) return
+  const strandedPiconeros = failedPayouts.reduce((acc, p) => acc + p.piconeros, 0n)
+  const ids = failedPayouts.map(p => p.id).join(', ')
+  logError({ distributionId: distribution.id, failedCount: failedPayouts.length, strandedPiconeros: strandedPiconeros.toString() }, 'rewardsDistributor: CRITICAL — distribution completing with FAILED payouts (funds stranded)')
+  alert('critical', 'rewards distribution completed with FAILED payouts — manual re-entry required',
+    `distribution ${distribution.id} flips COMPLETE with ${failedPayouts.length} FAILED payout(s) [${ids}], ${strandedPiconeros.toString()} piconeros stranded (counted as distributed, excluded from rollover). Re-enter them into a future pool via manual reconciliation.`,
+    { dedupeKey: `dist-${distribution.id}-complete-with-failures` })
+}
+
 // Task 9: drive the hot-wallet signer after the ledger transaction commits a
 // PENDING distribution + its QUEUED payouts, and flip the distribution's status.
 //
@@ -439,7 +454,9 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
   if (!hasQueued) {
     // Nothing to send — covers the 0-payout week AND a row whose payouts are all
     // already SENT (e.g. a FAILED run since delivered). Reconcile straight to
-    // COMPLETE without ever entering SENDING.
+    // COMPLETE without ever entering SENDING. R03: the stranded-FAILED alert
+    // fires first so the terminal flip can never silently mask them.
+    warnPayoutsStranded(distribution, payouts)
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { status: 'COMPLETE', completedAt: new Date() }
@@ -472,6 +489,9 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
       moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
       return
     }
+    // R03: a mixed FAILED+QUEUED distribution must not flip COMPLETE silently
+    // over stranded funds — warn before the success-path terminal write too.
+    warnPayoutsStranded(distribution, payouts)
     await models.rewardDistribution.update({
       where: { id: distribution.id },
       data: { status: 'COMPLETE', completedAt: new Date() }
