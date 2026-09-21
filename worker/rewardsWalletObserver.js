@@ -265,14 +265,16 @@ function feeTypeFor (major, payInType) {
 // means a second call (or a fee already paid by another path) is a no-op.
 export async function flipPendingToLive (models, payIn, feePiconeros) {
   if (payIn.payInType === 'ITEM_CREATE') {
-    // The item goes live atomically with its comment denormalizations (ancestor
-    // counters + Reply rows): a PENDING_FEE comment skipped those at onPaid, so
-    // they run here, exactly once — guarded by the WHERE feeStatus = 'PENDING_FEE'
-    // flip (re-polls and post-flip top-ups update 0 rows and skip the block).
-    // The observed fee is credited as the item's non-tip investment so the
-    // item_net_investment trigger produces netInvestment >= 0.001 XMR (the new
-    // posts-filter default). The fee NEVER touches Item.piconeros (tip total)
-    // or boost (ranking), so tip display and ranktop/ranklit are unaffected.
+    // The item goes live atomically with its feeStatus/feeInvestment write.
+    // Everything else is BEST-EFFORT and runs after the flip commits, each
+    // effect isolated so a persistent failure can never roll the flip back nor
+    // wedge the cursor (R14: the cursor only advances after a clean poll, so a
+    // throw anywhere below would freeze ALL fee attribution — the 2026-08-10
+    // incident class). The observed fee is credited as the item's non-tip
+    // investment so the item_net_investment trigger produces netInvestment >=
+    // 0.001 XMR (the new posts-filter default). The fee NEVER touches
+    // Item.piconeros (tip total) or boost (ranking), so tip display and
+    // ranktop/ranklit are unaffected.
     const flipped = await models.$transaction(async tx => {
       const rows = await tx.$queryRaw`
         UPDATE "Item"
@@ -284,7 +286,7 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
       // One fetch, with the includes runItemLiveSideEffects needs. Safe to reuse
       // the in-tx row post-commit: the flip only changes feeStatus /
       // feeInvestmentPiconeros, none of the notification-relevant fields.
-      const item = await tx.item.findFirst({
+      return await tx.item.findFirst({
         where: { id: rows[0].id },
         include: {
           mentions: true,
@@ -292,17 +294,43 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
           user: true
         }
       })
+    })
+    if (flipped) {
       // R01: an item that was in-quota at creation but born PENDING_FEE (its
       // only cost was the upload fee) consumes its free quota HERE — the
       // creation-time increments skip non-freeborn items. Exactly-once (only
-      // the winning flip transaction runs this) and best-effort (a failure
-      // logs but never rolls the flip back — a throw would freeze ALL fee
-      // attribution).
-      await consumeQuotaForFlippedItem(tx, { item, userId: payIn.userId })
-      await denormalizeComment(tx, item)
-      return item
-    })
-    if (flipped) {
+      // the winning flip branch reaches this) and best-effort: its OWN
+      // transaction, so a DB-level failure (which would poison the flip tx and
+      // defeat consumeQuotaForFlippedItem's internal JS catch) logs + alerts
+      // instead of rolling the flip back or wedging the cursor. An over- or
+      // under-shot count is inert (free-left clamps at 0; the window reset
+      // re-baselines).
+      if (flipped.feeQuotaEligible) {
+        try {
+          await models.$transaction(tx => consumeQuotaForFlippedItem(tx, { item: flipped, userId: payIn.userId }))
+        } catch (err) {
+          logError('flipPendingToLive: quota consumption failed', err)
+          alert('critical', 'flipped item quota consumption failed',
+            `payIn ${payIn.id}, item ${flipped.id}, user ${payIn.userId}: ${err?.message || err}`,
+            { dedupeKey: `flip-quota-${payIn.id}` })
+        }
+      }
+      // The comment's ancestor denormalization (counters + Reply rows) runs in
+      // its own best-effort transaction for the same reason: the flip is the
+      // money-relevant state and is already committed; counts are display
+      // state, repairable from the alert's payIn/item ids. Moving it out of
+      // the flip tx is what makes the internal catch safe for DB-level errors
+      // (a poisoned flip tx would fail COMMIT regardless of the catch).
+      if (flipped.parentId) {
+        try {
+          await models.$transaction(tx => denormalizeComment(tx, flipped))
+        } catch (err) {
+          logError('flipPendingToLive: comment denormalization failed', err)
+          alert('critical', 'comment denormalization failed after fee flip',
+            `payIn ${payIn.id}, item ${flipped.id}: ${err?.message || err}`,
+            { dedupeKey: `flip-denormalize-${payIn.id}` })
+        }
+      }
       // creation side effects (notifications, verified-badge check) fire once,
       // after the flip commits — onPaidSideEffects suppressed them at creation
       await runItemLiveSideEffects(models, flipped)
@@ -332,10 +360,19 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
   } else if (['DONATE', 'TIP_UNWALLETED', 'BOOST'].includes(payIn.payInType)) {
     // no gated record to flip — the FeeObservation itself is the effect
   } else if (['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE'].includes(payIn.payInType)) {
-    await models.sub.updateMany({
-      where: { billingPayInId: payIn.id, billingStatus: 'PENDING_FEE' },
-      data: { billingStatus: 'PAID' }
-    })
+    // Best-effort with its own guard: on failure the row stays PENDING_FEE
+    // (visibly unpaid) instead of wedging the cursor.
+    try {
+      await models.sub.updateMany({
+        where: { billingPayInId: payIn.id, billingStatus: 'PENDING_FEE' },
+        data: { billingStatus: 'PAID' }
+      })
+    } catch (err) {
+      logError('flipPendingToLive: territory billing flip failed', err)
+      alert('critical', 'territory billing flip failed after fee observation',
+        `payIn ${payIn.id}: ${err?.message || err}`,
+        { dedupeKey: `flip-territory-${payIn.id}` })
+    }
   }
 
   // The fee that unlocks the >10MB uploads was just observed: flip them paid so
@@ -347,13 +384,22 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
   // Idempotent (SET paid = true), so re-polls that now reach this point on the
   // conflict path are harmless.
   if (payIn?.id != null) {
-    await models.$executeRaw`
-      UPDATE "Upload"
-      SET "paid" = true
-      FROM "UploadPayIn"
-      WHERE ("UploadPayIn"."payInId" = ${payIn.id}
-        OR "UploadPayIn"."payInId" IN (SELECT id FROM "PayIn" WHERE "benefactorId" = ${payIn.id}))
-        AND "Upload"."id" = "UploadPayIn"."uploadId"`
+    try {
+      await models.$executeRaw`
+        UPDATE "Upload"
+        SET "paid" = true
+        FROM "UploadPayIn"
+        WHERE ("UploadPayIn"."payInId" = ${payIn.id}
+          OR "UploadPayIn"."payInId" IN (SELECT id FROM "PayIn" WHERE "benefactorId" = ${payIn.id}))
+          AND "Upload"."id" = "UploadPayIn"."uploadId"`
+    } catch (err) {
+      // Consequence is only that an upload stays chargeable on re-attach
+      // (the documented re-attachment path) — never a wedge.
+      logError('flipPendingToLive: upload paid-flip failed', err)
+      alert('critical', 'upload paid-flip failed after fee observation',
+        `payIn ${payIn.id}: ${err?.message || err}`,
+        { dedupeKey: `flip-uploads-${payIn.id}` })
+    }
   }
 }
 

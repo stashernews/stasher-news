@@ -131,16 +131,19 @@ export async function incrementFreePostCount (tx, { item, userId }) {
  * The creation-time incrementFree* calls skip items that aren't freeborn
  * (freebie=false / feeStatus=PENDING_FEE), so an in-quota author whose only
  * on-chain cost was the upload fee never consumed quota. onBegin marks such
- * items feeQuotaEligible; this runs inside the winning flip transaction,
- * exactly once (re-polls match zero rows and never reach here).
+ * items feeQuotaEligible; this runs AFTER the flip commits, inside its OWN
+ * best-effort transaction opened by flipPendingToLive, exactly once (only the
+ * winning flip branch reaches it; re-polls match zero rows). A DB-level failure
+ * there is caught by the caller's guard, so it can neither roll back the flip
+ * nor wedge the observer cursor (R14).
  *
  * Unlike incrementFreeCommentCount/incrementFreePostCount this FORCE-increments
- * without a `count < quota` precondition and NEVER throws: at flip time the
- * fee is already paid and the item must go live — a throw here would freeze
- * ALL fee attribution. An over-quota count is inert (free-left clamps at 0;
- * the window reset re-baselines).
+ * without a `count < quota` precondition and never surfaces a throw: at flip
+ * time the fee is already paid and the item must go live. An over-quota count
+ * is inert (free-left clamps at 0; the window reset re-baselines).
  *
- * @param {Object} tx - Prisma transaction (the flip's tx)
+ * @param {Object} tx - Prisma transaction opened by flipPendingToLive after the
+ *   flip commits (best-effort; never the flip's tx)
  * @param {Object} params - { item, userId }
  */
 export async function consumeQuotaForFlippedItem (tx, { item, userId }) {
