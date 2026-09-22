@@ -54,8 +54,11 @@ const modelsWith = (rows = []) => {
       update: jest.fn().mockResolvedValue(rows[0]),
       delete: jest.fn().mockResolvedValue({ id: 1 })
     },
-    // read by the Draft.pinnedMediaBytes field resolver
-    draftUpload: { findMany: jest.fn().mockResolvedValue([{ upload: { size: 1024 } }, { upload: { size: 2048 } }]) },
+    // read by the Draft.pinnedMediaBytes / Draft.pinnedMediaCount field resolvers
+    draftUpload: {
+      findMany: jest.fn().mockResolvedValue([{ upload: { size: 1024 } }, { upload: { size: 2048 } }]),
+      count: jest.fn().mockResolvedValue(2)
+    },
     $transaction: jest.fn(async fn => fn(tx))
   }
 }
@@ -136,6 +139,12 @@ describe('Draft field resolvers', () => {
   test('pinnedMediaBytes sums the draft\'s pinned upload sizes', async () => {
     const models = modelsWith([draftRow()])
     await expect(resolvers.Draft.pinnedMediaBytes(draftRow(), {}, { me, models })).resolves.toBe(3072n)
+  })
+
+  test('pinnedMediaCount counts the draft\'s pinned uploads', async () => {
+    const models = modelsWith([draftRow()])
+    await expect(resolvers.Draft.pinnedMediaCount(draftRow(), {}, { me, models })).resolves.toBe(2)
+    expect(models.draftUpload.count).toHaveBeenCalledWith({ where: { draftId: 1 } })
   })
 
   test('extra stringifies the stored Json; null stays null', () => {

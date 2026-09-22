@@ -14,6 +14,8 @@ export default gql`
     moneroWallThresholdPiconeros: BigInt
     # total bytes of the uploads pinned by this draft (drives the menu's media meter; derived, not stored)
     pinnedMediaBytes: BigInt
+    # number of uploads pinned by this draft (drives the menu's "N files" row meta; derived, not stored)
+    pinnedMediaCount: Int
     createdAt: Date!
     updatedAt: Date!
   }

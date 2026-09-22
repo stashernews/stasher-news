@@ -97,6 +97,9 @@ export default {
         select: { upload: { select: { size: true } } }
       })
       return pins.reduce((acc, p) => acc + BigInt(p.upload?.size ?? 0), 0n)
-    }
+    },
+    // row meta "· N file(s)": number of uploads pinned by this draft
+    pinnedMediaCount: async (draft, args, { models }) =>
+      models.draftUpload.count({ where: { draftId: draft.id } })
   }
 }

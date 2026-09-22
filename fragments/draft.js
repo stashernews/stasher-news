@@ -12,6 +12,7 @@ export const DRAFT_FIELDS = gql`
     moneroWallPricePiconeros
     moneroWallThresholdPiconeros
     pinnedMediaBytes
+    pinnedMediaCount
     updatedAt
   }
 `

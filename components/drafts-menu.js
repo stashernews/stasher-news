@@ -1,15 +1,19 @@
 // components/drafts-menu.js
-// Server-side drafts: a split button (save draft | list) mounted top-right of
+// Server-side drafts: a split control (save draft | list) mounted top-right of
 // each create form, plus a list-only instance on the /post type-picker page
 // (no Form ancestor -> no formik -> no save half). The list is cross-type;
 // opening a draft navigates to the draft's OWN form route on the ROOT /post
 // path with ?draft=<id> (see the cross-type contract in the drafts plan).
 // Explicit save only — no autosave in v1.
+//
+// Visual layer: styles/drafts-menu.module.css, mirroring the approved mockup
+// (docs/superpowers/specs/2026-09-22-drafts-ui-mockups.html). The custom
+// toggles render their own ▾ glyph + count because the app hides Bootstrap's
+// .dropdown-toggle::after globally (styles/globals.scss).
+import { forwardRef } from 'react'
 import { useRouter } from 'next/router'
 import { useFormikContext } from 'formik'
-import SplitButton from 'react-bootstrap/SplitButton'
 import Dropdown from 'react-bootstrap/Dropdown'
-import Alert from 'react-bootstrap/Alert'
 import { useMutation, useQuery } from '@apollo/client/react'
 import { MY_DRAFTS, UPSERT_DRAFT, DELETE_DRAFT } from '@/fragments/draft'
 import { xmrToPiconeros } from '@/lib/format'
@@ -17,12 +21,48 @@ import { DRAFT_MAX_COUNT, DRAFT_MEDIA_CAP_BYTES } from '@/lib/constants'
 import { timeSince } from '@/lib/time'
 import { useToast } from './toast'
 import { useMe } from './me'
+import styles from '@/styles/drafts-menu.module.css'
 
 // Draft.type -> /post?type=<t>. Always lowercase query values; always root
 // /post (never a turf-scoped path — defaultPostType would override the type).
 const TYPE_QUERY = { DISCUSSION: 'discussion', LINK: 'link', BOUNTY: 'bounty', POLL: 'poll' }
 
+// row icon tile glyphs, per the mockup
+const TYPE_ICON = { DISCUSSION: '✎', LINK: '🔗', BOUNTY: '◎', POLL: '▤' }
+
 const MB = 1024 * 1024
+
+// custom dropdown toggles (module scope: stable identity, ref forwarded)
+const CaretToggle = forwardRef(function CaretToggle ({ children, onClick, ...props }, ref) {
+  return (
+    <button
+      ref={ref}
+      type='button'
+      {...props}
+      className={styles.caret}
+      onClick={onClick}
+    >
+      <span className={styles.caretGlyph} aria-hidden='true'>▾</span>
+      <span className={styles.count}>{children}</span>
+    </button>
+  )
+})
+
+const PickerToggle = forwardRef(function PickerToggle ({ children, onClick, ...props }, ref) {
+  return (
+    <button
+      ref={ref}
+      type='button'
+      {...props}
+      className={styles.pickerToggle}
+      onClick={onClick}
+    >
+      drafts
+      <span className={styles.caretGlyph} aria-hidden='true'>▾</span>
+      <span className={styles.count}>{children}</span>
+    </button>
+  )
+})
 
 export default function DraftsMenu ({ type }) {
   const router = useRouter()
@@ -95,32 +135,77 @@ export default function DraftsMenu ({ type }) {
 
   const pinnedBytes = drafts.reduce((acc, d) => acc + BigInt(d.pinnedMediaBytes ?? 0), 0n)
   const showFooter = drafts.length > 0 // meter hidden entirely at 0 drafts (approved)
+  const atCap = drafts.length >= DRAFT_MAX_COUNT
   const loadedDraft = loadedDraftId ? drafts.find(d => String(d.id) === String(loadedDraftId)) : undefined
+  const capMb = Math.round(Number(DRAFT_MEDIA_CAP_BYTES) / MB)
+  const meterPct = Math.min(100, (Number(pinnedBytes) / Number(DRAFT_MEDIA_CAP_BYTES)) * 100)
 
   // drafts are a per-user feature: no menu (and no MY_DRAFTS traffic) signed out
   if (!me) return null
 
   const list = (
     <>
-      <Dropdown.Header>your drafts · {drafts.length} / {DRAFT_MAX_COUNT}</Dropdown.Header>
-      {drafts.map(d => (
-        <Dropdown.Item key={d.id} onClick={() => openDraft(d)}>
-          <span className='d-flex justify-content-between gap-2'>
-            <span className='text-truncate' style={{ maxWidth: 200 }}>
-              <span className='text-muted me-1' style={{ fontSize: '.7em' }}>{d.type.toLowerCase()}</span>
-              {d.title || d.text?.slice(0, 40) || `draft ${d.id}`}
-            </span>
-            <span role='button' tabIndex={0} onClick={e => remove(e, d)}>✕</span>
-          </span>
-        </Dropdown.Item>
-      ))}
-      {drafts.length === 0 && <Dropdown.ItemText>no drafts yet — save this one to pick it up on any device.</Dropdown.ItemText>}
-      {showFooter && <Dropdown.Divider />}
+      <div className={styles.header}>
+        <span>your drafts</span>
+        <span className={`${styles.headerCount} ${atCap ? styles.headerCountFull : ''}`}>
+          {drafts.length} / {DRAFT_MAX_COUNT}
+        </span>
+      </div>
+      {atCap && (
+        <div className={styles.warn}>
+          <span aria-hidden='true'>⚠</span>
+          <span>draft limit reached ({DRAFT_MAX_COUNT}) — delete one first.</span>
+        </div>
+      )}
+      {drafts.length > 0 && (
+        <div className={styles.list}>
+          {drafts.map(d => (
+            <div
+              key={d.id}
+              className={styles.row}
+              role='button'
+              tabIndex={0}
+              onClick={() => openDraft(d)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  openDraft(d)
+                }
+              }}
+            >
+              <span className={styles.ico} aria-hidden='true'>{TYPE_ICON[d.type] ?? TYPE_ICON.DISCUSSION}</span>
+              <span className={styles.mid}>
+                <span className={styles.title}>{d.title || d.text?.slice(0, 60) || '(untitled draft)'}</span>
+                <span className={styles.meta}>
+                  <span className={styles.chip}>{d.type.toLowerCase()}</span>
+                  saved {timeSince(new Date(d.updatedAt))} ago
+                  {d.pinnedMediaCount > 0 ? ` · ${d.pinnedMediaCount} file${d.pinnedMediaCount === 1 ? '' : 's'}` : ''}
+                </span>
+              </span>
+              <button
+                type='button'
+                className={styles.x}
+                title='delete draft'
+                aria-label='delete draft'
+                onClick={e => remove(e, d)}
+              >✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {drafts.length === 0 && (
+        <div className={styles.empty}>no drafts yet — save this one to pick it up on any device.</div>
+      )}
       {showFooter && (
-        <Dropdown.ItemText>
-          saved media {(Number(pinnedBytes) / MB).toFixed(1)} / {(Number(DRAFT_MEDIA_CAP_BYTES) / MB).toFixed(1)} MB
-          <br /><span className='text-muted' style={{ fontSize: '.8em' }}>auto-deletes after 90d of inactivity</span>
-        </Dropdown.ItemText>
+        <div className={styles.footer}>
+          <div className={styles.footerRow}>
+            <span>saved media</span>
+            <span className={styles.footerValue}>{(Number(pinnedBytes) / MB).toFixed(1)} / {capMb} MB</span>
+          </div>
+          <div className={styles.meter}><i style={{ width: `${meterPct}%` }} /></div>
+          <div className={styles.footerNote}>auto-deletes after 90d of inactivity</div>
+        </div>
       )}
     </>
   )
@@ -128,36 +213,44 @@ export default function DraftsMenu ({ type }) {
   if (!formik) {
     // picker page: a plain dropdown with only the list (no formik -> no save half)
     return (
-      <Dropdown>
-        <Dropdown.Toggle variant='outline-secondary' size='sm'>drafts</Dropdown.Toggle>
-        <Dropdown.Menu>{list}</Dropdown.Menu>
-      </Dropdown>
+      <div className={styles.root}>
+        <Dropdown align='end'>
+          <Dropdown.Toggle
+            as={PickerToggle}
+            aria-label={`open drafts (${drafts.length} of ${DRAFT_MAX_COUNT})`}
+          >{drafts.length}
+          </Dropdown.Toggle>
+          <Dropdown.Menu className={styles.menu}>{list}</Dropdown.Menu>
+        </Dropdown>
+      </div>
     )
   }
 
   return (
-    <div className={loadedDraftId ? 'w-100' : undefined}>
+    <div className={`${styles.root} ${loadedDraftId ? styles.fullWidth : ''}`}>
       {loadedDraftId && (
-        <Alert variant='warning' className='d-flex align-items-center py-1 px-2 mb-2'>
-          <span className='text-muted' style={{ fontSize: '.8rem' }}>
+        <div className={styles.banner} role='status'>
+          <span className={styles.dot} aria-hidden='true' />
+          <span className={styles.bannerText}>
             editing draft{loadedDraft ? ` · saved ${timeSince(new Date(loadedDraft.updatedAt))} ago` : ''}
           </span>
-          <a
-            role='button' tabIndex={0} className='ms-auto text-muted' style={{ fontSize: '.8rem' }}
-            onClick={discard}
-          >discard draft
-          </a>
-        </Alert>
+          <button type='button' className={styles.discard} onClick={discard}>discard draft</button>
+        </div>
       )}
-      <div className='d-flex justify-content-end'>
-        <SplitButton
-          size='sm'
-          variant='outline-secondary'
-          title={loadedDraftId ? 'update draft' : 'save draft'}
-          onClick={save}
-        >
-          {list}
-        </SplitButton>
+      <div className={styles.rowEnd}>
+        <div className={styles.split}>
+          <button type='button' className={styles.save} onClick={save}>
+            {loadedDraftId ? 'update draft' : 'save draft'}
+          </button>
+          <Dropdown align='end'>
+            <Dropdown.Toggle
+              as={CaretToggle}
+              aria-label={`open drafts (${drafts.length} of ${DRAFT_MAX_COUNT})`}
+            >{drafts.length}
+            </Dropdown.Toggle>
+            <Dropdown.Menu className={styles.menu}>{list}</Dropdown.Menu>
+          </Dropdown>
+        </div>
       </div>
     </div>
   )
