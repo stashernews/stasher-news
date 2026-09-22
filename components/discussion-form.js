@@ -6,20 +6,28 @@ import { UPSERT_DISCUSSION } from '@/fragments/payIn'
 import { usePostFormShared } from './use-post-form-shared'
 import AdvPostForm from './adv-post-form'
 import MoneroWallFields, { moneroWallInitialValues } from './monero-wall-form-fields'
+import DraftsMenu from './drafts-menu'
+import PageLoading from './page-loading'
 
 export function DiscussionForm ({
   item, subs, EditInfo, titleLabel = 'title',
   textLabel = 'text',
   handleSubmit, children
 }) {
-  const { initial, onSubmit, storageKeyPrefix, schema } = usePostFormShared({
+  const { initial, onSubmit, storageKeyPrefix, schema, draftReady } = usePostFormShared({
     item,
     subs,
     mutation: UPSERT_DISCUSSION,
     storageKeyPrefix: 'discussion',
     schemaFn: discussionSchema,
-    extraInitialValues: moneroWallInitialValues(item)
+    // draft-aware: a saved draft's wall amounts prefill the wall fields
+    extraInitialValues: ({ draft }) => moneroWallInitialValues(item, draft)
   })
+
+  // ?draft prefill: Formik initialValues are one-shot, so don't mount the form
+  // until the draft query resolved (after all hooks)
+  if (!draftReady) return <PageLoading />
+
   return (
     <Form
       initial={initial}
@@ -27,6 +35,7 @@ export function DiscussionForm ({
       onSubmit={handleSubmit || onSubmit}
       storageKeyPrefix={storageKeyPrefix}
     >
+      {!item && <div className='d-flex justify-content-end mb-2'><DraftsMenu type='DISCUSSION' /></div>}
       {children}
       <Input
         label={titleLabel}

@@ -40,6 +40,7 @@ import { reconcilePendingTips } from './reconcilePendingTips'
 import { webhookCleanup } from './webhookCleanup'
 import { webhookMissCheck } from './webhookMissCheck'
 import { abandonFeeItems } from './abandonFeeItems'
+import { abandonStaleDrafts } from './abandonStaleDrafts'
 import { reverseStaleDetections } from './reverseStaleDetections'
 import { reconcileOwnerFeeLegs } from './reconcileOwnerFeeLegs'
 import { healthProbe } from './healthProbe'
@@ -240,6 +241,11 @@ async function work () {
   // FEE_ITEM_ABANDON_DAYS (1 day). Recurrence is cron-owned (pgboss.schedule
   // row abandonFeeItems, hourly) — no self-requeue.
   await boss.work('abandonFeeItems', { includeMetadata: true }, jobWrapper(abandonFeeItems))
+
+  // abandonStaleDrafts: deletes drafts untouched for DRAFT_TTL_DAYS (90 days);
+  // DraftUpload pins cascade and the daily media sweep reaps the files.
+  // Recurrence is cron-owned (pgboss.schedule row abandonStaleDrafts, hourly).
+  await boss.work('abandonStaleDrafts', { includeMetadata: true }, jobWrapper(abandonStaleDrafts))
 
   // reverseStaleDetections: flips DETECTED-without-height observations older
   // than STALE_DETECTED_EXPIRY_MS (48h) to REORGED and reverses their

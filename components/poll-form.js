@@ -6,22 +6,32 @@ import { pollSchema } from '@/lib/validate'
 import { ItemButtonBar } from './post'
 import { UPSERT_POLL } from '@/fragments/payIn'
 import { usePostFormShared } from './use-post-form-shared'
+import DraftsMenu from './drafts-menu'
+import PageLoading from './page-loading'
 
 export function PollForm ({ item, subs, EditInfo, children }) {
   const initialOptions = item?.poll?.options.map(i => i.option)
 
-  const { initial, onSubmit, storageKeyPrefix, schema } = usePostFormShared({
+  const { initial, onSubmit, storageKeyPrefix, schema, draftReady } = usePostFormShared({
     item,
     subs,
     mutation: UPSERT_POLL,
     schemaFn: pollSchema,
     storageKeyPrefix: 'poll',
-    extraInitialValues: {
-      options: initialOptions || ['', ''],
-      randPollOptions: item?.poll?.randPollOptions || false,
-      pollExpiresAt: item ? item.pollExpiresAt : datePivot(new Date(), { hours: 48 })
+    // draft-aware: a saved draft's choices/expiration prefill the form (they
+    // live in Draft.extra; polls have no wall fields)
+    extraInitialValues: ({ draft }) => {
+      const draftExtra = draft?.extra ? JSON.parse(draft.extra) : {}
+      return {
+        options: initialOptions || (draftExtra.pollOptions?.length ? draftExtra.pollOptions : ['', '']),
+        randPollOptions: item?.poll?.randPollOptions || draftExtra.randPollOptions || false,
+        pollExpiresAt: item ? item.pollExpiresAt : (draftExtra.pollExpiresAt ? new Date(draftExtra.pollExpiresAt) : datePivot(new Date(), { hours: 48 }))
+      }
     }
   })
+
+  // ?draft prefill: don't mount the form until the draft query resolved
+  if (!draftReady) return <PageLoading />
 
   return (
     <Form
@@ -30,6 +40,7 @@ export function PollForm ({ item, subs, EditInfo, children }) {
       onSubmit={onSubmit}
       storageKeyPrefix={storageKeyPrefix}
     >
+      {!item && <div className='d-flex justify-content-end mb-2'><DraftsMenu type='POLL' /></div>}
       {children}
       <Input
         label='title'

@@ -112,7 +112,13 @@ export default function useItemSubmit (mutation,
         resetForm?.()
         showModal(onClose => item
           ? <UploadFeeModal moneroUri={response.moneroUri} payInId={response.id} itemId={navigateOnSubmit ? item.id : undefined} onClose={onClose} />
-          : <PostingFeeModal moneroUri={response.moneroUri} itemId={postId} />)
+          : <PostingFeeModal moneroUri={response.moneroUri} itemId={postId} />,
+        // the fee QR must survive any navigation fired during the submit
+        // window — e.g. the drafts publish-cleanup strips ?draft via a
+        // router.replace inside the mutation's onCompleted, and that
+        // routeChangeStart closes non-persistent modals, stranding the
+        // PENDING_FEE post with no way to pay (2026-09-23 draft-post bug)
+        { persistOnNavigate: true })
         if (navigateOnSubmit) {
           return
         }

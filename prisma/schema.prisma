@@ -68,6 +68,7 @@ model User {
   hideBadges              Boolean              @default(false)
   hideStashAmount         Boolean              @default(true)
   Bookmarks               Bookmark[]
+  drafts                  Draft[]
   Earn                    Earn[]
   invites                 Invite[]             @relation("Invites")
   items                   Item[]               @relation("UserItems")
@@ -295,6 +296,44 @@ model PendingItemUpdate {
   @@index([createdAt])
 }
 
+// Server-side post draft (2026-09-22 spec). Pre-submission only: never an
+// Item, never a PayIn. Owner-scoped; swept by abandonStaleDrafts after
+// DRAFT_TTL_DAYS of inactivity. Upload pins live in DraftUpload so the
+// deleteUnusedImages sweep spares media referenced by a live draft.
+model Draft {
+  id                           Int      @id @default(autoincrement())
+  userId                       Int      @map("user_id")
+  type                         String // 'DISCUSSION' | 'LINK' | 'BOUNTY' | 'POLL'
+  title                        String?
+  text                         String?
+  url                          String?
+  subName                      String?
+  // per-type extras: { bountyPiconeros } | { pollOptions, pollExpiresAt }
+  extra                        Json?
+  moneroWallPricePiconeros     BigInt?
+  moneroWallThresholdPiconeros BigInt?
+  createdAt                    DateTime @default(now()) @map("created_at")
+  updatedAt                    DateTime @updatedAt @map("updated_at")
+  user                         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  uploads                      DraftUpload[]
+
+  @@index([userId])
+  @@map("draft")
+}
+
+// Pins an Upload to a Draft so the unattached-media sweep spares it. Pin rows
+// are derived from the draft text's media URLs at save time (lib/drafts.js).
+model DraftUpload {
+  draftId  Int @map("draft_id")
+  uploadId Int @map("upload_id")
+  draft    Draft  @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  upload   Upload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@id([draftId, uploadId])
+  @@index([uploadId])
+  @@map("draft_upload")
+}
+
 model Upload {
   id                  Int           @id @default(autoincrement())
   createdAt           DateTime      @default(now()) @map("created_at")
@@ -311,6 +350,7 @@ model Upload {
   user                User          @relation("Uploads", fields: [userId], references: [id], onDelete: Cascade)
   User                User[]
   ItemUpload          ItemUpload[]
+  draftUploads        DraftUpload[]
   uploadPayIns        UploadPayIn[]
   subBrandingLogos    SubBranding[] @relation("SubBrandingLogo")
   subBrandingFavicons SubBranding[] @relation("SubBrandingFavicon")

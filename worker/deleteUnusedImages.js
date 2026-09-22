@@ -16,7 +16,9 @@ export async function deleteUnusedImages ({ models, boss }) {
   // delete unused media in database and S3 24 hours after upload, for stackers
   // and anons alike. "Unused" = attached to no LIVE content: attachments via a
   // soft-deleted (abandoned) item no longer pin the upload, so media from
-  // fee-abandoned or deleted posts is reaped too. Paid flag is irrelevant —
+  // fee-abandoned or deleted posts is reaped too. Uploads pinned by a
+  // server-side draft (draft_upload) are spared unconditionally — deleting a
+  // stale draft drops its pins and the next sweep reaps. Paid flag is irrelevant —
   // unattached media has no content to protect. A /uploads/<id> or
   // PUBLIC_MEDIA_URL/<id> URL in a turf description (Sub.desc) is a live
   // reference too — turf descs render their media, so the match mirrors the
@@ -35,6 +37,10 @@ export async function deleteUnusedImages ({ models, boss }) {
         FROM "ItemUpload"
         JOIN "Item" ON "Item".id = "ItemUpload"."itemId"
         WHERE "ItemUpload"."uploadId" = "Upload".id AND "Item"."deletedAt" IS NULL)
+      -- pinned by a server-side draft (2026-09-22 spec): pins are derived from
+      -- the draft text's media URLs; stale drafts (90d) are deleted by
+      -- abandonStaleDrafts, which drops the pins and lets the next sweep reap.
+      AND NOT EXISTS (SELECT * FROM draft_upload WHERE draft_upload.upload_id = "Upload".id)
       AND NOT EXISTS (SELECT * FROM "SubBranding" WHERE "logoId" = "Upload".id)
       AND NOT EXISTS (SELECT * FROM "SubBranding" WHERE "faviconId" = "Upload".id)
       AND NOT EXISTS (

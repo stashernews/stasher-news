@@ -16,6 +16,8 @@ import { BOUNTY_DEFAULT_XMR, BOUNTY_MIN_XMR, bountyPiconerosOf } from '@/lib/bou
 import { useRef } from 'react'
 import AdvPostForm from './adv-post-form'
 import MoneroWallFields, { moneroWallInitialValues } from './monero-wall-form-fields'
+import DraftsMenu from './drafts-menu'
+import PageLoading from './page-loading'
 
 // Decimal XMR entry (mirrors the tip modal's amount field + xmrAmountSchema);
 // the submit path converts to piconeros for the bountyPiconeros upsert arg.
@@ -41,20 +43,24 @@ export function BountyForm ({
   // once the upsert completes
   const amountPiconerosRef = useRef(null)
 
-  const { initial, onSubmit, storageKeyPrefix, schema } = usePostFormShared({
+  const { initial, onSubmit, storageKeyPrefix, schema, draftReady } = usePostFormShared({
     item,
     subs,
     mutation: UPSERT_BOUNTY,
     storageKeyPrefix: 'bounty',
     schemaFn: bountySchema,
-    extraInitialValues: {
-      // the server's bountySchema requires bountyPiconeros, so an edit sends
-      // the item's current amount as the initial value (unchanged unless the
-      // author edits it)
-      amount: item?.bountyPiconeros != null
-        ? piconerosToXmrDecimal(bountyPiconerosOf(item.bountyPiconeros))
-        : BOUNTY_DEFAULT_XMR,
-      ...moneroWallInitialValues(item)
+    // draft-aware: a saved draft's amount + wall fields prefill the form
+    extraInitialValues: ({ draft }) => {
+      const draftExtra = draft?.extra ? JSON.parse(draft.extra) : {}
+      return {
+        // the server's bountySchema requires bountyPiconeros, so an edit sends
+        // the item's current amount as the initial value (unchanged unless the
+        // author edits it); a draft's stored amount wins over the default
+        amount: item?.bountyPiconeros != null
+          ? piconerosToXmrDecimal(bountyPiconerosOf(item.bountyPiconeros))
+          : (draftExtra.bountyPiconeros != null ? piconerosToXmrDecimal(BigInt(draftExtra.bountyPiconeros)) : BOUNTY_DEFAULT_XMR),
+        ...moneroWallInitialValues(item, draft)
+      }
     },
     // on create, route to the funding view instead of the feed redirect; on
     // edit, keep the normal redirect back to the item
@@ -74,6 +80,9 @@ export function BountyForm ({
   // the client schema validates the decimal XMR amount field; the server
   // schema's bountyPiconeros member is validated server-side after conversion
   const formSchema = schema?.omit(['bountyPiconeros']).shape({ amount: amountValidator })
+
+  // ?draft prefill: don't mount the form until the draft query resolved
+  if (!draftReady) return <PageLoading />
 
   const submit = handleSubmit || (async (values, args) => {
     const { amount, ...rest } = values
@@ -96,6 +105,7 @@ export function BountyForm ({
       onSubmit={submit}
       storageKeyPrefix={storageKeyPrefix}
     >
+      {!item && <div className='d-flex justify-content-end mb-2'><DraftsMenu type='BOUNTY' /></div>}
       {children}
       <Input
         label={titleLabel}

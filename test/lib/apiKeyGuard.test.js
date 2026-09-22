@@ -47,6 +47,8 @@ const REVIEWED_NON_SENSITIVE = new Set([
   // turf repost (2026-09-24): adds a paid turf to one of the author's own
   // posts — same posting-fee money flow as the upsert* mutations above.
   'repostItem',
+  // own-content draft CRUD (no money; publish flows through createItem)
+  'upsertDraft', 'deleteDraft',
   // uploads (quota-capped, paid on publish)
   'getSignedPOST',
   // notifications / preferences

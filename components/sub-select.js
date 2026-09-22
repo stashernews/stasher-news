@@ -149,7 +149,11 @@ export function SubMultiSelect ({ prependSubs, subs, onChange, size, appendSubs,
         value: subs
       }
     : {
-        overrideValue: subs
+        // an EMPTY list must not act as an override: MultiSelect's sync
+        // effect would clobber formik initialValues with [] on mount — e.g.
+        // a server draft's turf prefill on the unscoped /post route, where
+        // the form's subs prop is [] (2026-09-23 draft-post bug)
+        overrideValue: subs?.length ? subs : undefined
       }
 
   const showModal = useShowModal()

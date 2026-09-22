@@ -12,6 +12,7 @@ import { BountyForm } from './bounty-form'
 import { SubMultiSelect } from './sub-select'
 import { useCallback, useState } from 'react'
 import FeeButton, { FeeButtonProvider, postCommentBaseLineItems, postCommentUseRemoteLineItems } from './fee-button'
+import DraftsMenu from './drafts-menu'
 import Delete from './delete'
 import CancelButton from './cancel-button'
 import { subNames, subsPostPrefix, subsAllSupport, postFormType, defaultPostType } from '@/lib/subs'
@@ -25,6 +26,7 @@ const POST_TYPE_FORMS = {
 
 export function PostForm ({ type, subs, children }) {
   const { me } = useMe()
+  const router = useRouter()
   const [errorMessage, setErrorMessage] = useState()
 
   const prefix = subsPostPrefix(subs)
@@ -122,6 +124,10 @@ export function PostForm ({ type, subs, children }) {
             subs={subNames(subs)}
           />
         )}
+        {/* list-only drafts menu: no Form ancestor -> no formik -> no save half */}
+        <div className='align-self-end mb-3'>
+          <DraftsMenu />
+        </div>
         <div>
           {postButtons}
         </div>
@@ -147,12 +153,18 @@ export function PostForm ({ type, subs, children }) {
 
   const FormType = formType === 'job' ? JobForm : POST_TYPE_FORMS[formType]
 
+  const draftId = router.query.draft
+
   return (
     <FeeButtonProvider
       baseLineItems={postCommentBaseLineItems({ me, subs })}
       useRemoteLineItems={postCommentUseRemoteLineItems({ subs })}
     >
-      <FormType subs={subs}>{children}</FormType>
+      {/* remount when the loaded draft changes: cross-type clicks already
+          remount (POST_TYPE_FORMS swaps the component); SAME-type clicks need
+          this key or Formik's one-shot initialValues silently ignore the
+          newly opened draft */}
+      <FormType key={`${formType}:${draftId ?? ''}`} subs={subs}>{children}</FormType>
     </FeeButtonProvider>
   )
 }

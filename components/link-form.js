@@ -17,6 +17,8 @@ import { usePostFormShared } from './use-post-form-shared'
 import useDebounceCallback from './use-debounce-callback'
 import { ensureProtocol } from '@/lib/url'
 import MoneroWallFields, { moneroWallInitialValues } from './monero-wall-form-fields'
+import DraftsMenu from './drafts-menu'
+import PageLoading from './page-loading'
 
 const LOOKUP_DEBOUNCE_MS = 500
 const DUPES_DEBOUNCE_MS = 500
@@ -36,16 +38,18 @@ export function LinkForm ({ item, subs, EditInfo, children }) {
   // if Web Share Target API was used
   const shareUrl = router.query.url
 
-  const { initial, onSubmit, client, storageKeyPrefix, schema } = usePostFormShared({
+  const { initial, onSubmit, client, storageKeyPrefix, schema, draftReady } = usePostFormShared({
     item,
     subs,
     mutation: UPSERT_LINK,
     schemaFn: linkSchema,
     storageKeyPrefix: 'link',
-    extraInitialValues: {
-      url: item?.url || shareUrl || '',
-      ...moneroWallInitialValues(item)
-    }
+    // draft-aware wall fields; url stays here (not in the shared hook) because
+    // the Web Share Target ?url= param is link-specific
+    extraInitialValues: ({ draft }) => ({
+      url: item?.url || draft?.url || shareUrl || '',
+      ...moneroWallInitialValues(item, draft)
+    })
   })
 
   const isEditing = !!item
@@ -105,6 +109,10 @@ export function LinkForm ({ item, subs, EditInfo, children }) {
 
   const postDisabled = !item && (pageTitleLoading || dupesLoading)
 
+  // ?draft prefill: don't mount the form until the draft query resolved —
+  // after all hooks
+  if (!draftReady) return <PageLoading />
+
   return (
     <Form
       initial={initial}
@@ -112,6 +120,7 @@ export function LinkForm ({ item, subs, EditInfo, children }) {
       onSubmit={onSubmit}
       storageKeyPrefix={storageKeyPrefix}
     >
+      {!item && <div className='d-flex justify-content-end mb-2'><DraftsMenu type='LINK' /></div>}
       {children}
       <Input
         label='title'

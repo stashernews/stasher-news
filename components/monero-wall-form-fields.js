@@ -6,8 +6,16 @@ import { piconerosToXmrDecimal, xmrToPiconeros } from '@/lib/format'
 // Form keys: moneroWallEnabled (UI-only toggle), moneroWallPriceXmr /
 // moneroWallThresholdXmr (display), moneroWallPricePiconeros /
 // moneroWallThresholdPiconeros (submitted; BigInt strings to GraphQL).
-export function moneroWallInitialValues (item) {
-  const wall = item?.moneroWall
+// Draft-aware: drafts store wall amounts as piconeros directly (no active
+// wall row), items keep their moneroWall shape. An item wins over a draft,
+// and a draft without wall amounts yields the plain disabled-wall defaults.
+export function moneroWallInitialValues (item, draft) {
+  const wall = item?.moneroWall ?? (draft != null && (draft.moneroWallPricePiconeros != null || draft.moneroWallThresholdPiconeros != null)
+    ? {
+        pricePiconeros: draft.moneroWallPricePiconeros != null ? String(draft.moneroWallPricePiconeros) : null,
+        thresholdPiconeros: draft.moneroWallThresholdPiconeros != null ? String(draft.moneroWallThresholdPiconeros) : null
+      }
+    : undefined)
   const enabled = !!wall
   return {
     moneroWallEnabled: enabled,

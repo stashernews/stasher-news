@@ -1,8 +1,9 @@
 import { useMe } from './me'
 import { SubSelectInitial } from './sub-select'
 import useItemSubmit from './use-item-submit'
-import { useApolloClient } from '@apollo/client/react'
+import { useApolloClient, useQuery } from '@apollo/client/react'
 import { useRouter } from 'next/router'
+import { MY_DRAFT, DELETE_DRAFT } from '@/fragments/draft'
 
 /**
  * Shared hook for post form initialization
@@ -12,30 +13,73 @@ import { useRouter } from 'next/router'
  * @param {Object} options.item - Existing item being edited (optional)
  * @param {Array} options.subs - Array of sub objects
  * @param {Object} options.mutation - GraphQL mutation for upserting
- * @param {Function} options.schema - Schema function for validation
+ * @param {Function} options.schemaFn - Schema function for validation
  * @param {string} options.prefix - Storage key prefix for drafts (e.g., 'bounty', 'discussion')
- * @param {Object} options.extra - Extra initial values specific to the form type
+ * @param {Object|Function} [options.extraInitialValues] - Extra initial values
+ * specific to the form type, or a function ({ draft }) => values for
+ * draft-aware forms. The function is re-evaluated on every render so a server
+ * draft loaded via ?draft=<id> is complete before the Formik form mounts.
  * @param {boolean} [options.navigateOnSubmit] - Forwarded to useItemSubmit (default true)
  * @param {Function} [options.onSuccessfulSubmit] - Forwarded to useItemSubmit
- * @returns {Object} { initial, onSubmit, me, storageKeyPrefix }
+ * @returns {Object} { initial, onSubmit, me, client, storageKeyPrefix, schema, draft, draftReady }
  */
-export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyPrefix: prefix, extraInitialValues = {}, navigateOnSubmit, onSuccessfulSubmit }) {
+export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyPrefix: prefix, extraInitialValues, navigateOnSubmit, onSuccessfulSubmit }) {
   const router = useRouter()
   // if Web Share Target API was used
   const shareTitle = router.query.title
   const shareText = router.query.text ? decodeURI(router.query.text) : undefined
   const { me } = useMe()
   const client = useApolloClient()
-  const onSubmit = useItemSubmit(mutation, { item, navigateOnSubmit, onSuccessfulSubmit })
-  const schema = schemaFn?.({ client, me })
-  const storageKeyPrefix = item ? undefined : prefix
+
+  // server draft prefill (?draft=<id>): MY_DRAFT is in flight at mount, and
+  // Formik initialValues are one-shot (no enableReinitialize here, deliberately:
+  // it can reset mid-edit when `initial` recomputes with different values).
+  // Forms render a skeleton until draftReady; repeat opens of the same draft
+  // are instant (Apollo cache).
+  const draftId = item ? undefined : router.query.draft
+  const { data: draftData, loading: draftLoading, error: draftError } = useQuery(MY_DRAFT, {
+    variables: { id: draftId },
+    skip: !draftId
+  })
+  // a failed draft fetch must never wedge the form on the skeleton: fall
+  // through to a clean create form
+  const draft = draftError ? null : draftData?.draft
+  const draftReady = !draftId || (!draftLoading && (draftData != null || draftError != null))
+
+  const extras = typeof extraInitialValues === 'function' ? extraInitialValues({ draft }) : extraInitialValues
 
   const initial = {
-    title: item?.title || shareTitle || '',
-    text: item?.text || shareText || '',
+    title: item?.title || draft?.title || shareTitle || '',
+    text: item?.text || draft?.text || shareText || '',
+    url: item?.url || draft?.url || undefined,
     ...SubSelectInitial({ item, subs }),
-    ...extraInitialValues
+    // draft turf wins over URL/turf defaults (incl. the bounty 'bounties'
+    // preselect). the formik field is `subNames` (SubSelectInitial), NOT subName
+    ...(draft?.subName ? { subNames: [draft.subName] } : {}),
+    ...extras
   }
 
-  return { initial, onSubmit, me, client, storageKeyPrefix, schema }
+  // kill the localStorage draft machinery while a server draft is open (or
+  // when editing an item): Input's restore effect (components/form.js)
+  // overwrites field values unconditionally on mount and would clobber the
+  // prefill with a stale local draft; and local autosave must not fight the
+  // explicit server save.
+  const storageKeyPrefix = (item || draftId) ? undefined : prefix
+
+  // publish cleanup: after a successful submit from a draft, delete the draft
+  // (fire-and-forget) and strip ?draft — that flips PostForm's remount key, so
+  // staying on /post lands on a clean empty form
+  const onSuccessWrapped = async (...args) => {
+    if (draftId) {
+      client.mutate({ mutation: DELETE_DRAFT, variables: { id: draftId } }).catch(() => {})
+      router.replace({ query: { ...router.query, draft: undefined } }, undefined, { shallow: true })
+    }
+    return onSuccessfulSubmit?.(...args)
+  }
+
+  const onSubmit = useItemSubmit(mutation, { item, navigateOnSubmit, onSuccessfulSubmit: onSuccessWrapped })
+
+  const schema = schemaFn?.({ client, me })
+
+  return { initial, onSubmit, me, client, storageKeyPrefix, schema, draft, draftReady }
 }
