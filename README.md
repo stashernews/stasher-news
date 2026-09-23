@@ -398,7 +398,7 @@ Open a [discussion](http://github.com/stashernews/stasher-news/discussions) or [
 
 # Responsible disclosure
 
-If you found a vulnerability, we would greatly appreciate it if you contact us via [security@stasher.news](mailto:security@stasher.news) or open a [security advisory](https://github.com/stashernews/stasher-news/security/advisories/new). Our PGP key can be found [here](https://stasher.news/pgp.txt) (FEE1 E768 E0B3 81F5).
+If you found a vulnerability, we would greatly appreciate it if you contact us via [security@stasher.news](mailto:security@stasher.news) or open a [security advisory](https://github.com/stashernews/stasher-news/security/advisories/new). Our PGP key can be found [here](https://stasher.news/pgp.txt) (D1DB C80D 2155 2EB3 D549 08EB 3EC2 64CE B2B8 3AC4).
 
 <br>
 
