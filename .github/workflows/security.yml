@@ -19,3 +19,27 @@ jobs:
         run: npm ci --legacy-peer-deps
       - name: Audit production dependencies (high+)
         run: npm audit --omit=dev --audit-level=high
+
+  gitleaks:
+    # Secret scan of new commits. Skips pull_request events: dependabot
+    # branches fork from upstream history that predates the public baseline,
+    # so a range scan there would just re-flag known-inherited upstream
+    # fixtures instead of guarding this fork's new work.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # full history so the commit range below resolves
+          fetch-depth: 0
+      - name: Scan commits since the public-release baseline
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Everything up to f12dd9bf (the public-release baseline) was
+          # manually audited on 2026-09-23: the older history only holds
+          # upstream-inherited regtest fixtures and already-rotated dev
+          # placeholder values. Scanning the full history on every run would
+          # permanently flag those known-clean artifacts, so only commits
+          # after the baseline are scanned.
+          GITLEAKS_LOG_OPTS: 'f12dd9bf..HEAD'

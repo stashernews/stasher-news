@@ -3,5 +3,5 @@ creation_rules:
     # Deploy-time edit (every box has its own key): paste the box's age
     # PUBLIC key here, e.g. `age-keygen -y /etc/stashernews/keys/age.agekey`.
     # Do not commit the real key — it identifies the box. Operator runbook:
-    # docs/runbooks/secrets.md (local, not tracked).
+    # internal ops runbooks (local, not tracked).
     age: "age1...."

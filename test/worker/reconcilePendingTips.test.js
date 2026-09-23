@@ -520,7 +520,7 @@ test('run counters tick monero_tips_recovered_total / monero_tips_expired_total'
 
 // ---------------------------------------------------------------------------
 // Wrong-pid fallback (lws shared-derivation pid misattribution; see
-// docs/ops/lws-pid-misattribution.md). When both sender and recipient are
+// internal incident notes). When both sender and recipient are
 // lws-registered and the sender scans a tx first, lws stores/serves the
 // SENDER-side pid decryption for the recipient's row: webhooks never fire and
 // the primary pid-keyed reconcile match above finds nothing. The fallback

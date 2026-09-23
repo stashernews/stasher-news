@@ -5,7 +5,7 @@
 # migration can be rolled back by restoring the snapshot.
 #
 # Prisma has no down-migrations; rollback = restore this snapshot (forward-only
-# policy — see docs/runbooks/migrations.md).
+# policy — see internal ops runbooks).
 set -euo pipefail
 
 : "${DATABASE_URL:?DATABASE_URL must be set}"

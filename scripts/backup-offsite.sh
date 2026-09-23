@@ -12,7 +12,7 @@
 # retention) and delete attempts on locked files fail by design.
 #
 # rclone remotes required (configure once via `rclone config`; see the ops
-# handoff / AGENTS.md):
+# ops handoff):
 #   b2-stasher — Backblaze B2, application key scoped to stashernews-backups
 #   minio      — S3-compatible remote for the `minio` container
 #                (endpoint http://localhost:4566, path style, the machine's

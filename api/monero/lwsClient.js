@@ -344,7 +344,7 @@ export function createLwsClient (options = {}) {
    * Rolls back the accounts' stored output/spend rows above `height`
    * (storage::rescan -> change_height -> rollback_outputs/spends) so the
    * next scan pass re-inserts them from the chain. WRONG-PID REPAIR
-   * (docs/ops/lws-pid-misattribution.md): rescan the RECIPIENT address
+   * procedure: rescan the RECIPIENT address
    * ONLY — during the re-scan just that account is below tip, so IT
    * decrypts the tx's encrypted payment id with its own derivation and
    * the re-stored row carries the CORRECT pid (webhooks + get_address_txs

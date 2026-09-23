@@ -4,11 +4,11 @@ import http from 'node:http'
 // monerod restricted-RPC client (Task 6 / spec §5.5).
 //
 // monero-lws's /get_address_txs response carries per-tx heights but NO block
-// hash (docs/monero-lws-research.md §5.2 / §light_wallet.cpp:494-531), so the
+// hash (lws source: light_wallet.cpp:494-531), so the
 // reorg-safe cursor's `since_tx_block_hash` dimension has to be sourced
 // elsewhere. monerod's `get_block_header_by_height` JSON-RPC returns exactly
 // that — the hash for a given height — and is a read-only header call the
-// restricted RPC permits (docs/specs/2026-07-25-...md:1326 lists MONEROD_URL as
+// restricted RPC permits (the design spec lists MONEROD_URL as
 // the restricted RPC endpoint).
 //
 // This is a SEPARATE daemon from lws (different process, different transport:

@@ -26,7 +26,7 @@
 // REAL SPENDS: when RUN_STAGENET_INTEGRATION=1 it BROADCASTS REAL STAGENET XMR
 // (a live tip tx to the author's integrated address, plus programmatic sends
 // when STAGENET_SENDER_SEED is set). Leave the gate unset except for a
-// deliberate run against throwaway stagenet wallets (see AGENTS.md).
+// deliberate run against throwaway stagenet wallets.
 // -----------------------------------------------------------------------------
 //
 // =============================================================================

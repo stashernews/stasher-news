@@ -14,7 +14,7 @@ import { safeEqual } from '@/lib/domains/auth'
 // aggregate counts (no secrets, no PII, no user data), but on a privacy-focused
 // Monero platform even aggregate counts (treasury balance, pending-tip counts,
 // distribution status) are an avoidable info leak, so gate it in prod. See
-// docs/ops/mainnet-launch.md and docs/ops/security-review.md.
+// the internal ops docs (mainnet launch, security review).
 //
 // On every GET it refreshes the DB-backed gauges (pending tips, latest
 // distribution status, pg-boss failed count, ops earmark) and the

@@ -6,7 +6,7 @@
 # VIEWKEY_MASTER_KEY is the AES-256-GCM envelope key for every MoneroViewKey row.
 # Losing it is unrecoverable data loss, so the blob MUST be stored SEPARATELY from
 # the DB backups (different dir / bucket / operator). The script refuses to write
-# into BACKUP_DIR to enforce that. See docs/ops/master-key-escrow.md.
+# into BACKUP_DIR to enforce that.
 #
 # Run on first key provisioning AND on every master-key rotation (Task C2): a
 # versioned registry means each retired key must also be escrowed, not just the

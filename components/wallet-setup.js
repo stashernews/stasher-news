@@ -11,8 +11,7 @@ import Qr from '@/components/qr'
 
 // StasherNews author wallet onboarding (spec §8.2). Post-pivot there is one
 // detection model: paste primary address + view key, register with lws, tips
-// are detected via webhooks. Model B (manual proof) is deferred —
-// docs/future/model-b-manual-proof.md.
+// are detected via webhooks. Model B (manual proof) is deferred indefinitely.
 
 const MY_MONERO_ACCOUNT = gql`
   query MyMoneroAccount {

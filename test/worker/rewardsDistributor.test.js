@@ -396,7 +396,7 @@ beforeAll(async () => {
   created.distributions.push(result.id)
 
   // Genuine (non-fixture) confirmed inflow inside the distribution's period:
-  // the suite assumes it is the sole inflow source (AGENTS.md), but real
+  // the suite assumes it is the sole inflow source, but real
   // stagenet activity on the dev stack (posting fees, downvotes) lands in the
   // window and breaks the absolute pool constants. Recompute its rewards share
   // by source — excluding the rdfee/rddv fixture prefixes, grouping territory
@@ -444,7 +444,7 @@ beforeAll(async () => {
   // Genuine ops share: totalInflow − rewardsInflow mirrors the distributor's
   // opsInflow = totalInflow − rewardsInflow definition, so genuine stagenet
   // activity on the dev DB (e.g. a real posting fee) doesn't break the
-  // 50/50-split ops assertion (AGENTS.md drift-robust pattern).
+  // 50/50-split ops assertion (drift-robust pattern).
   const genuineFeesTotal = genuineFeeGroups.reduce((acc, g) => acc + (g._sum.piconeros ?? 0n), 0n)
   const genuineTotalInflow = genuineDownvotes + genuineFeesTotal
   genuineOpsShare = genuineTotalInflow - genuineRewardsShare

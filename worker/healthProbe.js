@@ -20,7 +20,7 @@ import createPrisma from '@/lib/create-prisma'
 //
 // The probes are independent because lws does NOT proxy monerod state in the
 // deployed build: GET /daemon_status returns 404 (see
-// docs/ops/healthprobe-lws-404-finding.md). Each service's reachability is
+// a finding documented internally). Each service's reachability is
 // therefore observed directly, and each failure alerts independently — no
 // "monerod unknowable through a dead lws" suppression is needed.
 //

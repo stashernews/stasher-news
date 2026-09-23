@@ -65,7 +65,7 @@ export async function runReconcileOwnerFeeLegsOnce ({ models, monero = lwsClient
       // is credible here, so the tx is never replayed. Same EXACT (maj,min)
       // sender match as the webhook's isSelfSend (review follow-up: the old
       // coarse `spent_outputs.length > 0` test treated lws's documented
-      // misattributed foreign spends — AGENTS.md 2026-08-10 — as self-sends,
+      // misattributed foreign spends (observed 2026-08-10) as self-sends,
       // stranding a genuine fee behind an unreclaimable EXCLUDED row; the
       // exact match only refuses true own-subaddress senders). Any provisional
       // row a 0-conf callback seeded is EXCLUDED so the display can never show

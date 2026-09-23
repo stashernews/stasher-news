@@ -31,7 +31,7 @@ import { moneroPendingTips, moneroTipsRecoveredTotal, moneroTipsExpiredTotal } f
 // exhaustive for the account (the job is infrequent + state-filtered to PENDING, so the
 // cost is bounded by the number of accounts with stranded tips, not all accounts).
 //
-// WRONG-PID FALLBACK (mainnet incident 2026-09-12, docs/ops/lws-pid-misattribution.md):
+// WRONG-PID FALLBACK (mainnet incident 2026-09-12):
 // monero-lws decrypts a tx's encrypted payment id ONCE — with the derivation of the
 // FIRST registered account that matches an output — and stores those bytes on every
 // matching account's row. When both sender and recipient are lws-registered (payer
@@ -326,7 +326,7 @@ export async function runReconcilePendingTipsOnce ({
   }
   if (pidFallback > 0) {
     alert('warn', 'lws payment-id misattribution recovered',
-      `${pidFallback} tip(s) recovered by raw-decrypt fallback — lws is serving wrong payment ids for multi-account txs (see docs/ops/lws-pid-misattribution.md)`,
+      `${pidFallback} tip(s) recovered by raw-decrypt fallback — lws is serving wrong payment ids for multi-account txs`,
       { dedupeKey: 'lws-pid-misattribution' })
   }
   return { recovered, expired, excluded, pidFallback }

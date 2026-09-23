@@ -225,7 +225,7 @@ test('SELF-PAYMENT BAN: a self-spend tx EXCLUDES its height-NULL provisional row
 
 test('misattributed foreign spent_outputs (lws scan-pass bug) do NOT trip the ban — tx replays normally', async () => {
   // Review follow-up: lws attributes FOREIGN wallets' spends to a scanned
-  // account (AGENTS.md 2026-08-10). The ban uses the same EXACT (maj,min)
+  // account (observed 2026-08-10). The ban uses the same EXACT (maj,min)
   // sender match as the webhook, so a foreign-index sender is NOT a
   // self-send: the genuine fee receipt replays instead of being stranded
   // behind an unreclaimable EXCLUDED row (which abandonFeeItems would turn

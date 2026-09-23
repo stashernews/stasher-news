@@ -106,3 +106,7 @@ docs/specs/
 docs/future/
 docs/runbooks/
 docs/monero-lws-research.md
+
+# local review screenshots / mockups (never commit)
+/*.png
+/.playwright-mcp/

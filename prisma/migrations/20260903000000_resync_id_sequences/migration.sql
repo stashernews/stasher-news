@@ -8,7 +8,7 @@
 -- prodmode boot chain never runs seed.js, so it must happen here.
 --
 -- Idempotent: safe to re-run. Any future migration that INSERTs explicit ids
--- must repeat this DO block (see AGENTS.md Key Gotchas).
+-- must repeat this DO block.
 DO $$
 DECLARE
   t RECORD;

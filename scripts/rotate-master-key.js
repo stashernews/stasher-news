@@ -5,7 +5,7 @@
 // Non-destructive: registers the new key as the next version, re-wraps every
 // MoneroViewKey row whose dekVersion lags behind it, and RETAINS all prior
 // versions so old envelopes and DB backups keep decrypting. Old keys must also
-// be escrowed (scripts/backup-master-key.sh) — see docs/ops/master-key-escrow.md.
+// be escrowed (scripts/backup-master-key.sh).
 //
 // SAFE WORKFLOW (the script enforces the durable-first ordering below):
 //   1. Generate a 32-byte key: NEW=$(openssl rand -base64 32)
