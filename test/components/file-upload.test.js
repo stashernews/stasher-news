@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { uploadToS3 } from '@/components/file-upload'
+import { uploadToS3, mediaElementLoadError, uploadErrorMessage } from '@/components/file-upload'
 
 // piexifjs (imported by the component for EXIF stripping) is irrelevant to the
 // pure upload helper; stub it so module load stays light and deterministic.
@@ -115,5 +115,32 @@ describe('uploadToS3 — rejects misrouted responses (redirect / HTML), not just
       fetchImpl,
       mediaUrl: 'https://stasher.news/uploads'
     })).resolves.toEqual({ id: '42', url: 'https://stasher.news/uploads/42' })
+  })
+})
+
+// The media element preload (s3Upload) rejects via element.onerror, which hands
+// us a bare Event with no .message — so the toast rendered "upload of 'x.mp4'
+// failed: undefined" and masked the real cause (browser cannot decode the
+// video's codec, e.g. H.264 High in LibreWolf). These pin the legibility
+// contract: the rejection carries a real message and the toast fallback works.
+describe('mediaElementLoadError / uploadErrorMessage — failure legibility', () => {
+  test('a video element load failure explains the codec, not "undefined"', () => {
+    expect(mediaElementLoadError({ tagName: 'VIDEO' }).message)
+      .toMatch(/could not decode this video/)
+  })
+
+  test('an image element load failure gets its own message', () => {
+    expect(mediaElementLoadError({ tagName: 'IMG' }).message)
+      .toMatch(/could not load this file/)
+  })
+
+  test('uploadErrorMessage prefers .message over toString', () => {
+    expect(uploadErrorMessage(new Error('boom'))).toBe('boom')
+  })
+
+  test('uploadErrorMessage falls back to toString for message-less rejections (pre-fix Event shape)', () => {
+    const eventLike = { toString: () => '[object Event]' }
+    expect(uploadErrorMessage(eventLike)).toBe('[object Event]')
+    expect(uploadErrorMessage(undefined)).toBe('undefined')
   })
 })

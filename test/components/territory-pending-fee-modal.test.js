@@ -81,8 +81,29 @@ async function renderModal ({ polledSub, initialReceived, initialExpected } = {}
 }
 
 describe('TerritoryPendingFeeModal', () => {
+  test('shows the short-pay hint when the poll reports a partial payment', async () => {
+    await renderModal({ polledSub: { feeReceivedPiconeros: 400000000, billingFeePiconeros: 1000000000 } })
+    expect(container.textContent).toMatch(/payment detected but short — received 0\.4 mXMR of 1 mXMR\. Send 0\.0006 XMR \(0\.6 mXMR\) to the same address to complete it\./)
+  })
+
+  test('shows no hint when nothing has been received', async () => {
+    await renderModal({ polledSub: { feeReceivedPiconeros: 0, billingFeePiconeros: 1000000000 } })
+    // copy-stable payment view (the "turf" heading copy lands in a later task)
+    expect(container.textContent).toContain('Scan to send 1 mXMR (0.001 XMR)')
+    expect(container.textContent).not.toMatch(/payment detected but short/)
+  })
+
   test('uses the paySub response to seed the hint before the first poll resolves', async () => {
     await renderModal({ initialReceived: 400000000, initialExpected: 1000000000 })
     expect(container.textContent).toMatch(/payment detected but short/)
+  })
+
+  test('shows the pending-fee surface uses "turf", never "territory", in rendered copy', async () => {
+    await renderModal({ polledSub: { feeReceivedPiconeros: 400000000, billingFeePiconeros: 1000000000 } })
+    // the corrected copy is present
+    expect(container.textContent).toMatch(/Pay the turf fee/)
+    expect(container.textContent).toMatch(/Your turf stays hidden until the fee lands/)
+    // no upstream "territory" text in the rendered modal
+    expect(container.textContent).not.toMatch(/territory/i)
   })
 })

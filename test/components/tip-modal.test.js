@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { initialTipAmount } from '@/components/tip-modal'
+import { initialTipAmount, tipStatusCopy } from '@/components/tip-modal'
 
 // No React component test harness in this repo (see downvote-modal.test.js), so
 // we test the extracted prefill derivation — the real behavior the modal's
@@ -39,5 +39,23 @@ describe('initialTipAmount', () => {
     const privates = { tipRandom: true, tipRandomMin: '1000000000', tipRandomMax: '10000000000' }
     expect(Number(initialTipAmount(privates))).toBeGreaterThanOrEqual(0.001)
     expect(Number(initialTipAmount(privates))).toBeLessThanOrEqual(0.01)
+  })
+})
+
+describe('tipStatusCopy', () => {
+  test('keeps the actionable failure copy', () => {
+    expect(tipStatusCopy('EXPIRED')).toMatch(/expired/)
+    expect(tipStatusCopy('REORGED')).toMatch(/reorganized/)
+  })
+
+  test('EXCLUDED copy explains the tip was not counted (self-tip)', () => {
+    expect(tipStatusCopy('EXCLUDED')).toMatch(/not counted/)
+  })
+
+  test('returns null for the waiting states (no redundant status line)', () => {
+    expect(tipStatusCopy('PENDING')).toBeNull()
+    expect(tipStatusCopy(null)).toBeNull()
+    expect(tipStatusCopy('DETECTED')).toBeNull()
+    expect(tipStatusCopy('CONFIRMED')).toBeNull()
   })
 })

@@ -77,6 +77,20 @@ function fallbackResult () {
   }
 }
 
+// Transient conditions (overload, browser reset, upstream 429/5xx) must not
+// return the 200 fallback: social crawlers cache a fetched image far beyond
+// our Cache-Control, so a generic card served during an overload would stick
+// to the URL for good. Non-200 + no-store makes them retry instead.
+function retryLaterResult () {
+  return {
+    status: 503,
+    headers: {
+      'Cache-Control': 'no-store',
+      'Retry-After': '1'
+    }
+  }
+}
+
 function requestBrowserReset (targetBrowser = browser) {
   if (targetBrowser && targetBrowser !== browser) return
   browserResetRequestedAt ??= Date.now()
@@ -307,12 +321,12 @@ async function captureImage (url, timeLabel) {
     await resetBrowserIfIdle()
     if (browserResetRequestedAt !== null) {
       console.timeLog(timeLabel, 'browser reset pending', 'active captures', activeCaptures)
-      return fallbackResult()
+      return retryLaterResult()
     }
 
     if (activeCaptures >= maxPages) {
       console.timeLog(timeLabel, 'too many captures')
-      return fallbackResult()
+      return retryLaterResult()
     }
     activeCaptures++
     captured = true
@@ -332,9 +346,17 @@ async function captureImage (url, timeLabel) {
     const status = response?.status()
     console.timeLog(timeLabel, 'page loaded', 'status', status)
 
-    if (status === 404 || status === 410 || status === 429 || status >= 500) {
-      console.timeLog(timeLabel, 'upstream error', 'status', status)
+    if (status === 404 || status === 410) {
+      console.timeLog(timeLabel, 'upstream missing', 'status', status)
       return fallbackResult()
+    }
+
+    if (status === 429 || status >= 500) {
+      console.timeLog(timeLabel, 'upstream error', 'status', status)
+      const retryAfter = response.headers()['retry-after']
+      const headers = { 'Cache-Control': 'no-store' }
+      if (retryAfter) headers['Retry-After'] = retryAfter
+      return { status, headers }
     }
 
     if (commentId) {
