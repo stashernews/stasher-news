@@ -259,3 +259,10 @@ test('User and AuthChallenge have the recovery-phrase auth fields', () => {
   const k1 = allModels.find(m => m.name === 'AuthChallenge').fields.find(f => f.name === 'k1')
   expect(k1.type).toBe('String')
 })
+
+test('Item has the turf-repost home-turf field', () => {
+  const fields = allModels.find(m => m.name === 'Item').fields
+  const byName = Object.fromEntries(fields.map(f => [f.name, f]))
+  expect(byName.primarySubName.type).toBe('String')
+  expect(byName.primarySubName.isRequired).toBe(false)
+})

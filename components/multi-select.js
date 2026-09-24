@@ -48,7 +48,7 @@ const MultiValueRemove = (props) => {
   )
 }
 
-export function MultiSelect ({ label, items, size = 'lg', info, groupClassName, onChange, noForm, overrideValue, hint, placeholder, onValueClick, ...props }) {
+export function MultiSelect ({ label, items, size = 'lg', info, groupClassName, onChange, noForm, overrideValue, hint, placeholder, onValueClick, single = false, ...props }) {
   const [field, meta, helpers] = noForm ? [{}, {}, {}] : useField(props)
   const formik = noForm ? null : useFormikContext()
   const invalid = meta.touched && meta.error
@@ -78,7 +78,9 @@ export function MultiSelect ({ label, items, size = 'lg', info, groupClassName, 
 
   // Convert formik's string array to react-select's object array format for display
   const currentValue = field.value || props.value || []
-  const selectValue = flatOptions.filter(option => currentValue.includes(option.value))
+  const selectValue = single
+    ? flatOptions.find(option => currentValue.includes(option.value))
+    : flatOptions.filter(option => currentValue.includes(option.value))
 
   const MultiValueLabel = (props) => {
     const { data } = props
@@ -114,15 +116,17 @@ export function MultiSelect ({ label, items, size = 'lg', info, groupClassName, 
           value={selectValue}
           placeholder={placeholder}
           defaultValue={[]}
-          isMulti
+          isMulti={!single}
+          single={single}
           size={size}
           options={options}
           components={{ DropdownIndicator, ClearIndicator, MultiValueRemove, MultiValueLabel }}
           onChange={(selectedOptions) => {
             // Extract just the string values for formik
-            const values = selectedOptions ? selectedOptions.map(item => item.value) : []
+            const values = single
+              ? (selectedOptions ? [selectedOptions.value] : [])
+              : (selectedOptions ? selectedOptions.map(item => item.value) : [])
             helpers?.setValue?.(values)
-
             if (onChange) {
               onChange(formik, values)
             }

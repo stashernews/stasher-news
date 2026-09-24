@@ -118,6 +118,7 @@ export function PostForm ({ type, subs, children }) {
             className='d-flex'
             noForm
             size='medium'
+            single
             subs={subNames(subs)}
           />
         )}
@@ -163,10 +164,10 @@ export default function Post ({ subs }) {
   const singleType = defaultPostType(subs)
   if (singleType) type = singleType
 
-  // picking the bounty post type pre-selects the bounties turf
-  const selectedSubs = type === 'bounty' && !subNames(subs).includes('bounties')
-    ? [...subNames(subs), 'bounties']
-    : subNames(subs)
+  // Turf repost (2026-09-24): posts are created in one turf; more turfs are
+  // added with the paid repost action. The bounties feed is type-based
+  // (`bounty IS NOT NULL`), so the old bounties auto-append is unnecessary.
+  const selectedSubs = subNames(subs)
 
   return (
     <>
@@ -178,6 +179,7 @@ export default function Post ({ subs }) {
           className='d-flex'
           size='medium'
           label='turf'
+          single
         />
       </PostForm>
     </>

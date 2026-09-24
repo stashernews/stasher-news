@@ -490,6 +490,33 @@ describe('onBegin — feeQuotaEligible marker (R01)', () => {
     expect(item.feeStatus).toBe('PENDING_FEE')
     expect(item.feeQuotaEligible).toBe(false)
   })
+
+  test('records the creation turf as primarySubName; comments stay null', async () => {
+    const userId = await createUser()
+    await ensureFeeConfig()
+    const turfName = `home-${userId}-${Date.now()}`
+    await prisma.sub.create({
+      data: { name: turfName, userId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] }
+    })
+    created.subs.push(turfName)
+
+    // owner posts in their own turf: free, so the item is live immediately
+    const { item } = await createItemViaPay(userId, {
+      title: 'home turf post ' + Date.now(),
+      url: 'https://example.com/' + Date.now(),
+      subNames: [turfName]
+    })
+    expect(item.primarySubName).toBe(turfName)
+
+    // a fresh low-rep commenter has a freebie left: the comment is live too
+    const rootId = await createRootPost(userId)
+    const { item: comment } = await createItemViaPay(userId, {
+      parentId: String(rootId),
+      text: 'home turf comment'
+    })
+    expect(comment.parentId).toBe(rootId)
+    expect(comment.primarySubName).toBeNull()
+  })
 })
 
 // --- turf-owner free posting: countNonOwnedSubs scales the fee by non-owned turfs ---
@@ -683,6 +710,97 @@ describe('getInitial — turf-owner fee waiver', () => {
     const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: USER_ID.anon } })
     expect(result.moneroUri).toMatch(/^monero:/)
     expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(1_800_000_000n) // 0.0006 x 3 anon — not x2 turfs
+  })
+})
+
+// --- turf repost: comment fees pin to the root post's home turf ---
+describe('getInitial — comments route on primarySubName', () => {
+  // mirrors the R01 describe's createItemViaPay: drive the full pay() engine so
+  // begin() -> onPaid runs synchronously (piconeros 0n -> PAID)
+  async function createItemViaPay (userId, args) {
+    const result = await pay(
+      'ITEM_CREATE',
+      { userId, text: '', ...args },
+      { me: { id: userId } }
+    )
+    created.payIns.push(result.id)
+    const itemPayIn = await prisma.itemPayIn.findFirst({ where: { payInId: result.id } })
+    const item = await prisma.item.findUnique({ where: { id: itemPayIn.itemId } })
+    created.items.push(item.id)
+    return { result, item }
+  }
+
+  // root authored by authorId: home turf = homeSubName, reposted into
+  // extraSubName (two turfs, one home)
+  async function createRepostedRoot (authorId, homeSubName, extraSubName) {
+    const rootRows = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", title, "created_at", "primarySubName")
+      VALUES (${authorId}::int, ${'reposted root'}, now(), ${homeSubName})
+      RETURNING id::int AS id`
+    const rootId = rootRows[0].id
+    await prisma.$executeRaw`UPDATE "Item" SET path = ${String(rootId)}::ltree WHERE id = ${rootId}::int`
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: homeSubName } })
+    await prisma.itemSub.create({ data: { itemId: rootId, subName: extraSubName } })
+    created.items.push(rootId)
+    return rootId
+  }
+
+  test('owner-free reply keys on the home turf even when the root was reposted', async () => {
+    const ownerId = await createUser()
+    const otherId = await createUser()
+    await ensureFeeConfig()
+    await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 15 WHERE id = ${ownerId}::int` // quota exhausted
+    const owned = `home-owned-${ownerId}-${Date.now()}`
+    const other = `home-other-${ownerId}-${Date.now()}`
+    await prisma.sub.create({ data: { name: owned, userId: ownerId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    await prisma.sub.create({ data: { name: other, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    created.subs.push(owned, other)
+
+    const rootId = await createRepostedRoot(otherId, owned, other)
+
+    // the home-turf owner replies past their free quota — free, despite the repost
+    const result = await getInitial(prisma, { parentId: String(rootId) }, { me: { id: ownerId } })
+    expect(result).toEqual({ payInType: 'ITEM_CREATE', userId: ownerId, piconeros: 0n })
+    expect(result).not.toHaveProperty('moneroUri')
+  })
+
+  // onPaid regression: the free reply above must survive the full pay() engine.
+  // onPaid re-derives ownership to decide quota consumption; under the legacy
+  // all-root-turfs rule it saw ownerFree=false (owner owns 1 of 2 root turfs)
+  // and ran incrementFreeCommentCount on the EXHAUSTED quota — its
+  // `freeCommentCount: { lt: quota }` precondition matched 0 rows -> P2025 ->
+  // 'no free comments left' -> begin() rolled back and the reply errored.
+  test('an over-quota home-turf owner free-replies on a reposted root without an onPaid rollback', async () => {
+    const ownerId = await createUser()
+    const otherId = await createUser()
+    await ensureFeeConfig()
+    // quota exhausted INSIDE the current daily window (resetAt in the future):
+    // this is the case where incrementFreeCommentCount's `lt: quota`
+    // precondition matches 0 rows -> P2025 -> begin() rollback. (With a NULL
+    // resetAt it would silently re-baseline the counter instead — the same
+    // owner-free-perk violation, just quieter.)
+    await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 15, "freeCommentResetAt" = now() + interval '1 day' WHERE id = ${ownerId}::int`
+    const owned = `opaid-owned-${ownerId}-${Date.now()}`
+    const other = `opaid-other-${ownerId}-${Date.now()}`
+    await prisma.sub.create({ data: { name: owned, userId: ownerId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    await prisma.sub.create({ data: { name: other, userId: otherId, rankingType: 'WOT', billingType: 'ONCE', billingCost: 0, postTypes: ['LINK'] } })
+    created.subs.push(owned, other)
+
+    const rootId = await createRepostedRoot(otherId, owned, other)
+
+    // did not throw + item returned is the regression: under the legacy onPaid
+    // rule pay() rejected with 'no free comments left'
+    const { item } = await createItemViaPay(ownerId, {
+      parentId: String(rootId),
+      text: 'home owner reply on a reposted root'
+    })
+    expect(item.id).toBeTruthy()
+    expect(item.parentId).toBe(rootId)
+    expect(item.freebie).toBe(true)
+    expect(item.feeStatus).toBe('FEE_NOT_REQUIRED')
+    // the owner-free perk: the exhausted quota counter was left untouched
+    const user = await prisma.user.findUnique({ where: { id: ownerId } })
+    expect(user.freeCommentCount).toBe(15)
   })
 })
 

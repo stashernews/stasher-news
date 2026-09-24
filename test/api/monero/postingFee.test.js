@@ -45,6 +45,7 @@ describe('postingFeePrivatesFor', () => {
     expect(result).toEqual({
       postingFeeRequired: false,
       postingFeePiconeros: 0n,
+      postingFeeFloorPiconeros: 1_000_000_000n,
       freePostThresholdPiconeros: 10_000_000_000n,
       freePostMinAgeDays: 7,
       freePostsLeft: 1,
@@ -76,6 +77,7 @@ describe('postingFeePrivatesFor', () => {
     expect(result).toEqual({
       postingFeeRequired: false,
       postingFeePiconeros: 0n,
+      postingFeeFloorPiconeros: 1_000_000_000n,
       freePostThresholdPiconeros: 10_000_000_000n,
       freePostMinAgeDays: 7,
       freePostsLeft: 5,
@@ -104,7 +106,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       8
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0 })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0 })
   })
 
   test('a logged-out viewer never sees fee info', async () => {
@@ -113,7 +115,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       null
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0 })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0 })
   })
 
   test('missing config reports no fee', async () => {
@@ -123,7 +125,23 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       7
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0 })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0 })
+  })
+
+  // Turf repost (2026-09-24): a repost (turf addition via pay('ITEM_UPDATE'))
+  // always charges the posting floor — the free-post quota waives ITEM_CREATE
+  // only — so the self-view must expose the live floor even while
+  // postingFeePiconeros is zeroed for a quota-bearing user.
+  test('self-view with free posts left still exposes the live floor', async () => {
+    const result = await postingFeePrivatesFor(
+      MODELS,
+      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null },
+      7
+    )
+    expect(result.postingFeeRequired).toBe(false)
+    expect(result.postingFeePiconeros).toBe(0n)
+    expect(result.postingFeeFloorPiconeros).toBe(postingFeePiconeros(CONFIG))
+    expect(result.postingFeeFloorPiconeros).toBe(1_000_000_000n)
   })
 })
 

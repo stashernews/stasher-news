@@ -999,6 +999,8 @@ export default {
       (await postingFeePrivatesFor(models, user, me?.id)).postingFeeRequired,
     postingFeePiconeros: async (user, args, { models, me }) =>
       (await postingFeePrivatesFor(models, user, me?.id)).postingFeePiconeros,
+    postingFeeFloorPiconeros: async (user, args, { models, me }) =>
+      (await postingFeePrivatesFor(models, user, me?.id)).postingFeeFloorPiconeros,
     freePostThresholdPiconeros: async (user, args, { models, me }) =>
       (await postingFeePrivatesFor(models, user, me?.id)).freePostThresholdPiconeros,
     freePostMinAgeDays: async (user, args, { models, me }) =>

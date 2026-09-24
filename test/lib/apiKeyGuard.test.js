@@ -43,6 +43,9 @@ const REVIEWED_NON_SENSITIVE = new Set([
   'bookmarkItem', 'deleteItem', 'deleteMessage', 'pinItem', 'upsertBio',
   'upsertBounty', 'upsertComment', 'upsertDiscussion', 'upsertJob',
   'upsertLink', 'upsertPoll', 'upsertSubBranding',
+  // turf repost (2026-09-24): adds a paid turf to one of the author's own
+  // posts — same posting-fee money flow as the upsert* mutations above.
+  'repostItem',
   // uploads (quota-capped, paid on publish)
   'getSignedPOST',
   // notifications / preferences

@@ -35,7 +35,9 @@ export default forwardRef(function Reply ({
   const root = useRoot()
   const { markCommentViewedAt } = useCommentsView(root?.id)
   const { data: subsData } = useQuery(SUBS, {
-    variables: { subNames: root?.subNames || [] },
+    // Turf repost (2026-09-24): comment fee quotes must agree with the server,
+    // which routes on the root post's HOME turf — quote only it.
+    variables: { subNames: root?.primarySubName ? [root.primarySubName] : (root?.subNames || []) },
     skip: !root?.subNames?.length
   })
   useEffect(() => {

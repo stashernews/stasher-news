@@ -21,6 +21,22 @@ export async function getSubs (models, { subNames, parentId }) {
 }
 
 /**
+ * The ROOT post's home turf (primarySubName), for comment fee routing.
+ * Mirrors getSubs' parent-thread resolution: the parent may be a comment or a
+ * root, and a root post may point rootId at itself or have it null.
+ * Returns the Sub row or null (grandfathered / non-turf threads).
+ */
+export async function getRootPrimarySub (models, parentId) {
+  const rows = await models.$queryRaw`
+    SELECT "Sub".*
+    FROM "Item" i
+    LEFT JOIN "Item" r ON r.id = i."rootId"
+    JOIN "Sub" ON "Sub".name = COALESCE(r."primarySubName", i."primarySubName")
+    WHERE i.id = ${Number(parentId)}`
+  return rows[0] ?? null
+}
+
+/**
  * Count how many of `subs` are NOT owned by `userId`. Used by the ITEM_CREATE
  * fee gate to scale the posting/comment fee by the number of non-owned turfs
  * (owned turfs are free). Anon owns nothing, so all subs count. Pure: callers

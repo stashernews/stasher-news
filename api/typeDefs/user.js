@@ -134,6 +134,7 @@ export default gql`
     freePostsQuota: Int!
     postingFeeRequired: Boolean!
     postingFeePiconeros: BigInt!
+    postingFeeFloorPiconeros: BigInt!
     freePostThresholdPiconeros: BigInt!
     freePostMinAgeDays: Int!
     territoryMonthlyPiconeros: BigInt!

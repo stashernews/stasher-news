@@ -14,8 +14,10 @@ export function SubSelectInitial ({ item, subs }) {
   const router = useRouter()
   const names = item?.subNames || subNames(subs) || subNamesFromSlug(router.query.sub)
 
+  // Turf repost (2026-09-24): creation is single-turf — preselect only a
+  // single page-context turf (e.g. /~monero/post), never the whole sub list.
   return {
-    subNames: names || []
+    subNames: item?.subNames || (names?.length === 1 ? names : [])
   }
 }
 
@@ -138,7 +140,7 @@ export default function SubSelect ({ prependSubs, sub, onChange, size, appendSub
   )
 }
 
-export function SubMultiSelect ({ prependSubs, subs, onChange, size, appendSubs, filterSubs, className, ...props }) {
+export function SubMultiSelect ({ prependSubs, subs, onChange, size, appendSubs, filterSubs, className, single = false, ...props }) {
   const router = useRouter()
   const client = useApolloClient()
   const activeSubs = useSubs({ prependSubs, subs, filterSubs, appendSubs })
@@ -231,6 +233,7 @@ export function SubMultiSelect ({ prependSubs, subs, onChange, size, appendSubs,
       })}
       name='subNames'
       size='md'
+      single={single}
       {...valueProps}
       {...props}
       className={`${className} ${styles.subSelect} ${size === 'large' ? styles.subSelectLarge : size === 'medium' ? styles.subSelectMedium : ''}`}

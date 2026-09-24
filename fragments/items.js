@@ -70,6 +70,7 @@ export const ITEM_FIELDS = gql`
     location
     remote
     subNames
+    primarySubName
     pollCost
     pollExpiresAt
     uploadId
@@ -103,6 +104,7 @@ export const ITEM_FULL_FIELDS = gql`
       bountyStatus
       bountyPiconeros
       subNames
+      primarySubName
       mine
       ncomments
       lastCommentAt

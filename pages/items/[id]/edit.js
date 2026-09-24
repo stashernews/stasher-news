@@ -6,11 +6,9 @@ import { CenterLayout } from '@/components/layout'
 import JobForm from '@/components/job-form'
 import { PollForm } from '@/components/poll-form'
 import { BountyForm } from '@/components/bounty-form'
-import { useState } from 'react'
 import { useQuery } from '@apollo/client/react'
 import { useRouter } from 'next/router'
 import PageLoading from '@/components/page-loading'
-import { SubMultiSelect } from '@/components/sub-select'
 import useCanEdit from '@/components/use-can-edit'
 import Countdown from '@/components/countdown'
 import { FeeButtonProvider } from '@/components/fee-button'
@@ -26,7 +24,7 @@ export default function PostEdit ({ ssrData }) {
   if (!data && !ssrData) return <PageLoading />
 
   const { item } = data || ssrData
-  const [subs, setSubs] = useState(item.subNames)
+  const subs = item.subNames
 
   const [,, editThreshold] = useCanEdit(item)
   const EditInfo = editThreshold && item.payIn?.payInState === 'PAID'
@@ -34,35 +32,23 @@ export default function PostEdit ({ ssrData }) {
     : null
 
   let FormType = DiscussionForm
-  let itemType = 'DISCUSSION'
   if (item.isJob) {
     FormType = JobForm
-    itemType = 'JOB'
   } else if (item.url) {
     FormType = LinkForm
-    itemType = 'LINK'
   } else if (item.pollCost) {
     FormType = PollForm
-    itemType = 'POLL'
   } else if (Number(item.bountyPiconeros) > 0) {
     FormType = BountyForm
-    itemType = 'BOUNTY'
   }
 
   return (
     <CenterLayout>
       <FeeButtonProvider>
         <FormType item={item} subs={subs} EditInfo={EditInfo}>
-          {!item.isJob &&
-            <SubMultiSelect
-              placeholder='pick turfs'
-              className='d-flex'
-              size='md'
-              label='turf'
-              filterSubs={s => s.name !== 'jobs' && s.postTypes?.includes(itemType)}
-              onChange={(_, e) => setSubs(e)}
-              subs={subs}
-            />}
+          <div className='text-muted fw-bold font-monospace mt-1'>
+            turf{item.subNames?.length === 1 ? '' : 's'}: {item.subNames?.join(', ')} — use the repost action to add another
+          </div>
         </FormType>
       </FeeButtonProvider>
     </CenterLayout>

@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { postFormType, defaultPostType } from '@/lib/subs'
+import { postFormType, defaultPostType, itemPostType } from '@/lib/subs'
 
 describe('postFormType', () => {
   test('regular types pass through', () => {
@@ -43,5 +43,21 @@ describe('defaultPostType', () => {
     expect(defaultPostType([{ name: 'x', postTypes: ['LINK', 'JOB'] }])).toBeUndefined()
     expect(defaultPostType([{ name: 'a', postTypes: ['LINK'] }, { name: 'b', postTypes: ['LINK'] }])).toBeUndefined()
     expect(defaultPostType([])).toBeUndefined()
+  })
+})
+
+describe('itemPostType', () => {
+  test('maps item fields to the server post type', () => {
+    expect(itemPostType({ url: 'https://x', subNames: ['monero'] })).toBe('LINK')
+    expect(itemPostType({ url: null, subNames: ['monero'] })).toBe('DISCUSSION')
+    expect(itemPostType({ url: null, pollCost: 10, subNames: ['monero'] })).toBe('POLL')
+    expect(itemPostType({ url: null, bountyPiconeros: 100n, subNames: ['monero'] })).toBe('BOUNTY')
+    expect(itemPostType({ url: null, subNames: ['jobs'] })).toBe('JOB')
+  })
+
+  test('returns undefined for comments, bios and missing items', () => {
+    expect(itemPostType({ url: null, parentId: 1, subNames: ['monero'] })).toBeUndefined()
+    expect(itemPostType({ url: null, bio: true })).toBeUndefined()
+    expect(itemPostType(null)).toBeUndefined()
   })
 })

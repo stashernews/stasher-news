@@ -373,6 +373,11 @@ model Item {
   location                String?
   remote                  Boolean?
   subNames                String[]              @db.Citext
+  // Turf repost (2026-09-24): the turf a post was CREATED in. Comment fees
+  // follow this home turf (owner-direct via turfFeeRouting), so reposts never
+  // scatter conversation revenue. Null for comments, bios, and pre-migration
+  // multi-turf rows.
+  primarySubName          String?
   statusUpdatedAt         DateTime?
   status                  Status                @default(ACTIVE)
   company                 String?

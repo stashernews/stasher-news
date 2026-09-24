@@ -31,6 +31,7 @@ ${STREAK_FIELDS}
       freePostsQuota
       postingFeeRequired
       postingFeePiconeros
+      postingFeeFloorPiconeros
       freePostThresholdPiconeros
       freePostMinAgeDays
       territoryMonthlyPiconeros

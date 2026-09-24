@@ -90,12 +90,17 @@ export function __resetFeeConfigCacheForTests () {
 }
 
 // Resolver-facing bundle for UserPrivates.postingFeeRequired /
-// postingFeePiconeros / freePostThresholdPiconeros / freePostMinAgeDays.
-// Self-view only: other viewers and logged-out requests see no-fee values and
-// zeroed thresholds. Fetches the fee config itself; never throws.
+// postingFeePiconeros / postingFeeFloorPiconeros / freePostThresholdPiconeros /
+// freePostMinAgeDays. Self-view only: other viewers and logged-out requests see
+// no-fee values and zeroed thresholds. Fetches the fee config itself; never throws.
 export const POSTING_FEE_NO_FEE = {
   postingFeeRequired: false,
   postingFeePiconeros: 0n,
+  // The live platform floor, independent of the free-post quota. Reposts
+  // (turf additions via pay('ITEM_UPDATE')) ALWAYS charge the floor — the
+  // free-post quota gates ITEM_CREATE only — so the repost picker needs the
+  // floor even while postingFeePiconeros is zeroed for a quota-bearing user.
+  postingFeeFloorPiconeros: 0n,
   freePostThresholdPiconeros: 0n,
   freePostMinAgeDays: 0,
   freePostsLeft: 0,
@@ -122,14 +127,18 @@ export async function postingFeePrivatesFor (models, user, viewerId) {
   // A post requires a fee once the user's free-post quota is exhausted
   // (established 5/month, low-rep 1/month — postsFreeLeft tiers via quota).
   const postingFeeRequired = postsLeft <= 0
+  // The floor is exposed unconditionally (self-view) so the repost picker can
+  // quote a turf addition, which never gets the ITEM_CREATE free-post waiver.
+  const postingFeeFloorPiconeros = postingFeePiconeros(config)
   if (!postingFeeRequired) {
-    return { ...POSTING_FEE_NO_FEE, ...frontend }
+    return { ...POSTING_FEE_NO_FEE, ...frontend, postingFeeFloorPiconeros }
   }
   return {
     ...POSTING_FEE_NO_FEE,
     ...frontend,
     postingFeeRequired: true,
-    postingFeePiconeros: postingFeePiconeros(config)
+    postingFeePiconeros: postingFeePiconeros(config),
+    postingFeeFloorPiconeros
   }
 }
 

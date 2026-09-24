@@ -50,6 +50,12 @@ export async function getInitial (models, { id, uploadIds = [], bio, subNames },
   // text-only edits — and only when the client actually sent subNames
   // (applyItemUpdate's [] default is deliberately untouched for callers that
   // omit the field).
+  //
+  // Turf repost (2026-09-24): updateItem now rejects any turf change, so this
+  // edit-adds-turf fee path is reached only through repostItem, which adds
+  // exactly one turf per call. The multi-add math below remains as engine
+  // defense and is exercised only by direct pay calls in tests
+  // (test/engine/payInItemUpdate.test.js).
   let addedSubs = []
   let turfFeePiconeros = 0n
   let turfPremiumPiconeros = 0n
@@ -278,7 +284,7 @@ export async function applyPendingItemUpdate (models, payIn) {
 
     const item = await tx.item.findUnique({
       where: { id: pending.itemId },
-      select: { deletedAt: true, text: true }
+      select: { deletedAt: true, text: true, subNames: true }
     })
     if (!item || item.deletedAt) {
       logWarn('applyPendingItemUpdate: item missing/deleted; dropped deferred edit', { payInId: payIn.id, itemId: pending.itemId })
@@ -290,6 +296,13 @@ export async function applyPendingItemUpdate (models, payIn) {
     }
 
     const args = deserializePayInArgs(pending.args)
+    // Reposts are additive: the deferred list was captured at initiation, and a
+    // concurrent repost may have landed since. Merge (union) so a paid-for turf
+    // can never be deleted by a stale full-set list. Content edits carry the
+    // unchanged list, so the union is a no-op for them.
+    if (Array.isArray(args.subNames)) {
+      args.subNames = [...new Set([...item.subNames, ...args.subNames])]
+    }
     const uploadIds = args.uploadIds ?? []
     if (uploadIds.length > 0) {
       const existingUploads = await tx.upload.findMany({ where: { id: { in: uploadIds } }, select: { id: true } })

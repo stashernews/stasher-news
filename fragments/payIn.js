@@ -249,6 +249,14 @@ export const UPSERT_DISCUSSION = gql`
     }
   }`
 
+export const REPOST_ITEM = gql`
+  ${PAY_IN_FIELDS}
+  mutation repostItem($id: ID!, $subName: String!) {
+    repostItem(id: $id, subName: $subName) {
+      ...PayInFields
+    }
+  }`
+
 export const UPSERT_JOB = gql`
   ${PAY_IN_FIELDS}
   mutation upsertJob($subNames: [String!]!, $id: ID, $title: String!, $company: String!,

@@ -430,6 +430,10 @@ test('an unexpected apply failure is contained by flipPendingToLive and does not
 })
 
 // --- R10: turf-addition fees on edit ---
+// Turf repost (2026-09-24): updateItem rejects any turf change, so repostItem
+// is now the API entry point for these fees (one added turf per call). These
+// tests drive pay('ITEM_UPDATE', ...) directly, exercising the engine's
+// multi-add math, which remains as defense behind repostItem.
 
 test('an edit adding 2 non-owned turfs defers and charges the escalated posting fee (R10)', async () => {
   const userId = await createUser()
@@ -576,4 +580,57 @@ test('a combined upload + turf-add edit quotes ONE platform URI covering both (R
   const expected = 1_000_000_000n + await expectedEscalatedFloor(userId, config.postingFeeFloorPiconeros)
   expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(expected)
   expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeTruthy()
+})
+
+// --- turf-repost (2026-09-24) regression: concurrent deferred reposts ---
+// repostItem snapshots subNames at initiation. Two reposts initiated while the
+// item is [home] each store [home, A] and [home, B]; applyItemUpdate treats the
+// deferred list as the authoritative full set and computes deletions as
+// subsDiff(old, new), so paying A then B used to end with [home, B] — A's turf
+// silently deleted after its fee was paid. applyPendingItemUpdate must merge the
+// deferred list additively with the item's CURRENT subNames so both land.
+test('two concurrent deferred reposts both land — a paid-for turf is never deleted', async () => {
+  const userId = await createUser()
+  const owner = await createUser()
+  await ensureFeeConfig()
+  const home = `turf-home-${Date.now()}`
+  const subA = `turf-a-${Date.now()}`
+  const subB = `turf-b-${Date.now()}`
+  await createSub(userId, home) // the author's own turf: the item's starting turf
+  await createSub(owner, subA)
+  await createSub(owner, subB)
+  const { id: itemId } = await createRootPost(userId, { subNames: [home] })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  // Two reposts initiated while the item is still [home] — each snapshots the
+  // full list as [home, A] / [home, B] and defers (one non-owned turf each).
+  const resultA = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), subNames: [home, subA] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(resultA.id)
+  const resultB = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), subNames: [home, subB] },
+    { me: { id: userId } }
+  )
+  created.payIns.push(resultB.id)
+
+  // both are fee-bearing and deferred; nothing has landed yet
+  expect(resultA.moneroUri).toMatch(/^monero:/)
+  expect(resultB.moneroUri).toMatch(/^monero:/)
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: resultA.id } })).toBeTruthy()
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: resultB.id } })).toBeTruthy()
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).subNames).toEqual([home])
+
+  // pay A then B
+  const payInA = await prisma.payIn.findUnique({ where: { id: resultA.id } })
+  const payInB = await prisma.payIn.findUnique({ where: { id: resultB.id } })
+  await flipPendingToLive(prisma, payInA, moneroUriAmountPiconeros(resultA.moneroUri))
+  await flipPendingToLive(prisma, payInB, moneroUriAmountPiconeros(resultB.moneroUri))
+
+  // both paid-for turfs survive — A must not be deleted by B's stale full-set list
+  const item = await prisma.item.findUnique({ where: { id: itemId } })
+  expect([...item.subNames].sort()).toEqual([home, subA, subB].sort())
 })

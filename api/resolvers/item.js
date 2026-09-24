@@ -12,12 +12,14 @@ import {
   ITEM_EDIT_SECONDS,
   DEFAULT_POSTS_PICONEROS_FILTER,
   DEFAULT_COMMENTS_PICONEROS_FILTER,
-  HOMEPAGE_POSTS_PICONEROS_FILTER
+  HOMEPAGE_POSTS_PICONEROS_FILTER,
+  MAX_ITEM_TURFS
 } from '@/lib/constants'
 import { unshorten } from '@/lib/unshorten'
-import { actSchema, bountySchema, commentSchema, discussionSchema, jobSchema, linkSchema, pollSchema, validateSchema } from '@/lib/validate'
+import { actSchema, bountySchema, commentSchema, discussionSchema, jobSchema, linkSchema, pollSchema, repostSchema, validateSchema } from '@/lib/validate'
 import { string } from '@/lib/yup'
 import { defaultCommentSort, isJob, deleteItemByAuthor } from '@/lib/item'
+import { itemPostType } from '@/lib/subs'
 import { datePivot, whenRange } from '@/lib/time'
 import { uploadIdsFromText } from './upload'
 import { makeExcerpt } from '@/lib/excerpt'
@@ -1356,6 +1358,18 @@ export const updateItem = async (parent, { hash, hmac, sendProtocolId, ...item }
     throw new GqlInputError('item does not belong to you')
   }
 
+  // Turf repost (2026-09-24): content edits can never change turfs — adding a
+  // turf is a paid, always-available repost (repostItem), so the only
+  // turf-addition path adds exactly one turf per call and every fee stays a
+  // single payment to a single destination.
+  if (item.subNames != null) {
+    const next = [...item.subNames].sort()
+    const prev = [...(old.subNames ?? [])].sort()
+    if (next.length !== prev.length || next.some((name, i) => name !== prev[i])) {
+      throw new GqlInputError('territories can only be changed with the repost action')
+    }
+  }
+
   // A bounty's amount is escrow-backed: once funding has been initiated
   // (PENDING_FUNDING) or completed (FUNDED onward), changing bountyPiconeros
   // desyncs the escrow — the funding quote/URI was minted on the old amount, so
@@ -1405,7 +1419,57 @@ export const updateItem = async (parent, { hash, hmac, sendProtocolId, ...item }
   return await pay('ITEM_UPDATE', item, { models, me, sendProtocolId })
 }
 
+export const repostItem = async (parent, { id, subName }, { me, models }) => {
+  if (!me) {
+    throw new GqlAuthenticationError()
+  }
+
+  const old = await models.item.findUnique({ where: { id: Number(id) } })
+  if (!old || old.deletedAt) {
+    throw new GqlInputError('item not found')
+  }
+  if (Number(old.userId) !== Number(me.id)) {
+    throw new GqlInputError('item does not belong to you')
+  }
+  if (old.parentId) {
+    throw new GqlInputError('comments cannot be reposted')
+  }
+  if (old.bio) {
+    throw new GqlInputError('bios cannot be reposted')
+  }
+  const postType = itemPostType(old)
+  if (postType === 'JOB') {
+    throw new GqlInputError('jobs cannot be reposted')
+  }
+
+  const current = old.subNames ?? []
+  // Citext comparison: Item.subNames is case-insensitive, so a case-variant
+  // repost of an existing turf must be rejected before pay() — otherwise a
+  // duplicate turf row is created and a fee charged for a no-op.
+  if (current.some(name => String(name).toLowerCase() === subName.toLowerCase())) {
+    throw new GqlInputError('item is already in this territory')
+  }
+  if (current.length >= MAX_ITEM_TURFS) {
+    throw new GqlInputError(`items can be in at most ${MAX_ITEM_TURFS} territories`)
+  }
+
+  await validateSchema(repostSchema(postType, { models, me }), { subNames: [subName] }, { models, me })
+
+  // No ITEM_EDIT_SECONDS gate: reposting changes distribution, never content,
+  // so it stays available for the item's lifetime (unlike content edits).
+  // The ITEM_UPDATE engine defers the addition until the fee is observed and
+  // routes it owner-direct when exactly one non-owned turf is added.
+  return await pay('ITEM_UPDATE', { id: Number(id), userId: old.userId, subNames: [...current, subName] }, { models, me })
+}
+
 export const createItem = async (parent, { sendProtocolId, ...item }, { me, models, headers }) => {
+  // Turf repost (2026-09-24): creation is single-turf. Additional turfs are
+  // added after the post is live via repostItem — one paid repost per turf,
+  // so every posting fee stays a single payment to a single destination.
+  if ((item.subNames?.length ?? 0) > 1) {
+    throw new GqlInputError('posts can only be created in one territory — use the repost action to add more')
+  }
+
   // abuse gate BEFORE any DB work or fee-subaddress reservation (audit A-3)
   await assertItemCreateAllowance({ models, me, headers })
 

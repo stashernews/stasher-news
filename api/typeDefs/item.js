@@ -38,6 +38,7 @@ export default gql`
     upsertPoll(
       id: ID, subNames: [String!], title: String!, text: String, options: [String!]!, pollExpiresAt: Date,
       randPollOptions: Boolean, hash: String, hmac: String, sendProtocolId: Int): PayIn!
+    repostItem(id: ID!, subName: String!): PayIn!
     updateNoteId(id: ID!, noteId: String!): Item!
     upsertComment(id: ID, text: String!, parentId: ID, hash: String, hmac: String, sendProtocolId: Int): PayIn!
     act(id: ID!, piconeros: BigInt, act: String): PayIn!
@@ -151,6 +152,7 @@ export default gql`
     subName: String
     subs: [Sub!]
     subNames: [String!]
+    primarySubName: String
     status: String!
     uploadId: Int
     otsHash: String

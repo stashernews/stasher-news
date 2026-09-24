@@ -1,6 +1,6 @@
 import { ANON_COMMENT_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ANON_POST_FEE_MULTIPLIER, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
-import { getItemMentions, getMentions, performBotBehavior, getSubs, countNonOwnedSubs } from '../lib/item'
+import { getItemMentions, getMentions, performBotBehavior, getSubs, getRootPrimarySub, countNonOwnedSubs } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
 import { canonicalizeItemText } from '@/lib/url'
 import { GqlInputError } from '@/lib/error'
@@ -143,7 +143,14 @@ export async function getInitial (models, args, { me }) {
   // defensive/legacy) the multiplier is 1, preserving the original flat-fee
   // behavior.
   const itemSubs = await getSubs(models, { subNames: args.subNames, parentId: args.parentId })
-  const feeMultiplier = itemSubs.length === 0 ? 1n : BigInt(countNonOwnedSubs(itemSubs, me.id))
+  // Turf repost (2026-09-24): a comment's fee follows the ROOT post's HOME
+  // turf (primarySubName) when it has one — reposts buy feed distribution,
+  // not conversation revenue, so the home turf owner keeps comment fees and
+  // the owner-free reply waiver. Grandfathered roots (primarySubName null)
+  // keep the legacy all-root-turfs rule.
+  const homeSub = args.parentId ? await getRootPrimarySub(models, Number(args.parentId)) : null
+  const feeSubs = args.parentId && homeSub ? [homeSub] : itemSubs
+  const feeMultiplier = feeSubs.length === 0 ? 1n : BigInt(countNonOwnedSubs(feeSubs, me.id))
 
   if (feeMultiplier === 0n) {
     if (uploadFeesPiconeros > 0n) {
@@ -182,11 +189,11 @@ export async function getInitial (models, args, { me }) {
       // while the platform fallback charges floor-only x multiplier.
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       if (!config) throw new GqlInputError('fee config not initialized')
-      const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
+      const nonOwned = feeSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
       const base = commentFloorPiconerosForSubs(config, nonOwned) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
       const premium = (commentFeePiconerosForSubs(config, nonOwned) - commentFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
       return await feeLegOrSubaddress(models, {
-        subs: itemSubs,
+        subs: feeSubs,
         userId: me.id,
         fee: base,
         premiumPiconeros: premium,
@@ -217,7 +224,7 @@ export async function getInitial (models, args, { me }) {
       }
       return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
     }
-    const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(me.id))
+    const nonOwned = feeSubs.filter(s => Number(s.userId) !== Number(me.id))
     // spam escalation scales the platform FLOOR only; the turf premium is the
     // owner's surcharge — it rides exclusively the owner-routed leg, un-escalated
     const base = await escalatedFeePiconeros(models, {
@@ -226,7 +233,7 @@ export async function getInitial (models, args, { me }) {
       basePiconeros: commentFloorPiconerosForSubs(config, nonOwned)
     })
     return await feeLegOrSubaddress(models, {
-      subs: itemSubs,
+      subs: feeSubs,
       userId: me.id,
       fee: base,
       premiumPiconeros: commentFeePiconerosForSubs(config, nonOwned) - commentFloorPiconerosForSubs(config, nonOwned),
@@ -248,11 +255,11 @@ export async function getInitial (models, args, { me }) {
     // Anon CAN route owner-direct (they own no turf), so the post premium rides
     // that leg scaled by the same anon multiplier — the platform fallback
     // charges floor-only x multiplier.
-    const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
-    const base = (itemSubs.length === 0 ? postingFeePiconeros(config) : postFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_POST_FEE_MULTIPLIER)
+    const nonOwned = feeSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
+    const base = (feeSubs.length === 0 ? postingFeePiconeros(config) : postFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_POST_FEE_MULTIPLIER)
     const premium = (postFeePiconerosForSubs(config, nonOwned) - postFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_POST_FEE_MULTIPLIER)
     return await feeLegOrSubaddress(models, {
-      subs: itemSubs,
+      subs: feeSubs,
       userId: me.id,
       fee: base,
       premiumPiconeros: premium,
@@ -299,14 +306,14 @@ export async function getInitial (models, args, { me }) {
   // legs) and flipped to FEE_PAID. (Anon posts are handled in the early-return
   // branch above.) Spam escalation scales the floor; the premium delta rides
   // only the owner-routed leg.
-  const nonOwned = itemSubs.filter(s => Number(s.userId) !== Number(me.id))
+  const nonOwned = feeSubs.filter(s => Number(s.userId) !== Number(me.id))
   const base = await escalatedFeePiconeros(models, {
     parentId: null,
     userId: me.id,
-    basePiconeros: itemSubs.length === 0 ? postingFeePiconeros(config) : postFloorPiconerosForSubs(config, nonOwned)
+    basePiconeros: feeSubs.length === 0 ? postingFeePiconeros(config) : postFloorPiconerosForSubs(config, nonOwned)
   })
   return await feeLegOrSubaddress(models, {
-    subs: itemSubs,
+    subs: feeSubs,
     userId: me.id,
     fee: base,
     premiumPiconeros: postFeePiconerosForSubs(config, nonOwned) - postFloorPiconerosForSubs(config, nonOwned),
@@ -372,7 +379,8 @@ export async function onBegin (tx, payInId, args) {
   // operations, so it agrees with getInitial's branch decision.
   let feeQuotaEligible = false
   if (feeRequired && !data.bio && payIn.userId !== USER_ID.anon) {
-    const markerSubs = await getSubs(tx, { subNames, parentId })
+    const homeSub = parentId ? await getRootPrimarySub(tx, Number(parentId)) : null
+    const markerSubs = parentId && homeSub ? [homeSub] : await getSubs(tx, { subNames, parentId })
     const ownerFree = markerSubs.length > 0 && countNonOwnedSubs(markerSubs, payIn.userId) === 0
     if (!ownerFree) {
       const quotaConfig = await tx.platformFeeConfig.findUnique({ where: { id: 1 } })
@@ -408,6 +416,10 @@ export async function onBegin (tx, payInId, args) {
   const itemData = {
     parentId: parentId ? parseInt(parentId) : null,
     ...data,
+    // Turf repost (2026-09-24): the home turf — the single turf chosen at
+    // creation. Comment fees follow it; reposts never change it. Null for
+    // comments, bios, and legacy rows.
+    primarySubName: !parentId && !data.bio && subNames.length === 1 ? subNames[0] : null,
     cost: Number(BigInt(payIn.piconeros) / 1000n),
     freebie: isFreebie,
     imgproxyUrls,
@@ -492,8 +504,17 @@ export async function onPaid (tx, payInId) {
   // free, independent of the 15-comment / 5-post counters. Re-derive ownership
   // here (item.subNames for posts; the parent thread for comments) since the
   // prospect carries no owner marker.
+  // Turf repost (2026-09-24): a comment's fee follows the ROOT post's HOME
+  // turf (primarySubName) when it has one — mirrors getInitial so the
+  // owner-free reply waiver agrees with the branch decision that created the
+  // item (a past-quota home-turf owner's free reply on a reposted root must
+  // never reach incrementFreeCommentCount — an exhausted quota throws P2025
+  // here and rolls back the whole begin() tx). Grandfathered roots
+  // (primarySubName null) keep the legacy all-root-turfs rule.
   const itemSubs = await getSubs(tx, { subNames: item.subNames, parentId: item.parentId })
-  const ownerFree = itemSubs.length > 0 && countNonOwnedSubs(itemSubs, payIn.userId) === 0
+  const homeSub = item.parentId ? await getRootPrimarySub(tx, item.parentId) : null
+  const feeSubs = item.parentId && homeSub ? [homeSub] : itemSubs
+  const ownerFree = feeSubs.length > 0 && countNonOwnedSubs(feeSubs, payIn.userId) === 0
   if (!ownerFree) {
     // If this is a freebie comment, increment the free comment counter.
     await incrementFreeCommentCount(tx, { item, userId: payIn.userId })

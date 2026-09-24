@@ -47,7 +47,7 @@ const config = { postingFeeFloorPiconeros: 1_000_000_000n, commentFeePiconeros: 
 
 // 'turf' is owned by userId 42 (with optional premiums); 'other' is owned by
 // userId 99 with no premiums (the cross-post test's second turf).
-function models ({ subOwnerHasWallet = true, premium = {}, parentSubs = null } = {}) {
+function models ({ subOwnerHasWallet = true, premium = {}, parentSubs = null, homeSubRows = null, commenter = null } = {}) {
   const mapCreated = []
   const subRow = name => ({
     name,
@@ -58,11 +58,13 @@ function models ({ subOwnerHasWallet = true, premium = {}, parentSubs = null } =
   return {
     mapCreated,
     platformFeeConfig: { findUnique: async () => config },
-    // $queryRaw serves the two raw shapes itemCreate issues: getSubs' parent
-    // thread lookup (Sub rows) and escalatedFeePiconeros' item_spam count.
+    // $queryRaw serves the three raw shapes itemCreate issues: getSubs' parent
+    // thread lookup (Sub rows), getRootPrimarySub's home-turf lookup (the
+    // primarySubName COALESCE), and escalatedFeePiconeros' item_spam count.
     $queryRaw: async (strings, ...values) => {
       const sql = Array.isArray(strings) ? strings.join('') : String(strings)
       if (sql.includes('item_spam')) return [{ n: 0 }]
+      if (sql.includes('primarySubName')) return homeSubRows ?? []
       return parentSubs ?? []
     },
     sub: {
@@ -80,7 +82,7 @@ function models ({ subOwnerHasWallet = true, premium = {}, parentSubs = null } =
     // low-rep author by default: never established, past their 1-post free quota
     // (so post-branch tests exercise fee ROUTING, not the free-post path)
     user: {
-      findUnique: async () => ({
+      findUnique: async () => commenter ?? ({
         id: 7,
         freeCommentCount: 0,
         freePostCount: 1,
@@ -179,5 +181,35 @@ describe('ITEM_CREATE getInitial routing', () => {
     expect(reserveFeeSubaddress).toHaveBeenCalled()
     expect(moneroUriAmountPiconeros(r.moneroUri)).toBe(600_000_000n)
     expect(r.moneroUri).not.toContain('0.0008')
+  })
+})
+
+describe('ITEM_CREATE getInitial — comment routing on the home turf', () => {
+  const homeRow = (premium = 0n) => [{ name: 'turf', userId: 42, postPremiumPiconeros: 0n, commentPremiumPiconeros: premium }]
+  const spentCommenter = { id: 7, freeCommentCount: 99, freePostCount: 99, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date() }
+
+  it('routes a comment fee to the home turf owner even when the root is reposted', async () => {
+    const m = models({
+      premium: { comment: 200_000_000n },
+      homeSubRows: homeRow(200_000_000n),
+      parentSubs: [{ name: 'turf', userId: 42 }, { name: 'other', userId: 99 }],
+      commenter: spentCommenter
+    })
+    const r = await getInitial(m, { parentId: '5' }, { me: lowRepMe })
+    expect(r.moneroPaymentId).toMatch(/^[0-9a-f]{16}$/)
+    expect(r.moneroSubaddressMajor).toBeUndefined()
+    expect(r.moneroUri).toContain('tx_amount=0.0008') // 0.0006 floor + 0.0002 comment premium
+  })
+
+  it('keeps the legacy all-root-turfs fallback for a grandfathered root (no home turf)', async () => {
+    const m = models({
+      homeSubRows: [],
+      parentSubs: [{ name: 'turf', userId: 42, postPremiumPiconeros: 0n, commentPremiumPiconeros: 500_000_000n }, { name: 'other', userId: 99 }],
+      commenter: spentCommenter
+    })
+    const r = await getInitial(m, { parentId: '5' }, { me: lowRepMe })
+    expect(r.moneroPaymentId).toBeUndefined()
+    expect(r.moneroSubaddressMajor).toBe(1) // rewards-wallet subaddress stub
+    expect(r.moneroUri).toContain('tx_amount=0.0006') // flat floor, NO premium
   })
 })

@@ -22,7 +22,8 @@ import BookmarkDropdownItem from './bookmark'
 import SubscribeDropdownItem from './subscribe'
 import { CopyLinkDropdownItem, CrosspostDropdownItem } from './share'
 import Badges from './badge'
-import { DEFAULT_POSTS_PICONEROS_FILTER, DEFAULT_COMMENTS_PICONEROS_FILTER } from '@/lib/constants'
+import { DEFAULT_POSTS_PICONEROS_FILTER, DEFAULT_COMMENTS_PICONEROS_FILTER, MAX_ITEM_TURFS } from '@/lib/constants'
+import { RepostDropdownItem } from './repost'
 import { isNostrEnabled } from '@/lib/nostrFeatures'
 import ActionDropdown from './action-dropdown'
 import MuteDropdownItem from './mute'
@@ -230,6 +231,8 @@ export default function ItemInfo ({
               <InfoDropdownItem item={item} />
               {(item.parentId || item.text) && onQuoteReply &&
                 <Dropdown.Item onClick={onQuoteReply}>quote reply</Dropdown.Item>}
+              {me && item.mine && !item.parentId && !item.bio && !item.isJob && !item.deletedAt && (item.subNames?.length ?? 0) < MAX_ITEM_TURFS &&
+                <RepostDropdownItem item={item} />}
               {me && <BookmarkDropdownItem item={item} />}
               {me && <SubscribeDropdownItem item={item} />}
               {item.otsHash &&
