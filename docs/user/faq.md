@@ -52,7 +52,7 @@ See the [section about turfs](#turfs) for details.
 
 ### Do I need Monero to use Stasher News?
 
-No. You don't need Monero to get started. Browsing is free, and posting fees deter spam and fund curator rewards. New accounts get 1 free post per month; once your account has stacked at least 10 mXMR in tips and is at least 7 days old, you're established and the first 5 posts each month are free. Posts beyond the monthly allowance cost 1 mXMR. Comments are free — 2 per day for new accounts and 5 per day once you're established — with the daily allowance resetting at 00:00 UTC each day; beyond that, each comment costs 1 mXMR. Anonymous posts cost 10 mXMR and anonymous comments cost 3 mXMR.
+No. You don't need Monero to get started. Browsing is free, and posting fees deter spam and fund curator rewards. New accounts get 1 free post per month; once your account has stacked at least 10 mXMR in tips and is at least 7 days old, you're established and the first 5 posts each month are free. Posts beyond the monthly allowance cost 1 mXMR. Comments are free — 1 per day for new accounts and 3 per day once you're established — with the daily allowance resetting at 00:00 UTC each day; beyond that, each comment costs 1 mXMR. Anonymous posts cost 10 mXMR and anonymous comments cost 3 mXMR.
 
 You'll need a Monero wallet to receive tips and rewards, since all payments are delivered peer-to-peer on the Monero network.
 
