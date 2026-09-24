@@ -159,7 +159,7 @@ describe('postingFeePrivatesFor', () => {
   test('self-view with free posts left still exposes the live floor', async () => {
     const result = await postingFeePrivatesFor(
       MODELS,
-      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null },
+      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0 },
       7
     )
     expect(result.postingFeeRequired).toBe(false)

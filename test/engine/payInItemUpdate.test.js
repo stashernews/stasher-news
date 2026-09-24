@@ -307,8 +307,6 @@ test('pay("ITEM_UPDATE", ...) returns the ITEM_CREATE payIn on the result item, 
   // the edit itself landed
   const item = await prisma.item.findUnique({ where: { id: itemId } })
   expect(item.text).toBe('edited body')
-
-  // it so the worker never executes it against a deleted row
 })
 
 // --- fee-edit deferral: nothing attaches until the covering fee is observed ---
