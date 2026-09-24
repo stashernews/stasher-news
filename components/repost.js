@@ -10,7 +10,7 @@ import { useToast } from './toast'
 import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import { REPOST_ITEM } from '@/fragments/payIn'
 import { ACTIVE_SUBS } from '@/fragments/subs'
-import { MAX_ITEM_TURFS, SSR, USER_ID } from '@/lib/constants'
+import { MAX_ITEM_TURFS, SSR } from '@/lib/constants'
 import { itemPostType } from '@/lib/subs'
 import { piconerosToMXmr } from '@/lib/format'
 import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
@@ -23,6 +23,14 @@ export function RepostDropdownItem ({ item }) {
       repost to another turf
     </Dropdown.Item>
   )
+}
+
+// Exported for the local component test: the linkedom harness can't drive
+// text-input onChange (see territory-form-premiums.test.js:145), so the search
+// semantics are pinned as a pure function. Trims and matches case-insensitively.
+export function filterRepostCandidates (candidates, query) {
+  const needle = query.trim().toLowerCase()
+  return needle ? candidates.filter(sub => sub.name.toLowerCase().includes(needle)) : candidates
 }
 
 // RepostModal — the ⋯ menu picker for adding a live post to one more turf.
@@ -39,6 +47,7 @@ export function RepostModal ({ item, onClose }) {
   const [repost] = usePayInMutation(REPOST_ITEM)
   const [selected, setSelected] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [query, setQuery] = useState('')
   const { data } = useQuery(ACTIVE_SUBS, SSR ? {} : { nextFetchPolicy: 'cache-and-network' })
 
   const type = itemPostType(item)
@@ -47,6 +56,7 @@ export function RepostModal ({ item, onClose }) {
     !sub.meMuteSub &&
     sub.postTypes?.includes(type)
   )
+  const filtered = filterRepostCandidates(candidates, query)
 
   // Mirrors components/fee-button.js: the platform floor (always charged on a
   // turf addition — the free-post quota waives ITEM_CREATE only, never a repost)
@@ -55,12 +65,7 @@ export function RepostModal ({ item, onClose }) {
     const owned = Number(sub.userId) === Number(me?.id)
     const floor = BigInt(me?.privates?.postingFeeFloorPiconeros || 0)
     const premium = me?.privates?.turfOwnerFees ? BigInt(sub.postPremiumPiconeros ?? 0) : 0n
-    // owner-directed only when the feature is on and the turf isn't one of the
-    // seeded platform turfs (whose fees fund the rewards pool) — the client
-    // can't see the owner's registered wallet, so a wallet-less owner falls
-    // back to the rewards wallet server-side.
-    const ownerRouted = !!me?.privates?.turfOwnerFees && Number(sub.userId) !== Number(USER_ID.stasher)
-    return { owned, ownerRouted, premium, amount: owned ? 0n : floor + premium }
+    return { owned, amount: owned ? 0n : floor + premium }
   }
 
   const selectedQuote = selected ? quote(selected) : null
@@ -106,36 +111,50 @@ export function RepostModal ({ item, onClose }) {
           </p>
           )
         : (
-          <ListGroup variant='flush'>
-            {candidates.map(sub => {
-              const q = quote(sub)
-              const isSelected = selected?.name === sub.name
-              return (
-                <ListGroup.Item
-                  key={sub.name}
-                  action
-                  active={isSelected}
-                  onClick={() => setSelected(sub)}
-                  className='d-flex justify-content-between align-items-center'
-                >
-                  <span className='fw-bold'>~{sub.name}</span>
-                  <span className='text-end'>
-                    {q.owned
-                      ? <span className={isSelected ? '' : 'text-success'}>free — you own this turf</span>
-                      : (
-                        <>
-                          <span className='fw-bold'>{piconerosToMXmr(q.amount)}</span>{' '}
-                          <span className={isSelected ? '' : 'text-muted'}>
-                            → {q.ownerRouted ? `@${sub.name}'s owner` : 'rewards pool'}
-                            {q.premium > 0n && <> (+{piconerosToMXmr(q.premium)} premium)</>}
+          <>
+            <input
+              type='text'
+              className='form-control form-control-sm mb-2'
+              placeholder='search turfs…'
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              aria-label='search turfs'
+            />
+            {filtered.length === 0
+              ? (
+                <p className='text-muted text-center my-3'>
+                  <small>no turfs match “{query}”</small>
+                </p>
+                )
+              : (
+                // Cap the list so a large turf count scrolls inside the modal
+                // instead of growing it past the viewport.
+                <div style={{ maxHeight: '50vh', overflowY: 'auto' }}>
+                  <ListGroup variant='flush'>
+                    {filtered.map(sub => {
+                      const q = quote(sub)
+                      const isSelected = selected?.name === sub.name
+                      return (
+                        <ListGroup.Item
+                          key={sub.name}
+                          action
+                          active={isSelected}
+                          onClick={() => setSelected(sub)}
+                          className='d-flex justify-content-between align-items-center'
+                        >
+                          <span className='fw-bold'>~{sub.name}</span>
+                          <span className='text-end'>
+                            {q.owned
+                              ? <span className={isSelected ? '' : 'text-success'}>free</span>
+                              : <span className='fw-bold'>{piconerosToMXmr(q.amount)}</span>}
                           </span>
-                        </>
-                        )}
-                  </span>
-                </ListGroup.Item>
-              )
-            })}
-          </ListGroup>
+                        </ListGroup.Item>
+                      )
+                    })}
+                  </ListGroup>
+                </div>
+                )}
+          </>
           )}
       <div className='d-flex justify-content-between align-items-center mt-3'>
         <Button variant='link' className='text-muted text-decoration-none' onClick={onClose}>
