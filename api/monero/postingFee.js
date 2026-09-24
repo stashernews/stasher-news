@@ -33,7 +33,7 @@ export function commentFeePiconeros (config) {
   return config.commentFeePiconeros
 }
 
-/** Daily free-comment quota for the user's current tier (2 low-rep, 5 established). */
+/** Daily free-comment quota for the user's current tier (1 low-rep, 3 established). */
 export function freeCommentsQuota (user, config) {
   if (!user) return 0
   return canPostFree(user, config) ? FREE_COMMENTS_PER_DAY : FREE_COMMENTS_PER_DAY_LOW_REP

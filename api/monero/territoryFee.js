@@ -30,7 +30,7 @@ export const TERRITORY_FEE_PRIVATES_ZERO = {
 
 // UserPrivates bundle (self-view only): the live territory fees plus the flat
 // comment fee (the commentFeePiconeros config knob — comments beyond the daily
-// freebie quota (2/day low-rep, 5/day established) pay this instead of the
+// freebie quota (1/day low-rep, 3/day established) pay this instead of the
 // posting floor).
 export async function territoryFeePrivatesFor (models, viewerId) {
   if (!viewerId) return { ...TERRITORY_FEE_PRIVATES_ZERO }

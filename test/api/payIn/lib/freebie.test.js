@@ -34,9 +34,9 @@ test('incrementFreeCommentCount is a no-op for anon', async () => {
 })
 
 test('incrementFreeCommentCount increments within the established daily quota', async () => {
-  const tx = mkTx({ freeCommentCount: 3, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) })
+  const tx = mkTx({ freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) })
   await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })
-  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 5 } }) }))
+  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 3 } }) }))
 })
 
 test('incrementFreePostCount is a no-op for comments and bios (freebie=true or parentId set)', async () => {

@@ -177,7 +177,7 @@ the user's monthly free-post quota (`freePostCount` / `freePostResetAt`):
    mid-grace and stay visible. The owner always sees their own pending turf to pay.
 
 Comment outcomes are unchanged in structure: free while the tiered freebie quota remains
-(5/month low-rep, 15/month established), then the flat comment fee applies (also
+(1/day low-rep, 3/day established), then the flat comment fee applies (also
 `PENDING_FEE` via a rewards-wallet subaddress).
 
 **Visibility:** a `PENDING_FEE` item is filtered out of every read surface by

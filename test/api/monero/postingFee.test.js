@@ -50,7 +50,7 @@ describe('postingFeePrivatesFor', () => {
       freePostsLeft: 1,
       freePostCount: 0,
       freePostsQuota: 1,
-      freeCommentsQuota: 2
+      freeCommentsQuota: 1
     })
   })
 
@@ -81,7 +81,7 @@ describe('postingFeePrivatesFor', () => {
       freePostsLeft: 5,
       freePostCount: 0,
       freePostsQuota: 5,
-      freeCommentsQuota: 5
+      freeCommentsQuota: 3
     })
   })
 
@@ -133,9 +133,9 @@ describe('tiered freebie quotas', () => {
   const established = { stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * DAY2) }
   const lowRep = { stackedPiconeros: 0n, createdAt: new Date() }
 
-  test('freeCommentsQuota is 5 established, 2 low-rep', () => {
-    expect(freeCommentsQuota(established, CFG)).toBe(5)
-    expect(freeCommentsQuota(lowRep, CFG)).toBe(2)
+  test('freeCommentsQuota is 3 established, 1 low-rep', () => {
+    expect(freeCommentsQuota(established, CFG)).toBe(3)
+    expect(freeCommentsQuota(lowRep, CFG)).toBe(1)
   })
 
   test('freePostsQuota is 5 established, 1 low-rep', () => {
@@ -144,16 +144,16 @@ describe('tiered freebie quotas', () => {
   })
 
   test('commentsFreeLeft counts down within the tier and floors at zero', () => {
-    expect(commentsFreeLeft({ ...established, freeCommentCount: 3, freeCommentResetAt: null }, CFG)).toBe(2)
-    expect(commentsFreeLeft({ ...lowRep, freeCommentCount: 1, freeCommentResetAt: null }, CFG)).toBe(1)
+    expect(commentsFreeLeft({ ...established, freeCommentCount: 1, freeCommentResetAt: null }, CFG)).toBe(2)
+    expect(commentsFreeLeft({ ...lowRep, freeCommentCount: 0, freeCommentResetAt: null }, CFG)).toBe(1)
     expect(commentsFreeLeft({ ...lowRep, freeCommentCount: 20, freeCommentResetAt: null }, CFG)).toBe(0)
   })
 
   test('commentsFreeLeft resets after the reset date to the tier quota', () => {
     const e = { ...established, freeCommentCount: 5, freeCommentResetAt: new Date(Date.now() - 1000) }
-    expect(commentsFreeLeft(e, CFG)).toBe(5)
+    expect(commentsFreeLeft(e, CFG)).toBe(3)
     const l = { ...lowRep, freeCommentCount: 2, freeCommentResetAt: new Date(Date.now() - 1000) }
-    expect(commentsFreeLeft(l, CFG)).toBe(2)
+    expect(commentsFreeLeft(l, CFG)).toBe(1)
   })
 
   test('commentsFreeLeft returns 0 for missing users', () => {
