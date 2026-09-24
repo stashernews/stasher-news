@@ -1,16 +1,15 @@
 -----BEGIN PGP SIGNED MESSAGE-----
 Hash: SHA512
 
-Contact: mailto:security@stasher.news
-Expires: 2027-09-30T00:00:00.000Z
+Contact: https://github.com/stashernews/stasher-news/security/advisories/new
+Expires: 2027-09-23T00:00:00.000Z
 Encryption: https://stasher.news/pgp.txt
 Preferred-Languages: en
 Canonical: https://stasher.news/.well-known/security.txt
-
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQTR28gNIVUus9VJCOs+wmTOsrg6xAUCarPnDgAKCRA+wmTOsrg6
-xNKqAP4rVBVcdyWUfGSoAD3L8q9aJeY3WCyUXV5KcnGNrD9yhwD/X9UN/55Oal/j
-/nV7lW6b+NaVq+AAZ/uUa0C5oeCwgwE=
-=yXii
+iHUEARYKAB0WIQTR28gNIVUus9VJCOs+wmTOsrg6xAUCarNPOAAKCRA+wmTOsrg6
+xHuvAQDIwBxT/ir3BGPaXUCixVnpGCQ5t7Qh6znoQ1sKBmaDKgEAm0i4gcdLB0jX
+QdndDLSuHbTpSAbG4Yf9E4Ct4w4dbQU=
+=te3X
 -----END PGP SIGNATURE-----

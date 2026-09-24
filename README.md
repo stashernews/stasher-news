@@ -34,34 +34,6 @@ Go to [localhost:3000](http://localhost:3000).
 
 <br>
 
-### GitHub Codespaces
-
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/stashernews/stasher-news)
-
-You can run Stasher News on Github Codespaces
-
-#### Setup
-
-1. Open the repository on GitHub and click the **"Code"** button
-2. Select the Codespaces tab and create a new codespace.
-   - You can also configure your codespace to run select services based on  `COMPOSE_PROFILES` as well as in a different region and machine type by clicking "..." and selecting "New with options...". Check [Modifying services](#modifying-services) for more information on `COMPOSE_PROFILES`
-3. Wait for the environment to set up (this may take several minutes the first time)
-4. Once ready, you'll see a terminal with the environment initialized
-
-#### Usage
-
-After the codespace is created, the development environment will be automatically set up and services started.
-
-Access your running application at the URL shown in the forwarded ports panel (typically `https://your-codespace-name-3000.app.github.dev`).
-
-#### Port Configuration
-
-⚠️ **Important**: For various internal services and external access to work properly, you must set forwarded ports to **Public** in the Ports tab:
-
-1. In your codespace, look for the "PORTS" tab in the bottom panel
-2. Click the lock icon to change visibility from "Private" to "Public"
-<br>
-
 ## Usage
 
 Start the development environment
@@ -134,7 +106,7 @@ COMMANDS
 
 #### Running specific services
 
-By default all services will be run. If you want to exclude specific services from running, set `COMPOSE_PROFILES` in a `.env.local` file to one or more of `minimal,images,search,monero,email,capture,domains,domains-caddy`. To only run minimal necessary without things like payments in `.env.local`:
+By default all services except the Monero stack will be run — the `monero` profile is opt-in. If you want to exclude specific services from running, set `COMPOSE_PROFILES` in a `.env.local` file to one or more of `minimal,images,search,monero,email,capture,domains,domains-caddy`. To only run minimal necessary without things like payments in `.env.local`:
 
 ```.env
 COMPOSE_PROFILES=minimal
@@ -196,7 +168,6 @@ The `domains` profile enables dnsmasq and custom-domain worker jobs. The bundled
 # Table of Contents
 - [Getting started](#getting-started)
     - [Installation](#installation)
-        - [GitHub Codespaces](#github-codespaces)
     - [Usage](#usage)
         - [Modifying services](#modifying-services)
             - [Running specific services](#running-specific-services)
@@ -211,6 +182,7 @@ The `domains` profile enables dnsmasq and custom-domain worker jobs. The bundled
         - [Login with Email](#login-with-email)
         - [Login with Github](#login-with-github)
     - [Enabling web push notifications](#enabling-web-push-notifications)
+    - [Custom domains](#custom-domains)
 - [Internals](#internals)
     - [Stack](#stack)
     - [Services](#services)
@@ -379,7 +351,7 @@ Currently, SN runs and maintains two significant services and one microservice:
 2. the worker service, found in `./worker`, which runs periodic jobs and jobs sent to it by the web app
 3. a screenshot microservice, found in `./capture`, which takes screenshots of SN for social previews
 
-In addition, we run other critical services the above services interact with like `monerod`, `monero-lws`, `postgres`, `opensearch`, `tor`, and `s3`.
+In addition, we run other critical services the above services interact with like `monerod`, `monero-lws`, `postgres`, `opensearch`, and `minio`.
 
 <br>
 
@@ -392,13 +364,13 @@ To ensure stashers balances are kept sane, some wallet updates are run in [seria
 <br>
 
 # Need help?
-Open a [discussion](http://github.com/stashernews/stasher-news/discussions) or [issue](http://github.com/stashernews/stasher-news/issues/new) or [email us](mailto:hello@stasher.news).
+Open a [discussion](http://github.com/stashernews/stasher-news/discussions) or [issue](http://github.com/stashernews/stasher-news/issues/new).
 
 <br>
 
 # Responsible disclosure
 
-If you found a vulnerability, we would greatly appreciate it if you contact us via [security@stasher.news](mailto:security@stasher.news) or open a [security advisory](https://github.com/stashernews/stasher-news/security/advisories/new). Our PGP key can be found [here](https://stasher.news/pgp.txt) (D1DB C80D 2155 2EB3 D549 08EB 3EC2 64CE B2B8 3AC4).
+If you found a vulnerability, we would greatly appreciate it if you open a [security advisory](https://github.com/stashernews/stasher-news/security/advisories/new). Our PGP key can be found [here](https://stasher.news/pgp.txt) (D1DB C80D 2155 2EB3 D549 08EB 3EC2 64CE B2B8 3AC4).
 
 <br>
 
