@@ -62,15 +62,7 @@ export default function RepostFeeModal ({ moneroUri, payInId, itemId, onClose })
       moneroUri={moneroUri}
       amountPiconeros={feePiconeros}
       heading='Pay the repost fee'
-      description={`Scan to send ${piconerosToMXmrDual(feePiconeros)} to the turf's owner (or the platform rewards wallet for default turfs). Your post joins the new turf as soon as this fee is detected — it stays live in its current turfs.`}
-    >
-      <p className='text-muted text-center mt-3'>
-        <small>
-          Until it settles, the post stays live in its current turfs but is
-          invisible in the new one. Closing this window leaves the repost
-          unpaid — it is abandoned after a few days.
-        </small>
-      </p>
-    </MoneroPaymentView>
+      description={`Scan to send ${piconerosToMXmrDual(feePiconeros)} to the turf's owner (or the platform rewards wallet for default turfs).`}
+    />
   )
 }

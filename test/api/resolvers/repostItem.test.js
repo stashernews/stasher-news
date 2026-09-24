@@ -3,7 +3,7 @@
 // repostItem (2026-09-24): author-only, posts only, one turf per call, cap 5.
 // Rejects must fire before pay() so no payment is ever created for an
 // impossible repost.
-import { repostItem } from '@/api/resolvers/item'
+import itemResolvers, { repostItem } from '@/api/resolvers/item'
 import pay from '../../../api/payIn'
 
 jest.mock('../../../api/payIn', () => ({
@@ -99,5 +99,20 @@ describe('repostItem happy path', () => {
     const m = models(item)
     await repostItem(null, { id: 10, subName: 'tech' }, { me: { id: 7 }, models: m })
     expect(m.item.update).not.toHaveBeenCalled()
+  })
+})
+
+// GraphQL wiring regression (2026-09-24): repostItem is declared below the
+// default export's Mutation map, so the map must reference it through a
+// deferred call — a shorthand property would hit the const TDZ at module load,
+// and a missing entry makes Apollo's default resolver return null for the
+// non-nullable Mutation.repostItem field ("Cannot return null for non-nullable
+// field Mutation.repostItem"). This test pins the entry and its delegation.
+describe('repostItem resolver wiring', () => {
+  test('is registered in the Mutation map and delegates to the real resolver', async () => {
+    expect(typeof itemResolvers.Mutation.repostItem).toBe('function')
+    await expect(
+      itemResolvers.Mutation.repostItem(null, { id: 10, subName: 'tech' }, { me: { id: 8 }, models: models(basePost()) })
+    ).rejects.toThrow('does not belong')
   })
 })

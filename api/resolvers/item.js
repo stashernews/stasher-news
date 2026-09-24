@@ -929,7 +929,13 @@ export default {
       })
 
       return result.lastViewedAt
-    }
+    },
+
+    // Deferred reference: repostItem is declared below this map (const bindings
+    // are in the temporal dead zone at map-construction time), so resolve it at
+    // request time. A missing entry here makes Apollo's default resolver return
+    // null for the non-nullable Mutation.repostItem field.
+    repostItem: (...args) => repostItem(...args)
   },
 
   Item: {
