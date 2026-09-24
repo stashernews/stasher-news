@@ -10,7 +10,7 @@ import { moneroUriAmountPiconeros } from '@/lib/format'
 import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
 import { alert } from '@/lib/alert'
 import { logError } from '@/lib/logger'
-import { consumeQuotaForFlippedItem } from '@/api/payIn/lib/freebie'
+import { consumeQuotaForFlippedItem, consumeStreakReward } from '@/api/payIn/lib/freebie'
 
 // rewardsWalletObserver — observes posting/territory fees AND downvote payments paid to
 // the platform rewards wallet (Phase 3 Task 5 + Phase 4 Task 4 / spec §3.3, §5.6,
@@ -342,15 +342,16 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
     // that imports this module without stubbing the parser, and bloats worker
     // boot. The deferred-apply path is rare (one call per fee-bearing edit
     // whose fee lands), so a cached dynamic import is free.
-    const { applyPendingItemUpdate } = await import('@/api/payIn/types/itemUpdate')
-    // An apply failure must NEVER fail this run: the observer advances its
-    // cursor only after a clean poll, so a throw here would re-process the same
-    // tx on every retry (conflict path) and re-run this flip — freezing ALL fee
-    // attribution until manual intervention (the 2026-08-10 incident class).
-    // Mirrors the applyBoostDetected isolation. The pending edit survives the
-    // rolled-back apply and is purged by abandonFeeItems; the fee is already
-    // recorded by the FeeObservation.
+    //
+    // An apply (or import) failure must NEVER fail this run: the observer
+    // advances its cursor only after a clean poll, so a throw here would
+    // re-process the same tx on every retry (conflict path) and re-run this
+    // flip — freezing ALL fee attribution until manual intervention (the
+    // 2026-08-10 incident class). Mirrors the applyBoostDetected isolation.
+    // The pending edit survives the rolled-back apply and is purged by
+    // abandonFeeItems; the fee is already recorded by the FeeObservation.
     try {
+      const { applyPendingItemUpdate } = await import('@/api/payIn/types/itemUpdate')
       const applied = await applyPendingItemUpdate(models, payIn)
       if (applied) console.log(`flipPendingToLive: applied deferred ITEM_UPDATE payIn ${payIn.id}`)
     } catch (err) {
@@ -363,10 +364,24 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
     // Best-effort with its own guard: on failure the row stays PENDING_FEE
     // (visibly unpaid) instead of wedging the cursor.
     try {
-      await models.sub.updateMany({
+      const flipped = await models.sub.updateMany({
         where: { billingPayInId: payIn.id, billingStatus: 'PENDING_FEE' },
         data: { billingStatus: 'PAID' }
       })
+      if (flipped.count > 0 && payIn.payInType === 'TERRITORY_CREATE') {
+        // The creation's fee was observed: consume the day-7 TURF_DISCOUNT the
+        // user held at quote time (spec §5: consumed only on a successful
+        // creation — never on a submitted-but-unpaid one). Best-effort, in its
+        // own try, mirroring the quota consumption above.
+        try {
+          await consumeStreakReward(models, payIn.userId, 'TURF_DISCOUNT')
+        } catch (err) {
+          logError('flipPendingToLive: turf discount consumption failed', err)
+          alert('critical', 'turf discount consumption failed after territory flip',
+            `payIn ${payIn.id}, user ${payIn.userId}: ${err?.message || err}`,
+            { dedupeKey: `flip-turfdiscount-${payIn.id}` })
+        }
+      }
     } catch (err) {
       logError('flipPendingToLive: territory billing flip failed', err)
       alert('critical', 'territory billing flip failed after fee observation',

@@ -1,162 +1,147 @@
-import { notifyNewStreak, notifyStreakLost } from '@/lib/webPush'
-import { Prisma } from '@prisma/client'
+import { notifyFlameAdvanced, notifyFreezeUsed, notifyStreakLost } from '@/lib/webPush'
+import { cycleDay, isGoldFlame, ladderRewardForLevel, utcDay } from '@/lib/quests'
 
-const FLAME_STREAK_THRESHOLD_PICONEROS = 1000000000
+const REWARD_TYPE = { post: 'POST', freeze: 'FREEZE', turfdiscount: 'TURF_DISCOUNT' }
+const DAY_MS = 86_400_000
 
-export async function computeStreaks ({ models }) {
-  // get all eligible users in the last day
-  // if the user doesn't have an active streak, add one
-  // if they have an active streak but didn't maintain it, end it
-  const type = 'FLAME'
-  const endingStreaks = await models.$queryRaw`
-    WITH day_streaks (id) AS (
-      ${getStreakQuery(type)}
-    ), existing_streaks (id, started_at) AS (
-      SELECT "userId", "startedAt"
-      FROM "Streak"
-      WHERE "Streak"."endedAt" IS NULL
-      AND "type" = ${type}::"StreakType"
-    ), new_streaks (id) AS (
-      SELECT day_streaks.id
-      FROM day_streaks
-      LEFT JOIN existing_streaks ON existing_streaks.id = day_streaks.id
-      WHERE existing_streaks.id IS NULL
-    ), ending_streaks (id) AS (
-      SELECT existing_streaks.id
-      FROM existing_streaks
-      LEFT JOIN day_streaks ON existing_streaks.id = day_streaks.id
-      WHERE day_streaks.id IS NULL
-    ), extending_streaks (id, started_at) AS (
-      SELECT existing_streaks.id, existing_streaks.started_at
-      FROM existing_streaks
-      JOIN day_streaks ON existing_streaks.id = day_streaks.id
-    ),
-    -- a bunch of mutations
-    streak_insert AS (
-      INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
-      SELECT id, (now() AT TIME ZONE 'America/Chicago' - interval '1 day')::date, ${type}::"StreakType", now_utc(), now_utc()
-      FROM new_streaks
-      ON CONFLICT ("startedAt", "userId", "type") DO UPDATE
-        SET "endedAt" = NULL, updated_at = now_utc()
-    ), user_update_new_streaks AS (
-      UPDATE users SET "streak" = 1 FROM new_streaks WHERE new_streaks.id = users.id
-    ), user_update_end_streaks AS (
-      UPDATE users SET "streak" = NULL FROM ending_streaks WHERE ending_streaks.id = users.id
-    ), user_update_extend_streaks AS (
-      UPDATE users
-      SET "streak" = (now() AT TIME ZONE 'America/Chicago')::date - extending_streaks.started_at::date
-      FROM extending_streaks WHERE extending_streaks.id = users.id
-    )
-    UPDATE "Streak"
-    SET "endedAt" = (now() AT TIME ZONE 'America/Chicago' - interval '1 day')::date, updated_at = now_utc()
-    FROM ending_streaks
-    WHERE ending_streaks.id = "Streak"."userId" AND "endedAt" IS NULL AND "type" = ${type}::"StreakType"
-    RETURNING "Streak".*`
+/**
+ * Advance the flame for a UTC day whose quests are cleared (spec §4.5). The
+ * quest sweep calls this as soon as both completions are on record, so the
+ * flame lights — badge, filled circle, level rewards — the moment the day is
+ * cleared instead of waiting for 00:10 UTC; the daily evaluation calls it too
+ * as a backstop. `Streak.lastEvaluatedDay` marks the last day whose outcome is
+ * settled, so this is idempotent per day. With `requirePrevSettled` (the
+ * sweep's path) an active flame whose previous day is still pending evaluation
+ * is left alone: that day may yet consume a freeze or end the run, which would
+ * change the level. Returns the notification payload, or null when there was
+ * nothing to do.
+ */
+export async function advanceQuestStreak ({ models, userId, day, requirePrevSettled = false }) {
+  const dayDate = new Date(`${day}T00:00:00.000Z`)
+  const prevDate = new Date(dayDate.getTime() - DAY_MS)
+  let notification = null
 
-  Promise.allSettled(endingStreaks.map(streak => notifyStreakLost(streak.userId, streak)))
+  await models.$transaction(async tx => {
+    const user = await tx.user.findUnique({ where: { id: userId }, select: { streak: true } })
+    if (!user) return
+    const streak = await tx.streak.findFirst({ where: { userId, type: 'FLAME', endedAt: null } })
 
-  // End COIN badge streaks whose tipper hasn't tipped in the last 24h.
-  // Mirrors tippedRecently (api/resolvers/user.js): a DETECTED tip already
-  // counts, so the streak drains in sync with the badge.
-  const coldCoins = await models.$queryRaw`
-    WITH cold AS (
-      SELECT s."userId", s.id
-      FROM "Streak" s
-      WHERE s.type = 'COIN' AND s."endedAt" IS NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM "ObservedTip" t
-          WHERE t."tipperId" = s."userId" AND t.state IN ('DETECTED', 'CONFIRMED')
-            AND t."detectedAt" > now() - interval '24 hours'
-        )
-    )
-    UPDATE "Streak" SET "endedAt" = NOW(), updated_at = now_utc()
-    FROM cold WHERE cold.id = "Streak".id AND "endedAt" IS NULL
-    RETURNING "Streak".*`
-  Promise.allSettled(coldCoins.map(streak => notifyStreakLost(streak.userId, streak)))
-}
+    // Day guard: never count the same UTC day twice for one streak run.
+    if (streak?.lastEvaluatedDay && streak.lastEvaluatedDay >= dayDate) return
+    // Deferral guard: the previous day's outcome is still pending, so this day's
+    // level is not knowable yet.
+    if (requirePrevSettled && streak && (!streak.lastEvaluatedDay || streak.lastEvaluatedDay < prevDate)) return
 
-export async function checkStreak ({ data: { id, type = 'FLAME' }, models }) {
-  // if user is actively streaking skip
-  const user = await models.user.findUnique({
-    where: {
-      id: Number(id)
-    }
+    const level = (user.streak ?? 0) + 1
+    const row = streak ?? await tx.streak.create({
+      data: { userId, type: 'FLAME', startedAt: dayDate }
+    })
+    await tx.user.update({ where: { id: userId }, data: { streak: level } })
+    const rewards = await grantLadderRewards({ models: tx, userId, streak: row, from: row.rewardLevel, to: level })
+    await tx.streak.update({ where: { id: row.id }, data: { lastEvaluatedDay: dayDate } })
+    notification = { kind: 'advanced', level, cycleDay: cycleDay(level), goldFlame: isGoldFlame(level), rewards }
   })
 
-  // A job enqueued for a deleted/unknown user (e.g. a tip's recipient account
-  // whose owner was removed) has nothing to do — bail before dereferencing
-  // user.streak in isStreakActive, which would throw and mark the job
-  // permanently failed.
-  if (!user) return
+  return notification
+}
 
-  console.log('checking streak', id, type, isStreakActive(type, user))
+/**
+ * Daily quest-streak evaluation (spec §4.5). Runs just after 00:10 UTC and
+ * evaluates the UTC day that just ended: clearing both quests advances the
+ * flame (normally already done by the sweep — this is the backstop for a sweep
+ * that recorded the completions but crashed before advancing); a missed day is
+ * absorbed by a held streak freeze or ends the streak. `Streak.lastEvaluatedDay`
+ * makes re-runs for the same day no-ops. Ladder rewards are granted on advance,
+ * idempotently via `Streak.rewardLevel`.
+ */
+export async function evaluateQuestStreaks ({ models }) {
+  const day = utcDay(new Date(Date.now() - DAY_MS))
+  const dayDate = new Date(`${day}T00:00:00.000Z`)
 
-  if (isStreakActive(type, user)) {
-    return
+  // Every user with both completions recorded for the day (the sweep writes
+  // them; the unique key guarantees at most one row per quest).
+  const clearedRows = await models.$queryRaw`
+    SELECT "userId" FROM "QuestCompletion"
+    WHERE "day" = ${dayDate} GROUP BY "userId" HAVING count(*) >= 2`
+  const cleared = new Set(clearedRows.map(r => r.userId))
+
+  const active = await models.streak.findMany({ where: { type: 'FLAME', endedAt: null } })
+  const activeByUser = new Map(active.map(s => [s.userId, s]))
+  const userIds = new Set([...cleared, ...active.map(s => s.userId)])
+
+  for (const userId of userIds) {
+    const user = await models.user.findUnique({ where: { id: userId }, select: { streak: true } })
+    if (!user) continue
+    const known = activeByUser.get(userId)
+
+    // Day guard: never evaluate the same UTC day twice for one streak run.
+    if (known?.lastEvaluatedDay && known.lastEvaluatedDay >= dayDate) continue
+
+    if (cleared.has(userId)) {
+      // Already settled by the sweep in the normal case (the guard above would
+      // have skipped us); this covers the crash-before-advance case.
+      const notification = await advanceQuestStreak({ models, userId, day })
+      if (notification) notifyFlameAdvanced(userId, notification).catch(console.error)
+      continue
+    }
+
+    if (!known) continue
+
+    // One transaction per user: the guard, the hold/end, and the marker commit
+    // together, so a crash mid-evaluation can neither phantom-hold nor lose the
+    // day on the retry.
+    let notification = null
+    await models.$transaction(async tx => {
+      const streak = await tx.streak.findFirst({ where: { userId, type: 'FLAME', endedAt: null } })
+      if (!streak) return
+      if (streak.lastEvaluatedDay && streak.lastEvaluatedDay >= dayDate) return
+
+      await tx.streak.update({ where: { id: streak.id }, data: { lastEvaluatedDay: dayDate } })
+      const freeze = await tx.streakReward.findFirst({
+        where: { userId, type: 'FREEZE', consumedAt: null, expiresAt: { gt: new Date() } },
+        orderBy: { expiresAt: 'asc' }
+      })
+      if (freeze) {
+        await tx.streakReward.update({ where: { id: freeze.id }, data: { consumedAt: new Date() } })
+        notification = { kind: 'freeze', day: cycleDay(user.streak) }
+      } else {
+        await tx.streak.update({ where: { id: streak.id }, data: { endedAt: dayDate } })
+        await tx.user.update({ where: { id: userId }, data: { streak: null } })
+        notification = { kind: 'lost', streak }
+      }
+    })
+
+    if (notification?.kind === 'freeze') notifyFreezeUsed(userId, notification.day).catch(console.error)
+    else if (notification?.kind === 'lost') notifyStreakLost(userId, notification.streak).catch(console.error)
   }
-
-  const [streak] = await models.$queryRaw`
-    WITH streak_started (id) AS (
-        ${getStreakQuery(type, id)}
-    ), user_start_streak AS (
-      UPDATE users SET "streak" = 0 FROM streak_started WHERE streak_started.id = users.id
-    )
-    INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
-    SELECT id, (now() AT TIME ZONE 'America/Chicago')::date, ${type}::"StreakType", now_utc(), now_utc()
-    FROM streak_started
-    ON CONFLICT ("startedAt", "userId", "type") DO UPDATE
-      SET "endedAt" = NULL, updated_at = now_utc()
-    RETURNING "Streak".*`
-
-  if (!streak) return
-
-  // new streak started for user
-  notifyNewStreak(id, streak)
 }
 
-function getStreakQuery (type, userId) {
-  const dayFragment = userId
-    ? Prisma.sql`(now() AT TIME ZONE 'America/Chicago')::date`
-    : Prisma.sql`(now() AT TIME ZONE 'America/Chicago' - interval '1 day')::date`
-
-  // Paid actions: fee-pool payments carry their piconeros on FeeObservation
-  // (the PayIn rows are bookkeeping with piconeros=0 — see api/payIn), so the
-  // attribution unions PayIn and FeeObservation (via payInId -> the payer).
-  // TIP_UNWALLETED observations have payInId NULL and drop out here.
-  return Prisma.sql`
-      SELECT "userId" FROM (
-        SELECT "PayIn"."userId", sum("PayIn"."piconeros") AS piconeros
-          FROM "PayIn"
-          WHERE "PayIn"."payInState" = 'PAID'
-          AND ("PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
-          ${userId ? Prisma.sql`AND "PayIn"."userId" = ${userId}` : Prisma.empty}
-          GROUP BY "PayIn"."userId"
-        UNION ALL
-        SELECT p."userId", sum(f.piconeros) AS piconeros
-          FROM "FeeObservation" f
-          JOIN "PayIn" p ON p.id = f."payInId"
-          WHERE f."payInId" IS NOT NULL
-          AND f.state IN ('DETECTED', 'CONFIRMED')
-          AND (f."detectedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
-          ${userId ? Prisma.sql`AND p."userId" = ${userId}` : Prisma.empty}
-          GROUP BY p."userId"
-      ) paid_actions
-      GROUP BY "userId"
-      HAVING sum(piconeros) >= ${FLAME_STREAK_THRESHOLD_PICONEROS}
-      INTERSECT
-      SELECT "userId" FROM (
-        SELECT ma."ownerUserId" AS "userId"
-          FROM "ObservedTip"
-          JOIN "MoneroAccount" ma ON ma.id = "ObservedTip"."recipientAccountId"
-          WHERE "ObservedTip"."state" IN ('DETECTED', 'CONFIRMED')
-          AND ma."ownerUserId" IS NOT NULL
-          AND ("ObservedTip"."detectedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date >= ${dayFragment}
-          ${userId ? Prisma.sql`AND ma."ownerUserId" = ${userId}` : Prisma.empty}
-          GROUP BY ma."ownerUserId"
-          HAVING sum("ObservedTip"."piconeros") >= ${FLAME_STREAK_THRESHOLD_PICONEROS}
-      ) tips_received`
-}
-
-function isStreakActive (type, user) {
-  return typeof user.streak === 'number'
+/**
+ * Grant every ungranted ladder level up to `to`. POST credits always grant
+ * (cycle days 2 and 6); FREEZE and TURF_DISCOUNT are suppressed while one is
+ * already held (non-stacking). The marker advances even when a reward is
+ * suppressed, so the next cycle re-attempts on its own day 4/7.
+ */
+export async function grantLadderRewards ({ models, userId, streak, from, to }) {
+  const granted = []
+  for (let level = from + 1; level <= to; level++) {
+    const kind = ladderRewardForLevel(level)
+    const type = REWARD_TYPE[kind]
+    if (!type) continue // flame / reply / goldflame are cosmetic or live
+    if (type !== 'POST') {
+      const held = await models.streakReward.findFirst({
+        where: { userId, type, consumedAt: null, expiresAt: { gt: new Date() } },
+        select: { id: true }
+      })
+      if (held) continue
+    }
+    await models.$queryRaw`
+      INSERT INTO "StreakReward" ("userId", "streakId", created_at, "grantedAt", "expiresAt", "type")
+      VALUES (${userId}, ${streak.id}, now_utc(), now_utc(), now_utc() + interval '1 month', ${type}::"StreakRewardType")`
+    granted.push({ level, kind })
+  }
+  if (to > from) {
+    await models.streak.update({ where: { id: streak.id }, data: { rewardLevel: to } })
+  }
+  return granted
 }

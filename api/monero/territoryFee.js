@@ -7,6 +7,7 @@
 import { buildMoneroUri } from '@/api/monero/uri'
 import { moneroUriAddress, moneroUriAmountPiconeros } from '@/lib/format'
 import { reentryQuote } from '@/lib/pay-in'
+import { applyTurfDiscount } from '@/lib/quests'
 
 const TERRITORY_FEE = {
   MONTHLY: (c) => c.territoryMonthlyPiconeros,
@@ -19,6 +20,13 @@ export function territoryFeePiconeros (billingType, config) {
   const fn = TERRITORY_FEE[billingType]
   if (!fn) throw new Error(`territoryFeePiconeros: unknown billingType ${billingType}`)
   return fn(config)
+}
+
+/** Apply the held quest-streak discount to a territory fee (spec §2.4 day 7).
+ * Floors to whole piconeros and never makes the fee negative. */
+export function discountedTerritoryFee (feePiconeros, discountHeld) {
+  if (!discountHeld || feePiconeros <= 0n) return feePiconeros
+  return applyTurfDiscount(feePiconeros)
 }
 
 export const TERRITORY_FEE_PRIVATES_ZERO = {

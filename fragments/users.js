@@ -26,9 +26,21 @@ ${STREAK_FIELDS}
       credits
       freeCommentsLeft
       freeCommentsQuota
+      questUpvoteComplete
+      questDrawnType
+      questDrawnTurf
+      questDrawnComplete
+      questsCompletedToday
+      flameCycleDay
+      goldFlame
+      freezeHeld
+      turfDiscountHeld
+      questResetsAt
       freePostCount
       freePostsLeft
       freePostsQuota
+      freePostCredits
+      freePostCreditsExpireAt
       postingFeeRequired
       postingFeePiconeros
       postingFeeFloorPiconeros
@@ -72,6 +84,7 @@ export const SETTINGS_FIELDS = gql`
       noteItemMentions
       noteInvites
       noteBadges
+      noteQuests
       emailNotifications
       hideFromTopUsers
       hideStashAmount

@@ -343,3 +343,50 @@
     color: #FF6600;
   }
 }
+
+// ---- daily quests module (own profile only) ----
+.stealth-rebrand .quests-module {
+  width: 348px;
+  flex: none;
+  background: var(--stealth-surface);
+  border: 1px solid var(--stealth-border);
+  border-radius: 10px;
+  padding: 11px 13px;
+  margin: 18px 0 0;
+}
+@media (max-width: 575.98px) {
+  .stealth-rebrand .quests-module { width: 100%; margin-top: 14px; }
+}
+.stealth-rebrand .qm-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.stealth-rebrand .qm-title { font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: #ffb347; font-weight: 600; }
+.stealth-rebrand .qm-timer { font-size: 0.66rem; color: var(--stealth-muted); }
+.stealth-rebrand .qm-timer b { color: #ffca8a; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stealth-rebrand .qm-q { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.stealth-rebrand .qm-ic { display: inline-flex; color: #8a8a8a; opacity: 0.85; filter: grayscale(1); }
+.stealth-rebrand .qm-ic svg { width: 25px; height: 25px; fill: none; }
+.stealth-rebrand .qm-ic.on { opacity: 1; filter: none; color: #ffb347; }
+.stealth-rebrand .qm-nm { flex: 1; min-width: 0; font-size: 0.78rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stealth-rebrand .qm-rw { flex: none; font-size: 0.68rem; color: #ffca8a; }
+.stealth-rebrand .qm-rw.completed { color: #6fd08c; font-weight: 600; }
+.stealth-rebrand .qm-flame { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--stealth-border); }
+.stealth-rebrand .qm-flab { font-size: 0.64rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--stealth-muted); margin-bottom: 22px; }
+.stealth-rebrand .qm-flame.gold .qm-flab { color: #ffd166; }
+.stealth-rebrand .qm-days { display: flex; align-items: center; }
+.stealth-rebrand .qm-conn { flex: 1; height: 2px; background: rgba(255, 255, 255, 0.12); margin: 0 3px; }
+.stealth-rebrand .qm-conn.on { background: linear-gradient(90deg, #ff6600, #ffb347); }
+.stealth-rebrand .qm-flame.gold .qm-conn.on { background: linear-gradient(90deg, #ffd166, #ffc94d); }
+.stealth-rebrand .qm-dc { display: flex; flex-direction: column; align-items: center; position: relative; }
+.stealth-rebrand .qm-dot { width: 25px; height: 25px; border-radius: 50%; display: grid; place-items: center; background: #0b0c0f; border: 1px solid rgba(255, 255, 255, 0.13); color: var(--stealth-muted); font-size: 0.64rem; font-weight: 600; }
+.stealth-rebrand[data-bs-theme='light'] .qm-dot { background: #fff; border-color: rgba(0, 0, 0, 0.15); }
+.stealth-rebrand .qm-dc.on .qm-dot { background: linear-gradient(135deg, #ff6600, #ffb347); border-color: transparent; color: #160c03; }
+.stealth-rebrand .qm-dc.today .qm-dot { box-shadow: 0 0 0 2px rgba(255, 102, 0, 0.2), 0 0 9px rgba(255, 140, 40, 0.5); }
+.stealth-rebrand .qm-flame.gold .qm-dc.on .qm-dot,
+.stealth-rebrand .qm-flame.gold .qm-dc.today .qm-dot { background: linear-gradient(135deg, #ffd166, #ffc94d); }
+.stealth-rebrand .qm-mk { position: absolute; top: -15px; font-size: 0.72rem; line-height: 1; color: var(--stealth-muted); }
+.stealth-rebrand .qm-mk svg { width: 15px; height: 15px; display: block; fill: none; }
+.stealth-rebrand .qm-mk.on { color: #ffb347; }
+.stealth-rebrand .qm-flame.gold .qm-mk.on { color: #ffd166; }
+.stealth-rebrand .qm-sup { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--stealth-border); font-size: 0.64rem; color: var(--stealth-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stealth-rebrand .qm-sup b { color: #c9c9c9; font-weight: 600; }
+.stealth-rebrand[data-bs-theme='light'] .qm-sup b { color: #333; }
+.stealth-rebrand .qm-hl { color: #ffb347; }

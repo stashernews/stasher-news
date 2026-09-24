@@ -161,26 +161,23 @@ export default gql`
     days: Int
   }
 
-  type NewCoin {
-    id: ID!
-    sortTime: Date!
-  }
-
-  type LostCoin {
-    id: ID!
-    sortTime: Date!
-  }
-
   type NewVerified {
     id: ID!
     sortTime: Date!
+  }
+
+  type QuestComplete {
+    id: ID!
+    sortTime: Date!
+    quest: String!
+    turfName: String
   }
 
   union Notification = Reply | Votification | BountyPayment | Mention
     | Invitification | Earn | JobChanged | Referral
     | FollowActivity | Revenue | SubStatus
     | TerritoryPost | TerritoryTransfer | Reminder | ItemMention | PayInification
-    | ReferralReward | Flame | NewCoin | LostCoin | NewVerified
+    | ReferralReward | Flame | NewVerified | QuestComplete
     | Bulletinification
 
   type Notifications {

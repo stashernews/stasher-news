@@ -133,8 +133,23 @@ Tips are paid peer-to-peer to your registered address and credited to your accou
 Badges next to a stasher's name signal activity:
 
 - a verified check means the stasher has attached a wallet
-- a gold coin means they tipped content in the last 24 hours
-- a flame means they have an active daily streak
+- a flame means they have kept their daily quest streak alive — golden from day 5 of each cycle
+
+---
+
+### What are daily quests?
+
+Two quests are drawn every day at 00:00 UTC: the first is always "send an upvote" (the upvote arrow is a tip), and the second is one of: send a boost, be the first responder to a post with no replies yet, or post or comment in a randomly drawn turf. Each quest you complete pays one free reply for that day.
+
+Clearing both quests keeps your flame alive. The flame runs a 7-day cycle and every day reached pays something: day 1 lights the flame, days 2 and 6 bank a free post, day 3 adds a free reply for the day, day 4 banks a streak freeze (it absorbs your next missed day), day 5 turns the flame golden, and day 7 banks 15% off your next turf creation. The ladder re-earns every cycle — and a missed day without a freeze restarts the run at day 1.
+
+---
+
+### How many free replies and posts do I get?
+
+New stashers get one free reply per day and one free post per month. Established stashers — 0.01 XMR stashed and a week old — get three free replies per day and five free posts per month. Completing daily quests adds one free reply each, and the flame's day-3 bonus adds one more while it burns.
+
+Banked free posts come from the flame: days 2 and 6 of each cycle bank one each. A banked post is good for one month from the day it was earned, and your monthly free posts are always spent before banked ones. You can see your remaining replies and posts on your own profile page.
 
 ---
 

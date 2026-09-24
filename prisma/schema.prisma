@@ -61,6 +61,7 @@ model User {
   phrasePubkey            String?              @unique(map: "users.phrasePubkey_unique") @db.Char(64)
   nostrCrossposting       Boolean              @default(false)
   noteBadges              Boolean              @default(true)
+  noteQuests              Boolean              @default(true)
   streak                  Int?
   infected                Boolean              @default(false)
   cured                   Boolean              @default(false)
@@ -75,6 +76,8 @@ model User {
   mentions                Mention[]
   PushSubscriptions       PushSubscription[]
   Streak                  Streak[]
+  StreakReward            StreakReward[]
+  questCompletions        QuestCompletion[]
   ThreadSubscriptions     ThreadSubscription[]
   SubSubscriptions        SubSubscription[]
   Upload                  Upload[]             @relation("Uploads")
@@ -219,7 +222,6 @@ model Mute {
 
 enum StreakType {
   FLAME
-  COIN
   VERIFIED
 }
 
@@ -231,11 +233,66 @@ model Streak {
   endedAt   DateTime?
   userId    Int
   type      StreakType @default(FLAME)
+  // Highest total streak level whose ladder rewards have been granted for
+  // THIS run (cycles re-grant at 8, 9, ...; the marker only moves forward).
+  // A job retry sees the marker and no-ops.
+  rewardLevel    Int       @default(0)
+  // The last UTC day this run was evaluated for (the guard that makes the
+  // daily evaluation idempotent: a re-run for the same day is a no-op).
+  lastEvaluatedDay DateTime?
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([startedAt, userId, type])
   @@index([userId], map: "Streak.userId_index")
   @@index([type])
+}
+
+enum QuestType {
+  UPVOTE
+  BOOST
+  FIRST_RESPONDER
+  TURF
+}
+
+// One row per completed quest, written by the quest sweep (worker/quests.js).
+// The unique key is the idempotency guard and the notification trigger.
+model QuestCompletion {
+  id        Int       @id @default(autoincrement())
+  createdAt DateTime  @default(now()) @map("created_at")
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day       DateTime
+  quest     QuestType
+
+  @@unique([userId, day, quest])
+  @@index([day])
+}
+
+enum StreakRewardType {
+  POST
+  FREEZE
+  TURF_DISCOUNT
+}
+
+// Typed streak rewards (spec 2026-09-23-daily-quests): one row per granted
+// reward, each with its own expiry. POST credits are consumed at post creation
+// (base quota first, soonest-expiring first); FREEZE by the streak job when a
+// day is missed; TURF_DISCOUNT by turf creation. Never stacked for FREEZE /
+// TURF_DISCOUNT (grants suppressed while one is held).
+model StreakReward {
+  id         Int              @id @default(autoincrement())
+  createdAt  DateTime         @default(now()) @map("created_at")
+  userId     Int
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  streakId   Int?
+  type       StreakRewardType @default(POST)
+  grantedAt  DateTime         @default(now())
+  expiresAt  DateTime
+  consumedAt DateTime?
+  itemId     Int?
+
+  @@index([userId, type, consumedAt, expiresAt])
+  @@index([expiresAt])
 }
 
 model NostrRelay {
@@ -1531,6 +1588,7 @@ model ObservedTip {
   @@index([state, confirmedAt])
   @@index([postId, tipperId, state])
   @@index([postId, state])
+  @@index([tipperId, state, detectedAt])
 }
 
 enum TipExclusionReason {

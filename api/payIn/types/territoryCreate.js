@@ -1,7 +1,7 @@
 import { PAID_ACTION_PAYMENT_METHODS, TERRITORY_PERIOD_COST } from '@/lib/constants'
 import { nextBilling } from '@/lib/territory'
 import { initialTrust } from '../lib/territory'
-import { territoryFeePiconeros } from '@/api/monero/territoryFee'
+import { discountedTerritoryFee, territoryFeePiconeros } from '@/api/monero/territoryFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
@@ -31,9 +31,16 @@ export async function getInitial (models, { billingType, name, uploadIds = [] },
 
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   const fee = territoryFeePiconeros(billingType, config)
+  // Day-7 quest-streak discount (spec §2.4): applied to the quoted fee here and
+  // consumed at creation; one held max, one month expiry.
+  const discountHeld = !!(await models.streakReward.findFirst({
+    where: { userId: me.id, type: 'TURF_DISCOUNT', consumedAt: null, expiresAt: { gt: new Date() } },
+    select: { id: true }
+  }))
+  const amount = discountedTerritoryFee(fee, discountHeld)
   const sub = await reserveFeeSubaddress(models, 'TERRITORY_CREATE', { me }) // major 2
   const moneroUri = buildMoneroUri(
-    [{ address: sub.address, amount: fee }],
+    [{ address: sub.address, amount }],
     { description: `StasherNews territory ${name} (${billingType})` }
   )
   return {

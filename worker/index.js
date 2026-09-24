@@ -8,7 +8,8 @@ import { trust } from './trust'
 import { ApolloClient, HttpLink, InMemoryCache } from '@apollo/client'
 import { indexItem, indexAllItems } from './search'
 import { timestampItem } from './ots'
-import { computeStreaks, checkStreak } from './streak'
+import { evaluateQuestStreaks } from './streak'
+import { sweepQuestCompletions } from './quests'
 import { nip57 } from './nostr'
 import fetch from 'cross-fetch'
 import { imgproxy } from './imgproxy'
@@ -164,8 +165,8 @@ async function work () {
     await boss.send('trust', {}, { ...BOSS_RETRY, startAfter: 24 * 60 * 60 })
   }
   await boss.work('timestampItem', { includeMetadata: true }, jobWrapper(timestampItem))
-  await boss.work('streak', { includeMetadata: true }, jobWrapper(computeStreaks))
-  await boss.work('checkStreak', { includeMetadata: true }, jobWrapper(checkStreak))
+  await boss.work('streak', { includeMetadata: true }, jobWrapper(evaluateQuestStreaks))
+  await boss.work('questSweep', { includeMetadata: true }, jobWrapper(sweepQuestCompletions))
   await boss.work('nip57', { includeMetadata: true }, jobWrapper(nip57))
   await boss.work('deleteItem', { includeMetadata: true }, jobWrapper(deleteItem))
   await boss.work('territoryBilling', { includeMetadata: true }, jobWrapper(territoryBilling))

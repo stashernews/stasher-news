@@ -2,7 +2,6 @@ import { PrismaClient, Prisma } from '@prisma/client'
 import { applyTipDetected } from '@/api/monero/ranking'
 import { lwsClient } from '@/api/monero/lwsClient'
 import { daemonClient } from '@/api/monero/daemonClient'
-import { notifyNewStreak } from '@/lib/webPush'
 import { BOSS_RETRY, REQUIRED_CONFIRMATIONS, WEBHOOK_MISS_CHECK_DELAY_SECONDS } from '@/lib/constants'
 import { moneroWebhooksReceivedTotal, moneroDetectionLevelTotal } from '@/lib/metrics'
 import { alert } from '@/lib/alert'
@@ -355,23 +354,9 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
             await tx.$executeRaw`
               UPDATE "ObservedTip" SET "rankPiconeros" = ${rankDelta}
               WHERE id = ${tip.id} AND state = 'DETECTED'`
-            if (tip.tipperId != null) {
-              const [coin] = await tx.$queryRaw`
-                INSERT INTO "Streak" ("userId", "startedAt", "type", created_at, updated_at)
-                SELECT ${tip.tipperId}::int, NOW(), 'COIN'::"StreakType", now_utc(), now_utc()
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM "Streak"
-                  WHERE "userId" = ${tip.tipperId}::int AND type = 'COIN' AND "endedAt" IS NULL
-                )
-                RETURNING "Streak".*`
-              if (coin) notifyNewStreak(tip.tipperId, coin).catch(console.error)
-            }
-            const recipientUserId = tip.recipientAccount?.ownerUserId
-            if (recipientUserId != null) {
-              await tx.$executeRaw`
-                INSERT INTO pgboss.job (id, name, data)
-                VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${recipientUserId}, 'type', 'FLAME'))`
-            }
+            // Claims mint no streak state: the flame is quest-driven (the daily
+            // evaluation owns it — spec 2026-09-23-daily-quests) and the coin
+            // badge was removed entirely.
           }
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
       } catch (err) {

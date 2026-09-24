@@ -370,7 +370,7 @@ test('direct self-tip (tipperId === post.userId) -> EXCLUDED: no ranking delta, 
   const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
   const sqls = execRaw.mock.calls.map(sqlOf)
   expect(sqls.some(sql => sql.includes("state = 'EXCLUDED'") && sql.includes("state = 'PENDING'"))).toBe(true)
-  // exactly ONE $executeRaw: the claim. applyTipDetected + COIN streak + checkStreak never ran.
+  // exactly ONE $executeRaw: the claim. applyTipDetected never ran.
   expect(execRaw).toHaveBeenCalledTimes(1)
   // AbuseSignal row written in the same transaction
   expect(txAbuseSignalCreate).toHaveBeenCalledWith(expect.objectContaining({
@@ -437,8 +437,7 @@ test('self-send (spent output from the recipient own wallet) -> EXCLUDED with re
   expect(monero.getAddressTxs).toHaveBeenCalledTimes(1)
   // The exclusionReason is a BOUND PARAM (${exclusionReason}::"TipExclusionReason"),
   // never SQL text — assert the claim via its SQL shape and the reason via the
-  // call's bound values (the same [...call].slice(1).flat() idiom the
-  // checkStreak test uses).
+  // call's bound values (the [...call].slice(1).flat() idiom used to read them).
   const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
   const claimCall = execRaw.mock.calls.find(call => sqlOf(call).includes("state = 'EXCLUDED'") && sqlOf(call).includes("state = 'PENDING'"))
   expect(claimCall).toBeDefined()
@@ -985,51 +984,8 @@ test('rejects requests with a wrong token in the body', async () => {
   expect(res.status).toHaveBeenCalledWith(401)
 })
 
-test('enqueues a checkStreak job for the recipient when a PENDING tip is claimed', async () => {
+test('a claimed tip enqueues no streak jobs and mints no streaks', async () => {
   const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, tipperId: 5, webhookEventId: 'evt-1', post: { userId: 999 }, recipientAccount: { ownerUserId: 99 } }
-  const execRaw = jest.fn().mockResolvedValue(1)
-  const models = mockModels({
-    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
-    execRaw
-  })
-  const res = mockRes()
-  await handleWebhook({
-    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
-  }, res, models)
-  expect(res.status).toHaveBeenCalledWith(200)
-  const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
-  const sqls = execRaw.mock.calls.map(sqlOf)
-  expect(sqls.some(sql => sql.includes('checkStreak'))).toBe(true)
-  expect(sqls.some(sql => sql.includes('jsonb_build_object'))).toBe(true)
-  // The checkStreak job must target the wallet OWNER (99), not the tipper (5)
-  // or the post author (999): the bound id is in $executeRaw's value args
-  // (jsonb_build_object('id', 99, 'type', 'FLAME')).
-  const streakCall = execRaw.mock.calls.find(call => sqlOf(call).includes('checkStreak'))
-  expect(streakCall).toBeDefined()
-  const boundValues = [...streakCall].slice(1).flat()
-  expect(boundValues).toContain(99)
-  expect(boundValues).not.toContain(5)
-  expect(boundValues).not.toContain(999)
-})
-
-test('does NOT enqueue checkStreak when the recipient has no wallet owner', async () => {
-  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, tipperId: 5, webhookEventId: 'evt-1', post: { userId: 99 }, recipientAccount: { ownerUserId: null } }
-  const execRaw = jest.fn().mockResolvedValue(1)
-  const models = mockModels({
-    observedTip: { findFirst: jest.fn().mockResolvedValue(tip) },
-    execRaw
-  })
-  const res = mockRes()
-  await handleWebhook({
-    body: { payment_id: 'abc123', event: 'tx-confirmation', confirmations: 0, tx_info: { tx_hash: 'deadbeef', block: 2172600, amount: 1000000000 } }
-  }, res, models)
-  expect(res.status).toHaveBeenCalledWith(200)
-  const sqls = execRaw.mock.calls.map(call => Array.isArray(call[0]) ? call[0].join('') : call[0].text)
-  expect(sqls.some(sql => sql.includes('checkStreak'))).toBe(false)
-})
-
-test('enqueues a checkStreak job for the recipient but no COIN streak for an anonymous tip to an owned wallet', async () => {
-  const tip = { id: 1, postId: 10, state: 'PENDING', paymentId: 'abc123', piconeros: 0n, tipperId: null, webhookEventId: 'evt-1', post: { userId: 999 }, recipientAccount: { ownerUserId: 99 } }
   const execRaw = jest.fn().mockResolvedValue(1)
   const queryRaw = jest.fn().mockResolvedValue([])
   const models = mockModels({
@@ -1043,14 +999,10 @@ test('enqueues a checkStreak job for the recipient but no COIN streak for an ano
   }, res, models)
   expect(res.status).toHaveBeenCalledWith(200)
   const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
-  // The FLAME checkStreak job still targets the wallet owner (99) for anon tips.
-  const streakCall = execRaw.mock.calls.find(call => sqlOf(call).includes('checkStreak'))
-  expect(streakCall).toBeDefined()
-  expect([...streakCall].slice(1).flat()).toContain(99)
-  // The COIN grant is tipper-only (`if (tip.tipperId != null)`): an anon tipper
-  // must NOT mint a COIN streak. The grant is a $queryRaw INSERT whose SQL text
-  // contains 'COIN'::"StreakType", so check those captured calls too.
   const allSql = [...execRaw.mock.calls, ...queryRaw.mock.calls].map(sqlOf)
+  // The flame is quest-driven now (the daily evaluation owns it) and the coin
+  // badge is deleted: a claim must not enqueue streak jobs or mint streaks.
+  expect(allSql.some(sql => sql.includes('checkStreak'))).toBe(false)
   expect(allSql.some(sql => sql.includes('COIN'))).toBe(false)
 })
 

@@ -24,6 +24,14 @@ const REWARDS_ADDR = '5RpnlFeePool' + 'A'.repeat(86) // unique stagenet placehol
 const created = { users: [], items: [], accounts: [], viewKeys: [], payIns: [], fees: [], subs: [] }
 let rewardsWallet
 
+// The observer attributes fee outputs by (major, minor), and the shared dev DB
+// carries real pending payIns — one at the same minor starves these fixtures
+// (2026-09-24: a user's ITEM_UPDATE payIns at major 1, minor 101/102 hijacked
+// attribution). Take a random high base per run so fixtures never collide
+// with real rows.
+let nextSubMinor = 100_000 + Math.floor(Math.random() * 800_000)
+const subMinor = () => nextSubMinor++
+
 beforeAll(async () => {
   await sweepFakeRewardsWallets(['5Bare' + 'B'.repeat(91), '5Keyd' + 'C'.repeat(91), REWARDS_ADDR])
   rewardsWallet = await prisma.moneroAccount.create({
@@ -186,7 +194,7 @@ function lwsFeeTx (hash, piconeros, major, minor, height = 1234) {
 }
 
 test('rewardsWalletObserver attributes a posting fee by subaddress, creates FeeObservation DETECTED, flips Item FEE_PAID', async () => {
-  const { item, payIn, major, minor } = await seedPendingFeePost(101)
+  const { item, payIn, major, minor } = await seedPendingFeePost(subMinor())
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('a1' + 'ab'.repeat(31), '1000000000', major, minor)] })
 
   const obs = await prisma.feeObservation.findFirst({ where: { payInId: payIn.id } })
@@ -205,7 +213,7 @@ test('rewardsWalletObserver attributes a posting fee by subaddress, creates FeeO
 })
 
 test('rewardsWalletObserver attributes a territory fee by subaddress, denormalizing the Sub name', async () => {
-  const { subName, payIn, major, minor } = await seedPendingFeeSub(201)
+  const { subName, payIn, major, minor } = await seedPendingFeeSub(subMinor())
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('e5' + '56'.repeat(31), '200000000000', major, minor)] })
 
   const obs = await prisma.feeObservation.findFirst({ where: { payInId: payIn.id } })
@@ -222,7 +230,7 @@ test('rewardsWalletObserver attributes a territory fee by subaddress, denormaliz
 })
 
 test('rewardsWalletObserver is idempotent across re-polls', async () => {
-  const { item, payIn, major, minor } = await seedPendingFeePost(102)
+  const { item, payIn, major, minor } = await seedPendingFeePost(subMinor())
   const tx = lwsFeeTx('b2' + 'cd'.repeat(31), '1000000000', major, minor)
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
@@ -244,8 +252,8 @@ test('rewardsWalletObserver ignores outputs whose subaddress matches no pending 
 })
 
 test('rewardsWalletObserver ignores a fee subaddress with no pending PayIn (already consumed / unknown)', async () => {
-  // major 1, minor 999 has no PayIn reserved -> skip silently
-  const tx = lwsFeeTx('d4' + '12'.repeat(31), '1000000000', 1, 999)
+  // major 1, a fresh minor has no PayIn reserved -> skip silently
+  const tx = lwsFeeTx('d4' + '12'.repeat(31), '1000000000', 1, subMinor())
   const before = await prisma.feeObservation.count()
   await expect(runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })).resolves.toBeUndefined()
   expect(await prisma.feeObservation.count()).toBe(before)
@@ -277,7 +285,7 @@ async function seedBoostPayIn (minor) {
 }
 
 test('a BOOST fee observation bumps Item.boost at DETECTION', async () => {
-  const { payInId, postId, major, minor } = await seedBoostPayIn(301)
+  const { payInId, postId, major, minor } = await seedBoostPayIn(subMinor())
   const before = await prisma.item.findUnique({ where: { id: postId }, select: { boost: true } })
 
   const tx = {
@@ -303,7 +311,7 @@ test('a BOOST fee observation bumps Item.boost at DETECTION', async () => {
 // succeeded but the ranking bump never happened. With the columns now BigInt
 // and the casts ::BIGINT, 1 XMR = 1e12 piconeros bumps boost 1:1.
 test('a BOOST fee observation above Int4 max (1 XMR) bumps Item.boost at DETECTION', async () => {
-  const { payInId, postId, major, minor } = await seedBoostPayIn(302)
+  const { payInId, postId, major, minor } = await seedBoostPayIn(subMinor())
   const before = await prisma.item.findUnique({ where: { id: postId }, select: { boost: true } })
 
   const tx = {
@@ -365,6 +373,7 @@ test('findRewardsAccount selects a viewKey-bearing platform_rewards account dete
 
 test('a DONATE payIn with donationRewardsPct copies the split onto the FeeObservation', async () => {
   const userId = await createUser()
+  const donateMinor = subMinor()
   const payIn = await prisma.payIn.create({
     data: {
       userId,
@@ -372,7 +381,7 @@ test('a DONATE payIn with donationRewardsPct copies the split onto the FeeObserv
       payInState: 'PAID',
       piconeros: 0n,
       moneroSubaddressMajor: 3,
-      moneroSubaddressMinor: 99,
+      moneroSubaddressMinor: donateMinor,
       donationRewardsPct: 40
     }
   })
@@ -380,7 +389,7 @@ test('a DONATE payIn with donationRewardsPct copies the split onto the FeeObserv
   await runRewardsWalletObserverOnce({
     models: prisma,
     account: rewardsWallet,
-    txs: [lwsFeeTx('donate-split-tx-' + Date.now(), '2000000000', 3, 99)]
+    txs: [lwsFeeTx('donate-split-tx-' + Date.now(), '2000000000', 3, donateMinor)]
   })
   const obs = await prisma.feeObservation.findFirst({ where: { payInId: payIn.id } })
   expect(obs.feeType).toBe('DONATE')
@@ -394,7 +403,7 @@ test('a DONATE payIn with donationRewardsPct copies the split onto the FeeObserv
 const FEE_URI = (xmr) => `monero:5${'F'.repeat(94)}?tx_amount=${xmr}`
 
 test('an underpaid posting fee records its FeeObservation but does NOT flip the item live', async () => {
-  const { item, payIn, major, minor } = await seedPendingFeePost(111, FEE_URI('0.001'))
+  const { item, payIn, major, minor } = await seedPendingFeePost(subMinor(), FEE_URI('0.001'))
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f1' + 'ab'.repeat(31), '400000000', major, minor)] })
 
   const obs = await prisma.feeObservation.findFirst({ where: { payInId: payIn.id } })
@@ -408,7 +417,7 @@ test('an underpaid posting fee records its FeeObservation but does NOT flip the 
 })
 
 test('a top-up to the same subaddress accumulates and flips the item live at the full fee', async () => {
-  const { item, payIn, major, minor } = await seedPendingFeePost(112, FEE_URI('0.001'))
+  const { item, payIn, major, minor } = await seedPendingFeePost(subMinor(), FEE_URI('0.001'))
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f2' + 'ab'.repeat(31), '400000000', major, minor)] })
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f3' + 'ab'.repeat(31), '600000000', major, minor)] })
 
@@ -423,7 +432,7 @@ test('a top-up to the same subaddress accumulates and flips the item live at the
 })
 
 test('a fee-paid reply denormalizes its ancestors + Reply rows exactly once at the flip', async () => {
-  const { root, comment, major, minor } = await seedPendingFeeComment(121, FEE_URI('0.001'))
+  const { root, comment, major, minor } = await seedPendingFeeComment(subMinor(), FEE_URI('0.001'))
   const tx = lwsFeeTx('r1' + 'ab'.repeat(31), '1000000000', major, minor)
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
 
@@ -446,7 +455,7 @@ test('a fee-paid reply denormalizes its ancestors + Reply rows exactly once at t
 })
 
 test('an over-payment top-up after the flip does not double-denormalize', async () => {
-  const { root, major, minor } = await seedPendingFeeComment(123, FEE_URI('0.001'))
+  const { root, major, minor } = await seedPendingFeeComment(subMinor(), FEE_URI('0.001'))
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('r3' + 'ab'.repeat(31), '1000000000', major, minor)] })
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('r4' + 'ab'.repeat(31), '500000000', major, minor)] })
   const rootAfter = await prisma.item.findUnique({ where: { id: root.id } })
@@ -454,7 +463,7 @@ test('an over-payment top-up after the flip does not double-denormalize', async 
 })
 
 test('an underpaid reply stays PENDING_FEE and does not denormalize', async () => {
-  const { root, major, minor } = await seedPendingFeeComment(122, FEE_URI('0.001'))
+  const { root, major, minor } = await seedPendingFeeComment(subMinor(), FEE_URI('0.001'))
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('r2' + 'ab'.repeat(31), '400000000', major, minor)] })
   const rootAfter = await prisma.item.findUnique({ where: { id: root.id } })
   expect(rootAfter.ncomments).toBe(0)
@@ -462,7 +471,7 @@ test('an underpaid reply stays PENDING_FEE and does not denormalize', async () =
 })
 
 test('a single full payment still flips immediately (no behavior change for honest payers)', async () => {
-  const { item, major, minor } = await seedPendingFeePost(113, FEE_URI('0.001'))
+  const { item, major, minor } = await seedPendingFeePost(subMinor(), FEE_URI('0.001'))
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f4' + 'ab'.repeat(31), '1000000000', major, minor)] })
   const live = await prisma.item.findUnique({ where: { id: item.id } })
   expect(live.feeStatus).toBe('FEE_PAID')
@@ -473,7 +482,7 @@ test('a single full payment still flips immediately (no behavior change for hone
 // transaction failed/rolled back, leaving the item PENDING_FEE) must still flip
 // the item — NOT short-circuit on the empty conflict rows.
 test('a re-poll of an already-observed tx self-heals a stranded PENDING_FEE flip', async () => {
-  const { item, payIn, major, minor } = await seedPendingFeePost(131, FEE_URI('0.001'))
+  const { item, payIn, major, minor } = await seedPendingFeePost(subMinor(), FEE_URI('0.001'))
   const txHash = 'selfheal-' + Date.now() + '-' + item.id
 
   // Simulate the stranded state: the observation row committed on a prior poll
@@ -508,7 +517,7 @@ test('a re-poll of an already-observed tx self-heals a stranded PENDING_FEE flip
 })
 
 test('an underpaid TERRITORY fee does not flip billingStatus to PAID', async () => {
-  const { subName, major, minor } = await seedPendingFeeSubWithUri(202, FEE_URI('1'))
+  const { subName, major, minor } = await seedPendingFeeSubWithUri(subMinor(), FEE_URI('1'))
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f5' + 'ab'.repeat(31), '500000000000', major, minor)] })
   const sub = await prisma.sub.findUnique({ where: { name: subName } })
   expect(sub.billingStatus).toBe('PENDING_FEE')
@@ -517,7 +526,7 @@ test('an underpaid TERRITORY fee does not flip billingStatus to PAID', async () 
 // --- R01: feeQuotaEligible items consume their free quota at the flip ---
 
 test('a feeQuotaEligible COMMENT consumes its free-comment quota when it flips live (R01)', async () => {
-  const { comment, major, minor } = await seedPendingFeeComment(401)
+  const { comment, major, minor } = await seedPendingFeeComment(subMinor())
   await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('a7' + '89'.repeat(31), '1000000000', major, minor)] })
   const live = await prisma.item.findUnique({ where: { id: comment.id } })
@@ -528,7 +537,7 @@ test('a feeQuotaEligible COMMENT consumes its free-comment quota when it flips l
 })
 
 test('a feeQuotaEligible POST consumes its free-post quota when it flips live (R01)', async () => {
-  const { item, major, minor } = await seedPendingFeePost(402)
+  const { item, major, minor } = await seedPendingFeePost(subMinor())
   await prisma.item.update({ where: { id: item.id }, data: { feeQuotaEligible: true } })
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('b8' + '9a'.repeat(31), '1000000000', major, minor)] })
   const live = await prisma.item.findUnique({ where: { id: item.id } })
@@ -539,7 +548,7 @@ test('a feeQuotaEligible POST consumes its free-post quota when it flips live (R
 })
 
 test('an UNMARKED pending-fee item consumes no quota on flip (over-quota / anon / bio paths)', async () => {
-  const { comment, major, minor } = await seedPendingFeeComment(403)
+  const { comment, major, minor } = await seedPendingFeeComment(subMinor())
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('c9' + 'ab'.repeat(31), '1000000000', major, minor)] })
   const live = await prisma.item.findUnique({ where: { id: comment.id } })
   expect(live.feeStatus).toBe('FEE_PAID')
@@ -549,7 +558,7 @@ test('an UNMARKED pending-fee item consumes no quota on flip (over-quota / anon 
 })
 
 test('quota consumption is exactly-once across re-polls (R01)', async () => {
-  const { comment, major, minor } = await seedPendingFeeComment(404)
+  const { comment, major, minor } = await seedPendingFeeComment(subMinor())
   await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
   const tx = lwsFeeTx('da' + 'bc'.repeat(31), '1000000000', major, minor)
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })

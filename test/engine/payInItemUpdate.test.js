@@ -308,9 +308,7 @@ test('pay("ITEM_UPDATE", ...) returns the ITEM_CREATE payIn on the result item, 
   const item = await prisma.item.findUnique({ where: { id: itemId } })
   expect(item.text).toBe('edited body')
 
-  // the onPaid streak job references the test user (deleted in afterAll); drop
   // it so the worker never executes it against a deleted row
-  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
 
 // --- fee-edit deferral: nothing attaches until the covering fee is observed ---
@@ -340,8 +338,6 @@ test('a fee-bearing edit is deferred: item, text and uploads stay untouched', as
   expect(untouched.text).toBeNull()
   expect(await prisma.itemUpload.findFirst({ where: { itemId } })).toBeNull()
   expect((await prisma.upload.findUnique({ where: { id: uploadId } })).paid).toBe(false)
-
-  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
 
 test('flipPendingToLive applies the deferred edit and marks the upload paid (idempotent)', async () => {
@@ -369,8 +365,6 @@ test('flipPendingToLive applies the deferred edit and marks the upload paid (ide
   // a replayed observation must not apply anything a second time
   await flipPendingToLive(prisma, payInRow, 1_000_000_000n)
   expect((await prisma.item.findUnique({ where: { id: itemId } })).text).toBe(editedText)
-
-  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
 
 test('a deferred edit is dropped, not applied, when the item changed while the fee was in flight', async () => {
@@ -399,8 +393,6 @@ test('a deferred edit is dropped, not applied, when the item changed while the f
   expect(await prisma.payIn.findUnique({ where: { id: result.id } })).toBeNull()
   // the fee still counts: the upload is paid and can be re-attached for free
   expect((await prisma.upload.findUnique({ where: { id: uploadId } })).paid).toBe(true)
-
-  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
 
 // The unused-image sweep can remove a deferred edit's unpaid upload before the
@@ -437,8 +429,6 @@ test('a deferred edit whose upload vanished is dropped without an FK failure', a
     expect.stringContaining(String(result.id)),
     expect.objectContaining({ dedupeKey: expect.any(String) })
   )
-
-  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
 
 // Any unexpected apply failure must not fail the observer run: the cursor only
@@ -477,8 +467,6 @@ test('an unexpected apply failure is contained by flipPendingToLive and does not
     expect.stringContaining(String(result.id)),
     expect.objectContaining({ dedupeKey: expect.any(String) })
   )
-
-  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
 
 // --- R10: turf-addition fees on edit ---
@@ -709,8 +697,6 @@ test('a deferred wall edit applies an X/T change while the wall is unfrozen (con
   const item = await prisma.item.findUnique({ where: { id: itemId } })
   expect(item.text).toBe('walled edit')
   expect(item.moneroWallPricePiconeros).toBe(2_000_000_000n)
-
-  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
 
 test('a deferred wall edit strips the X/T change when a tip landed since the wall was enabled', async () => {
@@ -734,6 +720,4 @@ test('a deferred wall edit strips the X/T change when a tip landed since the wal
   expect(item.moneroWallPricePiconeros).toBe(1_000_000_000n)
   expect(item.moneroWallThresholdPiconeros).toBeNull()
   expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeNull()
-
-  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })

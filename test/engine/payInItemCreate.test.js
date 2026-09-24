@@ -406,10 +406,6 @@ test('pay("ITEM_CREATE", { uploadIds }) completes without flipping the upload; t
   expect(flippedUpload.paid).toBe(true)
   const liveItem = await prisma.item.findUnique({ where: { id: item.id } })
   expect(liveItem.feeStatus).toBe('FEE_PAID')
-
-  // the onPaid streak job references the test user (deleted in afterAll); drop
-  // it here so the worker never executes it against a deleted row
-  await prisma.$executeRaw`DELETE FROM pgboss.job WHERE name = 'checkStreak' AND data->>'id' = ${String(userId)}`
 })
 
 // --- R01: onBegin marks in-quota upload-fee items for flip-time quota consumption ---

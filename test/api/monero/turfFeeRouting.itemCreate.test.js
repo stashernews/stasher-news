@@ -68,8 +68,9 @@ function models ({ subOwnerHasWallet = true, premium = {}, parentSubs = null, ho
       return parentSubs ?? []
     },
     sub: {
-      // getSubs for posts (subNames path)
-      findMany: async ({ where }) => where.name.in.map(subRow),
+      // getSubs for posts (subNames path); the quest draw resolver calls
+      // findMany without a where (turf list) — return no turfs for that shape.
+      findMany: async ({ where } = {}) => where?.name?.in ? where.name.in.map(subRow) : [],
       // resolveOwnerFeeRouteForSub
       findUnique: async ({ where }) => subRow(where.name)
     },

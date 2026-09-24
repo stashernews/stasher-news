@@ -7,6 +7,8 @@ import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 import { getPayIn } from './payIn'
 import { PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES } from '@/lib/constants'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
+import { resolveDraw } from '@/api/quests/draw'
+import { utcDay, QUEST } from '@/lib/quests'
 
 const PAY_IN_NOTIFICATION_TYPES_SQL = PAY_IN_NOTIFICATION_TYPES.map(type => `'${type}'`).join(', ')
 
@@ -307,25 +309,25 @@ export default {
           ORDER BY "sortTime" DESC
           LIMIT ${LIMIT})`
         )
-        for (const type of ['COIN', 'VERIFIED']) {
-          const gqlType = type.charAt(0) + type.slice(1).toLowerCase()
-          queries.push(
-            `(SELECT id::text, "startedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros", 'New${gqlType}' AS type
-            FROM "Streak"
-            WHERE "userId" = $1
-            AND updated_at < $2
-            AND type = '${type}'::"StreakType"
-            ORDER BY "sortTime" DESC
-            LIMIT ${LIMIT})`
-          )
-        }
         queries.push(
-          `(SELECT id::text AS id, "endedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros", 'LostCoin' AS type
+          `(SELECT id::text, "startedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros", 'NewVerified' AS type
           FROM "Streak"
           WHERE "userId" = $1
           AND updated_at < $2
-          AND "endedAt" IS NOT NULL
-          AND type = 'COIN'::"StreakType"
+          AND type = 'VERIFIED'::"StreakType"
+          ORDER BY "sortTime" DESC
+          LIMIT ${LIMIT})`
+        )
+      }
+
+      if (meFull.noteQuests) {
+        // Quest completions ride the bell (web push is optional/env-gated, so
+        // the bell is the durable surface); gated by the same setting.
+        queries.push(
+          `(SELECT id::text, created_at AS "sortTime", 0::INTEGER as "earnedPiconeros", 'QuestComplete' AS type
+          FROM "QuestCompletion"
+          WHERE "userId" = $1
+          AND created_at < $2
           ORDER BY "sortTime" DESC
           LIMIT ${LIMIT})`
         )
@@ -558,6 +560,20 @@ export default {
         WHERE id = ${Number(n.id)} AND "endedAt" IS NOT NULL
       `
       return res.length ? res[0].days : null
+    }
+  },
+  QuestComplete: {
+    quest: async (n, args, { models }) => {
+      const row = await models.questCompletion.findUnique({ where: { id: Number(n.id) }, select: { quest: true } })
+      return row?.quest ?? null
+    },
+    turfName: async (n, args, { models }) => {
+      const row = await models.questCompletion.findUnique({ where: { id: Number(n.id) }, select: { userId: true, day: true, quest: true } })
+      if (!row || row.quest !== QUEST.TURF) return null
+      // The drawn turf is deterministic in (userId, day), so it is recomputed
+      // rather than stored on the completion row.
+      const draw = await resolveDraw(models, row.userId, utcDay(row.day))
+      return draw.turfName
     }
   },
   Earn: {

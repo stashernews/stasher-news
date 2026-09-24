@@ -12,6 +12,9 @@ import { buildMoneroUri } from '@/api/monero/uri'
 import { moneroUriAddress, moneroUriAmountPiconeros } from '@/lib/format'
 import { reentryQuote } from '@/lib/pay-in'
 import { FREE_COMMENTS_PER_DAY, FREE_COMMENTS_PER_DAY_LOW_REP, FREE_POSTS_PER_MONTH, FREE_POSTS_LOW_REP } from '@/lib/constants'
+import { cycleDay, utcDay } from '@/lib/quests'
+import { resolveDraw } from '@/api/quests/draw'
+import { completionsFor } from '@/api/quests/completions'
 
 const DAY_MS = 86_400_000
 
@@ -33,10 +36,13 @@ export function commentFeePiconeros (config) {
   return config.commentFeePiconeros
 }
 
-/** Daily free-comment quota for the user's current tier (1 low-rep, 3 established). */
-export function freeCommentsQuota (user, config) {
+/** Daily free-comment quota: tier base (1 low-rep, 3 established) + bonus
+ * replies. Bonus replies = one per quest completed today + one while the flame
+ * shows cycle day 3 (spec §2.3/§4.4); they are never banked. */
+export function freeCommentsQuota (user, config, { bonusReplies = 0 } = {}) {
   if (!user) return 0
-  return canPostFree(user, config) ? FREE_COMMENTS_PER_DAY : FREE_COMMENTS_PER_DAY_LOW_REP
+  const base = canPostFree(user, config) ? FREE_COMMENTS_PER_DAY : FREE_COMMENTS_PER_DAY_LOW_REP
+  return base + bonusReplies
 }
 
 /** Monthly free-post quota (5 established, 1 low-rep; past it users pay per post). */
@@ -48,9 +54,9 @@ export function freePostsQuota (user, config) {
 /**
  * How many free comments the user has left today (window resets 00:00 UTC).
  */
-export function commentsFreeLeft (user, config) {
+export function commentsFreeLeft (user, config, { bonusReplies = 0 } = {}) {
   if (!user) return 0
-  const quota = freeCommentsQuota(user, config)
+  const quota = freeCommentsQuota(user, config, { bonusReplies })
   if (user.freeCommentResetAt && new Date() >= new Date(user.freeCommentResetAt)) {
     return quota
   }
@@ -64,6 +70,59 @@ export function postsFreeLeft (user, config) {
     return freePostsQuota(user, config)
   }
   return Math.max(0, freePostsQuota(user, config) - (user.freePostCount || 0))
+}
+
+const EMPTY_COMMENT_QUOTA = { base: 0, questsCompleted: 0, day3Bonus: 0, quota: 0, left: 0 }
+const EMPTY_POST_QUOTA = { baseQuota: 0, baseLeft: 0, credits: 0, left: 0, nextExpiresAt: null }
+
+/** Quest-aware comment quota (spec §2.3/§4.4) for DB-holding callers (models
+ * or tx): tier base + one reply per quest completed today + one while the
+ * flame shows cycle day 3. Refetches the user row when quota-relevant columns
+ * are absent (partial GraphQL parents), mirroring the hasWallet resolver. */
+export async function commentQuotaFor (prisma, user, day = utcDay()) {
+  if (!user) return { ...EMPTY_COMMENT_QUOTA }
+  const config = await getCachedPlatformFeeConfig(prisma)
+  if (!config) return { ...EMPTY_COMMENT_QUOTA }
+  const u = (user.createdAt != null && user.stackedPiconeros != null &&
+    user.streak !== undefined && user.freeCommentCount !== undefined)
+    ? user
+    : await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { createdAt: true, stackedPiconeros: true, streak: true, freeCommentCount: true, freeCommentResetAt: true }
+    })
+  if (!u) return { ...EMPTY_COMMENT_QUOTA }
+  const draw = await resolveDraw(prisma, user.id, day)
+  const done = await completionsFor(prisma, { userId: user.id, day, draw })
+  const questsCompleted = [draw.upvote, draw.drawn].filter(q => done[q]).length
+  const day3Bonus = cycleDay(u.streak) === 3 ? 1 : 0
+  const bonusReplies = questsCompleted + day3Bonus
+  return {
+    base: canPostFree(u, config) ? FREE_COMMENTS_PER_DAY : FREE_COMMENTS_PER_DAY_LOW_REP,
+    questsCompleted,
+    day3Bonus,
+    quota: freeCommentsQuota(u, config, { bonusReplies }),
+    left: commentsFreeLeft(u, config, { bonusReplies })
+  }
+}
+
+/** Unconsumed, unexpired banked POST rewards for a user. */
+export async function bankedPostCredits (prisma, userId) {
+  const [row] = await prisma.$queryRaw`
+    SELECT count(*)::int AS credits, min("expiresAt") AS "nextExpiresAt"
+    FROM "StreakReward"
+    WHERE "userId" = ${userId} AND "type" = 'POST' AND "consumedAt" IS NULL AND "expiresAt" > now_utc()`
+  return { credits: row?.credits ?? 0, nextExpiresAt: row?.nextExpiresAt ?? null }
+}
+
+/** Credit-aware post quota for DB-holding callers. `left` is what gates free
+ * posts: monthly base remaining plus banked credits. */
+export async function postQuotaFor (prisma, user, config) {
+  if (!user) return { ...EMPTY_POST_QUOTA }
+  const cfg = config || await getCachedPlatformFeeConfig(prisma)
+  if (!cfg) return { ...EMPTY_POST_QUOTA }
+  const baseLeft = postsFreeLeft(user, cfg)
+  const { credits, nextExpiresAt } = await bankedPostCredits(prisma, user.id)
+  return { baseQuota: freePostsQuota(user, cfg), baseLeft, credits, left: baseLeft + credits, nextExpiresAt }
 }
 
 // In-process cache for the PlatformFeeConfig singleton. It changes almost never
@@ -106,7 +165,9 @@ export const POSTING_FEE_NO_FEE = {
   freePostsLeft: 0,
   freePostCount: 0,
   freePostsQuota: 0,
-  freeCommentsQuota: 0
+  freeCommentsQuota: 0,
+  freePostCredits: 0,
+  freePostCreditsExpireAt: null
 }
 
 export async function postingFeePrivatesFor (models, user, viewerId) {
@@ -115,17 +176,22 @@ export async function postingFeePrivatesFor (models, user, viewerId) {
   }
   const config = await getCachedPlatformFeeConfig(models)
   if (!config) return { ...POSTING_FEE_NO_FEE }
-  const postsLeft = postsFreeLeft(user, config)
+  const postQuota = await postQuotaFor(models, user, config)
+  const commentQuota = await commentQuotaFor(models, user)
+  const postsLeft = postQuota.left
   const frontend = {
     freePostThresholdPiconeros: config.freePostThresholdPiconeros,
     freePostMinAgeDays: config.freePostMinAgeDays,
     freePostsLeft: postsLeft,
     freePostCount: user.freePostCount || 0,
-    freePostsQuota: freePostsQuota(user, config),
-    freeCommentsQuota: freeCommentsQuota(user, config)
+    freePostsQuota: postQuota.baseQuota,
+    freeCommentsQuota: commentQuota.quota,
+    freePostCredits: postQuota.credits,
+    freePostCreditsExpireAt: postQuota.nextExpiresAt
   }
-  // A post requires a fee once the user's free-post quota is exhausted
-  // (established 5/month, low-rep 1/month — postsFreeLeft tiers via quota).
+  // A post requires a fee once the user's free-post quota AND banked credits
+  // are exhausted (established 5/month + credits, low-rep 1/month + credits —
+  // postQuotaFor.left is credit-aware).
   const postingFeeRequired = postsLeft <= 0
   // The floor is exposed unconditionally (self-view) so the repost picker can
   // quote a turf addition, which never gets the ITEM_CREATE free-post waiver.

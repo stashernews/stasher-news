@@ -94,6 +94,7 @@ export default gql`
     nostrRelays: [String!]
     noteAllDescendants: Boolean!
     noteBadges: Boolean!
+    noteQuests: Boolean!
     noteEarning: Boolean!
     emailNotifications: Boolean!
     noteInvites: Boolean!
@@ -129,9 +130,21 @@ export default gql`
     freeCommentCount: Int!
     freeCommentsLeft: Int!
     freeCommentsQuota: Int!
+    questUpvoteComplete: Boolean!
+    questDrawnType: String!
+    questDrawnTurf: String
+    questDrawnComplete: Boolean!
+    questsCompletedToday: Int!
+    flameCycleDay: Int!
+    goldFlame: Boolean!
+    freezeHeld: Boolean!
+    turfDiscountHeld: Boolean!
+    questResetsAt: Date!
     freePostCount: Int!
     freePostsLeft: Int!
     freePostsQuota: Int!
+    freePostCredits: Int!
+    freePostCreditsExpireAt: Date
     postingFeeRequired: Boolean!
     postingFeePiconeros: BigInt!
     postingFeeFloorPiconeros: BigInt!
@@ -177,6 +190,7 @@ export default gql`
     nostrRelays: [String!]
     noteAllDescendants: Boolean!
     noteBadges: Boolean!
+    noteQuests: Boolean!
     noteEarning: Boolean!
     emailNotifications: Boolean!
     noteInvites: Boolean!
@@ -201,7 +215,6 @@ export default gql`
     stashAmountHidden: Boolean!
     streak: Int
     hasWallet: Boolean
-    tippedRecently: Boolean
     maxStreak: Int
     isContributor: Boolean
     githubId: String

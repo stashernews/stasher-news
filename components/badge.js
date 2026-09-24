@@ -2,10 +2,10 @@ import { Fragment } from 'react'
 import OverlayTrigger from 'react-bootstrap/OverlayTrigger'
 import Tooltip from 'react-bootstrap/Tooltip'
 import FlameIcon from '@/svgs/flame.svg'
-import CoinIcon from '@/svgs/coin.svg'
 import VerifiedIcon from '@/svgs/verified.svg'
 import AnonIcon from '@/svgs/spy-fill.svg'
 import BotIcon from '@/svgs/robot-2-fill.svg'
+import { isGoldFlame } from '@/lib/quests'
 import { numWithUnits } from '@/lib/format'
 import { USER_ID } from '@/lib/constants'
 import classNames from 'classnames'
@@ -51,16 +51,15 @@ export function buildBadges (user, { bot = false } = {}) {
   if (user.optional?.hasWallet) {
     badges.push({ icon: VerifiedIcon, overlayText: 'verified (wallet + reputation)', style: { color: 'var(--theme-grey)' } })
   }
-  if (user.optional?.tippedRecently) {
-    badges.push({ icon: CoinIcon, overlayText: 'tipped in the last 24 hours' })
-  }
   const streak = user.optional?.streak ?? null
   if (streak !== null) {
+    const gold = isGoldFlame(streak)
     badges.push({
       icon: FlameIcon,
       overlayText: streak
-        ? `${numWithUnits(streak, { abbreviate: false, unitSingular: 'day', unitPlural: 'days' })}`
-        : 'new'
+        ? `${numWithUnits(streak, { abbreviate: false, unitSingular: 'day', unitPlural: 'days' })} quest streak${gold ? ' — golden flame' : ''}`
+        : 'new quest streak',
+      style: gold ? { color: 'var(--gold, #ffd166)' } : undefined
     })
   }
   if (bot) {

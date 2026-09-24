@@ -1,7 +1,7 @@
 import { USER_ID } from '@/lib/constants'
 import { Prisma } from '@prisma/client'
 import payInTypeModules from './types'
-import { isPessimistic, isProxyPayment, isWithdrawal } from './lib/is'
+import { isPessimistic, isWithdrawal } from './lib/is'
 import { payInCreate } from './lib/payInCreate'
 import { obtainRowLevelLocks } from './lib/obtainRowLevelLocks'
 import { payInClone } from './lib/payInPrisma'
@@ -192,15 +192,6 @@ export async function onPaid (tx, payInId) {
   }
 
   await obtainRowLevelLocks(tx, payIn)
-
-  if (!isWithdrawal(payIn) && !isProxyPayment(payIn)) {
-    // most paid actions are eligible for a flame streak
-    // pg-boss v9 dropped the DB-side default on pgboss.job.id (uuids are now minted
-    // by the JS client), so this raw INSERT must supply it via gen_random_uuid.
-    await tx.$executeRaw`
-      INSERT INTO pgboss.job (id, name, data)
-      VALUES (gen_random_uuid(), 'checkStreak', jsonb_build_object('id', ${payIn.userId}, 'type', 'FLAME'))`
-  }
 
   const payInModule = payInTypeModules[payIn.payInType]
   await payInModule.onPaid?.(tx, payInId)

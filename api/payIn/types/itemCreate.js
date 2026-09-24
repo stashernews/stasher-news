@@ -7,7 +7,7 @@ import { GqlInputError } from '@/lib/error'
 import { getItem } from '@/api/resolvers/item'
 import { getTempImgproxyUrls } from '../lib/upload'
 import { incrementFreeCommentCount, incrementFreePostCount } from '../lib/freebie'
-import { postingFeePiconeros, commentsFreeLeft, postsFreeLeft } from '@/api/monero/postingFee'
+import { postingFeePiconeros, commentQuotaFor, postQuotaFor } from '@/api/monero/postingFee'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { buildMoneroUri } from '@/api/monero/uri'
 import { resolveOwnerFeeRoute, postFeePiconerosForSubs, postFloorPiconerosForSubs, commentFeePiconerosForSubs, commentFloorPiconerosForSubs } from '@/api/monero/turfFeeRouting'
@@ -101,7 +101,8 @@ export async function getInitial (models, args, { me }) {
   // Item.feeStatus (set in onBegin), which the rewardsWalletObserver flips PENDING_FEE ->
   // FEE_PAID when it observes the fee output.
   // Comments are free within the daily freebie quota (1/day low-rep, 3/day
-  // established); beyond it each comment costs the flat comment fee (see below).
+  // established, +1 per quest completed today, +1 while the flame shows cycle
+  // day 3); beyond it each comment costs the flat comment fee (see below).
   const beneficiaries = []
   let uploadFeesPiconeros = 0n
   if (args.uploadIds?.length) {
@@ -174,7 +175,8 @@ export async function getInitial (models, args, { me }) {
 
   if (args.parentId) {
     // StasherNews comment fee (spec §6.2): comments are free while the author has
-    // freebies left (1/day low-rep, 3/day established, resetting 00:00 UTC); beyond
+    // freebies left (1/day low-rep, 3/day established, +1 per quest completed
+    // today, +1 while the flame shows cycle day 3, resetting 00:00 UTC); beyond
     // the quota each comment costs the flat comment fee (commentFeePiconeros,
     // the operator-tunable flat comment fee)
     // to the platform rewards wallet, observed by the rewardsWalletObserver like
@@ -205,7 +207,8 @@ export async function getInitial (models, args, { me }) {
     const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
     if (!config) throw new GqlInputError('fee config not initialized')
     const commenter = await models.user.findUnique({ where: { id: me.id } })
-    if (commentsFreeLeft(commenter, config) > 0) {
+    const commentsLeft = (await commentQuotaFor(models, commenter)).left
+    if (commentsLeft > 0) {
       if (uploadFeesPiconeros > 0n) {
         const sub = await reserveFeeSubaddress(models, 'POSTING', { me })
         const moneroUri = buildMoneroUri(
@@ -272,7 +275,7 @@ export async function getInitial (models, args, { me }) {
   const user = await models.user.findUnique({ where: { id: me.id } })
   if (!user) throw new GqlInputError('user not found')
 
-  const postsLeft = postsFreeLeft(user, config)
+  const postsLeft = (await postQuotaFor(models, user, config)).left
 
   if (postsLeft > 0) {
     if (uploadFeesPiconeros > 0n) {
@@ -387,8 +390,8 @@ export async function onBegin (tx, payInId, args) {
       const payer = quotaConfig ? await tx.user.findUnique({ where: { id: payIn.userId } }) : null
       if (payer) {
         feeQuotaEligible = parentId
-          ? commentsFreeLeft(payer, quotaConfig) > 0
-          : postsFreeLeft(payer, quotaConfig) > 0
+          ? (await commentQuotaFor(tx, payer)).left > 0
+          : (await postQuotaFor(tx, payer, quotaConfig)).left > 0
       }
     }
   }

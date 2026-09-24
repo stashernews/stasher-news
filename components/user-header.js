@@ -16,6 +16,7 @@ import Avatar from './avatar'
 import { userSchema } from '@/lib/validate'
 import { numWithUnits, piconerosToMXmr } from '@/lib/format'
 import Badges from './badge'
+import QuestsModule from './quests-module'
 import SubscribeUserDropdownItem from './subscribeUser'
 import ActionDropdown from './action-dropdown'
 import CodeIcon from '@/svgs/terminal-box-fill.svg'
@@ -289,6 +290,7 @@ function HeaderHeader ({ user }) {
             </small>}
         </div>
       </div>
+      {isMe && <div className='ms-auto'><QuestsModule /></div>}
     </div>
   )
 }

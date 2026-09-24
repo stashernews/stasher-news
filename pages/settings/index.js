@@ -110,6 +110,7 @@ export default function Settings ({ ssrData }) {
             noteItemMentions: settings?.noteItemMentions,
             noteInvites: settings?.noteInvites,
             noteBadges: settings?.noteBadges,
+            noteQuests: settings?.noteQuests,
             emailNotifications: settings?.emailNotifications,
             hideFromTopUsers: settings?.hideFromTopUsers,
             hideBadges: settings?.hideBadges,
@@ -224,8 +225,13 @@ export default function Settings ({ ssrData }) {
             groupClassName='mb-0'
           />
           <Checkbox
-            label='notify me about badge changes (flame streak, coin, verified check, earned reputation)'
+            label='notify me about badge changes (flame streak, verified check, earned reputation)'
             name='noteBadges'
+            groupClassName='mb-0'
+          />
+          <Checkbox
+            label='notify me when I complete daily quests and when my flame advances'
+            name='noteQuests'
             groupClassName='mb-0'
           />
           <Checkbox
@@ -248,7 +254,7 @@ export default function Settings ({ ssrData }) {
               <div className='d-flex align-items-center'>hide my badges
                 <Info>
                   <ul>
-                    <li>Hides your flame (daily activity streak), gold coin (tipped in the last 24 hours), and verified check (wallet + earned reputation) from other users</li>
+                    <li>Hides your flame (quest streak) and verified check (wallet + earned reputation) from other users</li>
                     <li>Your own badges stay visible to you on your profile</li>
                   </ul>
                 </Info>

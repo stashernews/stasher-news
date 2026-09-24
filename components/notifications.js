@@ -14,7 +14,7 @@ import HandCoin from '@/svgs/hand-coin-fill.svg'
 import UserAdd from '@/svgs/user-add-fill.svg'
 import { LOST_BLURBS, FOUND_BLURBS, PAY_IN_ACT_TYPES } from '@/lib/constants'
 import FlameIcon from '@/svgs/flame.svg'
-import CoinIcon from '@/svgs/coin.svg'
+import CheckCircleIcon from '@/svgs/checkbox-circle-fill.svg'
 import VerifiedIcon from '@/svgs/verified.svg'
 import { RootProvider } from './root'
 import Alert from 'react-bootstrap/Alert'
@@ -29,6 +29,7 @@ import { LongCountdown } from './countdown'
 import { nextBillingWithGrace } from '@/lib/territory'
 import { commentSubTreeRootId } from '@/lib/item'
 import { COPY } from '@/lib/rebrand-copy'
+import { questTitle } from '@/lib/quests'
 import LinkToContext from './link-to-context'
 import { Badge, Button } from 'react-bootstrap'
 import { useToast } from './toast'
@@ -52,8 +53,8 @@ function Notification ({ n, fresh }) {
         (type === 'Invitification' && <Invitification n={n} />) ||
         (type === 'Referral' && <Referral n={n} />) ||
         (type === 'Flame' && <Flame n={n} />) ||
-        (['NewCoin', 'LostCoin'].includes(type) && <Coin n={n} />) ||
         (type === 'NewVerified' && <Verified n={n} />) ||
+        (type === 'QuestComplete' && <QuestComplete n={n} />) ||
         (type === 'Votification' && <Votification n={n} />) ||
         (type === 'BountyPayment' && <BountyPayment n={n} />) ||
         (type === 'Mention' && <Mention n={n} />) ||
@@ -161,7 +162,7 @@ const defaultOnClick = n => {
   if (type === 'SubStatus') return { href: `/~${n.sub.name}` }
   if (type === 'Invitification') return { href: '/referrals' }
   if (type === 'PayInification') return { href: `/transactions/${n.payIn.id}` }
-  if (['Flame', 'NewCoin', 'LostCoin', 'NewVerified'].includes(type)) return {}
+  if (['Flame', 'NewVerified', 'QuestComplete'].includes(type)) return {}
   if (type === 'TerritoryTransfer') return { href: `/~${n.sub.name}` }
 
   if (!n.item) return {}
@@ -171,11 +172,7 @@ const defaultOnClick = n => {
 }
 
 function blurb (n) {
-  const type = n.__typename.includes('Flame')
-    ? 'FLAME'
-    : n.__typename.includes('Coin')
-      ? 'COIN'
-      : 'VERIFIED'
+  const type = n.__typename.includes('Flame') ? 'FLAME' : 'VERIFIED'
   const lost = n.days || n.__typename.includes('Lost')
   const blurbs = lost ? (LOST_BLURBS[type] || FOUND_BLURBS[type]) : FOUND_BLURBS[type]
   const index = Number(n.id) % blurbs.length
@@ -218,15 +215,13 @@ function Flame ({ n }) {
   )
 }
 
-function Coin ({ n }) {
-  const found = n.__typename.includes('New')
-
+function QuestComplete ({ n }) {
   return (
     <div className='d-flex'>
-      <div style={{ fontSize: '2rem', alignSelf: 'center' }}><CoinIcon className='fill-grey' height={40} width={40} /></div>
+      <div style={{ fontSize: '2rem' }}><CheckCircleIcon className='fill-grey' height={40} width={40} /></div>
       <div className='ms-1 p-1'>
-        <span className='fw-bold'>{found ? 'You found a coin' : 'You lost your coin!'}</span>
-        <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{blurb(n)}</small></div>
+        <span className='fw-bold'>quest complete</span>
+        <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{questTitle(n.quest, n.turfName)} — +1 free reply</small></div>
       </div>
     </div>
   )

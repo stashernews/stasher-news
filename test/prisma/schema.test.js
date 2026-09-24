@@ -32,7 +32,9 @@ const EXPECTED_MODELS = [
   'ObservedBounty',
   'BountyPidMap',
   'BountyPayment',
-  'AuthChallenge'
+  'AuthChallenge',
+  'StreakReward',
+  'QuestCompletion'
 ]
 
 const REMOVED_MODELS = [
@@ -175,8 +177,8 @@ test('User has no forward-notification setting residue', () => {
   expect(fieldsOf('User')).not.toContain('noteForwardedPiconeros')
 })
 
-test('StreakType enum is the badge re-theme set (FLAME, COIN, VERIFIED)', () => {
-  expect(valuesOf('StreakType').sort()).toEqual(['COIN', 'FLAME', 'VERIFIED'])
+test('StreakType enum drops the legacy coin value (FLAME, VERIFIED)', () => {
+  expect(valuesOf('StreakType').sort()).toEqual(['FLAME', 'VERIFIED'])
 })
 
 test('Streak defaults its type to FLAME', () => {
@@ -265,4 +267,23 @@ test('Item has the turf-repost home-turf field', () => {
   const byName = Object.fromEntries(fields.map(f => [f.name, f]))
   expect(byName.primarySubName.type).toBe('String')
   expect(byName.primarySubName.isRequired).toBe(false)
+})
+
+test('StreakReward ledger exists with typed per-reward expiry and provenance', () => {
+  expect(modelNames).toContain('StreakReward')
+  const fields = fieldsOf('StreakReward')
+  ;['userId', 'streakId', 'type', 'grantedAt', 'expiresAt', 'consumedAt', 'itemId'].forEach(f => expect(fields).toContain(f))
+  expect(valuesOf('StreakRewardType').sort()).toEqual(['FREEZE', 'POST', 'TURF_DISCOUNT'])
+  expect(modelNames).toContain('QuestCompletion')
+  ;['userId', 'day', 'quest'].forEach(f => expect(fieldsOf('QuestCompletion')).toContain(f))
+  expect(valuesOf('QuestType').sort()).toEqual(['BOOST', 'FIRST_RESPONDER', 'TURF', 'UPVOTE'])
+})
+
+test('Streak carries the ladder reward marker; ObservedTip has a tipper index', () => {
+  expect(fieldsOf('Streak')).toContain('rewardLevel')
+  // DMMF does not model secondary indexes; assert them on the raw schema text.
+  const { readFileSync } = require('fs')
+  const schema = readFileSync('prisma/schema.prisma', 'utf8')
+  const tip = schema.match(/model ObservedTip \{[\s\S]*?\n\}/)[0]
+  expect(tip).toMatch(/@@index\(\[tipperId, state, detectedAt\]\)/)
 })

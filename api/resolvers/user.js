@@ -1,7 +1,10 @@
 import { readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
-import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentsFreeLeft, freeCommentsQuota, postsFreeLeft, freePostsQuota } from '@/api/monero/postingFee'
+import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentQuotaFor, postQuotaFor } from '@/api/monero/postingFee'
+import { cycleDay, isGoldFlame, utcDay } from '@/lib/quests'
+import { resolveDraw } from '@/api/quests/draw'
+import { completionsFor } from '@/api/quests/completions'
 import { territoryFeePrivatesFor } from '@/api/monero/territoryFee'
 import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/validate'
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
@@ -982,9 +985,24 @@ export default {
       return user.freeCommentCount || 0
     },
     freeCommentsLeft: async (user, args, { models }) =>
-      commentsFreeLeft(user, await getCachedPlatformFeeConfig(models)),
+      (await commentQuotaFor(models, user)).left,
     freeCommentsQuota: async (user, args, { models }) =>
-      freeCommentsQuota(user, await getCachedPlatformFeeConfig(models)),
+      (await commentQuotaFor(models, user)).quota,
+    questUpvoteComplete: async (user, args, { models }) =>
+      (await questStateFor(models, user)).upvoteComplete,
+    questDrawnType: async (user, args, { models }) =>
+      (await questStateFor(models, user)).drawnType,
+    questDrawnTurf: async (user, args, { models }) =>
+      (await questStateFor(models, user)).drawnTurf,
+    questDrawnComplete: async (user, args, { models }) =>
+      (await questStateFor(models, user)).drawnComplete,
+    questsCompletedToday: async (user, args, { models }) =>
+      (await questStateFor(models, user)).questsCompleted,
+    flameCycleDay: (user) => cycleDay(user.streak) ?? 0,
+    goldFlame: (user) => isGoldFlame(user.streak),
+    freezeHeld: async (user, args, { models }) => heldReward(models, user.id, 'FREEZE'),
+    turfDiscountHeld: async (user, args, { models }) => heldReward(models, user.id, 'TURF_DISCOUNT'),
+    questResetsAt: () => questResetsAt(),
     freePostCount: (user) => {
       if (user.freePostResetAt && new Date() >= new Date(user.freePostResetAt)) {
         return 0
@@ -992,9 +1010,13 @@ export default {
       return user.freePostCount || 0
     },
     freePostsLeft: async (user, args, { models }) =>
-      postsFreeLeft(user, await getCachedPlatformFeeConfig(models)),
+      (await postQuotaFor(models, user)).left,
     freePostsQuota: async (user, args, { models }) =>
-      freePostsQuota(user, await getCachedPlatformFeeConfig(models)),
+      (await postQuotaFor(models, user)).baseQuota,
+    freePostCredits: async (user, args, { models }) =>
+      (await postQuotaFor(models, user)).credits,
+    freePostCreditsExpireAt: async (user, args, { models }) =>
+      (await postQuotaFor(models, user)).nextExpiresAt,
     postingFeeRequired: async (user, args, { models, me }) =>
       (await postingFeePrivatesFor(models, user, me?.id)).postingFeeRequired,
     postingFeePiconeros: async (user, args, { models, me }) =>
@@ -1043,18 +1065,6 @@ export default {
         : await models.user.findUnique({ where: { id: user.id }, select: { stackedPiconeros: true, createdAt: true } })
       if (!u) return false
       return canPostFree(u, config)
-    },
-    tippedRecently: async (user, args, { models, me }) => {
-      if (user.hideBadges && (!me || me.id !== user.id)) {
-        return false
-      }
-
-      const rows = await models.$queryRaw`
-        SELECT 1 AS n FROM "ObservedTip"
-        WHERE "tipperId" = ${user.id}::INTEGER AND state IN ('DETECTED', 'CONFIRMED')
-          AND "detectedAt" > now() - interval '24 hours'
-        LIMIT 1`
-      return rows.length > 0
     },
     maxStreak: async (user, args, { models, me }) => {
       if (user.hideBadges && (!me || me.id !== user.id)) {
@@ -1167,4 +1177,32 @@ export default {
       return user.nostrAuthPubkey
     }
   }
+}
+
+// --- quest privates helpers (spec 2026-09-23-daily-quests) ---
+
+/** Today's draw + completions bundle for the module's privates fields. */
+async function questStateFor (models, user) {
+  const day = utcDay()
+  const draw = await resolveDraw(models, user.id, day)
+  const done = await completionsFor(models, { userId: user.id, day, draw })
+  return {
+    upvoteComplete: !!done[draw.upvote],
+    drawnType: draw.drawn,
+    drawnTurf: draw.turfName,
+    drawnComplete: !!done[draw.drawn],
+    questsCompleted: [draw.upvote, draw.drawn].filter(q => done[q]).length
+  }
+}
+
+async function heldReward (models, userId, type) {
+  return !!(await models.streakReward.findFirst({
+    where: { userId, type, consumedAt: null, expiresAt: { gt: new Date() } },
+    select: { id: true }
+  }))
+}
+
+function questResetsAt () {
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0))
 }

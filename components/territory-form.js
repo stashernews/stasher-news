@@ -11,6 +11,7 @@ import { territorySchema, filterXmrValidator } from '@/lib/validate'
 import { useMe } from './me'
 import Info from './info'
 import { piconerosToXmrDecimal, piconerosToMXmr, signedXmrToPiconeros, snapToFilterGrid, xmrToPiconeros } from '@/lib/format'
+import { TURF_DISCOUNT_PERCENT, applyTurfDiscount } from '@/lib/quests'
 import { MXmrFieldHint } from './mxmr-hint'
 import { SUB } from '@/fragments/subs'
 import TerritoryBranding, { useBranding } from './territory-branding'
@@ -194,7 +195,7 @@ export default function TerritoryForm ({ sub }) {
     if (sub && !isUpgrade) return {}
     const fee = { monthly: monthlyFee, yearly: yearlyFee, once: onceFee }[billing]
     if (fee <= 0n) return {}
-    return {
+    const items = {
       territory: {
         term: `+ ${piconerosToMXmr(fee)}`,
         label: `${billing} turf fee`,
@@ -202,7 +203,19 @@ export default function TerritoryForm ({ sub }) {
         modifier: cost => cost + Number(fee / 1000n)
       }
     }
-  }, [sub, billing, monthlyFee, yearlyFee, onceFee])
+    // Day-7 quest-streak discount (spec §2.4): shown while held; the payIn
+    // engine applies the same percentage to the quoted URI (shared helper).
+    if (!sub && me?.privates?.turfDiscountHeld) {
+      const discount = fee - applyTurfDiscount(fee)
+      items.territoryDiscount = {
+        term: `− ${piconerosToMXmr(discount)}`,
+        label: `quest streak discount · ${TURF_DISCOUNT_PERCENT}%`,
+        op: '-',
+        modifier: cost => cost - Number(discount / 1000n)
+      }
+    }
+    return items
+  }, [sub, billing, monthlyFee, yearlyFee, onceFee, me?.privates?.turfDiscountHeld])
 
   // JOB is removal-only legacy: show it only where it already exists (and never
   // on the jobs turf, which must keep it); new turfs never see it

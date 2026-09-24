@@ -79,17 +79,15 @@ export const NOTIFICATIONS = gql`
           sortTime
           days
         }
-        ... on NewCoin {
-          id
-          sortTime
-        }
-        ... on LostCoin {
-          id
-          sortTime
-        }
         ... on NewVerified {
           id
           sortTime
+        }
+        ... on QuestComplete {
+          id
+          sortTime
+          quest
+          turfName
         }
         ... on Bulletinification {
           id

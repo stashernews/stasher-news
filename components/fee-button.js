@@ -281,6 +281,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
     // so there is no "can't afford" gate.
     const freeCommentsLeft = me?.privates?.freeCommentsLeft ?? 0
     const freePostsLeft = me?.privates?.freePostsLeft ?? 0
+    const freePostCredits = me?.privates?.freePostCredits ?? 0
     const isComment = baseCostLine?.isComment
     const free = me &&
       total === baseCostLine?.modifier(0) &&
@@ -296,9 +297,10 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
       setDisabled,
       free,
       freeCommentsLeft: isComment ? freeCommentsLeft : null,
-      freePostsLeft: isComment === false ? freePostsLeft : null
+      freePostsLeft: isComment === false ? freePostsLeft : null,
+      freePostCredits: isComment === false ? freePostCredits : null
     }
-  }, [me, me?.privates?.freeCommentsLeft, me?.privates?.freePostsLeft, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
+  }, [me, me?.privates?.freeCommentsLeft, me?.privates?.freePostsLeft, me?.privates?.freePostCredits, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
 
   return (
     <FeeButtonContext.Provider value={value}>
@@ -312,7 +314,7 @@ export function useFeeButton () {
   return context
 }
 
-function FreebieDialog ({ freeCommentsLeft, freePostsLeft }) {
+function FreebieDialog ({ freeCommentsLeft, freePostsLeft, freePostCredits }) {
   return (
     <>
       <div className='fw-bold'>this one is on us</div>
@@ -322,7 +324,7 @@ function FreebieDialog ({ freeCommentsLeft, freePostsLeft }) {
           <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left today.</li>
         )}
         {freePostsLeft !== null && (
-          <li>You have {freePostsLeft} free post{freePostsLeft !== 1 ? 's' : ''} left this month.</li>
+          <li>You have {freePostsLeft} free post{freePostsLeft !== 1 ? 's' : ''} left this month{freePostCredits > 0 ? ` (${freePostCredits} banked from streaks)` : ''}.</li>
         )}
       </ul>
     </>
@@ -340,7 +342,7 @@ export function legacySatsToPiconeros (total) {
 
 export default function FeeButton ({ ChildButton = SubmitButton, variant, text, disabled }) {
   const { me } = useMe()
-  const { lines, total, payableTotal, disabled: ctxDisabled, free, freeCommentsLeft, freePostsLeft } = useFeeButton()
+  const { lines, total, payableTotal, disabled: ctxDisabled, free, freeCommentsLeft, freePostsLeft, freePostCredits } = useFeeButton()
   const feeText = free
     ? 'free'
     : payableTotal > 0
@@ -359,7 +361,7 @@ export default function FeeButton ({ ChildButton = SubmitButton, variant, text, 
         </ChildButton>
       </ActionTooltip>
       {!me && <AnonInfo />}
-      {(free && <Info><FreebieDialog freeCommentsLeft={freeCommentsLeft} freePostsLeft={freePostsLeft} /></Info>) ||
+      {(free && <Info><FreebieDialog freeCommentsLeft={freeCommentsLeft} freePostsLeft={freePostsLeft} freePostCredits={freePostCredits} /></Info>) ||
        (payableTotal > 0 && <Info><Receipt lines={lines} total={payableTotal} /></Info>)}
     </div>
   )
