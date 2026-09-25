@@ -237,6 +237,10 @@ model Streak {
   // THIS run (cycles re-grant at 8, 9, ...; the marker only moves forward).
   // A job retry sees the marker and no-ops.
   rewardLevel    Int       @default(0)
+  // The golden flame shield: armed when the ladder grants a cycle day 4,
+  // consumed by a missed day (the run holds at its level). Never carried
+  // across runs.
+  goldActive Boolean @default(false)
   // The last UTC day this run was evaluated for (the guard that makes the
   // daily evaluation idempotent: a re-run for the same day is a no-op).
   lastEvaluatedDay DateTime?
@@ -270,15 +274,17 @@ model QuestCompletion {
 
 enum StreakRewardType {
   POST
-  FREEZE
+  REPLY
   TURF_DISCOUNT
 }
 
-// Typed streak rewards (spec 2026-09-23-daily-quests): one row per granted
-// reward, each with its own expiry. POST credits are consumed at post creation
-// (base quota first, soonest-expiring first); FREEZE by the streak job when a
-// day is missed; TURF_DISCOUNT by turf creation. Never stacked for FREEZE /
-// TURF_DISCOUNT (grants suppressed while one is held).
+// Typed streak rewards (spec 2026-09-23-daily-quests, rev 3): the ledger of
+// granted rewards, one row each with its own expiry. REPLY credits are banked
+// per completed quest by the sweep and per rung by the ladder, consumed at
+// comment creation; POST credits are granted by the ladder, consumed at post
+// creation (base quota first, soonest-expiring first). TURF_DISCOUNT is
+// consumed by turf creation and never stacked (grants suppressed while one is
+// held).
 model StreakReward {
   id         Int              @id @default(autoincrement())
   createdAt  DateTime         @default(now()) @map("created_at")

@@ -273,14 +273,20 @@ test('StreakReward ledger exists with typed per-reward expiry and provenance', (
   expect(modelNames).toContain('StreakReward')
   const fields = fieldsOf('StreakReward')
   ;['userId', 'streakId', 'type', 'grantedAt', 'expiresAt', 'consumedAt', 'itemId'].forEach(f => expect(fields).toContain(f))
-  expect(valuesOf('StreakRewardType').sort()).toEqual(['FREEZE', 'POST', 'TURF_DISCOUNT'])
+  expect(valuesOf('StreakRewardType').sort()).toEqual(['POST', 'REPLY', 'TURF_DISCOUNT'])
   expect(modelNames).toContain('QuestCompletion')
   ;['userId', 'day', 'quest'].forEach(f => expect(fieldsOf('QuestCompletion')).toContain(f))
   expect(valuesOf('QuestType').sort()).toEqual(['BOOST', 'FIRST_RESPONDER', 'TURF', 'UPVOTE'])
 })
 
-test('Streak carries the ladder reward marker; ObservedTip has a tipper index', () => {
+test('Streak carries the ladder reward marker and the golden shield flag; ObservedTip has a tipper index', () => {
   expect(fieldsOf('Streak')).toContain('rewardLevel')
+  // rev 3: the golden flame shield — armed by a cycle day 4, consumed by a
+  // missed day, never carried across runs. Must default to disarmed.
+  const goldActive = allModels.find(m => m.name === 'Streak')?.fields.find(f => f.name === 'goldActive')
+  expect(goldActive).toBeTruthy()
+  expect(goldActive.type).toBe('Boolean')
+  expect(goldActive.default).toBe(false)
   // DMMF does not model secondary indexes; assert them on the raw schema text.
   const { readFileSync } = require('fs')
   const schema = readFileSync('prisma/schema.prisma', 'utf8')

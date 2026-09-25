@@ -46,40 +46,75 @@ test('incrementFreeCommentCount is a no-op for anon', async () => {
   expect(tx.user.update).not.toHaveBeenCalled()
 })
 
-test('incrementFreeCommentCount increments within the established daily quota', async () => {
-  const tx = mkTx({ freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) })
+test('incrementFreeCommentCount increments within the flat daily quota', async () => {
+  const tx = mkTx({ freeCommentCount: 0, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) })
   await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })
-  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 3 } }) }))
+  // one tier: every user's increment guard is the flat quota of 1
+  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 1 } }) }))
 })
 
-test('incrementFreeCommentCount uses the upvote quest: a recent tip raises the quota by one', async () => {
+test('the daily quota is flat: a recent tip does not raise the increment guard', async () => {
   const tx = mkTx(
-    { freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null },
+    { freeCommentCount: 0, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null },
     { tips: [{ n: 1 }] }
   )
   await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })
-  // low-rep base is 1 and used; the upvote quest completes -> quota 2, so the
-  // optimistic guard must read lt: 2 (not lt: 1)
-  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 2 } }) }))
+  // rev 3: quest completions bank REPLY credits instead of raising the quota
+  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 1 } }) }))
 })
 
-test('incrementFreeCommentCount uses the flame day-3 bonus from the user row streak', async () => {
-  const tx = mkTx({ freeCommentCount: 3, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000), streak: 3 })
+test('the daily quota is flat: a day-3 streak does not raise the increment guard', async () => {
+  const tx = mkTx({ freeCommentCount: 0, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000), streak: 3 })
   await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })
-  // established base 3 used; flame day 3 +1 -> quota 4
-  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 4 } }) }))
+  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 1 } }) }))
 })
 
-test('a completion that lapsed between quote and increment fails loudly', async () => {
+test('a P2025 lost race at the quota guard fails loudly (genuine exhaustion or a concurrent freebie)', async () => {
+  // rev 3: quest completions no longer influence the quota (they bank REPLY
+  // credits instead), so a P2025 from the guarded increment can only mean the
+  // base was genuinely exhausted in a race or another freebie snuck in past
+  // the gate. The translation to 'no free comments left' must stand.
   const tx = mkTx(
-    { freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null },
-    { tips: [] } // no tip rows at increment time: the upvote quest is not complete
+    { freeCommentCount: 0, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null },
+    { credits: [] } // no banked credits either; irrelevant on this path anyway
   )
   // a real PrismaClientKnownRequestError: incrementFreeCommentCount's catch
   // translates the quota-guard P2025 only for genuine Prisma errors (instanceof)
   tx.user.update = jest.fn(async () => { throw new Prisma.PrismaClientKnownRequestError('boom', { code: 'P2025', clientVersion: '5.20.0' }) })
   await expect(incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 }))
     .rejects.toThrow('no free comments left')
+})
+
+test('incrementFreeCommentCount consumes a banked REPLY credit when the daily base is exhausted', async () => {
+  const user = { freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null }
+  const consumed = []
+  const tx = {
+    user: { findUnique: async () => user, update: jest.fn(async () => ({})) },
+    platformFeeConfig: { findUnique: async () => ({ freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 }) },
+    $queryRaw: jest.fn(async (strings) => {
+      const sql = String(strings.join(''))
+      if (sql.includes('StreakReward')) { consumed.push(sql); return [{ id: 11 }] }
+      return []
+    })
+  }
+  await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1, id: 888 }, userId: 5 })
+  expect(consumed.length).toBe(1)
+  expect(consumed[0]).toContain('StreakReward')
+  // base-first: the counter is left alone, the credit takes the spend
+  expect(tx.user.update).not.toHaveBeenCalled()
+})
+
+test('incrementFreeCommentCount leaves the counter alone with no credit left (the gate should not have granted the freebie)', async () => {
+  const user = { freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null }
+  const tx = {
+    user: { findUnique: async () => user, update: jest.fn(async () => ({})) },
+    platformFeeConfig: { findUnique: async () => ({ freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 }) },
+    $queryRaw: jest.fn(async () => [])
+  }
+  // No throw: an over-base freebie without credits is inert bookkeeping here;
+  // the credit-aware gate (commentQuotaFor) is what should have priced it.
+  await expect(incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })).resolves.toBeUndefined()
+  expect(tx.user.update).not.toHaveBeenCalled()
 })
 
 test('incrementFreePostCount is a no-op for comments and bios (freebie=true or parentId set)', async () => {
@@ -101,10 +136,10 @@ test('incrementFreePostCount increments for a low-rep user within the 1-post quo
   expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freePostCount: { lt: 1 } }) }))
 })
 
-test('incrementFreePostCount increments for an established free post within quota', async () => {
-  const tx = mkTx({ freePostCount: 2, freePostResetAt: new Date(Date.now() + 30 * 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) })
+test('incrementFreePostCount increments for a free post within the flat monthly quota', async () => {
+  const tx = mkTx({ freePostCount: 0, freePostResetAt: new Date(Date.now() + 30 * 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) })
   await incrementFreePostCount(tx, { item: { freebie: false, parentId: null, feeStatus: 'FEE_NOT_REQUIRED' }, userId: 5 })
-  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freePostCount: { lt: 5 } }) }))
+  expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freePostCount: { lt: 1 } }) }))
 })
 
 test('getNextDayStart returns the next 00:00 UTC midnight', () => {

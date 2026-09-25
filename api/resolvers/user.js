@@ -1,8 +1,9 @@
 import { readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
-import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentQuotaFor, postQuotaFor } from '@/api/monero/postingFee'
-import { cycleDay, isGoldFlame, utcDay } from '@/lib/quests'
+import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentQuotaFor, postQuotaFor, bankedReplyCredits } from '@/api/monero/postingFee'
+import { flamePosition } from '@/lib/quests'
+import { questDay, questResetsAt } from '@/lib/questClock'
 import { resolveDraw } from '@/api/quests/draw'
 import { completionsFor } from '@/api/quests/completions'
 import { territoryFeePrivatesFor } from '@/api/monero/territoryFee'
@@ -988,19 +989,27 @@ export default {
       (await commentQuotaFor(models, user)).left,
     freeCommentsQuota: async (user, args, { models }) =>
       (await commentQuotaFor(models, user)).quota,
+    freeReplyCredits: async (user, args, { models }) =>
+      (await bankedReplyCredits(models, user.id)).credits,
     questUpvoteComplete: async (user, args, { models }) =>
       (await questStateFor(models, user)).upvoteComplete,
     questDrawnType: async (user, args, { models }) =>
       (await questStateFor(models, user)).drawnType,
-    questDrawnTurf: async (user, args, { models }) =>
-      (await questStateFor(models, user)).drawnTurf,
     questDrawnComplete: async (user, args, { models }) =>
       (await questStateFor(models, user)).drawnComplete,
     questsCompletedToday: async (user, args, { models }) =>
       (await questStateFor(models, user)).questsCompleted,
-    flameCycleDay: (user) => cycleDay(user.streak) ?? 0,
-    goldFlame: (user) => isGoldFlame(user.streak),
-    freezeHeld: async (user, args, { models }) => heldReward(models, user.id, 'FREEZE'),
+    flameCycleDay: async (user, args, { models }) =>
+      user.streak == null ? 0 : flamePosition(user.streak, (await questStateFor(models, user)).questsCompleted === 2).day,
+    flameWeek: async (user, args, { models }) =>
+      user.streak == null ? 0 : flamePosition(user.streak, (await questStateFor(models, user)).questsCompleted === 2).week,
+    goldFlame: async (user, args, { models }) => {
+      const streak = await models.streak.findFirst({
+        where: { userId: user.id, type: 'FLAME', endedAt: null },
+        select: { goldActive: true }
+      })
+      return streak?.goldActive ?? false
+    },
     turfDiscountHeld: async (user, args, { models }) => heldReward(models, user.id, 'TURF_DISCOUNT'),
     questResetsAt: () => questResetsAt(),
     freePostCount: (user) => {
@@ -1045,6 +1054,17 @@ export default {
       }
 
       return user.streak
+    },
+    goldFlame: async (user, args, { models, me }) => {
+      if (user.hideBadges && (!me || me.id !== user.id)) {
+        return false
+      }
+
+      const streak = await models.streak.findFirst({
+        where: { userId: user.id, type: 'FLAME', endedAt: null },
+        select: { goldActive: true }
+      })
+      return streak?.goldActive ?? false
     },
     hasWallet: async (user, args, { models, me }) => {
       if (!isVerifiedBadgeEnabled()) return false
@@ -1183,13 +1203,12 @@ export default {
 
 /** Today's draw + completions bundle for the module's privates fields. */
 async function questStateFor (models, user) {
-  const day = utcDay()
+  const day = questDay()
   const draw = await resolveDraw(models, user.id, day)
   const done = await completionsFor(models, { userId: user.id, day, draw })
   return {
     upvoteComplete: !!done[draw.upvote],
     drawnType: draw.drawn,
-    drawnTurf: draw.turfName,
     drawnComplete: !!done[draw.drawn],
     questsCompleted: [draw.upvote, draw.drawn].filter(q => done[q]).length
   }
@@ -1200,9 +1219,4 @@ async function heldReward (models, userId, type) {
     where: { userId, type, consumedAt: null, expiresAt: { gt: new Date() } },
     select: { id: true }
   }))
-}
-
-function questResetsAt () {
-  const now = new Date()
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0))
 }

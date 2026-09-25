@@ -25,6 +25,7 @@ import { ApplePatchExtension } from '@/lib/lexical/exts/apple'
 import { SoftkeyUnborkerPlugin } from '@/components/editor/plugins/patch/softkey-unborker'
 import { SoftkeyEmptyGuardPlugin } from '@/components/editor/plugins/patch/softkey-emptyguard'
 import { MarkdownTextExtension } from '@/lib/lexical/exts/markdown'
+import { SNLinkImportExtension } from '@/lib/lexical/exts/link-import'
 import AppendValuePlugin from '@/components/editor/plugins/core/append-value'
 import TransformerBridgePlugin from '@/components/editor/plugins/core/transformer-bridge'
 import { useEditorMode } from './contexts/mode'
@@ -110,6 +111,9 @@ export default function Editor ({ name, autoFocus, topLevel, ...props }) {
         configExtension(ReactExtension, { contentEditable: null }),
         // autofocus is always enabled after the editor has mounted to prevent the editor from losing focus when toggling mode
         configExtension(AutoFocusExtension, { disabled: !(autoFocus || hasMountedRef.current) }),
+        // hardened anchor import: relative hrefs from pasted foreign DOM
+        // (x.com) must not re-target to our origin (404s)
+        SNLinkImportExtension,
         ...modeConfig.dependencies
       ],
       nodes: modeConfig.nodes,

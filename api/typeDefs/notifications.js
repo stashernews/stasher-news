@@ -170,14 +170,19 @@ export default gql`
     id: ID!
     sortTime: Date!
     quest: String!
-    turfName: String
+  }
+
+  type FlameDay {
+    id: ID!
+    sortTime: Date!
+    day: Int
   }
 
   union Notification = Reply | Votification | BountyPayment | Mention
     | Invitification | Earn | JobChanged | Referral
     | FollowActivity | Revenue | SubStatus
     | TerritoryPost | TerritoryTransfer | Reminder | ItemMention | PayInification
-    | ReferralReward | Flame | NewVerified | QuestComplete
+    | ReferralReward | Flame | NewVerified | QuestComplete | FlameDay
     | Bulletinification
 
   type Notifications {

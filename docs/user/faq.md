@@ -52,7 +52,7 @@ See the [section about turfs](#turfs) for details.
 
 ### Do I need Monero to use Stasher News?
 
-No. You don't need Monero to get started. Browsing is free, and posting fees deter spam and fund curator rewards. New accounts get 1 free post per month; once your account has stacked at least 10 mXMR in tips and is at least 7 days old, you're established and the first 5 posts each month are free. Posts beyond the monthly allowance cost 1 mXMR. Comments are free — 1 per day for new accounts and 3 per day once you're established — with the daily allowance resetting at 00:00 UTC each day; beyond that, each comment costs 1 mXMR. Anonymous posts cost 10 mXMR and anonymous comments cost 3 mXMR.
+No. You don't need Monero to get started. Browsing is free, and posting fees deter spam and fund curator rewards. Every stasher gets 1 free post per month and 1 free reply per day, with the daily allowance resetting at 00:00 UTC each day. A post beyond the monthly free one costs 1 mXMR and a reply beyond the daily free one costs 0.6 mXMR; turfs can add a premium on top. Anonymous posts cost 10 mXMR and anonymous comments cost 1.8 mXMR.
 
 You'll need a Monero wallet to receive tips and rewards, since all payments are delivered peer-to-peer on the Monero network.
 
@@ -133,23 +133,23 @@ Tips are paid peer-to-peer to your registered address and credited to your accou
 Badges next to a stasher's name signal activity:
 
 - a verified check means the stasher has attached a wallet
-- a flame means they have kept their daily quest streak alive — golden from day 5 of each cycle
+- a flame means they have kept their daily quest streak alive, golden from day 4 of each cycle
 
 ---
 
 ### What are daily quests?
 
-Two quests are drawn every day at 00:00 UTC: the first is always "send an upvote" (the upvote arrow is a tip), and the second is one of: send a boost, be the first responder to a post with no replies yet, or post or comment in a randomly drawn turf. Each quest you complete pays one free reply for that day.
+Two quests are drawn every day at 00:00 UTC: the first is always "send an upvote" (the upvote arrow is a tip), and the second is one of: send a boost, be the first responder to a post with no replies yet, or post or comment anywhere. Upvote and boost bank one free reply credit each; first responder and post-or-comment bank two, because completing those spends a reply or post of your own.
 
-Clearing both quests keeps your flame alive. The flame runs a 7-day cycle and every day reached pays something: day 1 lights the flame, days 2 and 6 bank a free post, day 3 adds a free reply for the day, day 4 banks a streak freeze (it absorbs your next missed day), day 5 turns the flame golden, and day 7 banks 15% off your next turf creation. The ladder re-earns every cycle — and a missed day without a freeze restarts the run at day 1.
+Clearing both quests keeps your flame alive. The flame runs a 7-day cycle and every day reached pays something: day 1 lights the flame and banks a free reply, days 2 and 6 bank a free post, days 3 and 5 bank a free reply, day 4 arms the golden flame shield, and day 7 banks 15% off your next turf creation. The ladder re-earns every cycle. Miss a day and the run ends, dropping you back to day 1, unless the golden flame shield is armed: the shield absorbs one missed day, your flame holds on as a regular flame, and the shield is gone until it arms again on a future cycle's day 4.
 
 ---
 
 ### How many free replies and posts do I get?
 
-New stashers get one free reply per day and one free post per month. Established stashers — 0.01 XMR stashed and a week old — get three free replies per day and five free posts per month. Completing daily quests adds one free reply each, and the flame's day-3 bonus adds one more while it burns.
+Every stasher gets one free reply per day and one free post per month. Clearing daily quests banks extra reply credits you can spend on a later day.
 
-Banked free posts come from the flame: days 2 and 6 of each cycle bank one each. A banked post is good for one month from the day it was earned, and your monthly free posts are always spent before banked ones. You can see your remaining replies and posts on your own profile page.
+Banked credits come from the flame: every quest you clear banks a reply (first responder and post-or-comment bank two), days 3 and 5 of each cycle bank a reply, day 1 banks a reply, and days 2 and 6 bank a free post. A banked credit is good for 30 days from the day it was earned, you can hold up to 15 banked replies and 5 banked posts, and your free allowance is always spent before banked credits. You can see your remaining replies and posts on your own profile page.
 
 ---
 

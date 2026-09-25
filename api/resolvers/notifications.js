@@ -7,8 +7,7 @@ import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 import { getPayIn } from './payIn'
 import { PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES } from '@/lib/constants'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
-import { resolveDraw } from '@/api/quests/draw'
-import { utcDay, QUEST } from '@/lib/quests'
+import { cycleDay, utcDay } from '@/lib/quests'
 
 const PAY_IN_NOTIFICATION_TYPES_SQL = PAY_IN_NOTIFICATION_TYPES.map(type => `'${type}'`).join(', ')
 
@@ -300,12 +299,16 @@ export default {
       }
 
       if (meFull.noteBadges) {
+        // Lost flames only: the day-by-day FlameDay entries below chronicle the
+        // lit progress (day 1 included), so the legacy "found" entry would only
+        // duplicate day 1.
         queries.push(
           `(SELECT id::text, updated_at AS "sortTime", 0::INTEGER as "earnedPiconeros", 'Flame' AS type
           FROM "Streak"
           WHERE "userId" = $1
           AND updated_at < $2
           AND type = 'FLAME'
+          AND "endedAt" IS NOT NULL
           ORDER BY "sortTime" DESC
           LIMIT ${LIMIT})`
         )
@@ -328,6 +331,16 @@ export default {
           FROM "QuestCompletion"
           WHERE "userId" = $1
           AND created_at < $2
+          ORDER BY "sortTime" DESC
+          LIMIT ${LIMIT})`
+        )
+        // One entry per UTC day whose quests were cleared — the flame advanced
+        // that day. `day` (the cycle day) is filled in below.
+        queries.push(
+          `(SELECT min(id)::text, max(created_at) AS "sortTime", 0::INTEGER as "earnedPiconeros", 'FlameDay' AS type
+          FROM "QuestCompletion"
+          WHERE "userId" = $1 AND created_at < $2
+          GROUP BY "day" HAVING count(*) >= 2
           ORDER BY "sortTime" DESC
           LIMIT ${LIMIT})`
         )
@@ -392,6 +405,36 @@ export default {
 
       if (decodedCursor.offset === 0) {
         models.user.update({ where: { id: me.id }, data: { checkedNotesAt: new Date() } }).catch(console.error)
+      }
+
+      // FlameDay entries: a cleared day's level is the number of cleared days in
+      // its streak run up to and including it (every cleared day advances exactly
+      // one level; a frozen missed day does not), wrapped to the 7-day cycle.
+      const flameDays = notifications.filter(n => n.type === 'FlameDay')
+      if (flameDays.length) {
+        const rows = await models.questCompletion.findMany({
+          where: { id: { in: flameDays.map(n => Number(n.id)) } },
+          select: { id: true, day: true }
+        })
+        const dayById = new Map(rows.map(r => [r.id, utcDay(r.day)]))
+        const cleared = await models.$queryRaw`
+          SELECT "day"::date::text AS day
+          FROM "QuestCompletion"
+          WHERE "userId" = ${me.id}
+          GROUP BY "day" HAVING count(*) >= 2
+          ORDER BY "day" ASC`
+        const clearedDays = cleared.map(r => r.day)
+        const runs = await models.streak.findMany({
+          where: { userId: me.id, type: 'FLAME' },
+          select: { startedAt: true, endedAt: true }
+        })
+        for (const n of flameDays) {
+          const day = dayById.get(Number(n.id))
+          const run = day && runs.find(r => utcDay(r.startedAt) <= day && (!r.endedAt || utcDay(r.endedAt) > day))
+          if (!run) { n.day = null; continue }
+          const start = utcDay(run.startedAt)
+          n.day = cycleDay(clearedDays.filter(d => d >= start && d <= day).length)
+        }
       }
 
       return {
@@ -566,14 +609,6 @@ export default {
     quest: async (n, args, { models }) => {
       const row = await models.questCompletion.findUnique({ where: { id: Number(n.id) }, select: { quest: true } })
       return row?.quest ?? null
-    },
-    turfName: async (n, args, { models }) => {
-      const row = await models.questCompletion.findUnique({ where: { id: Number(n.id) }, select: { userId: true, day: true, quest: true } })
-      if (!row || row.quest !== QUEST.TURF) return null
-      // The drawn turf is deterministic in (userId, day), so it is recomputed
-      // rather than stored on the completion row.
-      const draw = await resolveDraw(models, row.userId, utcDay(row.day))
-      return draw.turfName
     }
   },
   Earn: {

@@ -5,6 +5,7 @@ import { ListExtension, CheckListExtension } from '@lexical/list'
 import DefaultNodes from '@/lib/lexical/nodes'
 import DefaultTheme from '@/lib/lexical/theme'
 import { LinkExtension } from '@lexical/link'
+import { SNLinkImportExtension } from '@/lib/lexical/exts/link-import'
 
 const DEFAULT_EXTENSIONS = []
 const DEFAULT_NAME = 'sn-headless-bridge'
@@ -29,6 +30,9 @@ export function createHeadlessBridge (opts = {}) {
         ListExtension,
         CheckListExtension,
         LinkExtension,
+        // hardened anchor import: relative hrefs from pasted foreign DOM
+        // (x.com) must not re-target to our origin (404s)
+        SNLinkImportExtension,
         ...extensions
       ],
       nodes,

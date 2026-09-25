@@ -118,3 +118,44 @@ test('streak and maxStreak survive with the setting off (owner too)', async () =
   }
   expect(await UserOptional.maxStreak(maxUser, {}, { models })).toBe(7)
 })
+
+test('goldFlame reads the stored shield off the active FLAME streak', async () => {
+  const models = {
+    streak: {
+      findFirst: async ({ where }) =>
+        (where.type === 'FLAME' && where.endedAt === null ? { goldActive: true } : null)
+    }
+  }
+  expect(await UserOptional.goldFlame(mkUser({ streak: 7 }), {}, { models })).toBe(true)
+  const modelsOff = {
+    streak: { findFirst: async () => ({ goldActive: false }) }
+  }
+  expect(await UserOptional.goldFlame(mkUser({ streak: 7 }), {}, { models: modelsOff })).toBe(false)
+  // no active FLAME row at all -> not gold
+  const modelsGone = {
+    streak: { findFirst: async () => null }
+  }
+  expect(await UserOptional.goldFlame(mkUser({ streak: 7 }), {}, { models: modelsGone })).toBe(false)
+})
+
+test('goldFlame returns false for other viewers when hideBadges is on', async () => {
+  const models = {
+    streak: { findFirst: jest.fn() }
+  }
+  expect(await UserOptional.goldFlame(mkUser({ hideBadges: true, streak: 7 }), {}, { models, me: { id: 2 } })).toBe(false)
+  expect(models.streak.findFirst).not.toHaveBeenCalled()
+})
+
+test('goldFlame stays visible to the owner when hideBadges is on', async () => {
+  const models = {
+    streak: { findFirst: async () => ({ goldActive: true }) }
+  }
+  expect(await UserOptional.goldFlame(mkUser({ hideBadges: true, streak: 7 }), {}, { models, me: { id: 1 } })).toBe(true)
+})
+
+test('goldFlame survives for other viewers when hideBadges is off', async () => {
+  const models = {
+    streak: { findFirst: async () => ({ goldActive: true }) }
+  }
+  expect(await UserOptional.goldFlame(mkUser({ hideBadges: false, streak: 7 }), {}, { models, me: { id: 2 } })).toBe(true)
+})

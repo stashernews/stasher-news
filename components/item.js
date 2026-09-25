@@ -113,7 +113,7 @@ export default function Item ({
         {item.position && (pinnable || !item.subNames)
           ? <Pin width={24} height={24} className={styles.pin} />
           : item.mine
-            ? <Boost item={item} className={classNames(styles.upvote, item.bio && 'invisible')} />
+            ? item.bio ? null : <Boost item={item} className={styles.upvote} />
             : <VoteColumn item={item} className={styles.upvote} />}
         <div className={styles.hunk}>
           <div className={`${styles.main} flex-wrap`}>

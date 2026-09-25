@@ -14,7 +14,6 @@ import HandCoin from '@/svgs/hand-coin-fill.svg'
 import UserAdd from '@/svgs/user-add-fill.svg'
 import { LOST_BLURBS, FOUND_BLURBS, PAY_IN_ACT_TYPES } from '@/lib/constants'
 import FlameIcon from '@/svgs/flame.svg'
-import CheckCircleIcon from '@/svgs/checkbox-circle-fill.svg'
 import VerifiedIcon from '@/svgs/verified.svg'
 import { RootProvider } from './root'
 import Alert from 'react-bootstrap/Alert'
@@ -29,7 +28,7 @@ import { LongCountdown } from './countdown'
 import { nextBillingWithGrace } from '@/lib/territory'
 import { commentSubTreeRootId } from '@/lib/item'
 import { COPY } from '@/lib/rebrand-copy'
-import { questTitle } from '@/lib/quests'
+import { questTitle, QUEST_REPLY_REWARDS } from '@/lib/quests'
 import LinkToContext from './link-to-context'
 import { Badge, Button } from 'react-bootstrap'
 import { useToast } from './toast'
@@ -55,6 +54,7 @@ function Notification ({ n, fresh }) {
         (type === 'Flame' && <Flame n={n} />) ||
         (type === 'NewVerified' && <Verified n={n} />) ||
         (type === 'QuestComplete' && <QuestComplete n={n} />) ||
+        (type === 'FlameDay' && <FlameDay n={n} />) ||
         (type === 'Votification' && <Votification n={n} />) ||
         (type === 'BountyPayment' && <BountyPayment n={n} />) ||
         (type === 'Mention' && <Mention n={n} />) ||
@@ -162,7 +162,7 @@ const defaultOnClick = n => {
   if (type === 'SubStatus') return { href: `/~${n.sub.name}` }
   if (type === 'Invitification') return { href: '/referrals' }
   if (type === 'PayInification') return { href: `/transactions/${n.payIn.id}` }
-  if (['Flame', 'NewVerified', 'QuestComplete'].includes(type)) return {}
+  if (['Flame', 'NewVerified', 'QuestComplete', 'FlameDay'].includes(type)) return {}
   if (type === 'TerritoryTransfer') return { href: `/~${n.sub.name}` }
 
   if (!n.item) return {}
@@ -206,7 +206,7 @@ function Flame ({ n }) {
 
   return (
     <div className='d-flex'>
-      <div style={{ fontSize: '2rem' }}><FlameIcon className='fill-grey' height={40} width={40} /></div>
+      <div style={{ fontSize: '2rem' }}><FlameIcon style={{ color: '#ff6e6e' }} height={40} width={40} /></div>
       <div className='ms-1 p-1'>
         <span className='fw-bold'>{body}</span>
         <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{blurb(n)}</small></div>
@@ -215,13 +215,39 @@ function Flame ({ n }) {
   )
 }
 
-function QuestComplete ({ n }) {
+// Per-day flame copy: the day the flame reached, and what that day paid.
+const FLAME_DAY_COPY = {
+  1: 'your flame is kindled, +1 reply banked',
+  2: 'your flame grows, +1 free post banked',
+  3: 'your flame burns brighter, +1 free reply banked',
+  4: 'your flame burns golden today, brighter and stronger than ever',
+  5: 'your flame grows, +1 free reply banked',
+  6: 'your flame grows, +1 free post banked',
+  7: 'your flame completes the cycle, turf creation discount banked'
+}
+
+function FlameDay ({ n }) {
+  // golden arms at cycle day 4 (the shield rung), matching the ladder
+  const gold = n.day >= 4
   return (
     <div className='d-flex'>
-      <div style={{ fontSize: '2rem' }}><CheckCircleIcon className='fill-grey' height={40} width={40} /></div>
+      <div style={{ fontSize: '2rem' }}><FlameIcon style={{ color: gold ? 'var(--gold, #ffd166)' : '#ff6e6e' }} height={40} width={40} /></div>
+      <div className='ms-1 p-1'>
+        <span className='fw-bold'>{n.day ? `flame · day ${n.day}` : 'flame advanced'}</span>
+        <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{FLAME_DAY_COPY[n.day] ?? 'you cleared both daily ops'}</small></div>
+      </div>
+    </div>
+  )
+}
+
+function QuestComplete ({ n }) {
+  const amount = QUEST_REPLY_REWARDS[n.quest] ?? 1
+  return (
+    <div className='d-flex'>
+      <div style={{ fontSize: '2.6rem', lineHeight: '40px', fontWeight: 700, color: '#fada5e', width: 40, textAlign: 'center' }}>!</div>
       <div className='ms-1 p-1'>
         <span className='fw-bold'>quest complete</span>
-        <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{questTitle(n.quest, n.turfName)} — +1 free reply</small></div>
+        <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{questTitle(n.quest)} · +{amount} {amount === 1 ? 'reply' : 'replies'} banked</small></div>
       </div>
     </div>
   )

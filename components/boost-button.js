@@ -19,13 +19,14 @@ export default function Boost ({ item, className, ...props }) {
   return (
     <Booster
       item={item} As={oprops =>
-        <div className='upvoteParent'>
+        <div className='upvoteParent' {...oprops}>
           <div
             className={classNames(styles.upvoteWrapper, item.deletedAt && styles.noSelfTips)}
           >
             <BoostIcon
               {...props}
-              {...oprops}
+              aria-hidden='true'
+              focusable='false'
               style={style}
               width={26}
               height={26}
@@ -41,13 +42,24 @@ function Booster ({ item, As, children }) {
   const toaster = useToast()
   const showModal = useShowModal()
 
+  const openBoost = () => {
+    try {
+      showModal(onClose => <BoostModal item={item} onClose={onClose} />)
+    } catch (error) {
+      toaster.danger('failed to boost item')
+    }
+  }
+
   return (
     <As
-      onClick={() => {
-        try {
-          showModal(onClose => <BoostModal item={item} onClose={onClose} />)
-        } catch (error) {
-          toaster.danger('failed to boost item')
+      role='button'
+      tabIndex={0}
+      aria-label='boost'
+      onClick={openBoost}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          openBoost()
         }
       }}
     >

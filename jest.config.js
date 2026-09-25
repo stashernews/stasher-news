@@ -12,12 +12,18 @@ const createJestConfig = nextJest({ dir: './' })
 // The webhook load test under `test/load/` needs the LIVE compose stack (it
 // POSTs to http://app:3000 and consumes real PENDING tips from the DB) —
 // opt-in via RUN_WEBHOOK_LOAD=1, mirroring the stagenet gate.
+// In-repo git worktrees (`.worktrees/<name>`) hold their own copies of the
+// suite; running jest from the main tree must not collect them (it doubled the
+// suite count and produced ~80 phantom "suite failed to run" failures).
+const testPathIgnorePatterns = process.env.RUN_STAGENET_INTEGRATION === '1'
+  ? []
+  : process.env.RUN_WEBHOOK_LOAD === '1'
+    ? ['<rootDir>/test/integration/']
+    : ['<rootDir>/test/integration/', '<rootDir>/test/load/']
+testPathIgnorePatterns.push('<rootDir>/.worktrees/')
+
 module.exports = createJestConfig({
-  testPathIgnorePatterns: process.env.RUN_STAGENET_INTEGRATION === '1'
-    ? []
-    : process.env.RUN_WEBHOOK_LOAD === '1'
-      ? ['<rootDir>/test/integration/']
-      : ['<rootDir>/test/integration/', '<rootDir>/test/load/'],
+  testPathIgnorePatterns,
   // uuid@14 is ESM-only; next-auth v4 CJS-requires it inside jest's sandbox
   // (ERR_REQUIRE_ESM). No first-party code imports uuid, so redirect every
   // require('uuid') to a CJS shim. See test/helpers/uuid-shim.js.

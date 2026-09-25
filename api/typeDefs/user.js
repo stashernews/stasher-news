@@ -130,14 +130,14 @@ export default gql`
     freeCommentCount: Int!
     freeCommentsLeft: Int!
     freeCommentsQuota: Int!
+    freeReplyCredits: Int!
     questUpvoteComplete: Boolean!
     questDrawnType: String!
-    questDrawnTurf: String
     questDrawnComplete: Boolean!
     questsCompletedToday: Int!
     flameCycleDay: Int!
+    flameWeek: Int!
     goldFlame: Boolean!
-    freezeHeld: Boolean!
     turfDiscountHeld: Boolean!
     questResetsAt: Date!
     freePostCount: Int!
@@ -214,6 +214,7 @@ export default gql`
     referrals(when: String, from: String, to: String): Int
     stashAmountHidden: Boolean!
     streak: Int
+    goldFlame: Boolean!
     hasWallet: Boolean
     maxStreak: Int
     isContributor: Boolean

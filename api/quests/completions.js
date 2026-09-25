@@ -1,4 +1,5 @@
 import { QUEST } from '@/lib/quests'
+import { questDayRange } from '@/lib/questClock'
 
 /** True iff the user has a detected/confirmed tip inside [gte, lt) — the
  * UPVOTE quest check (the upvote arrow IS the tip flow). */
@@ -20,8 +21,7 @@ export async function tippedInWindow (prisma, userId, { gte, lt } = {}) {
  * the drawn turf. All checks are indexed reads; no writes.
  */
 export async function completionsFor (models, { userId, day, draw }) {
-  const gte = new Date(`${day}T00:00:00.000Z`)
-  const lt = new Date(gte.getTime() + 86_400_000)
+  const { gte, lt } = questDayRange(day)
   const out = { UPVOTE: false, BOOST: false, FIRST_RESPONDER: false, TURF: false }
   if (userId == null || !draw) return out
 
@@ -46,11 +46,15 @@ export async function completionsFor (models, { userId, day, draw }) {
       LIMIT 1`
     out.FIRST_RESPONDER = rows.length > 0
   }
-  if (draw.drawn === QUEST.TURF && draw.turfName) {
-    out.TURF = !!(await models.item.findFirst({
-      where: { userId, deletedAt: null, createdAt: { gte, lt }, subNames: { has: draw.turfName } },
-      select: { id: true }
-    }))
+  if (draw.drawn === QUEST.TURF) {
+    // Rev 5: "post or comment" — any item by the user in the window counts
+    // (posts, comments, polls, links, bounties), anywhere, no turf targeting.
+    const rows = await models.$queryRaw`
+      SELECT 1 AS n FROM "Item" i
+      WHERE i."userId" = ${userId}::INTEGER AND i."deletedAt" IS NULL
+        AND i.created_at >= ${gte} AND i.created_at < ${lt}
+      LIMIT 1`
+    out.TURF = rows.length > 0
   }
   return out
 }

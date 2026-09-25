@@ -45,13 +45,13 @@ test('FIRST_RESPONDER requires the comment to be the parent item first comment',
   created.items.push(post.id)
   const [comment] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", created_at) VALUES (${replier}::int, ${post.id}::int, ${new Date(`${DAY}T10:00:00.000Z`)}) RETURNING id::int AS id`
   created.items.push(comment.id)
-  const first = await completionsFor(prisma, { userId: replier, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.FIRST_RESPONDER, turfName: null } })
+  const first = await completionsFor(prisma, { userId: replier, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.FIRST_RESPONDER } })
   expect(first.FIRST_RESPONDER).toBe(true)
   // A second commenter on the same parent fails the check.
   const second = await mkUser()
   const [comment2] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", created_at) VALUES (${second}::int, ${post.id}::int, ${new Date(`${DAY}T11:00:00.000Z`)}) RETURNING id::int AS id`
   created.items.push(comment2.id)
-  const late = await completionsFor(prisma, { userId: second, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.FIRST_RESPONDER, turfName: null } })
+  const late = await completionsFor(prisma, { userId: second, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.FIRST_RESPONDER } })
   expect(late.FIRST_RESPONDER).toBe(false)
 })
 
@@ -59,18 +59,26 @@ test('BOOST completes from a BOOST payIn created inside the day window', async (
   const userId = await mkUser()
   const payIn = await prisma.payIn.create({ data: { payInType: 'BOOST', userId, payInState: 'PAID', piconeros: 0n, createdAt: new Date(`${DAY}T15:00:00.000Z`) } })
   created.payIns.push(payIn.id)
-  const done = await completionsFor(prisma, { userId, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.BOOST, turfName: null } })
+  const done = await completionsFor(prisma, { userId, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.BOOST } })
   expect(done.BOOST).toBe(true)
 })
 
-test('TURF completes for a post or comment carrying the drawn turf', async () => {
+test('TURF completes for any post or comment created in the window', async () => {
+  // Rev 5: the drawn quest is just "post or comment" — no turf targeting, and
+  // any item (post, comment, poll, link, bounty) counts.
   const userId = await mkUser()
-  const sub = await prisma.sub.create({ data: { name: `qtest-turf-${Date.now()}`, userId, rankingType: 'RECENT', billingType: 'ONCE', billingCost: 0 } })
-  created.subs.push(sub.id)
-  const [item] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, "subNames", created_at) VALUES (${userId}::int, 'qtest turf post', ARRAY[${sub.name}]::citext[], ${new Date(`${DAY}T09:00:00.000Z`)}) RETURNING id::int AS id`
-  created.items.push(item.id)
-  const done = await completionsFor(prisma, { userId, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.TURF, turfName: sub.name } })
-  expect(done.TURF).toBe(true)
-  const other = await completionsFor(prisma, { userId, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.TURF, turfName: 'not-a-real-turf' } })
-  expect(other.TURF).toBe(false)
+  const [post] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qtest any post', ${new Date(`${DAY}T09:00:00.000Z`)}) RETURNING id::int AS id`
+  created.items.push(post.id)
+  const postDone = await completionsFor(prisma, { userId, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.TURF } })
+  expect(postDone.TURF).toBe(true)
+
+  const commenter = await mkUser()
+  const [comment] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", created_at) VALUES (${commenter}::int, ${post.id}::int, ${new Date(`${DAY}T10:00:00.000Z`)}) RETURNING id::int AS id`
+  created.items.push(comment.id)
+  const commentDone = await completionsFor(prisma, { userId: commenter, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.TURF } })
+  expect(commentDone.TURF).toBe(true)
+
+  const idle = await mkUser()
+  const idleDone = await completionsFor(prisma, { userId: idle, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.TURF } })
+  expect(idleDone.TURF).toBe(false)
 })

@@ -44,14 +44,14 @@ function PayInRow ({ payIn }) {
         [styles.stacking]: !payIn?.payerPrivates
       })}
     >
-      <LinkToContext className={styles.type} href={payInHref(payIn)}>
+      <LinkToContext className={styles.type} srLabel='view transaction' href={payInHref(payIn)}>
         <PayInType payIn={payIn} />
       </LinkToContext>
-      <LinkToContext className={styles.context} href={payInHref(payIn)}>
+      <LinkToContext className={styles.context} srLabel='view transaction' href={payInHref(payIn)}>
         <div className='d-flex d-sm-none small justify-content-center text-muted w-100' />
         <div className='d-none d-sm-block mw-100'><PayInContext payIn={payIn} /></div>
       </LinkToContext>
-      <LinkToContext className={styles.money} href={payInHref(payIn)}>
+      <LinkToContext className={styles.money} srLabel='view transaction' href={payInHref(payIn)}>
         <PayInMoney payIn={payIn} />
       </LinkToContext>
     </div>

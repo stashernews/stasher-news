@@ -1,8 +1,5 @@
 import { USER_ID } from '@/lib/constants'
 import { freeCommentsQuota, freePostsQuota } from '@/api/monero/postingFee'
-import { cycleDay, utcDay } from '@/lib/quests'
-import { resolveDraw } from '@/api/quests/draw'
-import { completionsFor } from '@/api/quests/completions'
 import { Prisma } from '@prisma/client'
 
 // Get the first day of next month at midnight UTC
@@ -19,10 +16,11 @@ export function getNextDayStart () {
 
 /**
  * Increment user's free comment counter after creating a freebie comment.
- * The free-comment window is daily (resets 00:00 UTC).
- * Self-contained: fetches user + config inside the tx so the tier cap is
- * computed at increment time (a graduation between getInitial and onPaid is
- * handled correctly — the larger established quota is used).
+ * The free-comment window is daily (resets 00:00 UTC) with the flat one-tier
+ * quota (rev 3: quest rewards bank REPLY credits instead of extending the
+ * increment guard). Base-first: once the daily base is exhausted, a banked
+ * REPLY credit is consumed instead (soonest-expiring first). Self-contained:
+ * fetches user + config inside the tx.
  * @param {Object} tx - Prisma transaction
  * @param {Object} params - { item, userId }
  */
@@ -33,15 +31,7 @@ export async function incrementFreeCommentCount (tx, { item, userId }) {
   const user = await tx.user.findUnique({ where: { id: userId } })
   const config = await tx.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) return
-  // quest-aware: recompute completions at increment time so an action that
-  // landed (or a day boundary that passed) between the freebie gate and here
-  // is honored; the day-3 bonus rides the freshly fetched user row's streak.
-  const day = utcDay()
-  const draw = await resolveDraw(tx, userId, day)
-  const done = await completionsFor(tx, { userId, day, draw })
-  const questsCompleted = [draw.upvote, draw.drawn].filter(q => done[q]).length
-  const day3Bonus = cycleDay(user.streak) === 3 ? 1 : 0
-  const quota = freeCommentsQuota(user, config, { bonusReplies: questsCompleted + day3Bonus })
+  const quota = freeCommentsQuota(user, config)
   const now = new Date()
   const needsReset = user.freeCommentResetAt && now >= new Date(user.freeCommentResetAt)
 
@@ -60,6 +50,11 @@ export async function incrementFreeCommentCount (tx, { item, userId }) {
           freeCommentResetAt: getNextDayStart()
         }
       })
+    } else if ((user.freeCommentCount || 0) >= quota) {
+      // Base exhausted: consume one banked REPLY credit (soonest-expiring
+      // first). No credit means the caller should not have granted a freebie;
+      // leave the counter alone and let the P2025-free path stand.
+      await consumeStreakReward(tx, userId, 'REPLY', item.id ?? null)
     } else {
       await tx.user.update({
         where: {

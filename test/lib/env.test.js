@@ -25,6 +25,15 @@ test('passes in production when all required vars are set', () => {
   expect(() => validateEnv({ env: GOOD, nodeEnv: 'production' })).not.toThrow()
 })
 
+test('throws in production when the dev-only quest clock is set', () => {
+  const env = { ...GOOD, QUEST_DAY_EPOCH: '2026-09-25T15:30:00.000Z', QUEST_DAY_MS: '1200000' }
+  expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/QUEST_DAY_EPOCH/)
+})
+
+test('ignores the quest clock outside production', () => {
+  expect(() => validateEnv({ env: { QUEST_DAY_EPOCH: '2026-09-25T15:30:00.000Z' }, nodeEnv: 'development' })).not.toThrow()
+})
+
 test('throws in production when a required var is missing', () => {
   const env = { ...GOOD, NEXTAUTH_SECRET: '' }
   expect(() => validateEnv({ env, nodeEnv: 'production' })).toThrow(/NEXTAUTH_SECRET/)

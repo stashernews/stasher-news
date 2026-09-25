@@ -26,14 +26,14 @@ ${STREAK_FIELDS}
       credits
       freeCommentsLeft
       freeCommentsQuota
+      freeReplyCredits
       questUpvoteComplete
       questDrawnType
-      questDrawnTurf
       questDrawnComplete
       questsCompletedToday
       flameCycleDay
+      flameWeek
       goldFlame
-      freezeHeld
       turfDiscountHeld
       questResetsAt
       freePostCount

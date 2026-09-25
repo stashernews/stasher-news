@@ -5,7 +5,6 @@ import FlameIcon from '@/svgs/flame.svg'
 import VerifiedIcon from '@/svgs/verified.svg'
 import AnonIcon from '@/svgs/spy-fill.svg'
 import BotIcon from '@/svgs/robot-2-fill.svg'
-import { isGoldFlame } from '@/lib/quests'
 import { numWithUnits } from '@/lib/format'
 import { USER_ID } from '@/lib/constants'
 import classNames from 'classnames'
@@ -53,13 +52,13 @@ export function buildBadges (user, { bot = false } = {}) {
   }
   const streak = user.optional?.streak ?? null
   if (streak !== null) {
-    const gold = isGoldFlame(streak)
+    const gold = !!user.optional?.goldFlame
     badges.push({
       icon: FlameIcon,
       overlayText: streak
-        ? `${numWithUnits(streak, { abbreviate: false, unitSingular: 'day', unitPlural: 'days' })} quest streak${gold ? ' — golden flame' : ''}`
+        ? `${numWithUnits(streak, { abbreviate: false, unitSingular: 'day', unitPlural: 'days' })} quest streak${gold ? ', golden flame' : ''}`
         : 'new quest streak',
-      style: gold ? { color: 'var(--gold, #ffd166)' } : undefined
+      style: { color: gold ? 'var(--gold, #ffd166)' : '#ff6e6e' }
     })
   }
   if (bot) {

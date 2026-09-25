@@ -1,7 +1,7 @@
 import { gql } from '@apollo/client'
 
 // Single source of truth for the User optional badge fields (streak,
-// hasWallet). It lives in its own module with no app imports so every
+// goldFlame, hasWallet). It lives in its own module with no app imports so every
 // fragment file can embed it without import cycles (replaces the "we can't
 // import from users" duplication that used to live in items/comments/users/subs).
 //
@@ -16,6 +16,7 @@ export const STREAK_FIELDS = gql`
   fragment StreakFields on User {
     optional {
       streak
+      goldFlame
       hasWallet
     }
   }

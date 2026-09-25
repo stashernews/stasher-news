@@ -290,7 +290,7 @@ function HeaderHeader ({ user }) {
             </small>}
         </div>
       </div>
-      {isMe && <div className='ms-auto'><QuestsModule /></div>}
+      {isMe && <div className='qm-wrap'><QuestsModule /></div>}
     </div>
   )
 }

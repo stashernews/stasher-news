@@ -1,9 +1,9 @@
 /* eslint-env jest */
 
 // Real-DB end-to-end tests for the quest-system quotas (spec
-// 2026-09-23-daily-quests): getInitial must treat today's quest completions,
-// the flame day-3 bonus, and banked/expired StreakReward POST rows exactly as
-// the quota helpers compute them.
+// 2026-09-23-daily-quests, rev 3): getInitial must treat the flat one-tier
+// quotas and banked/expired StreakReward POST/REPLY rows exactly as the quota
+// helpers compute them.
 
 import { PrismaClient } from '@prisma/client'
 import { getInitial } from '@/api/payIn/types/itemCreate'
@@ -21,37 +21,12 @@ jest.mock('../../api/monero/feePool', () => ({
 
 const prisma = new PrismaClient()
 const DAY = 86_400_000
-const created = { users: [], items: [], accounts: [], tips: [] }
+const created = { users: [], items: [], accounts: [] }
 
 async function createUser () {
   const [row] = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
   created.users.push(row.id)
   return row.id
-}
-
-// A DETECTED tip by this user today completes the upvote quest.
-async function seedRecentTip (tipperId) {
-  const [post] = await prisma.$queryRaw`
-    INSERT INTO "Item" ("userId", title, "created_at") VALUES (${tipperId}::int, ${'quest e2e tip post'}, now()) RETURNING id::int AS id`
-  await prisma.$executeRaw`UPDATE "Item" SET path = ${String(post.id)}::ltree WHERE id = ${post.id}::int`
-  created.items.push(post.id)
-  const account = await prisma.moneroAccount.create({
-    data: { ownerUserId: null, address: `5Bqtest${tipperId}${Date.now()}`.slice(0, 95), label: 'test', network: 'STAGENET', status: 'ACTIVE' }
-  })
-  created.accounts.push(account.id)
-  const tip = await prisma.observedTip.create({
-    data: {
-      txHash: `questse2e-${tipperId}-${Date.now()}-${created.tips.length}`,
-      postId: post.id,
-      tipperId,
-      recipientAccountId: account.id,
-      paymentId: `pid-${tipperId}-${Date.now()}-${created.tips.length}`,
-      piconeros: 100000000n,
-      state: 'DETECTED'
-    }
-  })
-  created.tips.push(String(tip.id))
-  return tip
 }
 
 async function seedReward (userId, { type = 'POST', expiresAt }) {
@@ -61,7 +36,6 @@ async function seedReward (userId, { type = 'POST', expiresAt }) {
 }
 
 afterAll(async () => {
-  await prisma.observedTip.deleteMany({ where: { txHash: { startsWith: 'questse2e-' } } })
   for (const id of created.items) {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
     await prisma.item.deleteMany({ where: { id } })
@@ -77,24 +51,25 @@ async function ensureFeeConfig () {
   }
 }
 
-test('the upvote quest extends the daily reply quota past the used base', async () => {
+test('a banked REPLY credit keeps a comment free past the used base', async () => {
   await ensureFeeConfig()
   const userId = await createUser()
-  // low-rep base is 1 and already used today
+  // the flat daily base is 1 and already used today
   await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 1 WHERE id = ${userId}::int`
-  await seedRecentTip(userId)
+  await seedReward(userId, { type: 'REPLY', expiresAt: new Date(Date.now() + 20 * DAY) })
   const result = await getInitial(prisma, { parentId: '999999' }, { me: { id: userId } })
   expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
 })
 
-test('the flame day-3 bonus extends the daily reply quota past the used base', async () => {
+test('the flame streak alone no longer extends the reply quota (banking replaces it)', async () => {
   const userId = await createUser()
   await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 1, streak = 3 WHERE id = ${userId}::int`
   const result = await getInitial(prisma, { parentId: '999999' }, { me: { id: userId } })
-  expect(result).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
+  expect(result.moneroUri).toMatch(/^monero:/)
+  expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(600_000_000n)
 })
 
-test('with the base used and no completions, the comment fee returns', async () => {
+test('with the base used and no banked credits, the comment fee returns', async () => {
   const userId = await createUser()
   await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 1 WHERE id = ${userId}::int`
   const result = await getInitial(prisma, { parentId: '999999' }, { me: { id: userId } })
@@ -105,7 +80,7 @@ test('with the base used and no completions, the comment fee returns', async () 
 test('a banked POST reward keeps a post free past the exhausted monthly base; an expired one does not', async () => {
   const userId = await createUser()
   await prisma.$executeRaw`
-    UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days', "freePostCount" = 5
+    UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days', "freePostCount" = 1
     WHERE id = ${userId}::int`
   await seedReward(userId, { expiresAt: new Date(Date.now() + 20 * DAY) })
   const free = await getInitial(prisma, {}, { me: { id: userId } })
@@ -113,7 +88,7 @@ test('a banked POST reward keeps a post free past the exhausted monthly base; an
 
   const other = await createUser()
   await prisma.$executeRaw`
-    UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days', "freePostCount" = 5
+    UPDATE users SET "stackedPiconeros" = 10000000000, "created_at" = now() - interval '8 days', "freePostCount" = 1
     WHERE id = ${other}::int`
   await seedReward(other, { expiresAt: new Date(Date.now() - DAY) }) // already expired
   const paid = await getInitial(prisma, {}, { me: { id: other } })

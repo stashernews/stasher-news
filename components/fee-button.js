@@ -74,8 +74,8 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
   }
 
   // Posts: the StasherNews posting fee is a flat on-chain Monero payment to the
-  // platform rewards wallet (spec §6.2 Q5) — 0.001 XMR for low-rep authors,
-  // nothing for established ones. Legacy per-turf baseCost lines are denominated
+  // platform rewards wallet (spec §6.2 Q5): 0.001 XMR once the month's free
+  // post is spent. Legacy per-turf baseCost lines are denominated
   // in sats and would misquote the fee, so posts render a single postingFee line
   // (or no lines at all when the author posts free).
   // Turf owners post free when ALL selected turfs are owned.
@@ -178,9 +178,9 @@ export function postCommentUseRemoteLineItems ({ parentId, subs = [] } = {}) {
 
     useEffect(() => {
       const repetition = data?.itemRepetition
-      // only show the x1.5^n line when a fee actually applies: a comment past the
-      // freebie quota, or a low-rep post. Freebie comments (base 1) and free posts
-      // must never be multiplied.
+      // only show the x1.5^n line when a fee actually applies: an item past its
+      // free allowance (1 reply/day, 1 post/month for everyone). Free replies
+      // (base 1) and free posts must never be multiplied.
       const feeApplies = multiplier > 0 && (parentId
         ? (me?.privates?.freeCommentsLeft ?? 0) <= 0
         : !!me?.privates?.postingFeeRequired)

@@ -89,6 +89,11 @@ export const NOTIFICATIONS = gql`
           quest
           turfName
         }
+        ... on FlameDay {
+          id
+          sortTime
+          day
+        }
         ... on Bulletinification {
           id
           sortTime

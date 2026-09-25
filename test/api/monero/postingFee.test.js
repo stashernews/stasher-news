@@ -1,16 +1,5 @@
 /* eslint-env jest */
-import { canPostFree, postingFeePiconeros, postingFeePrivatesFor, freeCommentsQuota, freePostsQuota, commentsFreeLeft, postsFreeLeft, feeReceivedPiconerosForPayIn, __resetFeeConfigCacheForTests, commentQuotaFor, postQuotaFor, bankedPostCredits } from '@/api/monero/postingFee'
-import { completionsFor } from '@/api/quests/completions'
-
-// The quest draw/completion checks have their own real-DB suite; here they are
-// mocked so quota math is exercised deterministically (the real draw is
-// deterministic per user+day, but these tests must not depend on its outcome).
-jest.mock('../../../api/quests/draw', () => ({
-  resolveDraw: jest.fn(async () => ({ upvote: 'UPVOTE', drawn: 'BOOST', turfName: null }))
-}))
-jest.mock('../../../api/quests/completions', () => ({
-  completionsFor: jest.fn(async () => ({ UPVOTE: false, BOOST: false, FIRST_RESPONDER: false, TURF: false }))
-}))
+import { canPostFree, postingFeePiconeros, postingFeePrivatesFor, freeCommentsQuota, freePostsQuota, commentsFreeLeft, postsFreeLeft, feeReceivedPiconerosForPayIn, __resetFeeConfigCacheForTests, commentQuotaFor, postQuotaFor, bankedPostCredits, bankedReplyCredits } from '@/api/monero/postingFee'
 
 const DAY = 86_400_000
 const CONFIG = { freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7, postingFeeFloorPiconeros: 1_000_000_000n }
@@ -40,20 +29,15 @@ test('postingFeePiconeros returns the platform floor (1e9 piconeros = 0.001 XMR)
 })
 
 // The user fixtures carry id: 7 so the self-view guard (viewerId === user.id)
-// passes and the tests exercise the real canPostFree / config paths instead of
-// short-circuiting on the id mismatch. Low-rep = id 7 viewer 7. $queryRaw
-// dispatches on the SQL text: the tip EXISTS quest check returns [] (no tips)
-// and the StreakReward aggregate returns zero POST credits.
+// passes and the tests exercise the real config paths instead of
+// short-circuiting on the id mismatch. $queryRaw returns zero banked credits
+// (POST and REPLY) by default; mkPrisma can stage them per type.
 const MODELS = {
   platformFeeConfig: { findUnique: async () => CONFIG },
-  $queryRaw: async (strings) => {
-    const sql = String(strings.join(''))
-    if (sql.includes('ObservedTip')) return []
-    return [{ credits: 0, nextExpiresAt: null }]
-  }
+  $queryRaw: async () => [{ credits: 0, nextExpiresAt: null }]
 }
 
-beforeEach(() => { __resetFeeConfigCacheForTests(); completionsFor.mockClear() })
+beforeEach(() => { __resetFeeConfigCacheForTests() })
 
 describe('postingFeePrivatesFor', () => {
   test('low-rep self-view with the free post available reports no fee', async () => {
@@ -89,7 +73,7 @@ describe('postingFeePrivatesFor', () => {
     expect(result.freePostsQuota).toBe(1)
   })
 
-  test('established self-view reports no fee (free posts available)', async () => {
+  test('established self-view reports no fee (flat quota, free post available)', async () => {
     const now = Date.now()
     const result = await postingFeePrivatesFor(
       MODELS,
@@ -102,10 +86,10 @@ describe('postingFeePrivatesFor', () => {
       postingFeeFloorPiconeros: 1_000_000_000n,
       freePostThresholdPiconeros: 10_000_000_000n,
       freePostMinAgeDays: 7,
-      freePostsLeft: 5,
+      freePostsLeft: 1,
       freePostCount: 0,
-      freePostsQuota: 5,
-      freeCommentsQuota: 3,
+      freePostsQuota: 1,
+      freeCommentsQuota: 1,
       freePostCredits: 0,
       freePostCreditsExpireAt: null
     })
@@ -115,7 +99,7 @@ describe('postingFeePrivatesFor', () => {
     const now = Date.now()
     const result = await postingFeePrivatesFor(
       MODELS,
-      { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY), freePostCount: 5, freePostResetAt: null, streak: null, freeCommentCount: 0 },
+      { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY), freePostCount: 1, freePostResetAt: null, streak: null, freeCommentCount: 0 },
       7
     )
     expect(result.postingFeeRequired).toBe(true)
@@ -169,41 +153,52 @@ describe('postingFeePrivatesFor', () => {
   })
 })
 
-describe('tiered freebie quotas', () => {
+describe('flat one-tier quotas', () => {
   const DAY2 = 86_400_000
   const CFG = { freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 }
   const established = { stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * DAY2) }
   const lowRep = { stackedPiconeros: 0n, createdAt: new Date() }
 
-  test('freeCommentsQuota is 3 established, 1 low-rep', () => {
-    expect(freeCommentsQuota(established, CFG)).toBe(3)
-    expect(freeCommentsQuota(lowRep, CFG)).toBe(1)
+  test('quotas are flat: one reply a day and one post a month for every user', () => {
+    const lowRep = { createdAt: new Date(), stackedPiconeros: 0n, freeCommentCount: 0, freePostCount: 0 }
+    const established = { createdAt: new Date(Date.now() - 30 * 86400000), stackedPiconeros: 10n ** 11n, freeCommentCount: 0, freePostCount: 0 }
+    const config = { freePostThresholdPiconeros: 10n ** 10n, freePostMinAgeDays: 7 }
+    expect(freeCommentsQuota(lowRep, config)).toBe(1)
+    expect(freeCommentsQuota(established, config)).toBe(1)
+    expect(freePostsQuota(lowRep, config)).toBe(1)
+    expect(freePostsQuota(established, config)).toBe(1)
   })
 
-  test('freeCommentsQuota adds the bonus reply count (quests + flame day-3)', () => {
-    expect(freeCommentsQuota(established, CFG, { bonusReplies: 0 })).toBe(3)
-    expect(freeCommentsQuota(established, CFG, { bonusReplies: 2 })).toBe(5)
-    expect(freeCommentsQuota(lowRep, CFG, { bonusReplies: 1 })).toBe(2)
+  test('an unused base post resets to exactly one next month, never two', () => {
+    const config = { freePostThresholdPiconeros: 10n ** 10n, freePostMinAgeDays: 7 }
+    const user = {
+      createdAt: new Date(Date.now() - 30 * 86400000),
+      stackedPiconeros: 10n ** 11n,
+      freePostCount: 1,
+      freePostResetAt: new Date(Date.now() - 1000) // last month's window already closed
+    }
+    expect(postsFreeLeft(user, config)).toBe(1)
   })
 
-  test('freePostsQuota is 5 established, 1 low-rep', () => {
-    expect(freePostsQuota(established, CFG)).toBe(5)
-    expect(freePostsQuota(lowRep, CFG)).toBe(1)
+  test('freeCommentsQuota returns 0 for missing users', () => {
+    expect(freeCommentsQuota(null, CFG)).toBe(0)
   })
 
-  test('commentsFreeLeft counts down within the tier and floors at zero', () => {
-    expect(commentsFreeLeft({ ...established, streak: null, freeCommentCount: 1, freeCommentResetAt: null }, CFG)).toBe(2)
-    expect(commentsFreeLeft({ ...lowRep, freeCommentCount: 0, freeCommentResetAt: null }, CFG)).toBe(1)
+  test('freePostsQuota returns 0 for missing users', () => {
+    expect(freePostsQuota(null, CFG)).toBe(0)
+  })
+
+  test('commentsFreeLeft counts down the single daily reply and floors at zero', () => {
+    expect(commentsFreeLeft({ ...established, freeCommentCount: 0, freeCommentResetAt: null }, CFG)).toBe(1)
     expect(commentsFreeLeft({ ...lowRep, freeCommentCount: 1, freeCommentResetAt: null }, CFG)).toBe(0)
-    expect(commentsFreeLeft({ ...lowRep, freeCommentCount: 1, freeCommentResetAt: null }, CFG, { bonusReplies: 1 })).toBe(1)
     expect(commentsFreeLeft({ ...lowRep, freeCommentCount: 20, freeCommentResetAt: null }, CFG)).toBe(0)
   })
 
-  test('commentsFreeLeft resets after the reset date to the tier quota', () => {
+  test('commentsFreeLeft resets after the reset date to the flat quota', () => {
     const past = new Date(Date.now() - 1000)
-    const e = { ...established, streak: null, freeCommentCount: 5, freeCommentResetAt: past }
+    const e = { ...established, freeCommentCount: 5, freeCommentResetAt: past }
     const l = { ...lowRep, freeCommentCount: 2, freeCommentResetAt: past }
-    expect(commentsFreeLeft(e, CFG)).toBe(3)
+    expect(commentsFreeLeft(e, CFG)).toBe(1)
     expect(commentsFreeLeft(l, CFG)).toBe(1)
   })
 
@@ -211,12 +206,11 @@ describe('tiered freebie quotas', () => {
     expect(commentsFreeLeft(null, CFG)).toBe(0)
   })
 
-  test('postsFreeLeft is quota minus used per tier, resets after reset date', () => {
-    expect(postsFreeLeft({ ...established, freePostCount: 2, freePostResetAt: null }, CFG)).toBe(3)
-    expect(postsFreeLeft({ ...lowRep, freePostCount: 0, freePostResetAt: null }, CFG)).toBe(1)
+  test('postsFreeLeft is quota minus used, resets after reset date to exactly one', () => {
+    expect(postsFreeLeft({ ...established, freePostCount: 0, freePostResetAt: null }, CFG)).toBe(1)
     expect(postsFreeLeft({ ...lowRep, freePostCount: 1, freePostResetAt: null }, CFG)).toBe(0)
-    const reset = { ...established, freePostCount: 5, freePostResetAt: new Date(Date.now() - 1000) }
-    expect(postsFreeLeft(reset, CFG)).toBe(5)
+    const reset = { ...established, freePostCount: 1, freePostResetAt: new Date(Date.now() - 1000) }
+    expect(postsFreeLeft(reset, CFG)).toBe(1)
   })
 })
 
@@ -260,63 +254,74 @@ describe('feeReceivedPiconerosForPayIn', () => {
 })
 
 // Prisma mock: $queryRaw dispatches on the SQL text (tagged-template first arg
-// is the strings array) so the tip EXISTS check and the credit aggregate can
-// return different shapes from one mock.
-function mkPrisma ({ tips = [], credits = 0, nextExpiresAt = null, userRow = null } = {}) {
+// is the strings array) so the REPLY and POST credit aggregates can return
+// different shapes from one mock.
+function mkPrisma ({ postCredits = 0, postExpiresAt = null, replyCredits = 0, replyExpiresAt = null, userRow = null } = {}) {
   return {
     platformFeeConfig: { findUnique: async () => CONFIG },
     // jest.fn so the refetch assertion (toHaveBeenCalled) can count calls.
     user: { findUnique: jest.fn(async () => userRow) },
     $queryRaw: jest.fn(async (strings) => {
       const sql = String(strings.join(''))
-      if (sql.includes('ObservedTip')) return tips
-      return [{ credits, nextExpiresAt }]
+      if (sql.includes("'REPLY'")) return [{ credits: replyCredits, nextExpiresAt: replyExpiresAt }]
+      return [{ credits: postCredits, nextExpiresAt: postExpiresAt }]
     })
   }
 }
 
-describe('commentQuotaFor', () => {
-  const fullLowRep = { id: 5, streak: null, freeCommentCount: 0, freeCommentResetAt: null, stackedPiconeros: 0n, createdAt: new Date() }
+describe('commentQuotaFor / bankedReplyCredits', () => {
+  const fullUser = { id: 5, freeCommentCount: 0, freeCommentResetAt: null, stackedPiconeros: 0n, createdAt: new Date() }
 
-  test('computes base + quest completions + day-3 bonus in one call', async () => {
-    completionsFor.mockResolvedValueOnce({ UPVOTE: true, BOOST: true, FIRST_RESPONDER: false, TURF: false })
-    const q = await commentQuotaFor(mkPrisma(), { ...fullLowRep })
-    expect(q).toEqual({ base: 1, questsCompleted: 2, day3Bonus: 0, quota: 3, left: 3 })
+  test('the flat quota is one base reply, plus banked reply credits when held', async () => {
+    const q = await commentQuotaFor(mkPrisma(), { ...fullUser })
+    expect(q).toEqual({ base: 1, baseLeft: 1, credits: 0, quota: 1, left: 1, nextExpiresAt: null })
   })
 
-  test('the flame day-3 bonus adds one reply', async () => {
-    const q = await commentQuotaFor(mkPrisma(), { ...fullLowRep, streak: 3 })
-    expect(q).toEqual({ base: 1, questsCompleted: 0, day3Bonus: 1, quota: 2, left: 2 })
+  test('banked reply credits stack on the used base and report the soonest expiry', async () => {
+    const soon = new Date(Date.now() + 5 * 86_400_000)
+    const q = await commentQuotaFor(mkPrisma({ replyCredits: 2, replyExpiresAt: soon }), { ...fullUser, freeCommentCount: 1 })
+    expect(q).toEqual({ base: 1, baseLeft: 0, credits: 2, quota: 1, left: 2, nextExpiresAt: soon })
+  })
+
+  test('bankedReplyCredits returns the aggregated row as-is', async () => {
+    const soon = new Date(Date.now() + 3 * 86_400_000)
+    const { credits, nextExpiresAt } = await bankedReplyCredits(mkPrisma({ replyCredits: 7, replyExpiresAt: soon }), 5)
+    expect(credits).toBe(7)
+    expect(nextExpiresAt).toEqual(soon)
+    // expired credits are already filtered out by the SQL (expiresAt > now_utc());
+    // the helper never sees them.
+    const empty = await bankedReplyCredits(mkPrisma({ replyCredits: 0, replyExpiresAt: null }), 5)
+    expect(empty).toEqual({ credits: 0, nextExpiresAt: null })
   })
 
   test('refetches the user when quota-relevant columns are missing (partial objects)', async () => {
-    // GraphQL parent objects can omit streak/freeCommentCount — the helper must
-    // refetch rather than silently drop bonuses (mirrors hasWallet).
-    const prisma = mkPrisma({ userRow: { ...fullLowRep, streak: 9, freeCommentCount: 4 } })
-    const q = await commentQuotaFor(prisma, { id: 5 }) // no streak/count/createdAt
-    expect(q.quota).toBe(1)
+    // GraphQL parent objects can omit freeCommentCount/createdAt, so the helper
+    // must refetch rather than silently overcount the base (mirrors hasWallet).
+    const prisma = mkPrisma({ userRow: { ...fullUser, freeCommentCount: 4 } })
+    const q = await commentQuotaFor(prisma, { id: 5 }) // no count/createdAt
+    expect(q.baseLeft).toBe(0)
     expect(q.left).toBe(0)
     expect(prisma.user.findUnique).toHaveBeenCalled()
   })
 
   test('missing config or missing user returns zeroes', async () => {
-    expect(await commentQuotaFor(mkPrisma(), null)).toEqual({ base: 0, questsCompleted: 0, day3Bonus: 0, quota: 0, left: 0 })
+    expect(await commentQuotaFor(mkPrisma(), null)).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null })
     const noConfig = mkPrisma(); noConfig.platformFeeConfig.findUnique = async () => null
-    expect((await commentQuotaFor(noConfig, { ...fullLowRep })).quota).toBe(0)
+    expect(await commentQuotaFor(noConfig, { ...fullUser })).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null })
   })
 })
 
 describe('postQuotaFor / bankedPostCredits', () => {
-  const established = { id: 5, freePostCount: 5, freePostResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) }
+  const established = { id: 5, freePostCount: 1, freePostResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) }
 
   test('credits stack on top of an exhausted base quota and report the soonest expiry', async () => {
     const soon = new Date(Date.now() + 5 * 86_400_000)
-    const q = await postQuotaFor(mkPrisma({ credits: 2, nextExpiresAt: soon }), established, CONFIG)
-    expect(q).toEqual({ baseQuota: 5, baseLeft: 0, credits: 2, left: 2, nextExpiresAt: soon })
+    const q = await postQuotaFor(mkPrisma({ postCredits: 2, postExpiresAt: soon }), established, CONFIG)
+    expect(q).toEqual({ baseQuota: 1, baseLeft: 0, credits: 2, left: 2, nextExpiresAt: soon })
   })
 
   test('expired credits are already filtered out by the SQL (expiresAt > now_utc())', async () => {
-    const prisma = mkPrisma({ credits: 0, nextExpiresAt: null })
+    const prisma = mkPrisma({ postCredits: 0, postExpiresAt: null })
     const { credits } = await bankedPostCredits(prisma, 5)
     expect(credits).toBe(0)
     // NOTE: the brief's original assertion on the $queryRaw call shape

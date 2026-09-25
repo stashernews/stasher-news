@@ -189,6 +189,11 @@ export default function TerritoryForm ({ sub }) {
 
   // Receipt line items quote the LIVE PlatformFeeConfig amounts so the button
   // total always matches the QR invoice the payIn engine builds.
+  // A held quest-streak discount applies to every term's quote (not just the
+  // selected one), so each billing price carries the marker; the fee breakdown
+  // carries the exact maths.
+  const turfDiscountHeld = !sub && me?.privates?.turfDiscountHeld
+
   const lineItems = useMemo(() => {
     const newType = billing.toUpperCase()
     const isUpgrade = sub && sub.billingType !== newType && (newType === 'YEARLY' || newType === 'ONCE')
@@ -205,7 +210,7 @@ export default function TerritoryForm ({ sub }) {
     }
     // Day-7 quest-streak discount (spec §2.4): shown while held; the payIn
     // engine applies the same percentage to the quoted URI (shared helper).
-    if (!sub && me?.privates?.turfDiscountHeld) {
+    if (turfDiscountHeld) {
       const discount = fee - applyTurfDiscount(fee)
       items.territoryDiscount = {
         term: `− ${piconerosToMXmr(discount)}`,
@@ -299,7 +304,7 @@ export default function TerritoryForm ({ sub }) {
             >
               <Checkbox
                 type='radio'
-                label={`${piconerosToMXmr(monthlyFee)}/month`}
+                label={<>{piconerosToMXmr(monthlyFee)}/month{turfDiscountHeld && <span className='text-primary ms-1'>−{TURF_DISCOUNT_PERCENT}%</span>}</>}
                 value='MONTHLY'
                 name='billingType'
                 id='monthly-checkbox'
@@ -308,7 +313,7 @@ export default function TerritoryForm ({ sub }) {
               />
               <Checkbox
                 type='radio'
-                label={`${piconerosToMXmr(yearlyFee)}/year`}
+                label={<>{piconerosToMXmr(yearlyFee)}/year{turfDiscountHeld && <span className='text-primary ms-1'>−{TURF_DISCOUNT_PERCENT}%</span>}</>}
                 value='YEARLY'
                 name='billingType'
                 id='yearly-checkbox'
@@ -317,7 +322,7 @@ export default function TerritoryForm ({ sub }) {
               />
               <Checkbox
                 type='radio'
-                label={`${piconerosToMXmr(onceFee)} once`}
+                label={<>{piconerosToMXmr(onceFee)} once{turfDiscountHeld && <span className='text-primary ms-1'>−{TURF_DISCOUNT_PERCENT}%</span>}</>}
                 value='ONCE'
                 name='billingType'
                 id='once-checkbox'
