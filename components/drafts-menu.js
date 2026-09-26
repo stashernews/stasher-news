@@ -100,9 +100,17 @@ export default function DraftsMenu ({ type }) {
         moneroWallPriceXmr: v.moneroWallEnabled && v.moneroWallPriceXmr != null && v.moneroWallPriceXmr !== '' ? String(v.moneroWallPriceXmr) : null,
         moneroWallThresholdXmr: v.moneroWallEnabled && v.moneroWallThresholdXmr != null && v.moneroWallThresholdXmr !== '' ? String(v.moneroWallThresholdXmr) : null
       }
-      await upsertDraft({ variables: { input } })
+      const { data: saveData } = await upsertDraft({ variables: { input } })
       toaster.success('draft saved')
       await refetch()
+      // establish the editing session on the FIRST save: without this, every
+      // save from a fresh form mints a duplicate draft (10-draft cap lockout)
+      // and usePostFormShared's publish cleanup (keyed on ?draft) never fires.
+      // The replace remounts the form (post.js keys FormType on the draft id)
+      // and prefills from the just-saved draft — values identical to the save.
+      if (!loadedDraftId && saveData?.upsertDraft?.id != null) {
+        router.replace({ query: { ...router.query, draft: String(saveData.upsertDraft.id) } }, undefined, { shallow: true })
+      }
     } catch (err) {
       toaster.danger(err?.message ?? 'failed to save draft')
     }
