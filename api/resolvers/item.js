@@ -1021,6 +1021,24 @@ export default {
       return splitMoneroWallText(item.text).teaserText
     },
     moneroWall: async (item, args, ctx) => await moneroWallStateFor(item, ctx),
+    // H1 (2026-09-26 review): imgproxyUrls is content-bearing — the worker
+    // derives signed derivative URLs from the FULL stored text, below the wall
+    // included, and signed imgproxy URLs are bearer URLs (possession = fetch).
+    // Locked viewers get only entries the teaser itself references (the client
+    // Text/ItemEmbed renderers look entries up by URL, so teaser media keeps
+    // rendering); entitled viewers, authors, publicly unlocked posts, removed
+    // walls, and never-walled items get the raw map. The html/lexicalState
+    // resolvers read item.imgproxyUrls off the row directly, so server-side
+    // rendering of the teaser is unaffected by this filter.
+    imgproxyUrls: async (item, args, ctx) => {
+      if (item.imgproxyUrls == null || !moneroWallEnabled(item)) return item.imgproxyUrls
+      const view = await moneroWallStateFor(item, ctx)
+      if (!view || !view.locked) return item.imgproxyUrls
+      const { teaserText } = splitMoneroWallText(item.text)
+      const teaser = teaserText ?? ''
+      return Object.fromEntries(
+        Object.entries(item.imgproxyUrls).filter(([url]) => teaser.includes(url)))
+    },
     moneroWallRating: async (item, args, ctx) => await ctx.moneroWallRatingLoader.load(Number(item.id)),
     payIn: async (item, args, { models }) => {
       if (typeof item.payIn !== 'undefined') {

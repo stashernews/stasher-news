@@ -107,3 +107,46 @@ test('lexicalState: non-walled item — lexical loader receives text unchanged',
   expect(loader.calls).toHaveLength(1)
   expect(loader.calls[0].text).toBe('raw body')
 })
+
+// --- H1 (2026-09-26 review): imgproxyUrls must not leak below-wall media ---
+// The worker derives signed derivative URLs from the FULL text, below the wall
+// included, and the field had no resolver — the raw map serialized to every
+// viewer in every payload. Locked viewers now get only teaser-referenced
+// entries; the client Text/ItemEmbed renderers look entries up by URL, so
+// teaser media keeps rendering.
+const walledMediaItem = {
+  ...lockedItem,
+  text: 'public intro\n\n![teaser image](https://media.stasher.news/uploads/101)\n[monerowall]\nsecret body\n\n![secret image](https://media.stasher.news/uploads/202)',
+  imgproxyUrls: {
+    'https://media.stasher.news/uploads/101': { '640w': '/sig/rs/101', '960w': '/sig/rs/101b' },
+    'https://media.stasher.news/uploads/202': { '640w': '/sig/rs/202', video: true }
+  }
+}
+
+test('imgproxyUrls: locked viewer receives only teaser-referenced derivatives', async () => {
+  const urls = await resolvers.Item.imgproxyUrls(walledMediaItem, {}, { me: { id: 99 }, moneroWallLoader: fakeLoader(lockedState) })
+  expect(Object.keys(urls)).toEqual(['https://media.stasher.news/uploads/101'])
+  expect(urls['https://media.stasher.news/uploads/101']['640w']).toBe('/sig/rs/101')
+})
+
+test('imgproxyUrls: entitled viewer receives the full map', async () => {
+  const urls = await resolvers.Item.imgproxyUrls(walledMediaItem, {}, { me: { id: 99 }, moneroWallLoader: fakeLoader(entitledState) })
+  expect(Object.keys(urls).sort()).toEqual(['https://media.stasher.news/uploads/101', 'https://media.stasher.news/uploads/202'])
+})
+
+test('imgproxyUrls: author receives the full map (edits below-wall media)', async () => {
+  const urls = await resolvers.Item.imgproxyUrls(walledMediaItem, {}, { me: { id: 7 }, moneroWallLoader: fakeLoader(lockedState) })
+  expect(Object.keys(urls)).toHaveLength(2)
+})
+
+test('imgproxyUrls: publicly unlocked item serves the full map to anonymous viewers', async () => {
+  const item = { ...walledMediaItem, moneroWallThresholdPiconeros: 1_000_000_000n }
+  const urls = await resolvers.Item.imgproxyUrls(item, {}, { me: null, moneroWallLoader: fakeLoader(publicState) })
+  expect(Object.keys(urls)).toHaveLength(2)
+})
+
+test('imgproxyUrls: non-walled items pass through untouched', async () => {
+  const item = { id: 2, userId: 7, text: 'no wall here', imgproxyUrls: { 'https://x.test/1.png': { '640w': '/s/x' } } }
+  const urls = await resolvers.Item.imgproxyUrls(item, {}, { me: null })
+  expect(urls).toBe(item.imgproxyUrls)
+})
