@@ -331,12 +331,17 @@ export async function applyPendingItemUpdate (models, payIn) {
       logWarn('applyPendingItemUpdate: item missing/deleted; dropped deferred edit', { payInId: payIn.id, itemId: pending.itemId })
       return await drop()
     }
-    if (item.text !== pending.oldText) {
-      logWarn('applyPendingItemUpdate: item changed after the edit was deferred; dropped deferred edit', { payInId: payIn.id, itemId: pending.itemId })
+    const args = deserializePayInArgs(pending.args)
+    // The stale-text guard exists for deferred CONTENT edits: applying a stale
+    // full-text payload would revert the author's newer words. Text-less
+    // payloads (reposts carry only subNames) never touch text and the turf
+    // merge below is additive, so they must survive a concurrent edit
+    // (2026-09-26: a mid-flight typo fix was dropping PAID reposts).
+    if (args.text !== undefined && item.text !== pending.oldText) {
+      logWarn('applyPendingItemUpdate: item changed after a text edit was deferred; dropped deferred edit', { payInId: payIn.id, itemId: pending.itemId })
       return await drop()
     }
 
-    const args = deserializePayInArgs(pending.args)
     // Reposts are additive: the deferred list was captured at initiation, and a
     // concurrent repost may have landed since. Merge (union) so a paid-for turf
     // can never be deleted by a stale full-set list. Content edits carry the

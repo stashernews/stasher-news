@@ -384,6 +384,40 @@ test('a deferred edit is dropped, not applied, when the item changed while the f
   expect((await prisma.upload.findUnique({ where: { id: uploadId } })).paid).toBe(true)
 })
 
+// --- M4: text-less deferred edits (reposts) must survive concurrent text drift ---
+// repostItem's pay args carry NO text (a repost is a pure turf addition) and
+// the apply merges turfs additively, so the stale-text guard — written for
+// full-text payloads — must not drop a PAID repost when a free typo fix lands
+// between the QR and the payment.
+test('a text-less deferred repost applies despite concurrent text drift (M4)', async () => {
+  const userId = await createUser()
+  const owner = await createUser()
+  await ensureFeeConfig()
+  const { id: itemId } = await createRootPost(userId, { subNames: [] })
+  const subName = `m4-${Date.now()}`
+  await createSub(owner, subName)
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), userId, subNames: [subName] }, // repost shape: no text
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+  expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeTruthy()
+
+  // the author fixes a typo in the free-edit window while the fee is in flight
+  await prisma.item.update({ where: { id: itemId }, data: { text: 'typo fixed' } })
+
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+  await flipPendingToLive(prisma, payInRow, moneroUriAmountPiconeros(result.moneroUri))
+
+  const liveItem = await prisma.item.findUnique({ where: { id: itemId } })
+  expect(liveItem.text).toBe('typo fixed') // the newer words survive
+  expect([...liveItem.subNames]).toEqual([subName]) // the paid turf lands anyway
+  expect(await prisma.payIn.findUnique({ where: { id: result.id } })).toBeTruthy() // not dropped
+})
+
 // --- H1: an initiated-but-never-paid (EXPIRED) tip must not freeze the wall ---
 // initiateTipCore mints a PENDING ObservedTip at initiation (detectedAt = now);
 // reconcilePendingTips later flips it to EXPIRED. The freeze queries must only
