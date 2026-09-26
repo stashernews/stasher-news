@@ -10,7 +10,10 @@ import { LinkForm } from './link-form'
 import { PollForm } from './poll-form'
 import { BountyForm } from './bounty-form'
 import { SubMultiSelect } from './sub-select'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFormikContext } from 'formik'
+import { useQuery } from '@apollo/client/react'
+import { ACTIVE_SUBS } from '@/fragments/subs'
 import FeeButton, { FeeButtonProvider, postCommentBaseLineItems, postCommentUseRemoteLineItems } from './fee-button'
 import DraftsMenu from './drafts-menu'
 import Delete from './delete'
@@ -38,6 +41,24 @@ export function PostForm ({ type, subs, children }) {
       setErrorMessage('you must be logged in')
     }
   }, [me, setErrorMessage])
+
+  // The fee estimate must follow the form's SELECTED turfs, not the page's
+  // turf scope: a draft prefill (or an edit) sets the selection without a
+  // route change, so the page-derived lines quote a phantom posting fee for
+  // an author posting to a turf they own (the server's owner-free path
+  // charges nothing — see postCommentBaseLineItems' postOwnerFree branch).
+  // The selection is reported from inside the Formik tree; names resolve to
+  // sub objects through ACTIVE_SUBS, which the turf selector already polls.
+  // NOTE: these hooks must stay ABOVE the picker early-return below —
+  // PostForm renders both branches, and hook order must not change between
+  // them ("Rendered more hooks than during the previous render").
+  const [selectedSubNames, setSelectedSubNames] = useState(null)
+  const { data: activeSubsData } = useQuery(ACTIVE_SUBS)
+  const estimateSubs = useMemo(() => {
+    if (selectedSubNames == null) return subs
+    const byName = new Map((activeSubsData?.activeSubs ?? []).map(s => [s.name, s]))
+    return selectedSubNames.map(name => byName.get(name)).filter(Boolean)
+  }, [selectedSubNames, activeSubsData, subs])
 
   if (!formType) {
     let postButtons = []
@@ -157,16 +178,39 @@ export function PostForm ({ type, subs, children }) {
 
   return (
     <FeeButtonProvider
-      baseLineItems={postCommentBaseLineItems({ me, subs })}
-      useRemoteLineItems={postCommentUseRemoteLineItems({ subs })}
+      baseLineItems={postCommentBaseLineItems({ me, subs: estimateSubs })}
+      useRemoteLineItems={postCommentUseRemoteLineItems({ subs: estimateSubs })}
     >
       {/* remount when the loaded draft changes: cross-type clicks already
           remount (POST_TYPE_FORMS swaps the component); SAME-type clicks need
           this key or Formik's one-shot initialValues silently ignore the
           newly opened draft */}
-      <FormType key={`${formType}:${draftId ?? ''}`} subs={subs}>{children}</FormType>
+      <FormType key={`${formType}:${draftId ?? ''}`} subs={subs}>
+        {children}
+        <SelectedSubNamesReporter onChange={setSelectedSubNames} />
+      </FormType>
     </FeeButtonProvider>
   )
+}
+
+// Lifts the form's selected turf names up to PostForm (see estimateSubs above).
+// Forms without a multi-turf field (jobs) never report and keep the
+// page-derived estimate. Rendered inside FormType so useFormikContext resolves.
+function SelectedSubNamesReporter ({ onChange }) {
+  const formik = useFormikContext()
+  const selected = formik?.values?.subNames
+
+  useEffect(() => {
+    if (!Array.isArray(selected)) return
+    onChange(prev => {
+      const next = selected.filter(Boolean)
+      return prev != null && prev.length === next.length && prev.every(name => next.includes(name))
+        ? prev
+        : next
+    })
+  }, [selected, onChange])
+
+  return null
 }
 
 export default function Post ({ subs }) {
