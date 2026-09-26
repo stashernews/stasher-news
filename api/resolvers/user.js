@@ -492,12 +492,22 @@ export default {
       }
 
       if (user.noteBadges) {
+        // Mirror the notifications list's badge surface (api/resolvers/
+        // notifications.js): ended flames and verified badges only. An ACTIVE
+        // flame's updatedAt bumps on every day-clear advance, but the advance
+        // chronicle entries are noteQuests-gated — matching those rows here
+        // rings the bell for entries the dropdown then hides (M5 residual,
+        // 2026-09-26 review).
         const streak = await models.streak.findFirst({
           where: {
             userId: me.id,
             updatedAt: {
               gt: lastChecked
-            }
+            },
+            OR: [
+              { type: 'FLAME', endedAt: { not: null } },
+              { type: 'VERIFIED' }
+            ]
           }
         })
 
