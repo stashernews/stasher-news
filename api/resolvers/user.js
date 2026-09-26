@@ -569,6 +569,18 @@ export default {
         return true
       }
 
+      // quest complete + flame day bell entries derive from quest completions
+      const [newQuest] = await models.$queryRaw`
+        SELECT EXISTS(
+          SELECT *
+          FROM "QuestCompletion"
+          WHERE "QuestCompletion"."userId" = ${me.id}
+          AND "QuestCompletion"."created_at" > ${lastChecked})`
+      if (newQuest.exists) {
+        foundNotes()
+        return true
+      }
+
       // update checkedNotesAt to prevent rechecking same time period
       models.$queryRaw`
         UPDATE users
