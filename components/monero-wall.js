@@ -32,7 +32,6 @@ export default function MoneroWallPanel ({ item }) {
   // ITEM_FIELDS selects `mine`, so the author branch never falls back to a
   // locked-viewer UI (the server also reports locked: false for the author).
   if (item.mine) return <AuthorMoneroWallView item={item} />
-  if (!wall.locked) return null
 
   const pricePiconeros = wall.pricePiconeros != null ? BigInt(wall.pricePiconeros) : null
   const thresholdPiconeros = wall.thresholdPiconeros != null ? BigInt(wall.thresholdPiconeros) : null
@@ -45,23 +44,36 @@ export default function MoneroWallPanel ({ item }) {
   const openUnlock = () => showModal(onClose => <TipModal item={item} onClose={onClose} fixedAmount={pricePiconeros} unlockMode onDetected={onDetected} />)
   const openContribute = () => showModal(onClose => <TipModal item={item} onClose={onClose} unlockMode onDetected={onDetected} />)
 
+  // An entitled viewer (individual unlock paid) still sees the collective
+  // panel while the global goal is open: the post is readable for them, but
+  // the bar and the contribute leg keep working toward the public unlock.
+  if (!wall.locked && !wall.publiclyUnlocked && thresholdPiconeros != null) {
+    return (
+      <div className={styles.wall}>
+        <div className={styles.rule} />
+        <div className={styles.inner}>
+          <h6 className={styles.title}>monerowalled</h6>
+          <p className={styles.copy}>you&apos;ve unlocked this post</p>
+          <CollectiveProgress thresholdPiconeros={thresholdPiconeros} progressPct={progressPct} remainingPiconeros={remainingPiconeros} />
+          <div className={styles.actions}>
+            <button className='btn btn-outline-secondary btn-sm' onClick={openContribute}>
+              contribute
+            </button>
+          </div>
+          <p className={styles.help}>100% of every unlock goes to the author, wallet-to-wallet.</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!wall.locked) return null
+
   return (
     <div className={styles.wall}>
       <div className={styles.rule} />
       <div className={styles.inner}>
         <h6 className={styles.title}>monerowalled</h6>
-        {thresholdPiconeros != null && (
-          <>
-            <div className={styles.progressTrack}>
-              <div className={styles.progressFill} style={{ width: `${progressPct ?? 0}%` }} />
-            </div>
-            <p className={styles.copy}>
-              {wall.publiclyUnlocked
-                ? 'unlocked for everyone'
-                : <>{piconerosToMXmr(remainingPiconeros)} to go until this unlocks for everyone</>}
-            </p>
-          </>
-        )}
+        <CollectiveProgress thresholdPiconeros={thresholdPiconeros} progressPct={progressPct} remainingPiconeros={remainingPiconeros} />
         <div className={styles.actions}>
           {pricePiconeros != null && me && (
             <button className='btn btn-primary btn-sm' onClick={openUnlock}>
@@ -77,6 +89,23 @@ export default function MoneroWallPanel ({ item }) {
         <p className={styles.help}>100% of every unlock goes to the author, wallet-to-wallet.</p>
       </div>
     </div>
+  )
+}
+
+// Progress toward the public-unlock threshold — shared by the locked and the
+// entitled-but-not-public panel variants. (`publiclyUnlocked` is always false
+// in both: once the post unlocks for everyone, no viewer gets a panel.)
+function CollectiveProgress ({ thresholdPiconeros, progressPct, remainingPiconeros }) {
+  if (thresholdPiconeros == null) return null
+  return (
+    <>
+      <div className={styles.progressTrack}>
+        <div className={styles.progressFill} style={{ width: `${progressPct ?? 0}%` }} />
+      </div>
+      <p className={styles.copy}>
+        {piconerosToMXmr(remainingPiconeros)} to go until this unlocks for everyone
+      </p>
+    </>
   )
 }
 
