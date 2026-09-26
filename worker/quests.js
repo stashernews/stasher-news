@@ -40,27 +40,60 @@ export async function sweepQuestCompletions ({ models, now = new Date(), userIds
     ) c
     WHERE id IS NOT NULL`
 
+  // M4 residual (2026-09-26 review): the BOOST candidate leg above is keyed on
+  // the PayIn CREATION inside the lookback, but the observation can land much
+  // later (wallet sync delay, paying the URI minutes after the dialog closed) —
+  // after that, the user never re-enters the sweep and nothing re-derives the
+  // day, so a genuinely paid boost is lost. Key a second candidacy on the
+  // OBSERVATION instead, scoped to the quest day the PayIn was CREATED in
+  // (questDay, so the dev compressed clock matches) — which also covers the
+  // cross-midnight case a creation-keyed lookback cannot.
+  const lateObserved = (await models.$queryRaw`
+    SELECT p."userId" AS id, p.created_at AS "createdAt"
+    FROM "PayIn" p
+    WHERE p."payInType" = 'BOOST' AND p.created_at < ${since}
+      AND (
+        EXISTS (SELECT 1 FROM "FeeObservation" f
+                WHERE f."payInId" = p.id AND f."detectedAt" >= ${since})
+        OR EXISTS (SELECT 1 FROM "ObservedSubFee" s
+                   WHERE s."pay_in_id" = p.id AND s."detected_at" >= ${since})
+      )`)
+    .filter(c => c.id != null && (!userIds || userIds.includes(c.id)))
+    .map(c => ({ id: c.id, day: questDay(new Date(c.createdAt)) }))
+
   // Record this tick's completions first; the advance below must see them.
   // A user allowlist (test isolation) scopes every stage below to those ids.
-  const recorded = []
   const scopedCandidates = userIds ? candidates.filter(c => userIds.includes(c.id)) : candidates
-  for (const day of days) {
-    for (const { id: userId } of scopedCandidates) {
-      const draw = await resolveDraw(models, userId, day)
-      const done = await completionsFor(models, { userId, day, draw })
-      for (const quest of [draw.upvote, draw.drawn]) {
-        if (!done[quest]) continue
-        try {
-          await models.questCompletion.create({
-            data: { userId, day: new Date(`${day}T00:00:00.000Z`), quest }
-          })
-        } catch (err) {
-          if (err?.code === 'P2002') continue // already recorded by an earlier tick
-          throw err
-        }
-        notifyQuestCompleted(userId, quest).catch(console.error)
-        recorded.push({ userId, quest })
+  // (user, day) checks: action candidates sweep every straddle day; a rescued
+  // late observation sweeps the day its PayIn was created in. The seen-set
+  // dedupes the overlap.
+  const checks = []
+  for (const { id: userId } of scopedCandidates) {
+    for (const day of days) checks.push({ userId, day })
+  }
+  for (const { id: userId, day } of lateObserved) {
+    checks.push({ userId, day })
+  }
+  const seenChecks = new Set()
+  const recorded = []
+  for (const { userId, day } of checks) {
+    const key = `${userId}|${day}`
+    if (seenChecks.has(key)) continue
+    seenChecks.add(key)
+    const draw = await resolveDraw(models, userId, day)
+    const done = await completionsFor(models, { userId, day, draw })
+    for (const quest of [draw.upvote, draw.drawn]) {
+      if (!done[quest]) continue
+      try {
+        await models.questCompletion.create({
+          data: { userId, day: new Date(`${day}T00:00:00.000Z`), quest }
+        })
+      } catch (err) {
+        if (err?.code === 'P2002') continue // already recorded by an earlier tick
+        throw err
       }
+      notifyQuestCompleted(userId, quest).catch(console.error)
+      recorded.push({ userId, quest })
     }
   }
 
@@ -69,7 +102,7 @@ export async function sweepQuestCompletions ({ models, now = new Date(), userIds
   // the banking SELECT matches nothing without one. Completions are already on
   // record at that point, so a banking-first order would lose those credits
   // for good (later ticks P2002-skip the recorded completions).
-  await advanceClearedDays({ models, days, userIds })
+  await advanceClearedDays({ models, days: [...new Set([...days, ...lateObserved.map(l => l.day)])], userIds })
 
   // Bank the quest's reply credits (rev 4: comment-cost quests pay double so
   // completing them nets a gain): only with an active flame, never past the

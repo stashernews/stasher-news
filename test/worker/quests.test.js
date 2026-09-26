@@ -218,3 +218,49 @@ test('rev 4: a double reward fills to the banked cap and stops', async () => {
   // 14 held + the +2 grant fills to exactly 15 and never crosses.
   expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(15)
 })
+
+// M4 residual (2026-09-26 review): candidacy is keyed on the PayIn CREATION
+// inside the 10-minute lookback, but a boost paid later than that (wallet sync
+// delay, paying from the URI after closing the dialog) never re-enters the
+// sweep and nothing re-derives the day — the quest and its reply credit are
+// lost despite the payment landing. The rescue keys candidacy on the
+// OBSERVATION instead.
+test('a boost observed after its initiation left the lookback window still completes', async () => {
+  const userId = await mkUser()
+  let day = null
+  for (let i = 0; i < 30 && !day; i++) {
+    const d = utcDay(new Date(Date.now() + i * 86_400_000))
+    if (drawFor(userId, d).drawn === QUEST.BOOST) day = d
+  }
+  expect(day).not.toBeNull()
+  const now = new Date(`${day}T12:00:00.000Z`)
+  // Initiated 20 minutes ago (outside the lookback), observed 2 minutes ago:
+  // the creation-keyed candidate leg has already lost this PayIn.
+  const boostPayIn = await prisma.payIn.create({ data: { userId, payInType: 'BOOST', payInState: 'PAID', piconeros: 100000000n, createdAt: new Date(now.getTime() - 20 * 60 * 1000) } })
+  await prisma.feeObservation.create({ data: { txHash: `qsweep-boost-${boostPayIn.id}-${Date.now()}`, payInId: boostPayIn.id, feeType: 'BOOST', recipientMajor: 5, recipientMinor: 77, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 2 * 60 * 1000) } })
+
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
+
+  expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`), quest: QUEST.BOOST } })).toBe(1)
+})
+
+// The cross-midnight flavor: the initiation belongs to the just-ended day, so
+// the rescue must sweep the day the PayIn was CREATED in — a tick whose
+// straddle days no longer include it must still record it.
+test('a boost initiated before midnight and observed after still completes for the initiation day', async () => {
+  const userId = await mkUser()
+  let day = null
+  for (let i = 1; i <= 31 && !day; i++) {
+    const d = utcDay(new Date(Date.now() - i * 86_400_000))
+    if (drawFor(userId, d).drawn === QUEST.BOOST) day = d
+  }
+  expect(day).not.toBeNull()
+  const initiatedAt = new Date(`${day}T23:40:00.000Z`)
+  const tick = new Date(initiatedAt.getTime() + 28 * 60 * 1000) // 00:08 next day: straddle days are [day, next]
+  const boostPayIn = await prisma.payIn.create({ data: { userId, payInType: 'BOOST', payInState: 'PAID', piconeros: 100000000n, createdAt: initiatedAt } })
+  await prisma.feeObservation.create({ data: { txHash: `qsweep-boost-${boostPayIn.id}-${Date.now()}`, payInId: boostPayIn.id, feeType: 'BOOST', recipientMajor: 5, recipientMinor: 77, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(initiatedAt.getTime() + 27 * 60 * 1000) } })
+
+  await sweepQuestCompletions({ models: prisma, now: tick, userIds: created.users })
+
+  expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`), quest: QUEST.BOOST } })).toBe(1)
+})
