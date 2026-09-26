@@ -23,6 +23,9 @@ afterAll(async () => {
   await prisma.streakReward.deleteMany({ where: { userId: { in: created.users } } })
   await prisma.questCompletion.deleteMany({ where: { userId: { in: created.users } } })
   await prisma.observedTip.deleteMany({ where: { txHash: { startsWith: 'qsweep-' } } })
+  // before the payIn delete (FK): M4 requires the sweep's BOOST seeds to carry
+  // an observation, and the observation references the payIn
+  await prisma.feeObservation.deleteMany({ where: { txHash: { startsWith: 'qsweep-boost-' } } })
   await prisma.payIn.deleteMany({ where: { userId: { in: created.users } } })
   await prisma.item.deleteMany({ where: { id: { in: created.items } } })
   await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
@@ -113,7 +116,10 @@ test('a run\'s first day banks the day 1 rung plus both quest credits', async ()
   const [post] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep first-day post', now()) RETURNING id::int AS id`
   created.items.push(post.id)
   await prisma.observedTip.create({ data: { txHash: `qsweep-firstday-${Date.now()}`, postId: post.id, tipperId: userId, recipientAccountId: account.id, paymentId: `qsweep-fd-pid-${Date.now()}`, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 5 * 60 * 1000) } })
-  await prisma.payIn.create({ data: { userId, payInType: 'BOOST', payInState: 'PAID', piconeros: 100000000n, createdAt: new Date(now.getTime() - 4 * 60 * 1000) } })
+  // M4: the sweep's BOOST leg requires an observed payment — a bare born-PAID
+  // payIn no longer completes the quest (that's the abandoned-dialog bug).
+  const boostPayIn = await prisma.payIn.create({ data: { userId, payInType: 'BOOST', payInState: 'PAID', piconeros: 100000000n, createdAt: new Date(now.getTime() - 4 * 60 * 1000) } })
+  await prisma.feeObservation.create({ data: { txHash: `qsweep-boost-${boostPayIn.id}-${Date.now()}`, payInId: boostPayIn.id, feeType: 'BOOST', recipientMajor: 5, recipientMinor: 77, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 3 * 60 * 1000) } })
 
   await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
 
@@ -153,7 +159,9 @@ test('recording a completion banks one reply credit, once', async () => {
   const [post] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep bank post', now()) RETURNING id::int AS id`
   created.items.push(post.id)
   await prisma.observedTip.create({ data: { txHash: `qsweep-bank-${Date.now()}`, postId: post.id, tipperId: userId, recipientAccountId: account.id, paymentId: `qsweep-bank-pid-${Date.now()}`, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 5 * 60 * 1000) } })
-  await prisma.payIn.create({ data: { userId, payInType: 'BOOST', payInState: 'PAID', piconeros: 100000000n, createdAt: new Date(now.getTime() - 4 * 60 * 1000) } })
+  // M4: an observed BOOST payment (see the first-day test above).
+  const boostPayIn = await prisma.payIn.create({ data: { userId, payInType: 'BOOST', payInState: 'PAID', piconeros: 100000000n, createdAt: new Date(now.getTime() - 4 * 60 * 1000) } })
+  await prisma.feeObservation.create({ data: { txHash: `qsweep-boost-${boostPayIn.id}-${Date.now()}`, payInId: boostPayIn.id, feeType: 'BOOST', recipientMajor: 5, recipientMinor: 77, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 3 * 60 * 1000) } })
 
   await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
   expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`) } })).toBe(2)

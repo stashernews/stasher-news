@@ -24,7 +24,7 @@ function mkModels ({ tripTable } = {}) {
 
 const LAST_CHECKED = new Date('2026-09-26T07:50:16.000Z')
 
-function mkCtx ({ tripTable } = {}) {
+function mkCtx ({ tripTable, noteQuests = true } = {}) {
   return {
     me: { id: 616 },
     models: mkModels({ tripTable }),
@@ -34,7 +34,8 @@ function mkCtx ({ tripTable } = {}) {
         checkedNotesAt: LAST_CHECKED,
         foundNotesAt: null,
         noteItemPiconeros: null,
-        noteBadges: true
+        noteBadges: true,
+        noteQuests
       })
     }
   }
@@ -42,6 +43,13 @@ function mkCtx ({ tripTable } = {}) {
 
 test('a quest completion since lastChecked trips the bell', async () => {
   await expect(hasNewNotes(null, {}, mkCtx({ tripTable: 'QuestCompletion' }))).resolves.toBe(true)
+})
+
+// M5 (2026-09-26 review): the bell must respect the same noteQuests setting
+// the notifications dropdown gates on — otherwise it rings for entries the
+// dropdown then hides.
+test('a quest completion is silent when noteQuests is off', async () => {
+  await expect(hasNewNotes(null, {}, mkCtx({ tripTable: 'QuestCompletion', noteQuests: false }))).resolves.toBe(false)
 })
 
 test('no new sources leaves the bell quiet', async () => {

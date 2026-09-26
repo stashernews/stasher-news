@@ -1024,20 +1024,34 @@ export default {
     // H1 (2026-09-26 review): imgproxyUrls is content-bearing — the worker
     // derives signed derivative URLs from the FULL stored text, below the wall
     // included, and signed imgproxy URLs are bearer URLs (possession = fetch).
-    // Locked viewers get only entries the teaser itself references (the client
-    // Text/ItemEmbed renderers look entries up by URL, so teaser media keeps
-    // rendering); entitled viewers, authors, publicly unlocked posts, removed
-    // walls, and never-walled items get the raw map. The html/lexicalState
-    // resolvers read item.imgproxyUrls off the row directly, so server-side
-    // rendering of the teaser is unaffected by this filter.
+    // Locked viewers get only entries the teaser references as a whole-token
+    // URL — the same exact-key lookup the client's MediaNode transform does by
+    // decoded src — so a teaser URL that merely CONTAINS a below-wall URL as a
+    // substring (/uploads/202 inside /uploads/2023) cannot leak that key. (A
+    // whole-token regex, not extractUrls: lib/md is ESM-only and a static
+    // import here breaks every suite that imports this file unmocked; the
+    // regex is a superset of mdast extraction, so it never drops a teaser
+    // key, and only retains a below-wall key whose URL the author published
+    // verbatim in the public teaser.) The public link's own derivatives are
+    // body-independent (the wall gates the body, not the post's link) and
+    // stay. Entitled viewers, authors, publicly unlocked posts, and
+    // never-walled items get the raw map. The html/lexicalState resolvers
+    // read item.imgproxyUrls off the row directly, so server-side rendering
+    // of the teaser is unaffected by this filter.
     imgproxyUrls: async (item, args, ctx) => {
       if (item.imgproxyUrls == null || !moneroWallEnabled(item)) return item.imgproxyUrls
       const view = await moneroWallStateFor(item, ctx)
-      if (!view || !view.locked) return item.imgproxyUrls
+      // a null view here would mean a contract change upstream — filter (fail
+      // closed) rather than serve the raw map
+      if (view && !view.locked) return item.imgproxyUrls
       const { teaserText } = splitMoneroWallText(item.text)
-      const teaser = teaserText ?? ''
-      return Object.fromEntries(
-        Object.entries(item.imgproxyUrls).filter(([url]) => teaser.includes(url)))
+      const filtered = {}
+      for (const [url, entry] of Object.entries(item.imgproxyUrls)) {
+        const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        if (new RegExp(`(^|[^\\w])${escaped}(?!\\w)`).test(teaserText)) filtered[url] = entry
+      }
+      if (item.url && item.imgproxyUrls[item.url]) filtered[item.url] = item.imgproxyUrls[item.url]
+      return filtered
     },
     moneroWallRating: async (item, args, ctx) => await ctx.moneroWallRatingLoader.load(Number(item.id)),
     payIn: async (item, args, { models }) => {

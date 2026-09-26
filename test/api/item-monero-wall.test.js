@@ -1,5 +1,8 @@
 /* eslint-env jest */
-import resolvers from '@/api/resolvers/item'
+import { randomUUID } from 'node:crypto'
+import { PrismaClient } from '@prisma/client'
+import resolvers, { updateItem } from '@/api/resolvers/item'
+import { createMoneroWallLoader } from '@/lib/monero-wall/loader'
 
 // api/resolvers/item.js drags in heavy ESM-only transitive deps; the mocks
 // below break that chain — same pattern as test/api/resolvers/item-*.test.js.
@@ -149,4 +152,39 @@ test('imgproxyUrls: non-walled items pass through untouched', async () => {
   const item = { id: 2, userId: 7, text: 'no wall here', imgproxyUrls: { 'https://x.test/1.png': { '640w': '/s/x' } } }
   const urls = await resolvers.Item.imgproxyUrls(item, {}, { me: null })
   expect(urls).toBe(item.imgproxyUrls)
+})
+
+// exact whole-token matching (final review, regraded Important): substring
+// matching kept a below-wall key whenever the teaser contained that URL as a
+// PREFIX of a longer teaser URL (/uploads/202 vs /uploads/2023) — a leak on a
+// security gate. Matching now requires the URL as a whole token in the teaser
+// (the same exact-key lookup the client's MediaNode transform does), so only
+// genuinely referenced URLs survive.
+test('imgproxyUrls: exact-URL matching — a below-wall key that is a substring of a teaser URL does not leak', async () => {
+  const item = {
+    ...walledMediaItem,
+    text: 'public intro\n\n![teaser image](https://media.stasher.news/uploads/2023)\n[monerowall]\nsecret body\n\n![secret image](https://media.stasher.news/uploads/202)',
+    imgproxyUrls: {
+      'https://media.stasher.news/uploads/202': { '640w': '/sig/rs/202' },
+      'https://media.stasher.news/uploads/2023': { '640w': '/sig/rs/2023' }
+    }
+  }
+  const urls = await resolvers.Item.imgproxyUrls(item, {}, { me: { id: 99 }, moneroWallLoader: fakeLoader(lockedState) })
+  expect(Object.keys(urls)).toEqual(['https://media.stasher.news/uploads/2023'])
+})
+
+// the public link's own derivatives are body-independent (the wall gates the
+// body text, not the post's link), so locked viewers keep the link embed
+test('imgproxyUrls: locked viewers keep the public link (item.url) derivatives', async () => {
+  const item = {
+    ...walledMediaItem,
+    url: 'https://example.com/article',
+    imgproxyUrls: {
+      'https://example.com/article': { '640w': '/sig/article' },
+      'https://media.stasher.news/uploads/202': { '640w': '/sig/rs/202', video: true }
+    },
+    text: 'public intro\n[monerowall]\nsecret body'
+  }
+  const urls = await resolvers.Item.imgproxyUrls(item, {}, { me: { id: 99 }, moneroWallLoader: fakeLoader(lockedState) })
+  expect(Object.keys(urls)).toEqual(['https://example.com/article'])
 })
