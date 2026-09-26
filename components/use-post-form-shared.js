@@ -4,6 +4,7 @@ import useItemSubmit from './use-item-submit'
 import { useApolloClient, useQuery } from '@apollo/client/react'
 import { useRouter } from 'next/router'
 import { MY_DRAFT, DELETE_DRAFT } from '@/fragments/draft'
+import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
 
 /**
  * Shared hook for post form initialization
@@ -104,13 +105,23 @@ export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyP
     router.replace({ query: { ...router.query, draft: undefined } }, undefined, { shallow: true })
   }
 
-  const onSuccessWrapped = async (...args) => {
+  const onSuccessWrapped = async (data, ...rest) => {
     if (draftId) {
-      // strip ?draft at submit (remount key / clean form) even when the draft
-      // deletion itself waits for the fee — see deletePublishedDraft above
-      router.replace({ query: { ...router.query, draft: undefined } }, undefined, { shallow: true })
+      if (isPostingFeeSubmit(getPayIn(data))) {
+        // fee-gated: only a PENDING_FEE item exists behind a QR — strip
+        // ?draft (remount key / clean form) but leave the draft deletion to
+        // onPostingFeePaid (H2: the draft is the only durable copy until the
+        // fee is observed)
+        router.replace({ query: { ...router.query, draft: undefined } }, undefined, { shallow: true })
+      } else {
+        // free publish: the post is durable the moment the mutation resolves,
+        // and no fee modal ever shows to fire onPostingFeePaid — delete now
+        // (regression, 2026-09-26: item 380119 / draft 139 orphaned the draft
+        // and its upload pins because only the fee path deleted)
+        deletePublishedDraft()
+      }
     }
-    return onSuccessfulSubmit?.(...args)
+    return onSuccessfulSubmit?.(data, ...rest)
   }
 
   const onSubmit = useItemSubmit(mutation, {
