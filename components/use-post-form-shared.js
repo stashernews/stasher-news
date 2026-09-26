@@ -71,7 +71,27 @@ export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyP
   // staying on /post lands on a clean empty form
   const onSuccessWrapped = async (...args) => {
     if (draftId) {
-      client.mutate({ mutation: DELETE_DRAFT, variables: { id: draftId } }).catch(() => {})
+      client.mutate({
+        mutation: DELETE_DRAFT,
+        variables: { id: draftId },
+        update: cache => {
+          // DELETE_DRAFT returns a scalar, so Apollo merges nothing: without
+          // eviction the cache-first MY_DRAFTS list and MY_DRAFT singleton keep
+          // serving the deleted draft (ghost menu row -> ghost prefill ->
+          // 'draft not found' on the next save). Evict the entity AND filter
+          // it out of the cached list (evicting alone can leave a dangling
+          // reference in myDrafts).
+          cache.evict({ id: `Draft:${draftId}` })
+          cache.modify({
+            fields: {
+              myDrafts (existing = [], { readField }) {
+                return existing.filter(ref => String(readField('id', ref)) !== String(draftId))
+              }
+            }
+          })
+          cache.gc()
+        }
+      }).catch(() => {})
       router.replace({ query: { ...router.query, draft: undefined } }, undefined, { shallow: true })
     }
     return onSuccessfulSubmit?.(...args)
