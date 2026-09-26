@@ -67,8 +67,13 @@ async function seedBoostPayIn (userId, { observed }) {
   if (observed) {
     await prisma.feeObservation.create({
       data: {
-        txHash: `qtest-boost-${payIn.id}-${Date.now()}`, payInId: payIn.id, feeType: 'BOOST',
-        recipientMajor: 5, recipientMinor: 77, piconeros: 1_000_000_000n, state: 'DETECTED',
+        txHash: `qtest-boost-${payIn.id}-${Date.now()}`,
+        payInId: payIn.id,
+        feeType: 'BOOST',
+        recipientMajor: 5,
+        recipientMinor: 77,
+        piconeros: 1_000_000_000n,
+        state: 'DETECTED',
         detectedAt: new Date(`${DAY}T15:01:00.000Z`)
       }
     })
