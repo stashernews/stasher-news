@@ -149,6 +149,17 @@ export async function applyItemUpdate (tx, payIn, args) {
   // source url (canonical https://<host>/uploads/N) so text survives key rotations
   if (data.text) data.text = canonicalizeItemText(data.text)
 
+  // M3 (2026-09-26 review): a text-less update — reposts carry only
+  // id/userId/subNames; title-only edits carry no text — must NOT reconcile
+  // text-derived relations. extractMentions(undefined) returns empty lists, so
+  // the set-differences below would compute old − ∅ = ALL and wipe every
+  // Mention, ItemMention, and ItemUpload row, while performBotBehavior would
+  // tear down pending delete/reminder jobs and never re-create them. Text
+  // absent means "text unchanged": leave all of it alone. (updateItem derives
+  // uploadIds from the same text, so uploads follow the same gate; an explicit
+  // uploadIds list only ever travels WITH text.)
+  const textUnchanged = data.text === undefined
+
   const old = await tx.item.findUnique({
     where: { id: parseInt(id) },
     include: {
@@ -164,12 +175,12 @@ export async function applyItemUpdate (tx, payIn, args) {
   // updateMany is the intersection of the old and new
   const difference = (a = [], b = [], key = 'userId') => a.filter(x => !b.find(y => y[key] === x[key]))
 
-  const { userNames, itemIds } = extractMentions(data.text)
-  const mentions = await getMentions(tx, { names: userNames, userId: args.userId })
-  const itemMentions = await getItemMentions(tx, { itemIds, userId: args.userId })
-  const itemUploads = uploadIds.map(id => ({ uploadId: id }))
+  const { userNames, itemIds } = textUnchanged ? { userNames: [], itemIds: [] } : extractMentions(data.text)
+  const mentions = textUnchanged ? [] : await getMentions(tx, { names: userNames, userId: args.userId })
+  const itemMentions = textUnchanged ? [] : await getItemMentions(tx, { itemIds, userId: args.userId })
+  const itemUploads = textUnchanged ? [] : uploadIds.map(id => ({ uploadId: id }))
 
-  const newUploadIds = difference(itemUploads, old.itemUploads, 'uploadId').map(({ uploadId }) => uploadId)
+  const newUploadIds = textUnchanged ? [] : difference(itemUploads, old.itemUploads, 'uploadId').map(({ uploadId }) => uploadId)
   const imgproxyUrls = await getTempImgproxyUrls(tx, newUploadIds, old.imgproxyUrls)
 
   // if it has changed concurrently
@@ -236,32 +247,38 @@ export async function applyItemUpdate (tx, payIn, args) {
           }
         }
       },
-      itemUploads: {
-        create: difference(itemUploads, old.itemUploads, 'uploadId').map(({ uploadId }) => ({ uploadId })),
-        deleteMany: {
-          uploadId: {
-            in: difference(old.itemUploads, itemUploads, 'uploadId').map(({ uploadId }) => uploadId)
+      itemUploads: textUnchanged
+        ? undefined
+        : {
+            create: difference(itemUploads, old.itemUploads, 'uploadId').map(({ uploadId }) => ({ uploadId })),
+            deleteMany: {
+              uploadId: {
+                in: difference(old.itemUploads, itemUploads, 'uploadId').map(({ uploadId }) => uploadId)
+              }
+            }
+          },
+      mentions: textUnchanged
+        ? undefined
+        : {
+            deleteMany: {
+              userId: {
+                in: difference(old.mentions, mentions).map(({ userId }) => userId)
+              }
+            },
+            createMany: {
+              data: difference(mentions, old.mentions)
+            }
+          },
+      itemReferrers: textUnchanged
+        ? undefined
+        : {
+            deleteMany: {
+              refereeId: {
+                in: difference(old.itemReferrers, itemMentions, 'refereeId').map(({ refereeId }) => refereeId)
+              }
+            },
+            create: difference(itemMentions, old.itemReferrers, 'refereeId')
           }
-        }
-      },
-      mentions: {
-        deleteMany: {
-          userId: {
-            in: difference(old.mentions, mentions).map(({ userId }) => userId)
-          }
-        },
-        createMany: {
-          data: difference(mentions, old.mentions)
-        }
-      },
-      itemReferrers: {
-        deleteMany: {
-          refereeId: {
-            in: difference(old.itemReferrers, itemMentions, 'refereeId').map(({ refereeId }) => refereeId)
-          }
-        },
-        create: difference(itemMentions, old.itemReferrers, 'refereeId')
-      }
     }
   })
 
@@ -285,7 +302,9 @@ export async function applyItemUpdate (tx, payIn, args) {
     VALUES ('imgproxy', jsonb_build_object('id', ${id}::INTEGER), 21, true,
               now() + interval '5 seconds', now() + interval '1 day')`
 
-  await performBotBehavior(tx, args)
+  if (!textUnchanged) {
+    await performBotBehavior(tx, args)
+  }
 
   return await getItem(null, { id }, { models: tx, me: { id: old.userId } })
 }

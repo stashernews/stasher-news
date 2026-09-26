@@ -765,3 +765,79 @@ test('a deferred wall edit strips the X/T change when a tip landed since the wal
   expect(item.moneroWallThresholdPiconeros).toBeNull()
   expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeNull()
 })
+
+// --- M3 (2026-09-26 review): text-less updates must not wipe content-derived rows ---
+// repostItem's args carry only id/userId/subNames. applyItemUpdate used to
+// re-derive mentions/referrers/uploads from data.text (undefined → empty
+// lists), so the set-difference deletes computed old − ∅ = ALL: every Mention,
+// ItemMention (item reference), ItemUpload link, and pending bot job was
+// destroyed on every paid repost (and on title-only edits, which also send no
+// text). Text absent now means "text unchanged" — nothing is reconciled.
+test('a text-less deferred repost preserves mentions, item references, uploads, and bot jobs (M3)', async () => {
+  const userId = await createUser()
+  const mentioned = await createUser()
+  const owner = await createUser()
+  await ensureFeeConfig()
+  const { id: itemId } = await createRootPost(userId, { subNames: [] })
+
+  // content-derived rows to protect: a @mention, an /items/ reference, an
+  // attached upload, and a pending reminder job
+  await prisma.mention.create({ data: { itemId, userId: mentioned } })
+  const { id: refItemId } = await createRootPost(mentioned)
+  await prisma.itemMention.create({ data: { referrerId: itemId, refereeId: refItemId } })
+  const uploadId = await createUpload(userId, { size: 1024 })
+  await prisma.itemUpload.create({ data: { itemId, uploadId } })
+  await prisma.$executeRaw`
+    INSERT INTO pgboss.job (id, name, data, state, startafter, keepuntil)
+    VALUES (gen_random_uuid(), 'reminder', jsonb_build_object('itemId', ${itemId}::INTEGER, 'userId', ${userId}::INTEGER),
+            'created', now() + interval '1 hour', now() + interval '2 hours')`
+
+  const subName = `m3-${Date.now()}`
+  await createSub(owner, subName)
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  const result = await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), userId, subNames: [subName] }, // repost shape: NO text
+    { me: { id: userId } }
+  )
+  created.payIns.push(result.id)
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+  await flipPendingToLive(prisma, payInRow, moneroUriAmountPiconeros(result.moneroUri))
+
+  // the repost itself landed ...
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).subNames).toContain(subName)
+  // ... and every content-derived row survived it
+  expect(await prisma.mention.findFirst({ where: { itemId, userId: mentioned } })).toBeTruthy()
+  expect(await prisma.itemMention.findFirst({ where: { referrerId: itemId, refereeId: refItemId } })).toBeTruthy()
+  expect(await prisma.itemUpload.findFirst({ where: { itemId, uploadId } })).toBeTruthy()
+  const [reminderJob] = await prisma.$queryRaw`
+    SELECT 1 AS n FROM pgboss.job
+    WHERE name = 'reminder' AND data->>'itemId' = ${itemId}::TEXT AND state = 'created'`
+  expect(reminderJob).toBeTruthy()
+})
+
+// Text-bearing edits must keep reconciling: removing a mention by editing text
+// deletes the row, and omitting uploadIds on a text edit detaches the uploads
+// (updateItem derives uploadIds from the new text, so an edit whose text has no
+// uploads sends []). Guards against over-correcting M3 into "never reconcile".
+test('a text-bearing edit still reconciles mentions and uploads (M3 guardrail)', async () => {
+  const userId = await createUser()
+  const mentioned = await createUser()
+  const { id: itemId } = await createRootPost(userId)
+  await prisma.mention.create({ data: { itemId, userId: mentioned } })
+  const uploadId = await createUpload(userId, { size: 1024 })
+  await prisma.itemUpload.create({ data: { itemId, uploadId } })
+  getItem.mockResolvedValue({ id: itemId, payIn: null })
+
+  // free edit (no fee legs): applied immediately at onBegin
+  await pay(
+    'ITEM_UPDATE',
+    { id: String(itemId), text: 'edited text with no mentions and no uploads' },
+    { me: { id: userId } }
+  )
+
+  expect(await prisma.mention.findFirst({ where: { itemId, userId: mentioned } })).toBeNull()
+  expect(await prisma.itemUpload.findFirst({ where: { itemId, uploadId } })).toBeNull()
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).text).toBe('edited text with no mentions and no uploads')
+})
