@@ -29,13 +29,14 @@
 // was in flight is dropped (the upload stays paid and is re-attachable); free
 // edits still apply at onBegin.
 //
-// R10 turf-addition fees (2026-09-21). An edit that ADDS non-owned turfs is
-// priced exactly as creation would price them (escalated platform floor per
-// added non-owned turf; owner premium rides the owner-direct leg when the
-// added set resolves to one walleted owner and no uploads are folded in) and
-// is deferred until the covering fee is observed — the SAME PendingItemUpdate
-// machinery as upload fees. The deferral gate covers both legs
-// (moneroSubaddressMajor OR moneroPaymentId). Removals and owned-turf
+// R10 turf-addition fees (2026-09-21; repost exemption 2026-09-26). An edit
+// that ADDS non-owned turfs is priced at the BASE platform floor per added
+// non-owned turf (reposts never carry the anti-spam escalation — the post
+// already paid it at creation; the owner premium rides the owner-direct leg
+// when the added set resolves to one walleted owner and no uploads are folded
+// in) and is deferred until the covering fee is observed — the SAME
+// PendingItemUpdate machinery as upload fees. The deferral gate covers both
+// legs (moneroSubaddressMajor OR moneroPaymentId). Removals and owned-turf
 // additions are free. Only top-level posts can carry subNames (the resolver
 // strips comments/bios).
 //
@@ -52,7 +53,6 @@ import { logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 import { applySubFeeReceipt } from '@/api/monero/subFeeObservation'
 import { moneroUriAmountPiconeros } from '@/lib/format'
-import { ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_INTERVAL } from '@/lib/constants'
 
 // itemUpdate.js statically imports @/lib/lexical/server/mentions (ESM-only
 // mdast-util-from-markdown) and @/api/resolvers/item (getItem), neither of
@@ -149,16 +149,6 @@ async function createSub (ownerId, name, { postPremiumPiconeros = 0n } = {}) {
   })
   created.subs.push(name)
   return name
-}
-
-// Replicates itemCreate.escalatedFeePiconeros' math independently (constants
-// imported, formula hand-written) so the test checks the wiring, not itself.
-async function expectedEscalatedFloor (userId, basePiconeros) {
-  const [{ n }] = await prisma.$queryRaw`
-    SELECT item_spam(NULL::INTEGER, ${userId}::INTEGER, ${ITEM_SPAM_INTERVAL}::INTERVAL)::INTEGER AS n`
-  const multiplier = ITEM_SPAM_FEE_ESCALATION_NUMERATOR ** BigInt(n)
-  const divisor = ITEM_SPAM_FEE_ESCALATION_DENOMINATOR ** BigInt(n)
-  return (basePiconeros * multiplier + divisor / 2n) / divisor
 }
 
 async function createUpload (userId, { size }) {
@@ -495,7 +485,7 @@ test('an unexpected apply failure is contained by flipPendingToLive and does not
 // tests drive pay('ITEM_UPDATE', ...) directly, exercising the engine's
 // multi-add math, which remains as defense behind repostItem.
 
-test('an edit adding 2 non-owned turfs defers and charges the escalated posting fee (R10)', async () => {
+test('an edit adding 2 non-owned turfs defers and charges the BASE posting fee — no spam escalation on reposts (R10, 2026-09-26)', async () => {
   const userId = await createUser()
   const owner = await createUser()
   await ensureFeeConfig()
@@ -513,13 +503,13 @@ test('an edit adding 2 non-owned turfs defers and charges the escalated posting 
   )
   created.payIns.push(result.id)
 
-  // pricing: escalated platform floor x 2 (two non-owned turfs -> no
-  // single-owner route), no owner leg
+  // pricing: BASE platform floor x 2 (two non-owned turfs -> no single-owner
+  // route), no owner leg, no spam escalation — reposts are exempt (2026-09-26)
   expect(result.moneroUri).toMatch(/^monero:/)
   expect(result.moneroSubaddressMajor).toBe(1) // feePool stub
   expect(result.moneroPaymentId).toBeNull()
   const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
-  const expected = await expectedEscalatedFloor(userId, config.postingFeeFloorPiconeros * 2n)
+  const expected = config.postingFeeFloorPiconeros * 2n
   expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(expected)
 
   // deferred: turf list and text are NOT applied until the fee is observed
@@ -570,10 +560,10 @@ test('an edit adding exactly one non-owned walleted turf routes owner-direct and
   expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeTruthy()
   expect((await prisma.item.findUnique({ where: { id: itemId } })).subNames).toEqual([])
 
-  // independently recompute the quote: escalated floor + the owner premium,
-  // which is NOT escalated (it rides the owner leg as-is)
+  // independently recompute the quote: BASE floor + the owner premium —
+  // neither is ever escalated on the repost path (2026-09-26)
   const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
-  const expected = await expectedEscalatedFloor(userId, config.postingFeeFloorPiconeros) + 500_000_000n
+  const expected = config.postingFeeFloorPiconeros + 500_000_000n
   expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(expected)
 
   // a chain-verified receipt opens the cumulative gate and applies the edit
@@ -637,7 +627,7 @@ test('a combined upload + turf-add edit quotes ONE platform URI covering both (R
   expect(result.moneroSubaddressMajor).toBe(1)
   expect(result.moneroPaymentId).toBeNull()
   const config = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
-  const expected = 1_000_000_000n + await expectedEscalatedFloor(userId, config.postingFeeFloorPiconeros)
+  const expected = 1_000_000_000n + config.postingFeeFloorPiconeros
   expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(expected)
   expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeTruthy()
 })

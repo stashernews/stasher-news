@@ -13,7 +13,7 @@ import { subsDiff } from '@/lib/subs'
 import { moneroWallEnabled } from '@/lib/monero-wall'
 import { getTempImgproxyUrls } from '../lib/upload'
 import { postFloorPiconerosForSubs, postFeePiconerosForSubs } from '@/api/monero/turfFeeRouting'
-import { escalatedFeePiconeros, feeLegOrSubaddress } from './itemCreate'
+import { feeLegOrSubaddress } from './itemCreate'
 import { serializePayInArgs, deserializePayInArgs } from '../lib/payInArgs'
 
 export const anonable = true
@@ -42,15 +42,18 @@ export async function getInitial (models, { id, uploadIds = [], bio, subNames },
     }
   }
 
-  // R10: charge for turfs ADDED by this edit, exactly as creation would price
-  // them — the escalated platform floor for every added non-owned turf, with
-  // the owner premium riding the owner-direct leg when the added set resolves
-  // to one walleted owner and no upload fees are folded in (feeLegOrSubaddress
-  // owns that decision). Additions only: removals and owned-turf additions are
-  // free. Top-level posts only — the resolver strips comments and bios to
-  // text-only edits — and only when the client actually sent subNames
-  // (applyItemUpdate's [] default is deliberately untouched for callers that
-  // omit the field).
+  // R10 + repost decision (2026-09-26): charge for turfs ADDED by this edit
+  // exactly the BASE platform floor per added non-owned turf, with the owner
+  // premium riding the owner-direct leg when the added set resolves to one
+  // walleted owner and no upload fees are folded in (feeLegOrSubaddress owns
+  // that decision). Reposts are EXEMPT from the anti-spam escalation: the
+  // post already paid it at creation, and item_spam would count the post
+  // being reposted itself (>= 1.5x the picker's quote in the common fresh
+  // case). The itemCreate posting-fee path keeps its escalation. Additions
+  // only: removals and owned-turf additions are free. Top-level posts only —
+  // the resolver strips comments and bios to text-only edits — and only when
+  // the client actually sent subNames (applyItemUpdate's [] default is
+  // deliberately untouched for callers that omit the field).
   //
   // Turf repost (2026-09-24): updateItem now rejects any turf change, so this
   // edit-adds-turf fee path is reached only through repostItem, which adds
@@ -71,11 +74,7 @@ export async function getInitial (models, { id, uploadIds = [], bio, subNames },
       if (nonOwnedAdded.length > 0) {
         const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
         if (!config) throw new GqlInputError('fee config not initialized')
-        turfFeePiconeros = await escalatedFeePiconeros(models, {
-          parentId: null,
-          userId: me.id,
-          basePiconeros: postFloorPiconerosForSubs(config, nonOwnedAdded)
-        })
+        turfFeePiconeros = postFloorPiconerosForSubs(config, nonOwnedAdded)
         turfPremiumPiconeros = postFeePiconerosForSubs(config, nonOwnedAdded) - postFloorPiconerosForSubs(config, nonOwnedAdded)
       }
     }
