@@ -20,7 +20,7 @@ import { useShowModal } from './modal'
 // ... or I just spent too much time in this code and this is overcooked
 // NOTE: sub is only used for the job form currently since it's the only form that can exist in a single territory
 export default function useItemSubmit (mutation,
-  { item, sub, onSuccessfulSubmit, navigateOnSubmit = true, extraValues = {}, payInMutationOptions = { } } = {}) {
+  { item, sub, onSuccessfulSubmit, onPostingFeePaid, navigateOnSubmit = true, extraValues = {}, payInMutationOptions = { } } = {}) {
   const router = useRouter()
   const toaster = useToast()
   const crossposter = useCrossposter()
@@ -112,7 +112,12 @@ export default function useItemSubmit (mutation,
         resetForm?.()
         showModal(onClose => item
           ? <UploadFeeModal moneroUri={response.moneroUri} payInId={response.id} itemId={navigateOnSubmit ? item.id : undefined} onClose={onClose} />
-          : <PostingFeeModal moneroUri={response.moneroUri} itemId={postId} />,
+          : <PostingFeeModal
+              moneroUri={response.moneroUri} itemId={postId}
+              // H2: fee-paid (not submit) is the moment the publish is durable,
+              // so that's when the caller's draft cleanup may run
+              onPaid={() => onPostingFeePaid?.(data)}
+            />,
         // the fee QR must survive any navigation fired during the submit
         // window — e.g. the drafts publish-cleanup strips ?draft via a
         // router.replace inside the mutation's onCompleted, and that
@@ -133,7 +138,7 @@ export default function useItemSubmit (mutation,
           await router.push(prefix + '/new')
         }
       }
-    }, [me, showModal, upsertItem, router, crossposter, item, onSuccessfulSubmit,
+    }, [me, showModal, upsertItem, router, crossposter, item, onSuccessfulSubmit, onPostingFeePaid,
       navigateOnSubmit, extraValues, payInMutationOptions, branding]
   )
 }

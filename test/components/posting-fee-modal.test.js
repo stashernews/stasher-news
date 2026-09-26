@@ -63,14 +63,14 @@ afterEach(async () => {
 
 // polledItem overrides the polled Item fields; omit it (null data) to simulate
 // the first poll still in flight, so only the moneroUri prop seeds the amount.
-async function renderModal ({ polledItem } = {}) {
+async function renderModal ({ polledItem, onPaid } = {}) {
   mockUseQuery.mockReturnValue({
     data: polledItem
       ? { item: { id: '1', feeStatus: 'PENDING_FEE', feeReceivedPiconeros: 0, feeTopUpUri: null, ...polledItem } }
       : null
   })
   await act(async () => {
-    root.render(<PostingFeeModal moneroUri={URI_FULL} itemId='1' />)
+    root.render(<PostingFeeModal moneroUri={URI_FULL} itemId='1' onPaid={onPaid} />)
   })
 }
 
@@ -105,5 +105,29 @@ describe('PostingFeeModal top-up amount', () => {
   test('shows the short-pay hint when the poll reports a partial payment', async () => {
     await renderModal({ polledItem: { feeReceivedPiconeros: 400000000, feeTopUpUri: URI_TOPUP } })
     expect(container.textContent).toMatch(/payment detected but short — received 0\.4 mXMR of 1 mXMR\. Send 0\.0006 XMR \(0\.6 mXMR\) to the same address to complete it\./)
+  })
+})
+
+// H2 (2026-09-26 review): the fee-gated publish only becomes durable when the
+// fee is observed, so the caller's cleanup (server-draft deletion — the only
+// durable copy until then, since abandonFeeItems blanks the unpaid PENDING_FEE
+// item after 1 day) must fire at fee-paid, not at submit time.
+describe('PostingFeeModal onPaid', () => {
+  test('fires onPaid exactly once when the fee lands (feeStatus FEE_PAID)', async () => {
+    const onPaid = jest.fn()
+    await renderModal({ polledItem: { feeStatus: 'FEE_PAID', feeTopUpUri: null }, onPaid })
+    expect(onPaid).toHaveBeenCalledTimes(1)
+    // a re-render (poll tick) with the same phase must not re-fire
+    await act(async () => {
+      root.render(<PostingFeeModal moneroUri={URI_FULL} itemId='1' onPaid={onPaid} />)
+    })
+    expect(onPaid).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not fire onPaid while the fee is still unpaid', async () => {
+    const onPaid = jest.fn()
+    await renderModal({ polledItem: { feeStatus: 'PENDING_FEE', feeReceivedPiconeros: 0, feeTopUpUri: null }, onPaid })
+    expect(container.textContent).toContain('Scan to send')
+    expect(onPaid).not.toHaveBeenCalled()
   })
 })

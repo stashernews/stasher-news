@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMe } from './me'
 import { useAnimation } from './animation'
 import { moneroUriAmountPiconeros, piconerosToMXmrDual, underpayHint } from '@/lib/format'
@@ -17,7 +17,7 @@ const ITEM_FEE_STATUS = `
   }
 `
 
-export default function PostingFeeModal ({ moneroUri, itemId }) {
+export default function PostingFeeModal ({ moneroUri, itemId, onPaid }) {
   const { me } = useMe()
   const animate = useAnimation()
   const expectedPiconeros = moneroUriAmountPiconeros(moneroUri) ??
@@ -44,9 +44,18 @@ export default function PostingFeeModal ({ moneroUri, itemId }) {
   const displayPiconeros = moneroUriAmountPiconeros(displayUri) ?? expectedPiconeros
 
   // strike the lightning once the posting fee is detected on-chain
+  // H2 (2026-09-26 review): the fee-gated publish only becomes durable now —
+  // fire the caller's cleanup (server-draft deletion; the draft is the only
+  // durable copy until the fee lands, because abandonFeeItems blanks the
+  // unpaid PENDING_FEE item after 1 day). The ref keeps it exactly-once per
+  // mount across poll re-renders and changing onPaid identities.
+  const paidFiredRef = useRef(false)
   useEffect(() => {
-    if (phase === 'paid') animate()
-  }, [phase, animate])
+    if (phase !== 'paid' || paidFiredRef.current) return
+    paidFiredRef.current = true
+    animate()
+    onPaid?.()
+  }, [phase, animate, onPaid])
 
   if (phase === 'paid') {
     return (

@@ -66,38 +66,59 @@ export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyP
   // explicit server save.
   const storageKeyPrefix = (item || draftId) ? undefined : prefix
 
-  // publish cleanup: after a successful submit from a draft, delete the draft
-  // (fire-and-forget) and strip ?draft — that flips PostForm's remount key, so
-  // staying on /post lands on a clean empty form
+  // publish cleanup: once the post is DURABLE, delete the draft (fire-and-
+  // forget) and strip ?draft — that flips PostForm's remount key, so staying
+  // on /post lands on a clean empty form.
+  //
+  // H2 (2026-09-26 review): a fee-gated submit only creates a PENDING_FEE
+  // item behind a QR — onSuccessfulSubmit fires THEN, but the draft is the
+  // only durable copy until the fee is observed (abandonFeeItems blanks the
+  // unpaid item after 1 day, and the form is reset at QR time). Deleting the
+  // draft at submit destroyed the user's work whenever the QR went unpaid, so
+  // the deletion now runs at fee-paid via onPostingFeePaid. If the modal never
+  // sees the payment (browser closed, paid later from the wallet), the draft
+  // survives until the 90-day TTL sweep — content loss becomes a stale draft.
+  const deletePublishedDraft = () => {
+    if (!draftId) return
+    client.mutate({
+      mutation: DELETE_DRAFT,
+      variables: { id: draftId },
+      update: cache => {
+        // DELETE_DRAFT returns a scalar, so Apollo merges nothing: without
+        // eviction the cache-first MY_DRAFTS list and MY_DRAFT singleton keep
+        // serving the deleted draft (ghost menu row -> ghost prefill ->
+        // 'draft not found' on the next save). Evict the entity AND filter
+        // it out of the cached list (evicting alone can leave a dangling
+        // reference in myDrafts).
+        cache.evict({ id: `Draft:${draftId}` })
+        cache.modify({
+          fields: {
+            myDrafts (existing = [], { readField }) {
+              return existing.filter(ref => String(readField('id', ref)) !== String(draftId))
+            }
+          }
+        })
+        cache.gc()
+      }
+    }).catch(() => {})
+    router.replace({ query: { ...router.query, draft: undefined } }, undefined, { shallow: true })
+  }
+
   const onSuccessWrapped = async (...args) => {
     if (draftId) {
-      client.mutate({
-        mutation: DELETE_DRAFT,
-        variables: { id: draftId },
-        update: cache => {
-          // DELETE_DRAFT returns a scalar, so Apollo merges nothing: without
-          // eviction the cache-first MY_DRAFTS list and MY_DRAFT singleton keep
-          // serving the deleted draft (ghost menu row -> ghost prefill ->
-          // 'draft not found' on the next save). Evict the entity AND filter
-          // it out of the cached list (evicting alone can leave a dangling
-          // reference in myDrafts).
-          cache.evict({ id: `Draft:${draftId}` })
-          cache.modify({
-            fields: {
-              myDrafts (existing = [], { readField }) {
-                return existing.filter(ref => String(readField('id', ref)) !== String(draftId))
-              }
-            }
-          })
-          cache.gc()
-        }
-      }).catch(() => {})
+      // strip ?draft at submit (remount key / clean form) even when the draft
+      // deletion itself waits for the fee — see deletePublishedDraft above
       router.replace({ query: { ...router.query, draft: undefined } }, undefined, { shallow: true })
     }
     return onSuccessfulSubmit?.(...args)
   }
 
-  const onSubmit = useItemSubmit(mutation, { item, navigateOnSubmit, onSuccessfulSubmit: onSuccessWrapped })
+  const onSubmit = useItemSubmit(mutation, {
+    item,
+    navigateOnSubmit,
+    onSuccessfulSubmit: onSuccessWrapped,
+    onPostingFeePaid: deletePublishedDraft
+  })
 
   const schema = schemaFn?.({ client, me })
 
