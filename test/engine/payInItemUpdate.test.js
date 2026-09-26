@@ -185,7 +185,7 @@ async function seedWall (itemId, { price = 1_000_000_000n } = {}) {
 // ObservedTip requires a MoneroAccount recipient (FK) and a unique txHash. The
 // prefix marks the row as test residue, purged in afterAll before the item and
 // account deletes (their FKs would otherwise silently block both).
-async function seedObservedTip (postId, { detectedAt }) {
+async function seedObservedTip (postId, { detectedAt, state }) {
   const account = await prisma.moneroAccount.create({
     data: { address: `${WALL_TIP_TX_PREFIX}${randomUUID()}`, label: 'iu-wall-test', network: 'STAGENET', status: 'ACTIVE' }
   })
@@ -197,7 +197,8 @@ async function seedObservedTip (postId, { detectedAt }) {
       recipientAccountId: account.id,
       paymentId: randomUUID(),
       piconeros: 1_000_000_000n,
-      detectedAt
+      detectedAt,
+      ...(state ? { state } : {})
     }
   })
   created.tips.push(tip.id)
@@ -391,6 +392,27 @@ test('a deferred edit is dropped, not applied, when the item changed while the f
   expect(await prisma.payIn.findUnique({ where: { id: result.id } })).toBeNull()
   // the fee still counts: the upload is paid and can be re-attached for free
   expect((await prisma.upload.findUnique({ where: { id: uploadId } })).paid).toBe(true)
+})
+
+// --- H1: an initiated-but-never-paid (EXPIRED) tip must not freeze the wall ---
+// initiateTipCore mints a PENDING ObservedTip at initiation (detectedAt = now);
+// reconcilePendingTips later flips it to EXPIRED. The freeze queries must only
+// count tips that are pending (money possibly in flight) or landed — never a
+// tip that expired unpaid.
+test('a deferred wall edit applies its price delta when the only tip is EXPIRED (H1)', async () => {
+  const userId = await createUser()
+  await ensureFeeConfig()
+  const { id: itemId } = await createRootPost(userId)
+  await seedWall(itemId, { price: 1_000_000_000n })
+  await seedObservedTip(itemId, { detectedAt: WALL_ENABLED_AT, state: 'EXPIRED' })
+
+  const result = await deferredWallEdit(userId, itemId, { moneroWallPricePiconeros: 2_000_000_000n })
+
+  const payInRow = await prisma.payIn.findUnique({ where: { id: result.id } })
+  await flipPendingToLive(prisma, payInRow, moneroUriAmountPiconeros(result.moneroUri))
+
+  // the EXPIRED (abandoned) tip did not freeze: the paid price delta applies
+  expect((await prisma.item.findUnique({ where: { id: itemId } })).moneroWallPricePiconeros).toBe(2_000_000_000n)
 })
 
 // The unused-image sweep can remove a deferred edit's unpaid upload before the

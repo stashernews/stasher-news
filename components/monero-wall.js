@@ -138,7 +138,7 @@ function AuthorMoneroWallView ({ item }) {
           )}
         </div>
         {wall.frozen && (
-          <p className={styles.copy}>settings are frozen after the first payment — you can still remove the wall.</p>
+          <p className={styles.copy}>settings freeze while a tip is pending or paid — you can still remove the wall.</p>
         )}
         <button className={styles.remove} onClick={onRemove} disabled={loading}>
           {loading ? 'removing…' : 'remove monerowall'}

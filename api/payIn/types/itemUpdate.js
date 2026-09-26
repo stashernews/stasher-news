@@ -207,7 +207,7 @@ export async function applyItemUpdate (tx, payIn, args) {
       if (changed) {
         // mirror assertMoneroWallWrite's freeze query exactly
         const detected = await tx.observedTip.findFirst({
-          where: { postId: old.id, detectedAt: { gte: old.moneroWallEnabledAt } },
+          where: { postId: old.id, detectedAt: { gte: old.moneroWallEnabledAt }, state: { notIn: ['EXPIRED'] } },
           select: { id: true }
         })
         dropWall = !!detected

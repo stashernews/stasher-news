@@ -1583,7 +1583,7 @@ async function assertMoneroWallWrite ({ models, me, item, old }) {
   let frozen = false
   if (moneroWallEnabled(old) && old?.id) {
     const detected = await models.observedTip.findFirst({
-      where: { postId: old.id, detectedAt: { gte: old.moneroWallEnabledAt } },
+      where: { postId: old.id, detectedAt: { gte: old.moneroWallEnabledAt }, state: { notIn: ['EXPIRED'] } },
       select: { id: true }
     })
     frozen = !!detected
