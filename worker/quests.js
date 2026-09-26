@@ -15,7 +15,7 @@ const LOOKBACK_MS = 10 * 60 * 1000
  * draw is deterministic, so no per-day state is needed for the check itself.
  * The insert is the idempotency guard AND the notification trigger.
  */
-export async function sweepQuestCompletions ({ models, now = new Date() }) {
+export async function sweepQuestCompletions ({ models, now = new Date(), userIds } = {}) {
   const dayNow = questDay(now)
   const since = new Date(now.getTime() - LOOKBACK_MS)
   // A tick just after midnight straddles two UTC days: the tail of yesterday is
@@ -35,9 +35,11 @@ export async function sweepQuestCompletions ({ models, now = new Date() }) {
     WHERE id IS NOT NULL`
 
   // Record this tick's completions first; the advance below must see them.
+  // A user allowlist (test isolation) scopes every stage below to those ids.
   const recorded = []
+  const scopedCandidates = userIds ? candidates.filter(c => userIds.includes(c.id)) : candidates
   for (const day of days) {
-    for (const { id: userId } of candidates) {
+    for (const { id: userId } of scopedCandidates) {
       const draw = await resolveDraw(models, userId, day)
       const done = await completionsFor(models, { userId, day, draw })
       for (const quest of [draw.upvote, draw.drawn]) {
@@ -61,7 +63,7 @@ export async function sweepQuestCompletions ({ models, now = new Date() }) {
   // the banking SELECT matches nothing without one. Completions are already on
   // record at that point, so a banking-first order would lose those credits
   // for good (later ticks P2002-skip the recorded completions).
-  await advanceClearedDays({ models, days })
+  await advanceClearedDays({ models, days, userIds })
 
   // Bank the quest's reply credits (rev 4: comment-cost quests pay double so
   // completing them nets a gain): only with an active flame, never past the
@@ -93,16 +95,17 @@ export async function sweepQuestCompletions ({ models, now = new Date() }) {
  * day is still pending evaluation defers: the 00:10 evaluation may yet absorb
  * the miss with the golden flame shield or end the run, which changes the level.
  */
-async function advanceClearedDays ({ models, days }) {
+async function advanceClearedDays ({ models, days, userIds }) {
   for (const day of days) {
     const dayDate = new Date(`${day}T00:00:00.000Z`)
-    const pending = await models.$queryRaw`
+    const pending = (await models.$queryRaw`
       SELECT q."userId" FROM "QuestCompletion" q
       LEFT JOIN "Streak" s
         ON s."userId" = q."userId" AND s."type" = 'FLAME' AND s."endedAt" IS NULL
       WHERE q."day" = ${dayDate}
       GROUP BY q."userId", s."lastEvaluatedDay"
-      HAVING count(*) >= 2 AND (s."lastEvaluatedDay" IS NULL OR s."lastEvaluatedDay" < ${dayDate})`
+      HAVING count(*) >= 2 AND (s."lastEvaluatedDay" IS NULL OR s."lastEvaluatedDay" < ${dayDate})`)
+      .filter(p => !userIds || userIds.includes(p.userId))
     for (const { userId } of pending) {
       const notification = await advanceQuestStreak({ models, userId, day, requirePrevSettled: true })
       if (notification) notifyFlameAdvanced(userId, notification).catch(console.error)

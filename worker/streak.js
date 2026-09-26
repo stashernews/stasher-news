@@ -70,22 +70,26 @@ export async function advanceQuestStreak ({ models, userId, day, requirePrevSett
  * `Streak.lastEvaluatedDay` makes re-runs for the same day no-ops. Ladder
  * rewards are granted on advance, idempotently via `Streak.rewardLevel`.
  */
-export async function evaluateQuestStreaks ({ models, now = new Date() }) {
+export async function evaluateQuestStreaks ({ models, now = new Date(), userIds } = {}) {
   const day = questDay(new Date(now.getTime() - DAY_MS))
   const dayDate = new Date(`${day}T00:00:00.000Z`)
 
   // Every user with both completions recorded for the day (the sweep writes
-  // them; the unique key guarantees at most one row per quest).
+  // them; the unique key guarantees at most one row per quest). When a user
+  // allowlist is given (test isolation), only those users are evaluated —
+  // other runs are left exactly as they are.
   const clearedRows = await models.$queryRaw`
     SELECT "userId" FROM "QuestCompletion"
     WHERE "day" = ${dayDate} GROUP BY "userId" HAVING count(*) >= 2`
-  const cleared = new Set(clearedRows.map(r => r.userId))
+  const scope = userIds ? new Set(userIds) : null
+  const cleared = new Set(clearedRows.map(r => r.userId).filter(id => !scope || scope.has(id)))
 
-  const active = await models.streak.findMany({ where: { type: 'FLAME', endedAt: null } })
+  const active = (await models.streak.findMany({ where: { type: 'FLAME', endedAt: null } }))
+    .filter(s => !scope || scope.has(s.userId))
   const activeByUser = new Map(active.map(s => [s.userId, s]))
-  const userIds = new Set([...cleared, ...active.map(s => s.userId)])
+  const userIdsIter = new Set([...cleared, ...active.map(s => s.userId)])
 
-  for (const userId of userIds) {
+  for (const userId of userIdsIter) {
     const user = await models.user.findUnique({ where: { id: userId }, select: { streak: true } })
     if (!user) continue
     const known = activeByUser.get(userId)

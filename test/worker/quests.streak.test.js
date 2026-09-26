@@ -36,6 +36,23 @@ async function bothCleared (userId, day = yesterday) {
   })
 }
 
+test('evaluations with a user allowlist never touch other users\' runs', async () => {
+  // Test-isolation seam: the dev DB holds real users' runs. An evaluation
+  // scoped to the fixtures must leave every other run exactly as it was.
+  const fixture = await mkUser(10)
+  await mkStreak(fixture, { rewardLevel: 3 })
+  const outsider = await mkUser(10)
+  const twoDaysAgo = new Date(new Date(`${yesterday}T00:00:00.000Z`).getTime() - 86_400_000)
+  await mkStreak(outsider, { rewardLevel: 3, lastEvaluatedDay: twoDaysAgo })
+
+  await evaluateQuestStreaks({ models: prisma, userIds: [fixture] })
+
+  const [after] = await prisma.streak.findMany({ where: { userId: outsider }, orderBy: { id: 'desc' } })
+  expect(after.endedAt).toBeNull()
+  expect(after.rewardLevel).toBe(3)
+  expect(after.lastEvaluatedDay).toEqual(twoDaysAgo)
+})
+
 afterAll(async () => {
   await prisma.streakReward.deleteMany({ where: { userId: { in: created.users } } })
   await prisma.questCompletion.deleteMany({ where: { userId: { in: created.users } } })

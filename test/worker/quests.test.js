@@ -40,14 +40,14 @@ test('the sweep records each completion once and notifies once', async () => {
   created.items.push(post.id)
   await prisma.observedTip.create({ data: { txHash: `qsweep-${Date.now()}`, postId: post.id, tipperId: userId, recipientAccountId: account.id, paymentId: `qsweep-pid-${Date.now()}`, piconeros: 100000000n, state: 'DETECTED' } })
 
-  await sweepQuestCompletions({ models: prisma })
+  await sweepQuestCompletions({ models: prisma, userIds: created.users })
   const draw = await resolveDraw(prisma, userId, new Date().toISOString().slice(0, 10))
   const rows = await prisma.questCompletion.findMany({ where: { userId } })
   expect(rows.length).toBeGreaterThanOrEqual(1)
   expect(rows.some(r => r.quest === draw.upvote)).toBe(true)
 
   notifyQuestCompleted.mockClear()
-  await sweepQuestCompletions({ models: prisma }) // second run: no new rows, no new pushes
+  await sweepQuestCompletions({ models: prisma, userIds: created.users }) // second run: no new rows, no new pushes
   expect(notifyQuestCompleted).not.toHaveBeenCalled()
 })
 
@@ -62,7 +62,7 @@ test('the first sweep after midnight records completions from the previous UTC d
   created.items.push(post.id)
   await prisma.observedTip.create({ data: { txHash: `qsweep-boundary-${Date.now()}`, postId: post.id, tipperId: userId, recipientAccountId: account.id, paymentId: `qsweep-bpid-${Date.now()}`, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date('2026-06-09T23:58:00.000Z') } })
 
-  await sweepQuestCompletions({ models: prisma, now })
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
 
   const rows = await prisma.questCompletion.findMany({ where: { userId, day: new Date('2026-06-09T00:00:00.000Z') } })
   expect(rows.some(r => r.quest === 'UPVOTE')).toBe(true)
@@ -82,7 +82,7 @@ test('the sweep lights the flame as soon as a day is cleared, exactly once', asy
   })
 
   notifyFlameAdvanced.mockClear()
-  await sweepQuestCompletions({ models: prisma })
+  await sweepQuestCompletions({ models: prisma, userIds: created.users })
   const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
   expect(user.streak).toBe(1)
   const [streak] = await prisma.streak.findMany({ where: { userId } })
@@ -90,7 +90,7 @@ test('the sweep lights the flame as soon as a day is cleared, exactly once', asy
   expect(notifyFlameAdvanced.mock.calls.filter(([id]) => id === userId)).toHaveLength(1)
 
   // A later tick neither re-advances nor re-notifies.
-  await sweepQuestCompletions({ models: prisma })
+  await sweepQuestCompletions({ models: prisma, userIds: created.users })
   const [after] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
   expect(after.streak).toBe(1)
   expect(notifyFlameAdvanced.mock.calls.filter(([id]) => id === userId)).toHaveLength(1)
@@ -115,7 +115,7 @@ test('a run\'s first day banks the day 1 rung plus both quest credits', async ()
   await prisma.observedTip.create({ data: { txHash: `qsweep-firstday-${Date.now()}`, postId: post.id, tipperId: userId, recipientAccountId: account.id, paymentId: `qsweep-fd-pid-${Date.now()}`, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 5 * 60 * 1000) } })
   await prisma.payIn.create({ data: { userId, payInType: 'BOOST', payInState: 'PAID', piconeros: 100000000n, createdAt: new Date(now.getTime() - 4 * 60 * 1000) } })
 
-  await sweepQuestCompletions({ models: prisma, now })
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
 
   expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`) } })).toBe(2)
   // The advance created the run on this first cleared day.
@@ -131,7 +131,7 @@ test('a run\'s first day banks the day 1 rung plus both quest credits', async ()
   expect(credits).toHaveLength(3)
   expect(credits.every(c => c.streakId === streak.id && c.consumedAt === null)).toBe(true)
 
-  await sweepQuestCompletions({ models: prisma, now }) // re-run: nothing new banks
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users }) // re-run: nothing new banks
   expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(3)
 })
 
@@ -155,12 +155,12 @@ test('recording a completion banks one reply credit, once', async () => {
   await prisma.observedTip.create({ data: { txHash: `qsweep-bank-${Date.now()}`, postId: post.id, tipperId: userId, recipientAccountId: account.id, paymentId: `qsweep-bank-pid-${Date.now()}`, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 5 * 60 * 1000) } })
   await prisma.payIn.create({ data: { userId, payInType: 'BOOST', payInState: 'PAID', piconeros: 100000000n, createdAt: new Date(now.getTime() - 4 * 60 * 1000) } })
 
-  await sweepQuestCompletions({ models: prisma, now })
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
   expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`) } })).toBe(2)
   const credits = await prisma.streakReward.findMany({ where: { userId, type: 'REPLY' } })
   expect(credits).toHaveLength(2) // one per quest
 
-  await sweepQuestCompletions({ models: prisma, now }) // re-run: nothing new banks
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users }) // re-run: nothing new banks
   expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(2)
 })
 
@@ -181,7 +181,7 @@ test('rev 4: a first responder completion banks two reply credits', async () => 
   const [comment] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", "rootId", text, created_at) VALUES (${userId}::int, ${root.id}::int, ${root.id}::int, 'qsweep fr4 reply', ${now}) RETURNING id::int AS id`
   created.items.push(root.id, comment.id)
 
-  await sweepQuestCompletions({ models: prisma, now })
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
 
   expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`), quest: QUEST.FIRST_RESPONDER } })).toBe(1)
   const credits = await prisma.streakReward.findMany({ where: { userId, type: 'REPLY' } })
@@ -205,7 +205,7 @@ test('rev 4: a double reward fills to the banked cap and stops', async () => {
   const [comment] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", "rootId", text, created_at) VALUES (${userId}::int, ${root.id}::int, ${root.id}::int, 'qsweep fr4cap reply', ${now}) RETURNING id::int AS id`
   created.items.push(root.id, comment.id)
 
-  await sweepQuestCompletions({ models: prisma, now })
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
 
   // 14 held + the +2 grant fills to exactly 15 and never crosses.
   expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(15)
