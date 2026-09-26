@@ -28,7 +28,13 @@ export async function sweepQuestCompletions ({ models, now = new Date(), userIds
     SELECT DISTINCT id FROM (
       SELECT "tipperId" AS id FROM "ObservedTip" WHERE "detectedAt" >= ${since} AND "tipperId" IS NOT NULL
       UNION
-      SELECT "userId" AS id FROM "PayIn" WHERE "payInType" = 'BOOST' AND created_at >= ${since}
+      SELECT "userId" AS id FROM "PayIn" p
+      WHERE p."payInType" = 'BOOST' AND p.created_at >= ${since}
+        AND (
+          EXISTS (SELECT 1 FROM "FeeObservation" f
+                  WHERE f."payInId" = p.id AND f.state IN ('DETECTED', 'CONFIRMED'))
+          OR EXISTS (SELECT 1 FROM "ObservedSubFee" s WHERE s."pay_in_id" = p.id)
+        )
       UNION
       SELECT "userId" AS id FROM "Item" WHERE created_at >= ${since}
     ) c

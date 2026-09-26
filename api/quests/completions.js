@@ -29,10 +29,22 @@ export async function completionsFor (models, { userId, day, draw }) {
     out.UPVOTE = await tippedInWindow(models, userId, { gte, lt })
   }
   if (draw.drawn === QUEST.BOOST) {
-    out.BOOST = !!(await models.payIn.findFirst({
-      where: { userId, payInType: 'BOOST', createdAt: { gte, lt } },
-      select: { id: true }
-    }))
+    // M4 (2026-09-26 review): BOOST payIns are born PAID with piconeros=0n at
+    // initiation (the FeeObservation carries the real on-chain amount —
+    // api/payIn/types/boost.js), so state filters are useless here: require an
+    // actual observation, mirroring isFeeObserved (api/resolvers/payIn.js).
+    // DETECTED = coins landed; ObservedSubFee covers legacy owner-leg boosts.
+    const rows = await models.$queryRaw`
+      SELECT 1 AS n FROM "PayIn" p
+      WHERE p."userId" = ${userId}::INTEGER AND p."payInType" = 'BOOST'
+        AND p.created_at >= ${gte} AND p.created_at < ${lt}
+        AND (
+          EXISTS (SELECT 1 FROM "FeeObservation" f
+                  WHERE f."payInId" = p.id AND f.state IN ('DETECTED', 'CONFIRMED'))
+          OR EXISTS (SELECT 1 FROM "ObservedSubFee" s WHERE s."pay_in_id" = p.id)
+        )
+      LIMIT 1`
+    out.BOOST = rows.length > 0
   }
   if (draw.drawn === QUEST.FIRST_RESPONDER) {
     const rows = await models.$queryRaw`

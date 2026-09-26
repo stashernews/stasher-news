@@ -17,6 +17,7 @@ async function mkUser () {
 }
 
 afterAll(async () => {
+  await prisma.feeObservation.deleteMany({ where: { txHash: { startsWith: 'qtest-boost-' } } })
   await prisma.observedTip.deleteMany({ where: { txHash: { startsWith: 'qtest-' } } })
   await prisma.payIn.deleteMany({ where: { id: { in: created.payIns } } })
   await prisma.item.deleteMany({ where: { id: { in: created.items } } })
@@ -55,12 +56,38 @@ test('FIRST_RESPONDER requires the comment to be the parent item first comment',
   expect(late.FIRST_RESPONDER).toBe(false)
 })
 
-test('BOOST completes from a BOOST payIn created inside the day window', async () => {
-  const userId = await mkUser()
+// M4 (2026-09-26 review): a BOOST payIn is born PAID with piconeros=0n the
+// moment the boost dialog is opened — the real payment only exists as a
+// FeeObservation (or legacy owner-leg ObservedSubFee). The completion must
+// require the observation, mirroring isFeeObserved, or abandoning the QR
+// completes the quest and banks a free REPLY credit.
+async function seedBoostPayIn (userId, { observed }) {
   const payIn = await prisma.payIn.create({ data: { payInType: 'BOOST', userId, payInState: 'PAID', piconeros: 0n, createdAt: new Date(`${DAY}T15:00:00.000Z`) } })
   created.payIns.push(payIn.id)
+  if (observed) {
+    await prisma.feeObservation.create({
+      data: {
+        txHash: `qtest-boost-${payIn.id}-${Date.now()}`, payInId: payIn.id, feeType: 'BOOST',
+        recipientMajor: 5, recipientMinor: 77, piconeros: 1_000_000_000n, state: 'DETECTED',
+        detectedAt: new Date(`${DAY}T15:01:00.000Z`)
+      }
+    })
+  }
+  return payIn
+}
+
+test('BOOST completes from an observed BOOST payment inside the day window', async () => {
+  const userId = await mkUser()
+  await seedBoostPayIn(userId, { observed: true })
   const done = await completionsFor(prisma, { userId, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.BOOST } })
   expect(done.BOOST).toBe(true)
+})
+
+test('BOOST does NOT complete from an initiated-but-abandoned boost (no observation)', async () => {
+  const userId = await mkUser()
+  await seedBoostPayIn(userId, { observed: false })
+  const done = await completionsFor(prisma, { userId, day: DAY, draw: { upvote: QUEST.UPVOTE, drawn: QUEST.BOOST } })
+  expect(done.BOOST).toBe(false)
 })
 
 test('TURF completes for any post or comment created in the window', async () => {
