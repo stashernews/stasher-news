@@ -1595,6 +1595,7 @@ model ObservedTip {
   @@index([postId, tipperId, state])
   @@index([postId, state])
   @@index([tipperId, state, detectedAt])
+  @@index([detectedAt, tipperId])
 }
 
 enum TipExclusionReason {
