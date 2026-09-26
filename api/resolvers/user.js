@@ -570,15 +570,20 @@ export default {
       }
 
       // quest complete + flame day bell entries derive from quest completions
-      const [newQuest] = await models.$queryRaw`
-        SELECT EXISTS(
-          SELECT *
-          FROM "QuestCompletion"
-          WHERE "QuestCompletion"."userId" = ${me.id}
-          AND "QuestCompletion"."created_at" > ${lastChecked})`
-      if (newQuest.exists) {
-        foundNotes()
-        return true
+      // — gated by the same noteQuests setting as the notifications list
+      // (api/resolvers/notifications.js), or the bell rings for entries the
+      // dropdown then hides (M5, 2026-09-26 review).
+      if (user.noteQuests) {
+        const [newQuest] = await models.$queryRaw`
+          SELECT EXISTS(
+            SELECT *
+            FROM "QuestCompletion"
+            WHERE "QuestCompletion"."userId" = ${me.id}
+            AND "QuestCompletion"."created_at" > ${lastChecked})`
+        if (newQuest.exists) {
+          foundNotes()
+          return true
+        }
       }
 
       // update checkedNotesAt to prevent rechecking same time period
