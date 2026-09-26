@@ -154,6 +154,7 @@ wait_for_model_registration_task () {
           echo "Model task ${task_id} completed without model id" >&2
           exit 1
         fi
+        wait_for_model_doc_ready "$model_id" || exit 1
         echo "$model_id"
         return 0
         ;;
@@ -167,6 +168,28 @@ wait_for_model_registration_task () {
         ;;
     esac
   done
+}
+
+wait_for_model_doc_ready () {
+  local model_id="$1"
+  local attempt
+  local response
+
+  # The register task can report COMPLETED before the final model-doc write
+  # (the one carrying total_chunks) is visible. Deploying in that window
+  # fails with "totalChunks is null", and the deploy-failure handler then
+  # re-persists its stale in-memory copy, permanently breaking the model.
+  # Poll until the doc has settled.
+  for attempt in $(seq 1 60); do
+    response=$(os_api -X GET "${OS_URL}/_plugins/_ml/models/${model_id}?filter_path=total_chunks" 2>/dev/null || true)
+    if echo "$response" | grep -q '"total_chunks"'; then
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "Model doc for ${model_id} never reported total_chunks" >&2
+  return 1
 }
 
 ensure_model () {
@@ -187,9 +210,10 @@ ensure_model () {
   # returns 400. Try a few times, then fall through to registration.
   for attempt in $(seq 1 5); do
     response=$(curl -sS -ku "${OS_USER}:${OS_PASS}" \
-      -X POST "${OS_URL}/_plugins/_ml/models/_search?size=1&filter_path=hits.hits._id" \
+      -X POST "${OS_URL}/_plugins/_ml/models/_search?filter_path=hits.hits._id" \
       -H "Content-Type: application/json" \
       -d "{
+        \"size\": 1,
         \"query\": {
           \"bool\": {
             \"must\": [
@@ -219,9 +243,10 @@ ensure_model () {
   done
 
   response=$(curl -sS -ku "${OS_USER}:${OS_PASS}" \
-    -X POST "${OS_URL}/_plugins/_ml/models/_search?size=1&filter_path=hits.hits._id" \
+    -X POST "${OS_URL}/_plugins/_ml/models/_search?filter_path=hits.hits._id" \
     -H "Content-Type: application/json" \
     -d "{
+      \"size\": 1,
       \"query\": {
         \"bool\": {
           \"must\": [
@@ -261,9 +286,10 @@ ensure_model () {
     task_id="$(json_string "task_id" "$register_body")"
   else
     response=$(curl -sS -ku "${OS_USER}:${OS_PASS}" \
-      -X POST "${OS_URL}/_plugins/_ml/models/_search?size=1&filter_path=hits.hits._id" \
+      -X POST "${OS_URL}/_plugins/_ml/models/_search?filter_path=hits.hits._id" \
       -H "Content-Type: application/json" \
       -d "{
+        \"size\": 1,
         \"query\": {
           \"bool\": {
             \"must\": [
@@ -362,9 +388,10 @@ ensure_sparse_model () {
   # Check if sparse model is already deployed (fast path)
   for attempt in $(seq 1 5); do
     response=$(curl -sS -ku "${OS_USER}:${OS_PASS}" \
-      -X POST "${OS_URL}/_plugins/_ml/models/_search?size=1&filter_path=hits.hits._id" \
+      -X POST "${OS_URL}/_plugins/_ml/models/_search?filter_path=hits.hits._id" \
       -H "Content-Type: application/json" \
       -d "{
+        \"size\": 1,
         \"query\": {
           \"bool\": {
             \"must\": [
@@ -395,9 +422,10 @@ ensure_sparse_model () {
 
   # Not deployed — check if model exists in any state (REGISTERED, DEPLOYING, etc.)
   response=$(curl -sS -ku "${OS_USER}:${OS_PASS}" \
-    -X POST "${OS_URL}/_plugins/_ml/models/_search?size=1&filter_path=hits.hits._id" \
+    -X POST "${OS_URL}/_plugins/_ml/models/_search?filter_path=hits.hits._id" \
     -H "Content-Type: application/json" \
     -d "{
+      \"size\": 1,
       \"query\": {
         \"bool\": {
           \"must\": [
@@ -440,9 +468,10 @@ ensure_sparse_model () {
   else
     # Registration conflict — model may have been created concurrently; look it up
     response=$(curl -sS -ku "${OS_USER}:${OS_PASS}" \
-      -X POST "${OS_URL}/_plugins/_ml/models/_search?size=1&filter_path=hits.hits._id" \
+      -X POST "${OS_URL}/_plugins/_ml/models/_search?filter_path=hits.hits._id" \
       -H "Content-Type: application/json" \
       -d "{
+        \"size\": 1,
         \"query\": {
           \"bool\": {
             \"must\": [
