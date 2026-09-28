@@ -23,6 +23,7 @@ import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
 import BountyActions from './bounty-actions'
 import { useQuoteReply } from './use-quote-reply'
 import { UNKNOWN_LINK_REL, DEFAULT_POSTS_PICONEROS_FILTER } from '@/lib/constants'
+import { moneroWallTeaserFadeClass } from '@/lib/monero-wall'
 import classNames from 'classnames'
 import { CarouselProvider } from './carousel'
 import Embed from './embed'
@@ -168,7 +169,7 @@ function TopLevelItem ({ item, noReply, ...props }) {
 function ItemText ({ item, readerRef }) {
   return item.searchText
     ? <SearchText text={item.searchText} />
-    : <Text itemId={item.id} state={item.lexicalState} html={item.html} topLevel rel={item.rel ?? UNKNOWN_LINK_REL} imgproxyUrls={item.imgproxyUrls} readerRef={readerRef} />
+    : <Text className={moneroWallTeaserFadeClass(item)} itemId={item.id} state={item.lexicalState} html={item.html} topLevel rel={item.rel ?? UNKNOWN_LINK_REL} imgproxyUrls={item.imgproxyUrls} readerRef={readerRef} />
 }
 
 export default function ItemFull ({ item, fetchMoreComments, bio, rank, ...props }) {

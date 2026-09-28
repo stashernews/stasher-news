@@ -91,6 +91,17 @@
   background: linear-gradient(rgba(255, 255, 255, 0), var(--bs-body-bg) 200%);
 }
 
+// Locked-viewer teaser (monerowall): the visible tail fades out so the hidden
+// remainder reads as "it continues" rather than ending at the wall panel. A
+// mask (not an overlay) so it works in both themes and fades embedded media
+// along with the text. ~4em ≈ the last three lines at the text's line-height,
+// capped at half the teaser so a short teaser keeps a readable solid head
+// instead of fading out entirely.
+.sn-text--wall-faded {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - min(4em, 50%)), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - min(4em, 50%)), transparent 100%);
+}
+
 .sn-text__show-full {
   position: absolute;
   bottom: 0;
