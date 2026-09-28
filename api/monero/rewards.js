@@ -20,7 +20,8 @@ import { moneroRewardsWalletBalancePiconeros } from '@/lib/metrics'
 //   - a hard createTx error marks the batch FAILED, but the funds stay in the
 //     wallet (no loss of principal); a CRITICAL alert + manual reconciliation
 //     re-enters them into a future pool (FAILED payouts are counted in
-//     distributedPiconeros, so they do not auto-roll into next week's pool).
+//     distributedPiconeros, so they do not auto-roll into next week's pool);
+//   - a pre-relay "tx not possible" build failure is a retryable SKIP: the whole bucket stays QUEUED (nothing was broadcast — double-pay-safe), the run consolidates, and the next drive re-sends;
 //
 // Daemon = monerod (MONEROD_URL), NOT lws: signing needs real ringCT decoys
 // which the light wallet scanner cannot serve.
@@ -281,7 +282,8 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
   let unpersisted = 0
   let sentPiconeros = 0n
   for (const bucket of plan) {
-    const r = await relayBucketTx(w, models, bucket.accountIndex, bucket.payouts)
+    const r = await relayBucketTx(w, models, bucket.accountIndex, bucket.payouts,
+      { unlockedAtPlan: unlockedByAccount[bucket.accountIndex] })
     sent += r.sent.length
     failed += r.failed
     skipped += r.skipped.length
@@ -384,6 +386,43 @@ async function reconcileUnpersistedPayouts (w, models, queued) {
   return { reconciled, excluded, unpersisted, skipped }
 }
 
+// Incident diagnostics (2026-09-28 handoff, tiers 1+2): when a pre-relay build
+// fails with the "tx not possible" class, capture the wallet's view AT THE
+// FAILURE INSTANT plus the plan-time unlocked snapshot, so the next occurrence
+// can discriminate the four hypotheses: fee-estimate spike (needed = sum +
+// est_fee > unlocked), plan->build state change, wallet/daemon height
+// divergence, balance-vs-spendable output disagreement. Every read is
+// individually guarded — a diagnostic must NEVER break the payout flow — and
+// every BigInt is stringified (pino cannot serialize BigInt). Absent getOutputs
+// reads as null; a throwing or absent method otherwise reports 'read-failed: <msg>'.
+async function dumpBuildFailureState (w, accountIndex, unlockedAtPlan) {
+  const guard = async (fn) => {
+    try {
+      const v = await fn()
+      return v === undefined || v === null ? null : v
+    } catch (err) {
+      return `read-failed: ${String((err && err.message) || err).slice(0, 120)}`
+    }
+  }
+  const unlockedNow = await guard(async () => String(BigInt(await w.getUnlockedBalance(accountIndex))))
+  const totalBalance = await guard(async () => String(BigInt(await w.getBalance(accountIndex))))
+  const walletHeight = await guard(() => w.getHeight())
+  const daemonHeight = await guard(() => daemonClient.getHeight())
+  const unspentOutputs = await guard(async () => {
+    if (typeof w.getOutputs !== 'function') return null
+    const rows = (await w.getOutputs({ accountIndex, isSpent: false })) || []
+    return { count: rows.length, sumPiconeros: String(rows.reduce((acc, o) => acc + BigInt(o.getAmount()), 0n)) }
+  })
+  return {
+    unlockedNow,
+    totalBalance,
+    walletHeight,
+    daemonHeight,
+    unspentOutputs,
+    unlockedAtPlan: unlockedAtPlan === undefined ? null : String(BigInt(unlockedAtPlan))
+  }
+}
+
 // Build + relay a batch tx from ONE account, resolving the Monero tx fee from
 // the wallet's real createTx (which constructs and validates the tx including
 // its fee when relay is false). When the fee pushes a bucket over the
@@ -392,7 +431,7 @@ async function reconcileUnpersistedPayouts (w, models, queued) {
 // the whole bucket (which cost full weekly cycles + a spurious CRITICAL).
 // Returns the split so sendPayouts can tally: a payout is never split across
 // txs — it is sent whole or skipped whole.
-async function relayBucketTx (w, models, accountIndex, payouts) {
+async function relayBucketTx (w, models, accountIndex, payouts, planInfo = {}) {
   if (payouts.length === 0) return { txHash: null, sent: [], skipped: [], failed: 0, unpersisted: 0 }
   const remaining = [...payouts]
   const skipped = []
@@ -407,6 +446,19 @@ async function relayBucketTx (w, models, accountIndex, payouts) {
       })
       break // fits including the fee
     } catch (err) {
+      if (isRetryableTxBuildError(err)) {
+        // Pre-relay build failure: createTx threw, so no tx exists and
+        // provably nothing was broadcast (2026-09-28 incident). Retryable
+        // skip — rows stay QUEUED, the skipped>0 summary makes the run end
+        // FAILED-resumable, consolidation below sweeps the account for a
+        // fresh output set, and the next drive re-sends. NO drop-smallest
+        // loop here: each failed attempt cost ~6.5 min in the incident and
+        // this is not a marginal fee-fit condition.
+        const dump = await dumpBuildFailureState(w, accountIndex, planInfo.unlockedAtPlan)
+        logWarn({ accountIndex, payoutCount: remaining.length, dump, err },
+          'sendPayouts: account batch build failed pre-relay (retryable) — payouts stay QUEUED, resumable')
+        return { txHash: null, sent: [], skipped: skipped.concat(remaining), failed: 0, unpersisted: 0 }
+      }
       if (!isBalanceError(err)) {
         // Hard error: funds stayed in the wallet.
         logError({ accountIndex, payoutCount: remaining.length, err }, 'sendPayouts: account batch FAILED (funds stayed in wallet)')
@@ -589,7 +641,7 @@ async function relayAccountSweep (w, accountIndex, address, amount) {
     try {
       tx = await w.createTx({ accountIndex, address, amount: tryAmount, relay: false })
     } catch (err) {
-      if (isBalanceError(err) || isRetryableSweepBuildError(err)) continue // fee/outputs margin — decrement and rebuild
+      if (isBalanceError(err) || isRetryableTxBuildError(err)) continue // fee/outputs margin — decrement and rebuild
       throw err
     }
     const txHash = toTxHash(tx.getHash())
@@ -747,12 +799,14 @@ function isBalanceError (err) {
   return /not enough.*(money|unlocked)|failed to get unlocked balance|insufficient.*(balance|fund)/.test(msg)
 }
 
-// Sweep-only retryable check: wallet2's create_transactions_2 throws "tx not
-// possible" when it runs out of usable (unlocked) outputs to gather the
-// amount + final fee — a spendable-funds condition, not a hard config error.
-// Kept separate from isBalanceError so payout hard-error semantics are
-// unchanged.
-function isRetryableSweepBuildError (err) {
+// Retryable pre-relay build check: wallet2's create_transactions_2 throws
+// "tx not possible" when it cannot gather usable (unlocked) outputs for the
+// amount + estimated fee — a spendable-funds/transient condition, not a hard
+// config error (observed 2026-09-14 ops sweep and 2026-09-28 payout batch,
+// both during network block-time droughts). Used by BOTH the ops-sweep build
+// path and the payout bucket path: a pre-relay createTx throw means no tx
+// exists, so nothing was broadcast and a retry is double-pay-safe.
+function isRetryableTxBuildError (err) {
   const msg = String((err && err.message) || err).toLowerCase()
   return /tx not possible|transaction not possible/.test(msg)
 }

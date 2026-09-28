@@ -31,6 +31,7 @@ import { moneroDistributionStatus } from '@/lib/metrics'
 //                            weekly run (pgboss.schedule cron, Monday 00:00 UTC).
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
 
 // Scheduling-jitter grace for the weekly idempotency guard. Consecutive runs
 // land L ms after Monday 00:00 UTC (pg-boss pickup latency, observed ~4s);
@@ -56,6 +57,7 @@ export async function runDistributionOnce ({ models, sendPayouts: injectSendPayo
     // R02: recover distributions stranded in SENDING by a dead process BEFORE
     // this run's own work, so their QUEUED payouts are re-driven.
     await recoverStaleDistributions(db, { sendPayouts })
+    await warnUndeliveredDistributions(db)
     const distribution = await distribute(db)
     await finalizeDistribution(db, distribution, sendPayouts)
     return await db.rewardDistribution.findUnique({
@@ -411,7 +413,8 @@ function warnPayoutsStranded (distribution, payouts) {
   const ids = failedPayouts.map(p => p.id).join(', ')
   logError({ distributionId: distribution.id, failedCount: failedPayouts.length, strandedPiconeros: strandedPiconeros.toString() }, 'rewardsDistributor: CRITICAL — distribution completing with FAILED payouts (funds stranded)')
   alert('critical', 'rewards distribution completed with FAILED payouts — manual re-entry required',
-    `distribution ${distribution.id} flips COMPLETE with ${failedPayouts.length} FAILED payout(s) [${ids}], ${strandedPiconeros.toString()} piconeros stranded (counted as distributed, excluded from rollover). Re-enter them into a future pool via manual reconciliation.`,
+    `distribution ${distribution.id} flips COMPLETE with ${failedPayouts.length} FAILED payout(s) [${ids}], ${strandedPiconeros.toString()} piconeros stranded (counted as distributed, excluded from rollover). ` +
+    `Recover them with the requeue tool: sndev monero requeue ${distribution.id} --confirm (dev) or the loader-wrapped scripts/requeue-failed-payouts.js (VPS).`,
     { dedupeKey: `dist-${distribution.id}-complete-with-failures` })
 }
 
@@ -511,6 +514,137 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
       UPDATE "RewardDistribution" SET status = 'FAILED'
       WHERE id = ${distribution.id} AND status = 'SENDING' RETURNING id`
     moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
+  }
+}
+
+// Recovery re-entry for stranded payouts (2026-09-28 incident): a terminal
+// FAILED payout with NULL txHash provably never moved money (FAILED is only
+// written in relayBucketTx's createTx catch, where no tx exists), but nothing
+// re-drives it — finalizeDistribution resumes only QUEUED rows and the weekly
+// idempotency window stops returning the distribution after ~7d. This is the
+// "manual re-entry" tool the R03 alert always referenced.
+//
+// Modes:
+//   dry-run (default): report candidates, mutate nothing.
+//   confirm: flip {FAILED, txHash IS NULL} -> QUEUED inside ONE Serializable
+//     transaction that also re-reads status (refuse SENDING — a live sender
+//     may be mid-send; the tx isolation closes the read-then-write race) and
+//     un-masks COMPLETE -> FAILED (clearing completedAt) so finalize's CAS
+//     accepts it. FAILED rows WITH a txHash are refused — they may have been
+//     relayed; wallet-history reconciliation owns them (requeue = double pay).
+//     Earn rows are NEVER touched: they were written at distribution time and
+//     a recovery must not duplicate them.
+//   drive (confirm + send, when >=1 row actually flipped OR the distribution
+//     still holds QUEUED payouts — the classification-change stranding shape):
+//     re-fetch and call finalizeDistribution with the real signer — the exact cron path
+//     (CAS-protected against concurrent senders, wallet-history
+//     reconciliation, idempotent on QUEUED). NEVER drive a no-op: finalize's
+//     !hasQueued branch would mask the distribution COMPLETE over stranded
+//     rows. A drive crash mid-send is self-healing: the R02 watchdog fails
+//     the SENDING row after 24h and the next run re-drives.
+export async function requeueFailedPayouts (models, distributionId, { confirm = false, send = true, sendPayouts: injectSendPayouts } = {}) {
+  const distribution = await models.rewardDistribution.findUnique({
+    where: { id: distributionId },
+    include: { payouts: true }
+  })
+  if (!distribution) throw new Error(`distribution ${distributionId} not found`)
+
+  const candidates = distribution.payouts.filter(p => p.state === 'FAILED' && p.txHash === null)
+  const refusedWithTxHash = distribution.payouts.filter(p => p.state === 'FAILED' && p.txHash !== null).map(p => p.id)
+  const queuedCount = distribution.payouts.filter(p => p.state === 'QUEUED').length
+  const candidatePiconeros = candidates.reduce((acc, p) => acc + p.piconeros, 0n)
+  const summary = {
+    distributionId,
+    status: distribution.status,
+    candidates: candidates.map(p => ({ id: p.id, curatorId: p.curatorId, recipientAddress: p.recipientAddress, piconeros: p.piconeros })),
+    candidatePiconeros,
+    refusedWithTxHash,
+    queuedCount,
+    requeued: 0,
+    drove: false,
+    finalStatus: distribution.status
+  }
+  // Proceed when there are FAILED rows to requeue OR QUEUED payout(s) to deliver (the classification-change stranding shape): confirm-mode drives finalize for QUEUED rows — safe because finalize's masking !hasQueued branch cannot fire while QUEUED rows exist, its CAS loses to any live sender, and wallet-history reconciliation covers secretly-relayed rows.
+  if (!confirm || (candidates.length === 0 && queuedCount === 0)) return summary
+
+  const txResult = await models.$transaction(async (tx) => {
+    const fresh = await tx.rewardDistribution.findUnique({ where: { id: distributionId }, select: { status: true } })
+    if (!fresh || fresh.status === 'SENDING') {
+      throw new Error(`distribution ${distributionId} is ${fresh ? fresh.status : 'missing'} — refusing to requeue (a sender may be live; retry after it settles)`)
+    }
+    // The WHERE re-filters at write time: anything that changed since the
+    // summary read (row SENT, hash appeared) is excluded atomically.
+    const res = await tx.rewardPayout.updateMany({
+      where: { distributionId, state: 'FAILED', txHash: null },
+      data: { state: 'QUEUED' }
+    })
+    let unmasked = false
+    if ((res.count > 0 || queuedCount > 0) && fresh.status === 'COMPLETE') {
+      // Un-mask: a prior !hasQueued finalize flipped it COMPLETE over stranded
+      // rows; finalizeDistribution's CAS only accepts {PENDING, FAILED}.
+      await tx.$queryRaw`
+        UPDATE "RewardDistribution" SET status = 'FAILED', "completedAt" = NULL
+        WHERE id = ${distributionId} AND status = 'COMPLETE' RETURNING id`
+      unmasked = true
+    }
+    return { requeued: res.count, unmasked }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10000 })
+
+  summary.requeued = txResult.requeued
+  if (txResult.unmasked) {
+    summary.status = 'FAILED'
+    summary.finalStatus = 'FAILED'
+  }
+  if (txResult.requeued === 0 && queuedCount === 0) return summary
+  if (txResult.requeued > 0) {
+    logInfo({ distributionId, requeued: txResult.requeued, piconeros: candidatePiconeros.toString() }, 'rewardsDistributor: requeued stranded FAILED payouts (pre-relay, provably unsent)')
+    alert('warn', 'rewards payouts requeued for delivery',
+      `operator requeued ${txResult.requeued} stranded FAILED payout(s) of distribution ${distributionId} (${candidatePiconeros.toString()} piconeros) to QUEUED${send ? '; delivery is being driven now' : ' (ledger-only, --no-send)'}.`,
+      { dedupeKey: `dist-${distributionId}-requeued` })
+  }
+
+  if (send) {
+    const signer = injectSendPayouts || defaultSendPayouts
+    const fresh = await models.rewardDistribution.findUnique({ where: { id: distributionId }, include: { payouts: true } })
+    await finalizeDistribution(models, fresh, signer)
+    summary.drove = true
+    const after = await models.rewardDistribution.findUnique({ where: { id: distributionId } })
+    summary.finalStatus = after?.status ?? null
+  }
+  return summary
+}
+
+// Safety net (2026-09-28 incident): payouts strand invisibly once their
+// distribution leaves the weekly idempotency window (~7d) — QUEUED rows are
+// never re-driven (no cron path owns out-of-window distributions) and
+// terminal FAILED rows are alerted once at failure, then never again. This
+// read-only check runs at the top of every distribution run and nags until a
+// human recovers them with requeueFailedPayouts. Best-effort by design: a
+// check failure must never break the distribution itself. 8d = the 7d window
+// + 1h grace + slack, so nothing the current run's idempotency guard still
+// owns is flagged. Dev caveat: real-DB test residue can trigger this until
+// ./scripts/clean-rewards-test-residue.sh runs.
+export async function warnUndeliveredDistributions (models) {
+  try {
+    const cutoff = new Date(Date.now() - (WEEK_MS + DAY_MS))
+    const stranded = await models.rewardDistribution.findMany({
+      where: {
+        periodEnd: { lt: cutoff },
+        payouts: { some: { OR: [{ state: 'QUEUED' }, { state: 'FAILED', txHash: null }] } }
+      },
+      include: { payouts: true },
+      orderBy: { id: 'asc' }
+    })
+    for (const dist of stranded) {
+      const rows = dist.payouts.filter(p => p.state === 'QUEUED' || (p.state === 'FAILED' && p.txHash === null))
+      const piconeros = rows.reduce((acc, p) => acc + p.piconeros, 0n)
+      logError({ distributionId: dist.id, undeliveredCount: rows.length, piconeros: piconeros.toString() }, 'rewardsDistributor: CRITICAL — undelivered payouts stranded outside the weekly window')
+      alert('critical', 'rewards payouts undelivered (stranded)',
+        `distribution ${dist.id} (period ${dist.periodStart?.toISOString()} -> ${dist.periodEnd?.toISOString()}) holds ${rows.length} undelivered payout(s) [${rows.map(p => p.id).join(', ')}], ${piconeros.toString()} piconeros — QUEUED rows are never re-driven automatically and FAILED rows need re-entry. Recover with: sndev monero requeue ${dist.id} --confirm (dev) or the loader-wrapped scripts/requeue-failed-payouts.js (VPS).`,
+        { dedupeKey: `dist-${dist.id}-undelivered` })
+    }
+  } catch (err) {
+    logError({ err }, 'rewardsDistributor: undelivered-payouts check failed (non-fatal)')
   }
 }
 

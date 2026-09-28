@@ -23,7 +23,7 @@
 // worker/opsSweep.js owns it as a delayed one-shot enqueued by the handler.
 
 import { PrismaClient } from '@prisma/client'
-import { runDistributionOnce, finalizeDistribution, recoverStaleDistributions } from '@/worker/rewardsDistributor'
+import { runDistributionOnce, finalizeDistribution, recoverStaleDistributions, requeueFailedPayouts, warnUndeliveredDistributions } from '@/worker/rewardsDistributor'
 import { applyTipDetected } from '@/api/monero/ranking'
 
 // lib/alert is mocked so operator pages are assertable without a network side
@@ -45,6 +45,42 @@ let addrSeq = 0
 function makeAddress () {
   addrSeq += 1
   return '5' + String(addrSeq).padStart(4, '0') + 'A'.repeat(90)
+}
+
+// Seeds a distribution shaped like the 2026-09-28 incident: one SENT payout,
+// one FAILED payout (optionally with a txHash — the refused double-pay class),
+// and the Earn rows that were written at distribution time. periodEnd is 39
+// days ago — outside the weekly idempotency window. Tracks rows in `created`
+// for afterAll teardown (Earns by distributionId first — existing order).
+async function seedStrandedDistribution ({ status = 'FAILED', failedTxHash = null } = {}) {
+  const curatorId = await createUser()
+  const dist = await prisma.rewardDistribution.create({
+    data: {
+      periodStart: new Date(Date.now() - 40 * DAY),
+      periodEnd: new Date(Date.now() - 39 * DAY),
+      poolPiconeros: 3_000_000_000n,
+      distributedPiconeros: 3_000_000_000n,
+      rolledOverPiconeros: 0n,
+      payoutCount: 2,
+      status,
+      ...(status === 'SENDING' ? { startedAt: new Date(Date.now() - 5 * 60 * 1000) } : {}),
+      ...(status === 'COMPLETE' ? { completedAt: new Date(Date.now() - DAY) } : {})
+    }
+  })
+  created.distributions.push(dist.id)
+  const sent = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'SENT', txHash: 'ab'.repeat(32) }
+  })
+  const failed = await prisma.rewardPayout.create({
+    data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 2_000_000_000n, state: 'FAILED', ...(failedTxHash ? { txHash: failedTxHash } : {}) }
+  })
+  await prisma.earn.createMany({
+    data: [
+      { userId: curatorId, piconeros: 1_000_000_000n, type: 'TIP_COMMENT', rank: 1, typeId: null, distributionId: dist.id, createdAt: new Date(Date.now() - 39 * DAY) },
+      { userId: curatorId, piconeros: 2_000_000_000n, type: 'TIP_POST', rank: 2, typeId: null, distributionId: dist.id, createdAt: new Date(Date.now() - 39 * DAY) }
+    ]
+  })
+  return { dist, sent, failed, curatorId }
 }
 
 const DAY = 24 * 60 * 60 * 1000
@@ -1289,4 +1325,221 @@ test('a run later in the same week still skips when a distribution ended mid-wee
   const again = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
   expect(again.id).toBe(earlierThisWeek.id) // found -> returned verbatim, no new row
   expect(again.status).toBe('COMPLETE') // finalizeDistribution early-returns on COMPLETE
+})
+
+describe('requeueFailedPayouts (2026-09-28 recovery tool)', () => {
+  test('dry-run reports candidates and mutates nothing', async () => {
+    const { dist, failed } = await seedStrandedDistribution()
+    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: false })
+    expect(summary.candidates.map(c => c.id)).toEqual([failed.id])
+    expect(summary.candidatePiconeros).toBe(2_000_000_000n)
+    expect(summary.requeued).toBe(0)
+    expect(summary.drove).toBe(false)
+    expect((await prisma.rewardPayout.findUnique({ where: { id: failed.id } })).state).toBe('FAILED')
+    expect((await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })).status).toBe('FAILED')
+  })
+
+  test('confirm requeues only FAILED rows with NULL txHash; FAILED-with-hash and SENT rows are untouched', async () => {
+    const { dist, failed, sent } = await seedStrandedDistribution({ failedTxHash: 'cd'.repeat(32) })
+    const stranded = await prisma.rewardPayout.create({
+      data: { distributionId: dist.id, curatorId: await createUser(), recipientAddress: makeAddress(), piconeros: 500_000_000n, state: 'FAILED' }
+    })
+    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: true, send: false })
+    expect(summary.refusedWithTxHash).toEqual([failed.id])
+    expect(summary.requeued).toBe(1)
+    expect((await prisma.rewardPayout.findUnique({ where: { id: stranded.id } })).state).toBe('QUEUED')
+    expect((await prisma.rewardPayout.findUnique({ where: { id: failed.id } })).state).toBe('FAILED') // hash present: reconciliation path
+    expect((await prisma.rewardPayout.findUnique({ where: { id: sent.id } })).state).toBe('SENT')
+  })
+
+  test('refuses when the distribution is SENDING (a sender may be live) and flips nothing', async () => {
+    const { dist, failed } = await seedStrandedDistribution({ status: 'SENDING' })
+    await expect(requeueFailedPayouts(prisma, dist.id, { confirm: true })).rejects.toThrow(/SENDING/)
+    expect((await prisma.rewardPayout.findUnique({ where: { id: failed.id } })).state).toBe('FAILED')
+  })
+
+  test('masked-COMPLETE distribution recovers end-to-end: un-masked, requeued, driven once, payout SENT, Earn untouched', async () => {
+    const { dist, failed } = await seedStrandedDistribution({ status: 'COMPLETE' })
+    let driveCount = 0
+    const summary = await requeueFailedPayouts(prisma, dist.id, {
+      confirm: true,
+      sendPayouts: async (rows, { models }) => {
+        driveCount += 1
+        for (const p of rows) {
+          if (p.state === 'QUEUED') {
+            await models.rewardPayout.update({ where: { id: p.id }, data: { state: 'SENT', txHash: 'ef'.repeat(32) } })
+          }
+        }
+        return { sent: rows.filter(p => p.state === 'QUEUED').length, failed: 0, skipped: 0, unpersisted: 0 }
+      }
+    })
+    expect(summary.requeued).toBe(1)
+    expect(summary.drove).toBe(true)
+    expect(summary.finalStatus).toBe('COMPLETE')
+    expect(driveCount).toBe(1) // delivered exactly once
+    expect((await prisma.rewardPayout.findUnique({ where: { id: failed.id } })).state).toBe('SENT')
+    expect(await prisma.earn.count({ where: { distributionId: dist.id } })).toBe(2) // Earn rows never touched
+  })
+
+  test('a second run after delivery is a no-op and never drives finalize', async () => {
+    const { dist } = await seedStrandedDistribution()
+    const signer = jest.fn(async (rows, { models }) => {
+      for (const p of rows) {
+        if (p.state === 'QUEUED') {
+          await models.rewardPayout.update({ where: { id: p.id }, data: { state: 'SENT', txHash: 'ef'.repeat(32) } })
+        }
+      }
+      return { sent: 1, failed: 0, skipped: 0, unpersisted: 0 }
+    })
+    await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer })
+    const second = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer })
+    expect(second.requeued).toBe(0)
+    expect(second.drove).toBe(false)
+    expect(signer).toHaveBeenCalledTimes(1)
+  })
+
+  test('pure-QUEUED stranding (classification-change shape): confirm drives delivery with no FAILED rows to requeue', async () => {
+    const curatorId = await createUser()
+    const dist = await prisma.rewardDistribution.create({
+      data: {
+        periodStart: new Date(Date.now() - 40 * DAY),
+        periodEnd: new Date(Date.now() - 39 * DAY),
+        poolPiconeros: 1_000_000_000n,
+        distributedPiconeros: 1_000_000_000n,
+        rolledOverPiconeros: 0n,
+        payoutCount: 1,
+        status: 'FAILED'
+      }
+    })
+    created.distributions.push(dist.id)
+    const queued = await prisma.rewardPayout.create({
+      data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+    })
+    const signer = jest.fn(async (rows, { models }) => {
+      for (const p of rows) {
+        if (p.state === 'QUEUED') {
+          await models.rewardPayout.update({ where: { id: p.id }, data: { state: 'SENT', txHash: 'ef'.repeat(32) } })
+        }
+      }
+      return { sent: rows.filter(p => p.state === 'QUEUED').length, failed: 0, skipped: 0, unpersisted: 0 }
+    })
+    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer })
+    expect(summary.candidates).toEqual([])
+    expect(summary.queuedCount).toBe(1)
+    expect(summary.requeued).toBe(0)
+    expect(summary.drove).toBe(true)
+    expect(summary.finalStatus).toBe('COMPLETE')
+    expect((await prisma.rewardPayout.findUnique({ where: { id: queued.id } })).state).toBe('SENT')
+    const second = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer })
+    expect(second.drove).toBe(false) // all SENT: no-op, never re-drives
+  })
+
+  test('masked-COMPLETE + QUEUED-only distribution: un-masks and drives (the nag bug-state shape)', async () => {
+    const curatorId = await createUser()
+    const dist = await prisma.rewardDistribution.create({
+      data: {
+        periodStart: new Date(Date.now() - 40 * DAY),
+        periodEnd: new Date(Date.now() - 39 * DAY),
+        poolPiconeros: 1_000_000_000n,
+        distributedPiconeros: 1_000_000_000n,
+        rolledOverPiconeros: 0n,
+        payoutCount: 1,
+        status: 'COMPLETE',
+        completedAt: new Date(Date.now() - DAY)
+      }
+    })
+    created.distributions.push(dist.id)
+    const queued = await prisma.rewardPayout.create({
+      data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+    })
+    await prisma.earn.create({ data: { userId: curatorId, piconeros: 1_000_000_000n, type: 'TIP_POST', rank: 1, typeId: null, distributionId: dist.id, createdAt: new Date(Date.now() - 39 * DAY) } })
+    const summary = await requeueFailedPayouts(prisma, dist.id, {
+      confirm: true,
+      sendPayouts: async (rows, { models }) => {
+        for (const p of rows) {
+          if (p.state === 'QUEUED') {
+            await models.rewardPayout.update({ where: { id: p.id }, data: { state: 'SENT', txHash: 'ef'.repeat(32) } })
+          }
+        }
+        return { sent: 1, failed: 0, skipped: 0, unpersisted: 0 }
+      }
+    })
+    expect(summary.drove).toBe(true)
+    expect(summary.finalStatus).toBe('COMPLETE')
+    expect((await prisma.rewardPayout.findUnique({ where: { id: queued.id } })).state).toBe('SENT')
+    expect(await prisma.earn.count({ where: { distributionId: dist.id } })).toBe(1)
+  })
+})
+
+describe('warnUndeliveredDistributions (stranding visibility net)', () => {
+  test('flags an out-of-window distribution holding FAILED-null or QUEUED payouts with the requeue runbook', async () => {
+    const { dist } = await seedStrandedDistribution() // 39d old, FAILED + null txHash
+    const curatorId = await createUser()
+    const queuedDist = await prisma.rewardDistribution.create({
+      data: {
+        periodStart: new Date(Date.now() - 40 * DAY),
+        periodEnd: new Date(Date.now() - 39 * DAY),
+        poolPiconeros: 1_000_000_000n,
+        distributedPiconeros: 1_000_000_000n,
+        rolledOverPiconeros: 0n,
+        payoutCount: 1,
+        status: 'FAILED'
+      }
+    })
+    created.distributions.push(queuedDist.id)
+    await prisma.rewardPayout.create({
+      data: { distributionId: queuedDist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+    })
+    alert.mockClear()
+    await warnUndeliveredDistributions(prisma)
+    expect(alert).toHaveBeenCalledWith('critical', 'rewards payouts undelivered (stranded)',
+      expect.stringContaining(`distribution ${dist.id}`), expect.anything())
+    expect(alert).toHaveBeenCalledWith('critical', 'rewards payouts undelivered (stranded)',
+      expect.stringContaining(`distribution ${queuedDist.id}`), expect.anything())
+    expect(alert).toHaveBeenCalledWith('critical', 'rewards payouts undelivered (stranded)',
+      expect.stringContaining('requeue'), expect.anything())
+  })
+
+  test('does not flag in-window or fully-delivered distributions', async () => {
+    const curatorId = await createUser()
+    // in-window: periodEnd is NOW — the current run's idempotency window owns it
+    const recent = await prisma.rewardDistribution.create({
+      data: {
+        periodStart: new Date(Date.now() - 2 * DAY),
+        periodEnd: new Date(),
+        poolPiconeros: 1_000_000_000n,
+        distributedPiconeros: 1_000_000_000n,
+        rolledOverPiconeros: 0n,
+        payoutCount: 1,
+        status: 'FAILED'
+      }
+    })
+    created.distributions.push(recent.id)
+    await prisma.rewardPayout.create({
+      data: { distributionId: recent.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+    })
+    // fully delivered: old but every payout SENT
+    const done = await prisma.rewardDistribution.create({
+      data: {
+        periodStart: new Date(Date.now() - 40 * DAY),
+        periodEnd: new Date(Date.now() - 39 * DAY),
+        poolPiconeros: 1_000_000_000n,
+        distributedPiconeros: 1_000_000_000n,
+        rolledOverPiconeros: 0n,
+        payoutCount: 1,
+        status: 'COMPLETE',
+        completedAt: new Date(Date.now() - 39 * DAY)
+      }
+    })
+    created.distributions.push(done.id)
+    await prisma.rewardPayout.create({
+      data: { distributionId: done.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'SENT', txHash: 'ab'.repeat(32) }
+    })
+    alert.mockClear()
+    await warnUndeliveredDistributions(prisma)
+    expect(alert).not.toHaveBeenCalledWith('critical', 'rewards payouts undelivered (stranded)',
+      expect.stringContaining(`distribution ${recent.id}`), expect.anything())
+    expect(alert).not.toHaveBeenCalledWith('critical', 'rewards payouts undelivered (stranded)',
+      expect.stringContaining(`distribution ${done.id}`), expect.anything())
+  })
 })

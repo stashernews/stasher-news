@@ -25,6 +25,13 @@ jest.mock('../../../lib/logger', () => ({
   logWarn: jest.fn()
 }))
 
+// The build-failure state dump reads the daemon height; mock the client so
+// unit tests never touch the network (the dump guards every read, but a real
+// HTTP attempt could hang the suite).
+jest.mock('../../../api/monero/daemonClient', () => ({
+  daemonClient: { getHeight: jest.fn().mockResolvedValue(2345) }
+}))
+
 // Build a QUEUED RewardPayout-shaped row (BigInt piconeros, like the schema).
 let idSeq = 1000
 function makePayout (overrides = {}) {
@@ -190,6 +197,71 @@ test('treats a not-enough-money createTx error as a SKIP for the whole batch', a
   const p = makePayout({ id: 1, recipientAddress: '5LOCKED' })
   const models = makeFakeModels([p])
   const wallet = makeFakeWallet({ throwsOn: { '5LOCKED': new Error('not enough unlocked money') } })
+  const summary = await sendPayouts([p], { models, wallet })
+  expect(summary).toEqual({ sent: 0, failed: 0, skipped: 1, unpersisted: 0 })
+  expect(models.store.get(p.id).state).toBe('QUEUED')
+})
+
+test('treats a "tx not possible" createTx error as a retryable pre-relay SKIP: whole bucket stays QUEUED (2026-09-28 incident)', async () => {
+  const p1 = makePayout({ id: 1 })
+  const p2 = makePayout({ id: 2 })
+  const models = makeFakeModels([p1, p2])
+  const wallet = makeFakeWallet({ throwsOnAccount: { 0: new Error('tx not possible') } })
+  const summary = await sendPayouts([p1, p2], { models, wallet })
+  expect(summary).toEqual({ sent: 0, failed: 0, skipped: 2, unpersisted: 0 })
+  expect(models.store.get(p1.id).state).toBe('QUEUED')
+  expect(models.store.get(p2.id).state).toBe('QUEUED')
+  expect(models.store.get(p1.id).txHash).toBeNull() // provably pre-relay: no tx ever existed
+  expect(models.store.get(p2.id).txHash).toBeNull()
+})
+
+test('a "tx not possible" on one account skips only that bucket; the healthy account still sends, and consolidation self-heals', async () => {
+  const pBig = makePayout({ id: 1, piconeros: 4_000_000_000n }) // packs onto account 0
+  const pSmall = makePayout({ id: 2, piconeros: 1_000_000_000n }) // packs onto account 1
+  const models = makeFakeModels([pBig, pSmall])
+  const wallet = makeFakeWallet({
+    unlockedByAccount: { 0: 5_000_000_000n, 1: 2_000_000_000n },
+    throwsOnAccount: { 0: new Error('tx not possible') }
+  })
+  const summary = await sendPayouts([pBig, pSmall], { models, wallet })
+  expect(summary.sent).toBe(1)
+  expect(summary.skipped).toBe(1)
+  expect(summary.failed).toBe(0)
+  expect(models.store.get(pBig.id).state).toBe('QUEUED') // the failed-account bucket stays QUEUED
+  expect(models.store.get(pSmall.id).state).toBe('SENT') // the healthy account delivered
+  // skipped > 0 triggers the consolidation self-heal (fresh output set for the next run)
+  expect(wallet.sweepCalls.length).toBeGreaterThan(0)
+})
+
+test('a retryable build failure logs the guarded state dump (plan-time vs failure-time unlocked, heights) with stringified BigInts', async () => {
+  const p = makePayout({ id: 1 })
+  const models = makeFakeModels([p])
+  const wallet = makeFakeWallet({
+    unlockedByAccount: { 0: 3_000_000_000n },
+    throwsOnAccount: { 0: new Error('tx not possible') }
+  })
+  wallet.getHeight = async () => 1234
+  await sendPayouts([p], { models, wallet })
+  expect(logWarn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      accountIndex: 0,
+      payoutCount: 1,
+      dump: expect.objectContaining({
+        unlockedAtPlan: '3000000000',
+        unlockedNow: '3000000000',
+        walletHeight: 1234,
+        daemonHeight: 2345
+      })
+    }),
+    expect.stringContaining('retryable'))
+})
+
+test('the state dump never breaks the send flow when wallet diagnostics are absent or throw', async () => {
+  const p = makePayout({ id: 1 })
+  const models = makeFakeModels([p])
+  const wallet = makeFakeWallet({ throwsOnAccount: { 0: new Error('transaction not possible') } })
+  wallet.getHeight = () => { throw new Error('height unavailable') } // hostile diagnostics
+  // note: getBalance / getOutputs are absent from the fake wallet entirely
   const summary = await sendPayouts([p], { models, wallet })
   expect(summary).toEqual({ sent: 0, failed: 0, skipped: 1, unpersisted: 0 })
   expect(models.store.get(p.id).state).toBe('QUEUED')
