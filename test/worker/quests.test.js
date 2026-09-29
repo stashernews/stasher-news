@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import { sweepQuestCompletions } from '@/worker/quests'
 import { resolveDraw } from '@/api/quests/draw'
 import { notifyFlameAdvanced, notifyQuestCompleted } from '@/lib/webPush'
-import { drawFor, utcDay, QUEST } from '@/lib/quests'
+import { BOOST_QUEST_LAST_DAY, drawFor, utcDay, QUEST } from '@/lib/quests'
 
 jest.mock('../../lib/webPush', () => ({
   notifyQuestCompleted: jest.fn(() => Promise.resolve()),
@@ -12,6 +12,18 @@ jest.mock('../../lib/webPush', () => ({
 
 const prisma = new PrismaClient()
 const created = { users: [], items: [], accounts: [], tips: [] }
+
+// BOOST days only exist in the pre-cutover era (lib/quests.js day-keyed pool),
+// so scan backward from the last BOOST day: these fixtures keep finding one
+// forever, where a forward scan from today would run dry past the cutover.
+function lastBoostDayFor (userId) {
+  const last = new Date(`${BOOST_QUEST_LAST_DAY}T00:00:00Z`)
+  for (let i = 0; i < 30; i++) {
+    const d = utcDay(new Date(last.getTime() - i * 86_400_000))
+    if (drawFor(userId, d).drawn === QUEST.BOOST) return d
+  }
+  return null
+}
 
 async function mkUser () {
   const [row] = await prisma.$queryRaw`INSERT INTO users DEFAULT VALUES RETURNING id::int AS id`
@@ -104,11 +116,7 @@ test('a run\'s first day banks the day 1 rung plus both quest credits', async ()
   // No streak rows and no prior completions: today is the run's first day, so
   // no active FLAME row exists until the sweep's own advance creates it.
   // Pick a day whose drawn slot is BOOST so both quests are tip/payIn-driven.
-  let day = null
-  for (let i = 0; i < 30 && !day; i++) {
-    const d = utcDay(new Date(Date.now() + i * 86_400_000))
-    if (drawFor(userId, d).drawn === QUEST.BOOST) day = d
-  }
+  const day = lastBoostDayFor(userId)
   expect(day).not.toBeNull()
   const now = new Date(`${day}T12:00:00.000Z`)
   const account = await prisma.moneroAccount.create({ data: { ownerUserId: null, address: `qsweepd${userId}${Date.now()}`.slice(0, 95), label: 'q', network: 'STAGENET', status: 'ACTIVE' } })
@@ -147,11 +155,7 @@ test('recording a completion banks one reply credit, once', async () => {
   // defers, so every credit below comes from the per-quest banking.
   await prisma.streak.create({ data: { userId, type: 'FLAME', startedAt: new Date(Date.now() - 86_400_000) } })
   // Pick a day whose drawn slot is BOOST so both quests are tip/payIn-driven.
-  let day = null
-  for (let i = 0; i < 30 && !day; i++) {
-    const d = utcDay(new Date(Date.now() + i * 86_400_000))
-    if (drawFor(userId, d).drawn === QUEST.BOOST) day = d
-  }
+  const day = lastBoostDayFor(userId)
   expect(day).not.toBeNull()
   const now = new Date(`${day}T12:00:00.000Z`)
   const account = await prisma.moneroAccount.create({ data: { ownerUserId: null, address: `qsweepc${userId}${Date.now()}`.slice(0, 95), label: 'q', network: 'STAGENET', status: 'ACTIVE' } })
@@ -227,11 +231,7 @@ test('rev 4: a double reward fills to the banked cap and stops', async () => {
 // OBSERVATION instead.
 test('a boost observed after its initiation left the lookback window still completes', async () => {
   const userId = await mkUser()
-  let day = null
-  for (let i = 0; i < 30 && !day; i++) {
-    const d = utcDay(new Date(Date.now() + i * 86_400_000))
-    if (drawFor(userId, d).drawn === QUEST.BOOST) day = d
-  }
+  const day = lastBoostDayFor(userId)
   expect(day).not.toBeNull()
   const now = new Date(`${day}T12:00:00.000Z`)
   // Initiated 20 minutes ago (outside the lookback), observed 2 minutes ago:
@@ -249,11 +249,7 @@ test('a boost observed after its initiation left the lookback window still compl
 // straddle days no longer include it must still record it.
 test('a boost initiated before midnight and observed after still completes for the initiation day', async () => {
   const userId = await mkUser()
-  let day = null
-  for (let i = 1; i <= 31 && !day; i++) {
-    const d = utcDay(new Date(Date.now() - i * 86_400_000))
-    if (drawFor(userId, d).drawn === QUEST.BOOST) day = d
-  }
+  const day = lastBoostDayFor(userId)
   expect(day).not.toBeNull()
   const initiatedAt = new Date(`${day}T23:40:00.000Z`)
   const tick = new Date(initiatedAt.getTime() + 28 * 60 * 1000) // 00:08 next day: straddle days are [day, next]

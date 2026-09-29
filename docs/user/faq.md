@@ -138,7 +138,7 @@ Badges next to a stasher's name signal activity:
 
 ### What are daily ops?
 
-Two quests are drawn every day at 00:00 UTC: the first is always "send an upvote" (the upvote arrow is a tip), and the second is one of: send a boost, be the first responder to a post with no replies yet, or post or comment anywhere. Upvote and boost bank one free reply credit each; first responder and post-or-comment bank two, because completing those spends a reply or post of your own.
+Two quests are drawn every day at 00:00 UTC: the first is always "send an upvote" (the upvote arrow is a tip), and the second is one of: be the first responder to a post with no replies yet, or post or comment anywhere. Upvote banks one free reply credit; first responder and post-or-comment bank two, because completing those spends a reply or post of your own.
 
 Clearing both quests keeps your flame alive. The flame runs in 7-day cycles, and every day you keep your flame alive earns perks for your account. Miss a day and the run ends, dropping you back to day 1, unless the golden flame shield is armed: the shield absorbs one missed day, your flame holds on as a regular flame, and the shield is gone until it arms again on a future cycle's day 4.
 

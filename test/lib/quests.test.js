@@ -1,5 +1,17 @@
 /* eslint-env jest */
-import { QUEST, QUEST_POOL, utcDay, drawFor, cycleDay, flamePosition, ladderRewardForLevel, questTitle, LADDER_COPY, QUEST_REPLY_REWARDS } from '@/lib/quests'
+import { QUEST, QUEST_POOL, BOOST_QUEST_LAST_DAY, utcDay, drawFor, cycleDay, flamePosition, ladderRewardForLevel, questTitle, LADDER_COPY, QUEST_REPLY_REWARDS } from '@/lib/quests'
+
+// The first day the drawn quest can no longer be BOOST (the cutover itself).
+// Falls back to an ancient date so a missing constant fails assertions below
+// instead of crashing the suite on invalid date math.
+const DAY_AFTER_BOOST = BOOST_QUEST_LAST_DAY
+  ? utcDay(new Date(Date.parse(`${BOOST_QUEST_LAST_DAY}T00:00:00Z`) + 86_400_000))
+  : '1970-01-02'
+
+test('the BOOST cutover day is a calendar day constant', () => {
+  expect(BOOST_QUEST_LAST_DAY).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  expect(DAY_AFTER_BOOST).not.toBe(BOOST_QUEST_LAST_DAY)
+})
 
 test('utcDay is the UTC calendar date', () => {
   expect(utcDay(new Date('2026-09-24T23:59:59Z'))).toBe('2026-09-24')
@@ -7,27 +19,34 @@ test('utcDay is the UTC calendar date', () => {
 })
 
 test('the draw is deterministic and slot 1 is always UPVOTE', () => {
-  const a = drawFor(7, '2026-09-24')
-  const b = drawFor(7, '2026-09-24')
+  const a = drawFor(7, DAY_AFTER_BOOST)
+  const b = drawFor(7, DAY_AFTER_BOOST)
   expect(a).toEqual(b)
   expect(a.upvote).toBe(QUEST.UPVOTE)
   expect(QUEST_POOL).toContain(a.drawn)
   expect(a.drawn).not.toBe(QUEST.UPVOTE)
+  expect(a.drawn).not.toBe(QUEST.BOOST)
 })
 
 test('different users/days vary the drawn quest', () => {
   const draws = new Set()
-  for (let u = 1; u <= 40; u++) draws.add(drawFor(u, '2026-09-24').drawn)
-  expect(draws.size).toBe(QUEST_POOL.length) // all three appear across 40 users
+  for (let u = 1; u <= 40; u++) draws.add(drawFor(u, DAY_AFTER_BOOST).drawn)
+  expect(draws.size).toBe(QUEST_POOL.length) // both remaining quests appear across 40 users
 })
 
-test('the draw is deterministic and slot 1 is always UPVOTE', () => {
-  const a = drawFor(7, '2026-09-24')
-  const b = drawFor(7, '2026-09-24')
-  expect(a).toEqual(b)
-  expect(a.upvote).toBe(QUEST.UPVOTE)
-  expect(QUEST_POOL).toContain(a.drawn)
-  expect(a.drawn).not.toBe(QUEST.UPVOTE)
+test('through the last BOOST day the drawn quest can still be BOOST', () => {
+  // The cutover is day-keyed, so in-flight days keep their draw: a user who
+  // woke up to BOOST on the last BOOST day keeps it all day (deploy-safe).
+  const draws = new Set()
+  for (let u = 1; u <= 60; u++) draws.add(drawFor(u, BOOST_QUEST_LAST_DAY).drawn)
+  expect(draws.has(QUEST.BOOST)).toBe(true)
+  expect(draws.size).toBe(3)
+})
+
+test('after the last BOOST day the drawn quest is never BOOST', () => {
+  for (let u = 1; u <= 60; u++) {
+    expect(drawFor(u, DAY_AFTER_BOOST).drawn).not.toBe(QUEST.BOOST)
+  }
 })
 
 test('cycleDay wraps 1..7 and is null without a streak', () => {
