@@ -9,6 +9,7 @@
 // spend key; the worker reads it only to extend a pool that has run low.
 
 import moneroTs from 'monero-ts'
+import { resolveSignerNetworkType } from './signerWallet.js'
 import { lwsClient } from './lwsClient.js'
 import {
   REWARDS_POSTING_MAJOR,
@@ -71,7 +72,7 @@ export async function extendFeePool (models, { account, major, targetMinor }) {
   if (!account?.viewKey) throw configError('extendFeePool: account must include its viewKey relation (re-run sndev monero register-rewards-wallet)')
 
   const networkEnv = (process.env.MONERO_NETWORK || 'stagenet').toLowerCase()
-  const net = networkEnv === 'mainnet' ? moneroTs.MoneroNetworkType.MAINNET : moneroTs.MoneroNetworkType.STAGENET
+  const net = resolveSignerNetworkType(moneroTs, networkEnv)
   const wallet = await moneroTs.createWalletKeys({
     networkType: net,
     password: 'derive-only',

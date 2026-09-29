@@ -1,6 +1,7 @@
 import { sweepOpsEarmark as defaultSweepOpsEarmark } from '@/api/monero/rewards'
 import { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
+import { signerEnabled, signerDisabledNag } from '@/api/monero/signerWallet'
 
 // opsSweep — one-shot delayed cold-storage sweep of the rewards-wallet ops
 // earmark (2026-09-14 A′ decoupling).
@@ -63,6 +64,7 @@ export async function runOpsSweepOnce ({ models, distributionId, sweepOpsEarmark
 }
 
 export async function opsSweep ({ data, models, sweepOpsEarmark } = {}) {
+  if (!signerEnabled()) return signerDisabledNag('opsSweep')
   // pg-boss delivers the send() payload under job.data (jobWrapper spreads the
   // raw job), so distributionId MUST be read from data — reading it top-level
   // leaves the stale-follow-up guard permanently inert.

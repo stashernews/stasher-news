@@ -5,6 +5,7 @@ import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
 import logger, { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 import { moneroDistributionStatus } from '@/lib/metrics'
+import { signerEnabled, signerDisabledNag } from '@/api/monero/signerWallet'
 
 // rewardsDistributor — StasherNews' weekly rewards-pool distribution job
 // (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
@@ -728,6 +729,7 @@ export async function enqueueOpsSweep (boss, distribution) {
 // also enqueues the ops-earmark sweep as a 1h-delayed one-shot (see
 // enqueueOpsSweep) — the sweep is never part of the payout run itself.
 export async function rewardsDistributor ({ models, boss } = {}) {
+  if (!signerEnabled()) return signerDisabledNag('rewardsDistributor')
   const distribution = await runDistributionOnce({ models })
   await enqueueOpsSweep(boss, distribution)
 }

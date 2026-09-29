@@ -63,6 +63,12 @@ function makeFakeModels (seed = []) {
 let viewkey
 
 beforeEach(() => {
+  // These tests exercise the LEGACY single-key provider shape. A stack may
+  // legitimately export the versioned VIEWKEY_MASTER_KEYS registry instead
+  // (loadFromEnv prefers it), which would override every legacy-var scenario
+  // below — clear the versioned vars so each case tests exactly the env it sets.
+  delete process.env.VIEWKEY_MASTER_KEYS
+  delete process.env.VIEWKEY_MASTER_KEY_CURRENT_VERSION
   process.env.VIEWKEY_MASTER_KEY = VALID_MASTER_B64
   jest.resetModules()
   viewkey = require(MODULE_PATH)

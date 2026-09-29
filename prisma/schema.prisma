@@ -1400,6 +1400,7 @@ enum PayOutType {
 enum Network {
   STAGENET
   MAINNET
+  TESTNET
 }
 
 enum PrivacyMode {

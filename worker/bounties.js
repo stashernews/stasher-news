@@ -3,6 +3,7 @@ import { sendBountyPayments as defaultSendBountyPayments, bountyFeePiconeros, ge
 import { REQUIRED_CONFIRMATIONS, BOUNTY_UNDERPAY_ABANDON_DAYS } from '@/lib/constants'
 import { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
+import { signerEnabled, signerDisabledNag } from '@/api/monero/signerWallet'
 
 // bounties — bounty lifecycle worker (A-13 Phase B). Runs every 60s via the
 // pgboss.schedule cron row `bounties` (cron-owned, retryLimit 0):
@@ -134,6 +135,7 @@ export async function runBountiesOnce ({ models, sendBountyPayments = defaultSen
 }
 
 export async function bounties ({ boss, models }) {
+  if (!signerEnabled()) return signerDisabledNag('bounties')
   // Run errors stay swallowed (and logged above) so a single failed sweep does
   // not abort the job run; recurrence is cron-owned, so the next tick re-runs
   // the sweep regardless (payout dispatch stays retry-free — see below).

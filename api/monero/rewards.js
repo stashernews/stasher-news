@@ -1,4 +1,5 @@
 import { daemonClient } from '@/api/monero/daemonClient'
+import { createSignerWallet } from '@/api/monero/signerWallet'
 import { logInfo, logWarn, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 import { moneroRewardsWalletBalancePiconeros } from '@/lib/metrics'
@@ -109,9 +110,6 @@ async function openRewardsWallet (models) {
     throw new Error('rewards signer: PLATFORM_REWARDS_ADDRESS, PLATFORM_REWARDS_SPEND_KEY, and PLATFORM_REWARDS_VIEW_KEY must be configured')
   }
 
-  const moneroTs = await import('monero-ts')
-  const api = moneroTs.default || moneroTs
-  const networkType = resolveNetworkType(api, process.env.MONERO_NETWORK)
   const serverUri = process.env.MONEROD_URL || 'http://monerod:38081'
 
   // Restore height (mirrors resolveBountyEscrowRestoreHeight in
@@ -148,15 +146,13 @@ async function openRewardsWallet (models) {
   // is no on-disk wallet file to conflict on restart.
   // password is a required-but-meaningless placeholder for an in-memory wallet
   // (no `path`, so nothing is persisted/encrypted to decrypt) — NOT a secret.
-  const wallet = await api.createWalletFull({
+  const wallet = await createSignerWallet({
     password: 'platform-rewards-signer',
-    networkType,
     primaryAddress,
     privateSpendKey,
     privateViewKey,
     restoreHeight,
-    server: { uri: serverUri },
-    proxyToWorker: false
+    serverUri
   })
   await ensureFeeAccounts(wallet, models)
   await wallet.sync()
@@ -178,13 +174,6 @@ export function resolveRewardsRestoreHeight ({ envHeight, earliestInflowHeight, 
     return { restoreHeight: Math.max(0, daemonHeight - RESTORE_HEIGHT_MARGIN), source: 'daemon-margin' }
   }
   return { restoreHeight: 0, source: 'genesis' }
-}
-
-function resolveNetworkType (api, env) {
-  const n = String(env || 'stagenet').toLowerCase()
-  if (n === 'mainnet') return api.MoneroNetworkType.MAINNET
-  if (n === 'testnet') return api.MoneroNetworkType.TESTNET
-  return api.MoneroNetworkType.STAGENET
 }
 
 // Send a batch of RewardPayout rows split across the wallet's signer accounts:

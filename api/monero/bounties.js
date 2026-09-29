@@ -2,6 +2,7 @@ import { daemonClient } from '@/api/monero/daemonClient'
 import { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 import { lwsClient } from '@/api/monero/lwsClient'
+import { createSignerWallet } from '@/api/monero/signerWallet'
 
 // Bounty escrow signer (A-13, 2026-08-10 amendment). The ONLY component that
 // holds the BOUNTY ESCROW wallet's spend key (separate standalone wallet — never
@@ -54,11 +55,6 @@ async function openBountyEscrowWallet ({ models } = {}) {
   if (!primaryAddress || !privateSpendKey || !privateViewKey) {
     throw new Error('bounty escrow signer: BOUNTY_ESCROW_ADDRESS, BOUNTY_ESCROW_SPEND_KEY, and BOUNTY_ESCROW_VIEW_KEY must be configured')
   }
-  const moneroTs = await import('monero-ts')
-  const api = moneroTs.default || moneroTs
-  const networkType = (process.env.MONERO_NETWORK || 'stagenet').toLowerCase() === 'mainnet'
-    ? api.MoneroNetworkType.MAINNET
-    : api.MoneroNetworkType.STAGENET
   const serverUri = process.env.MONEROD_URL || 'http://monerod:38081'
   // Restore height: BOUNTY_ESCROW_SCAN_FROM_HEIGHT when set; otherwise derive
   // one that covers the earliest ObservedBounty funding (the escrow must see
@@ -84,15 +80,13 @@ async function openBountyEscrowWallet ({ models } = {}) {
       `BOUNTY_ESCROW_SCAN_FROM_HEIGHT is 0/unset; opening the escrow wallet from height ${restoreHeight} (${source}). Set BOUNTY_ESCROW_SCAN_FROM_HEIGHT below the earliest funding to avoid invisible-funding payout skips.`,
       { dedupeKey: 'bounty-escrow-scan-height-fallback' })
   }
-  const wallet = await api.createWalletFull({
+  const wallet = await createSignerWallet({
     password: 'bounty-escrow-signer',
-    networkType,
     primaryAddress,
     privateSpendKey,
     privateViewKey,
     restoreHeight,
-    server: { uri: serverUri },
-    proxyToWorker: false
+    serverUri
   })
   await wallet.sync()
   return wallet
