@@ -59,6 +59,8 @@ public/*-development.js
 docker-compose.*.yml
 !docker-compose.prod.yml
 !docker-compose.volumes.yml
+# FCMP stressnet overlay (branch fcmp/stressnet) — sndev-fcmp appends it to COMPOSE_FILE
+!docker-compose.fcmp.yml
 *.sql
 *.sql.gz
 !/prisma/migrations/*/*.sql

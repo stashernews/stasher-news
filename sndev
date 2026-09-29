@@ -7,6 +7,12 @@ if [ -f .env.local ]; then
   . ./.env.local
 fi
 
+# Container-name indirection for parallel stacks (sndev-fcmp exports -fcmp
+# names); empty defaults keep master behavior byte-identical.
+SN_DB="${SN_DB:-db}"
+SN_APP="${SN_APP:-app}"
+SN_WORKER="${SN_WORKER:-worker}"
+
 logFilter() {
   grep -v --line-buffered --color=never 'POST /api/graphql .*200'
 }
@@ -214,7 +220,7 @@ USAGE
 
 sndev__psql() {
   shift
-  docker__exec -t db psql "$@" -U sn -d stackernews
+  docker__exec -t "$SN_DB" psql "$@" -U sn -d stackernews
 }
 
 sndev__help_psql() {
@@ -227,13 +233,13 @@ USAGE
 OPTIONS"
 
   echo "$help"
-  docker__exec db psql --help | awk '/General options:/{y=1;next}y' | sed -n '/Connection options:/q;p' |
+  docker__exec "$SN_DB" psql --help | awk '/General options:/{y=1;next}y' | sed -n '/Connection options:/q;p' |
     awk '!/^([\t ]+-l, --list)|([\t ]+-d, --dbname)|([\t ]+-\?, --help)|([\t ]--help=)/'
 }
 
 sndev__prisma() {
   shift
-  docker__exec -t -u apprunner app npx prisma "$@"
+  docker__exec -t -u apprunner "$SN_APP" npx prisma "$@"
 }
 
 sndev__help_prisma() {
@@ -386,7 +392,7 @@ REQUIREMENTS
 
 sndev__lint() {
   shift
-  docker__exec -t -u apprunner app npm run lint
+  docker__exec -t -u apprunner "$SN_APP" npm run lint
 }
 
 sndev__help_lint() {
@@ -408,7 +414,7 @@ sndev__test() {
     args="-- $@"
   fi
 
-  docker__exec -t -u apprunner app npm run test $args
+  docker__exec -t -u apprunner "$SN_APP" npm run test $args
 }
 
 sndev__help_test() {
@@ -421,7 +427,7 @@ USAGE
 OPTIONS"
 
   echo "$help"
-  docker__exec -u apprunner app npm run test -- --help | awk '/Options:/{y=1;next}y'
+  docker__exec -u apprunner "$SN_APP" npm run test -- --help | awk '/Options:/{y=1;next}y'
 }
 
 sndev__compose() {
@@ -539,7 +545,7 @@ sndev__login() {
     BASE_URL="http://localhost:3000"
   fi
 
-  if ! docker__exec db psql -U sn -d stackernews -q <<EOF
+  if ! docker__exec "$SN_DB" psql -U sn -d stackernews -q <<EOF
     INSERT INTO users (name) VALUES ('$1') ON CONFLICT DO NOTHING;
     UPDATE users SET email = '$email', "emailHash" = encode(digest(LOWER('$email')||'$salt', 'sha256'), 'hex') WHERE name = '$1';
     DELETE FROM verification_requests WHERE token = '$token';
@@ -555,7 +561,7 @@ EOF
   fi
 
   # confirm the verification token was actually created before handing out a link
-  if ! docker__exec db psql -U sn -d stackernews -t -A -c \
+  if ! docker__exec "$SN_DB" psql -U sn -d stackernews -t -A -c \
     "SELECT count(*) FROM verification_requests WHERE identifier = '$email' AND token = '$token' AND expires > NOW()" | grep -q '[1-9]'
   then
     echo

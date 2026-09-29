@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# FCMP stressnet stack driver — wraps sndev with the fcmp compose project.
+# Usage identical to sndev: ./sndev-fcmp start | psql | monero status | compose ...
+#
+# COMPOSE_PROJECT_NAME overrides the compose-file `name: stashernews`, giving
+# this stack its own containers, volumes (stashernews-fcmp_*) and networks so
+# it runs simultaneously with the main stagenet dev stack.
+# COMPOSE_FILE appends docker-compose.fcmp.yml (container names, host ports,
+# fcmp image build contexts — see that file).
+# SN_DB/SN_APP/SN_WORKER re-point sndev's raw `docker exec` targets at the
+# -fcmp containers (sndev defaults keep master behavior identical).
+# COMPOSE_PROFILES=monero runs db, app, worker, monerod, monero-lws.
+set -euo pipefail
+cd "$(dirname "$0")"
+export COMPOSE_FILE=docker-compose.yml:docker-compose.fcmp.yml
+export COMPOSE_PROJECT_NAME=stashernews-fcmp
+export COMPOSE_PROFILES="${COMPOSE_PROFILES:-monero}"
+export SN_DB=db-fcmp SN_APP=app-fcmp SN_WORKER=worker-fcmp
+exec ./sndev "$@"

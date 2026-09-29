@@ -1,0 +1,23 @@
+# FCMP stressnet overlay — spec: ~/Stasher-local/ops-docs/specs/2026-09-28-fcmp-stressnet-design.md §5.1
+# Run via ./sndev-fcmp (exports COMPOSE_PROJECT_NAME=stashernews-fcmp and this COMPOSE_FILE).
+# `ports: !override` is REQUIRED: compose CONCATENATES ports lists across -f files
+# (leaving the base 3000/5431 bindings published → collision with the main stack),
+# while `!reset` would REMOVE the attribute entirely (verified: compose v5.5.1).
+services:
+  db:
+    container_name: db-fcmp
+    ports: !override
+      - "127.0.0.1:5433:5432"
+  app:
+    container_name: app-fcmp
+    ports: !override
+      - "3100:3000"
+  worker:
+    container_name: worker-fcmp
+    # domains-network has a fixed name shared with the main stack; the fcmp
+    # stack never runs the domains profile. If compose objects at start time,
+    # reset membership here:  networks: !reset [default]
+  monerod:
+    build: ./docker/fcmp/monerod
+  monero-lws:
+    build: ./docker/fcmp/lws
