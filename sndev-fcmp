@@ -9,7 +9,11 @@
 # fcmp image build contexts — see that file).
 # SN_DB/SN_APP/SN_WORKER re-point sndev's raw `docker exec` targets at the
 # -fcmp containers (sndev defaults keep master behavior identical).
-# COMPOSE_PROFILES=monero runs db, app, worker, monerod, monero-lws.
+# NOTE the profile mechanism: sndev sources .env.development (set -a) AFTER
+# this export and .env.development sets COMPOSE_PROFILES=minimal,images,...
+# (no monero) — the worktree .env.local must carry COMPOSE_PROFILES=monero
+# (sourced last → wins). This export only covers direct compose calls that
+# never source those files.
 set -euo pipefail
 cd "$(dirname "$0")"
 export COMPOSE_FILE=docker-compose.yml:docker-compose.fcmp.yml
