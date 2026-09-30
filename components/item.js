@@ -115,7 +115,7 @@ export default function Item ({
           : item.mine
             ? item.bio ? null : <Boost item={item} className={styles.upvote} />
             : <VoteColumn item={item} className={styles.upvote} />}
-        <div className={styles.hunk}>
+        <div className={`${styles.hunk} item-hunk`}>
           <div className={`${styles.main} flex-wrap`}>
             <Link
               href={`/items/${item.id}`}

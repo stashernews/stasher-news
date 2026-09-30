@@ -392,3 +392,72 @@
 .stealth-rebrand .qm-sup b { color: #c9c9c9; font-weight: 600; }
 .stealth-rebrand[data-bs-theme='light'] .qm-sup b { color: #333; }
 .stealth-rebrand .qm-hl { color: var(--bs-primary); }
+
+// footer preference toggles are button switches (see components/footer.js);
+// SVG focus is invisible on the dark surfaces without an explicit ember ring
+.stealth-rebrand footer button[role='switch']:focus-visible {
+  outline: 2px solid rgba(255, 102, 0, 0.55);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+// ---- compact feed view (footer toggle -> html.compact-feed) ----
+// The class is applied pre-paint by an inline script in pages/_document.js
+// (mirrors dark-mode-js) so the compact layout is present from first paint.
+// Only the card's CardMedia block moves: from a full-width block below the
+// meta line to a square thumbnail pinned to the card's top-right corner.
+// Everything else (rank, vote column, title, excerpt, meta line) is untouched.
+// Cards without media render exactly as in the default view.
+.stealth-rebrand.compact-feed {
+  .item-card:has(.card-media) {
+    position: relative;
+    // short (title-only) cards must still contain the pinned thumbnail
+    min-height: 110px;
+
+    // reserve the thumbnail column so text never runs under it
+    // (84px thumb + gutter, measured from the card's 12px padding)
+    .item-hunk {
+      padding-right: 96px;
+    }
+  }
+
+  .card-media {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 84px;
+    height: 84px;
+
+    > div {
+      // neutralize the feed block's top margin and fill the fixed box
+      margin-top: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    img {
+      // square crop regardless of the media's natural aspect ratio
+      // (explicit width+height also override the inline aspect-ratio)
+      width: 100%;
+      height: 100%;
+      max-height: 100%;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+  }
+
+  @media (max-width: 575.98px) {
+    .item-card:has(.card-media) {
+      min-height: 90px;
+
+      .item-hunk {
+        padding-right: 76px;
+      }
+    }
+
+    .card-media {
+      width: 64px;
+      height: 64px;
+    }
+  }
+}

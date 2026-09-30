@@ -11,11 +11,14 @@ import Prism from '@/svgs/prism.svg'
 import MoneroMark from '@/svgs/monero.svg'
 import Live from '@/svgs/chat-unread-fill.svg'
 import NoLive from '@/svgs/chat-off-fill.svg'
+import List from '@/svgs/list-unordered.svg'
+import ListOff from '@/svgs/list-unordered-off.svg'
 import Rewards from './footer-rewards'
 import useDarkMode from './dark-mode'
 import ActionTooltip from './action-tooltip'
 import { useAnimationEnabled } from '@/components/animation'
 import { useLiveCommentsToggle } from './use-live-comments'
+import useCompactView from './use-compact-view'
 import { META_SUB } from '@/lib/constants'
 
 const RssPopover = (
@@ -80,6 +83,25 @@ const LegalPopover = (
   </Popover>
 )
 
+// Shared footer preference toggle: a real button carrying switch semantics so
+// the four preference toggles (dark mode, glitch, live comments, compact view)
+// are keyboard-operable and exposed to assistive tech. The button stays mounted
+// while the icon inside swaps, so keyboard focus survives each toggle.
+function ToggleAction ({ on, label, Icon, onClick, className = '' }) {
+  const text = `${on ? 'disable' : 'enable'} ${label}`
+  return (
+    <ActionTooltip notForm overlayText={text}>
+      <button
+        type='button' role='switch' aria-checked={on} aria-label={text}
+        onClick={onClick}
+        className={`d-inline-flex align-items-center align-middle bg-transparent border-0 p-0 ${className}`}
+      >
+        <Icon width={20} height={20} className='fill-grey theme' suppressHydrationWarning />
+      </button>
+    </ActionTooltip>
+  )
+}
+
 export default function Footer ({ links = true }) {
   const [darkMode, darkModeToggle] = useDarkMode()
 
@@ -87,9 +109,12 @@ export default function Footer ({ links = true }) {
 
   const [disableLiveComments, toggleLiveComments] = useLiveCommentsToggle()
 
+  const [compactView, toggleCompactView] = useCompactView()
+
   const DarkModeIcon = darkMode ? Sun : Moon
   const GlitchIcon = animationEnabled ? No : Prism
   const LiveIcon = disableLiveComments ? Live : NoLive
+  const CompactIcon = compactView ? ListOff : List
 
   const version = process.env.NEXT_PUBLIC_COMMIT_HASH
 
@@ -99,15 +124,10 @@ export default function Footer ({ links = true }) {
         {links &&
           <>
             <div className='mb-1'>
-              <ActionTooltip notForm overlayText={`${darkMode ? 'disable' : 'enable'} dark mode`}>
-                <DarkModeIcon onClick={darkModeToggle} width={20} height={20} className='fill-grey theme' suppressHydrationWarning />
-              </ActionTooltip>
-              <ActionTooltip notForm overlayText={`${animationEnabled ? 'disable' : 'enable'} glitch animations`}>
-                <GlitchIcon onClick={toggleAnimation} width={20} height={20} className='ms-2 fill-grey theme' suppressHydrationWarning />
-              </ActionTooltip>
-              <ActionTooltip notForm overlayText={`${disableLiveComments ? 'enable' : 'disable'} live comments`}>
-                <LiveIcon onClick={toggleLiveComments} width={20} height={20} className='ms-2 fill-grey theme' suppressHydrationWarning />
-              </ActionTooltip>
+              <ToggleAction on={darkMode} label='dark mode' Icon={DarkModeIcon} onClick={darkModeToggle} />
+              <ToggleAction on={animationEnabled} label='glitch animations' Icon={GlitchIcon} onClick={toggleAnimation} className='ms-2' />
+              <ToggleAction on={!disableLiveComments} label='live comments' Icon={LiveIcon} onClick={toggleLiveComments} className='ms-2' />
+              <ToggleAction on={compactView} label='compact view' Icon={CompactIcon} onClick={toggleCompactView} className='ms-2' />
             </div>
             <div className='mb-0' style={{ fontWeight: 500 }}>
               <Rewards />

@@ -131,6 +131,13 @@ class MyDocument extends Document {
                 })()
               }`}
           </Script>
+          <Script id='compact-view-js' strategy='beforeInteractive'>
+            {`try {
+                if (window.localStorage.getItem('compactView') === 'true') {
+                  window.document.documentElement.classList.add('compact-feed')
+                }
+              } catch (e) {}`}
+          </Script>
           {!branding && (
             <>
               {/* light-theme splash screen links */}

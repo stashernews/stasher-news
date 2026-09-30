@@ -61,7 +61,7 @@ export function CardMedia ({ item, onClick }) {
       href={`/items/${item.id}`}
       onClick={onClick}
       aria-label={item.title ?? `view post ${item.id}`}
-      className='d-block text-reset'
+      className='card-media d-block text-reset'
     >
       <div className={styles.wrap}>
         <img
