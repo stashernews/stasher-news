@@ -231,14 +231,6 @@ export const ACT_MUTATION = gql`
     }
   }`
 
-export const PAY_BOUNTY_MUTATION = gql`
-  ${PAY_IN_FIELDS}
-  mutation payBounty($id: ID!, $sendProtocolId: Int) {
-    payBounty(id: $id, sendProtocolId: $sendProtocolId) {
-      ...PayInFields
-    }
-  }`
-
 export const UPSERT_DISCUSSION = gql`
   ${PAY_IN_FIELDS}
   mutation upsertDiscussion($subNames: [String!]!, $id: ID, $title: String!, $text: String,

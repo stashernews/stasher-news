@@ -1,7 +1,6 @@
 import { RETRY_PAY_IN } from '@/fragments/payIn'
 import usePayInMutation from './use-pay-in-mutation'
 import { getActCachePhases } from '@/components/item-act'
-import { payBountyCachePhases } from '@/components/pay-bounty'
 import { useMe } from '@/components/me'
 import { InvoiceCanceledError, isTransientNetworkError } from '@/wallets/client/errors'
 import { composeCallbacks } from '@/lib/compose-callbacks'
@@ -76,7 +75,6 @@ function retryBaseCachePhases (payInType, me) {
   if (PAY_IN_ACT_TYPES.includes(payInType)) {
     return getActCachePhases(me)
   }
-  if (payInType === 'BOUNTY_PAYMENT') return payBountyCachePhases
   return {}
 }
 
