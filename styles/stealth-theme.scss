@@ -464,3 +464,69 @@
     }
   }
 }
+
+// ---- notification rows: always-compact media preview ----
+// Notification rows always show the square thumbnail, for everyone — the
+// compact feed toggle above only affects feed cards. NoteItem hoists the
+// CardMedia link out of the item subtree (components/notifications.js) so the
+// row is its positioning context: the row is position: relative
+// (.linkBoxParent, link-to-context.module.css) while the item wrapper inside
+// is also relative (.linkBox ~ *), which would otherwise capture the pin —
+// the bug where thumbnails hung below their notification cards.
+.stealth-rebrand {
+  .notif-row:has(.card-media) {
+    // short rows must still contain the pinned thumbnail (84px + 12px top)
+    min-height: 104px;
+
+    // reserve the thumbnail column so the header and the item's
+    // title/meta lines never run under it
+    .note-head {
+      padding-right: 96px;
+    }
+
+    .item-hunk {
+      padding-right: 96px;
+    }
+
+    .card-media {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 84px;
+      height: 84px;
+
+      > div {
+        // neutralize the feed block's top margin and fill the fixed box
+        margin-top: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      img {
+        // square crop regardless of the media's natural aspect ratio
+        // (explicit width+height also override the inline aspect-ratio)
+        width: 100%;
+        height: 100%;
+        max-height: 100%;
+        object-fit: cover;
+        border-radius: 8px;
+      }
+    }
+  }
+
+  @media (max-width: 575.98px) {
+    .notif-row:has(.card-media) {
+      min-height: 84px;
+
+      .note-head,
+      .item-hunk {
+        padding-right: 76px;
+      }
+
+      .card-media {
+        width: 64px;
+        height: 64px;
+      }
+    }
+  }
+}

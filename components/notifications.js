@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { gql } from '@apollo/client'
 import { useQuery, useApolloClient } from '@apollo/client/react'
 import Comment, { CommentSkeleton } from './comment'
-import Item from './item'
+import { CardMedia } from './card-media'
+import Item, { onItemClick } from './item'
 import ItemJob from './item-job'
 import { NOTIFICATIONS } from '@/fragments/notifications'
 import MoreFooter from './more-footer'
@@ -82,7 +83,7 @@ function NotificationLayout ({ children, type, nid, href, as, fresh }) {
   if (!href) return <div className={`py-2 ${fresh ? styles.fresh : ''}`}>{children}</div>
   return (
     <LinkToContext
-      className={`py-2 clickToContext ${type === 'Reply' ? styles.reply : ''} ${fresh ? styles.fresh : ''} ${router?.query?.nid === nid ? 'outline-it' : ''}`}
+      className={`notif-row py-2 clickToContext ${type === 'Reply' ? styles.reply : ''} ${fresh ? styles.fresh : ''} ${router?.query?.nid === nid ? 'outline-it' : ''}`}
       onClick={async (e) => {
         e.preventDefault()
         nid && await router.replace({
@@ -104,24 +105,40 @@ function NotificationLayout ({ children, type, nid, href, as, fresh }) {
 
 function NoteHeader ({ color, children, big }) {
   return (
-    <div className={`${styles.noteHeader} text-${color} ${big ? '' : 'small'} pb-2`}>
+    <div className={`${styles.noteHeader} note-head text-${color} ${big ? '' : 'small'} pb-2`}>
       {children}
     </div>
   )
 }
 
+// The media preview is hoisted out of the item subtree and rendered as a
+// direct child of the notification row: the row — not this wrapper — must be
+// its positioning context, because .linkBox ~ * (link-to-context.module.css)
+// makes the wrapper position: relative and would capture the pin. Notification
+// rows always use the compact square thumbnail (see .notif-row in
+// styles/stealth-theme.scss), independent of the compact feed toggle.
+// The hoisted CardMedia renders only in the post branch — the exact branch
+// Item rendered it in before (jobs and comments never had a preview), and
+// CardMedia itself returns null for locked monerowall, hidden-media prefs,
+// and items without uploads, leaving no node and no reserved space.
 function NoteItem ({ item, ...props }) {
+  const router = useRouter()
   return (
-    <div>
-      {item.isJob
-        ? <ItemJob item={item} {...props} />
-        : item.title
-          ? <Item item={item} itemClassName='pt-0' {...props} />
-          : (
-            <RootProvider root={item.root || item}>
-              <Comment item={item} noReply includeParent clickToContext {...props} />
-            </RootProvider>)}
-    </div>
+    <>
+      <div>
+        {item.isJob
+          ? <ItemJob item={item} {...props} />
+          : item.title
+            ? <Item item={item} noMedia itemClassName='pt-0' {...props} />
+            : (
+              <RootProvider root={item.root || item}>
+                <Comment item={item} noReply includeParent clickToContext {...props} />
+              </RootProvider>)}
+      </div>
+      {item.title && !item.isJob && (
+        <CardMedia item={item} onClick={(e) => onItemClick(e, router, item)} />
+      )}
+    </>
   )
 }
 
@@ -650,9 +667,7 @@ function TerritoryPost ({ n }) {
       <NoteHeader color='info'>
         new post in ~{n.item.subs?.length === 1 ? n.item.subs[0].name : 'a turf you follow'}
       </NoteHeader>
-      <div>
-        <Item item={n.item} itemClassName='pt-0' />
-      </div>
+      <NoteItem item={n.item} />
     </>
   )
 }

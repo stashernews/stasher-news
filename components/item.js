@@ -27,7 +27,7 @@ import MoneroWallRatingBadge from './monero-wall-rating-badge'
 import { useMe } from './me'
 import { SearchText } from './text'
 
-function onItemClick (e, router, item) {
+export function onItemClick (e, router, item) {
   const viewedAt = commentsViewedAt(item.id)
   if (viewedAt) {
     e.preventDefault()
@@ -91,7 +91,7 @@ function ItemLink ({ url, rel }) {
 
 export default function Item ({
   item, rank, belowTitle, right, full, children, itemClassName,
-  onQuoteReply, pinnable, excerpt, ...props
+  onQuoteReply, pinnable, excerpt, noMedia, ...props
 }) {
   const titleRef = useRef()
   const router = useRouter()
@@ -149,7 +149,7 @@ export default function Item ({
             pinnable={pinnable}
             {...props}
           />
-          {!full && <CardMedia item={item} onClick={(e) => onItemClick(e, router, item)} />}
+          {!full && !noMedia && <CardMedia item={item} onClick={(e) => onItemClick(e, router, item)} />}
           {belowTitle}
           {item.searchText && (
             <div className={styles.searchSnippet}>
