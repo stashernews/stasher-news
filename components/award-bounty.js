@@ -19,10 +19,18 @@ export default function AwardBounty ({ item }) {
   if (!me || !item.parentId || item.mine || item.deletedAt) return null
   if (root.bountyStatus !== 'FUNDED' || Number(root.user?.id) !== Number(me.id)) return null
 
+  const open = () => showModal(onClose => <AwardBountyModal item={item} root={root} onClose={onClose} />)
+
   return (
     <div
-      className={styles.award} onClick={() => {
-        showModal(onClose => <AwardBountyModal item={item} root={root} onClose={onClose} />)
+      role='button' tabIndex={0} className={styles.award}
+      onClick={open}
+      onKeyDown={(e) => {
+        // keyboard activation parity with the Dropdown.Item this button replaced
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
       }}
     >
       award bounty
