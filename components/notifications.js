@@ -182,6 +182,11 @@ const defaultOnClick = n => {
   if (['Flame', 'NewVerified', 'QuestComplete', 'FlameDay'].includes(type)) return {}
   if (type === 'TerritoryTransfer') return { href: `/~${n.sub.name}` }
 
+  // Referral carries its source item, not n.item: without a href the row
+  // renders in NotificationLayout's plain-div branch — no click target and no
+  // positioning context for the always-compact media slot (.notif-row)
+  if (type === 'Referral' && n.source?.__typename === 'Item') return itemLink(n.source)
+
   if (!n.item) return {}
 
   // Votification, Mention, JobChanged, Reply all have item
@@ -566,10 +571,10 @@ function Referral ({ n }) {
   }
   return (
     <>
-      <small className='fw-bold text-success'>
+      <NoteHeader color='success'>
         <UserAdd className='fill-success me-1' height={21} width={21} style={{ transform: 'rotateY(180deg)' }} />someone joined SN because {referralSource}
         <small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
-      </small>
+      </NoteHeader>
       {n.source?.__typename === 'Item' && <NoteItem itemClassName='pt-2' item={n.source} />}
     </>
   )
