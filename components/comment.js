@@ -11,10 +11,8 @@ import EyeClose from '@/svgs/eye-close-line.svg'
 import { useRouter } from 'next/router'
 import CommentEdit from './comment-edit'
 import { USER_ID, COMMENT_DEPTH_LIMIT, UNKNOWN_LINK_REL, DEFAULT_COMMENTS_PICONEROS_FILTER } from '@/lib/constants'
-import PayBounty from './pay-bounty'
-import BountyIcon from '@/svgs/bounty-bag.svg'
-import ActionTooltip from './action-tooltip'
-import { piconerosToMXmr } from '@/lib/format'
+import AwardBounty from './award-bounty'
+
 import Share from './share'
 import ItemInfo from './item-info'
 import Badge from 'react-bootstrap/Badge'
@@ -214,7 +212,6 @@ export default function Comment ({
   const op = root.user.name === item.user.name && Number(item.user.id) !== USER_ID.anon
     ? 'OP'
     : null
-  const bountyPaid = root.bountyPaidTo?.includes(Number(item.id))
 
   return (
     <div
@@ -252,10 +249,6 @@ export default function Comment ({
                   extraInfo={
                     <>
                       {includeParent && <Parent item={item} rootText={rootText} />}
-                      {bountyPaid &&
-                        <ActionTooltip notForm overlayText={`${piconerosToMXmr(BigInt(root.bounty) * 1000n)} paid`}>
-                          <BountyIcon className={`${styles.bountyIcon} ${'fill-success vertical-align-middle'}`} height={16} width={16} />
-                        </ActionTooltip>}
                     </>
                   }
                   edit={edit}
@@ -305,13 +298,22 @@ export default function Comment ({
       </div>
       {collapse !== 'yep' && (
         bottomedOut
-          ? <div className={styles.children}><div className={classNames(styles.comment, 'mt-3 pb-2')}><ViewMoreReplies item={item} threadContext /></div></div>
+          ? (
+            <div className={styles.children}>
+              {!noReply && <AwardBounty item={item} />}
+              <div className={classNames(styles.comment, 'mt-3 pb-2')}><ViewMoreReplies item={item} threadContext /></div>
+            </div>
+            )
           : (
             <div className={styles.children}>
+              {/* rendered here, not inside Reply: Reply hides its action row
+                  when replyOpen (a comment's own page), and bottomedOut
+                  comments never render Reply at all */}
               {!noReply &&
-                <Reply depth={depth + 1} item={item} replyOpen={replyOpen} onCancelQuote={cancelQuote} onQuoteReply={quoteReply} quote={quote}>
-                  {root.bounty && !bountyPaid && <PayBounty item={item} />}
-                </Reply>}
+                <>
+                  <AwardBounty item={item} />
+                  <Reply depth={depth + 1} item={item} replyOpen={replyOpen} onCancelQuote={cancelQuote} onQuoteReply={quoteReply} quote={quote} />
+                </>}
               {children}
               <div className={styles.comments}>
                 {!noComments && item.comments?.comments

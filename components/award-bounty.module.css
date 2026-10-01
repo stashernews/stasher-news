@@ -1,0 +1,14 @@
+/* Rendered directly by comment.js — no longer a child of Reply's action row —
+   so it carries the reply-row typography and hit area itself (previously
+   inherited from reply.module.css .replyButtons / .replyButtons > *). */
+.award {
+    color: var(--bs-success);
+    margin-left: 1rem;
+    width: fit-content;
+    padding-top: .4rem;
+    padding-bottom: .8rem;
+    font-size: 80%;
+    font-weight: bold;
+    line-height: 1rem;
+    cursor: pointer;
+}

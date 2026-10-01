@@ -9,7 +9,6 @@ import { shouldShowItemPaidAt } from '@/lib/pay-in'
 import PendingFeeBadge from './pending-fee-badge'
 import PayPostingFeeButton from './pay-posting-fee-button'
 import BountyFundingView from './bounty-funding-view'
-import { AwardBountyDropdownItem } from './bounty-actions'
 import { numWithUnits, piconerosToMXmr } from '@/lib/format'
 import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
 import { newComments, commentsViewedAt } from '@/lib/new-comments'
@@ -246,8 +245,6 @@ export default function ItemInfo ({
               )}
               {isNostrEnabled(me?.privates?.authMethods) && item && item.mine && !item.noteId && !item.isJob && !item.parentId &&
                 <CrosspostDropdownItem item={item} />}
-              {me && root?.bountyStatus === 'FUNDED' && Number(root.user?.id) === Number(me.id) && item.parentId && !item.mine && !item.deletedAt &&
-                <AwardBountyDropdownItem item={item} root={root} />}
               {me && !item.mine && !item.deletedAt &&
             (item.meDontLikePiconeros > meSats
               ? <DropdownItemUpVote item={item} />

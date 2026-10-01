@@ -1,7 +1,6 @@
 import { useCallback } from 'react'
 import { useApolloClient, useMutation } from '@apollo/client/react'
 import Button from 'react-bootstrap/Button'
-import Dropdown from 'react-bootstrap/Dropdown'
 import { useShowModal } from './modal'
 import { useToast } from './toast'
 import { useAnimation } from './animation'
@@ -60,25 +59,8 @@ function BountyConfirmBody ({ title, description, amountPiconeros, confirmText, 
   )
 }
 
-// "award bounty" action in the ... menu on a descendant comment of a FUNDED
-// bounty, visible to the bounty author. Always enabled: wallet presence is
-// enforced by the server inside payBounty ('the winner must attach a wallet to
-// receive the bounty') and any rejection is surfaced as a danger toast by
-// useBountyAction — no per-commenter pre-check (or wallet field on the comment
-// fragment) is needed, so awarding costs zero extra lookups while browsing.
-export function AwardBountyDropdownItem ({ item, root }) {
-  const showModal = useShowModal()
-
-  return (
-    <Dropdown.Item
-      onClick={() => showModal(onClose => <AwardBountyModal item={item} root={root} onClose={onClose} />)}
-    >
-      award bounty
-    </Dropdown.Item>
-  )
-}
-
-function AwardBountyModal ({ item, root, onClose }) {
+// opened by the inline AwardBounty button on comments (components/award-bounty.js)
+export function AwardBountyModal ({ item, root, onClose }) {
   const { run, loading } = useBountyAction({
     mutation: AWARD_BOUNTY_MUTATION,
     variables: { id: String(root.id), winnerCommentId: String(item.id) },
