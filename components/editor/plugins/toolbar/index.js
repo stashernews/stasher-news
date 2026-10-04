@@ -3,7 +3,7 @@ import classNames from 'classnames'
 import styles from '@/lib/lexical/theme/editor.module.css'
 import dropdownStyles from '@/components/dropdown.module.css'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
-import { SN_UPLOAD_FILES_COMMAND } from '@/components/editor/plugins/upload'
+import { SN_UPLOAD_FILES_COMMAND } from '@/lib/lexical/commands/upload'
 import ModeSwitchPlugin from '@/components/editor/plugins/toolbar/switch'
 import UploadIcon from '@/svgs/editor/toolbar/inserts/upload-paperclip.svg'
 import { useToolbarState, INITIAL_FORMAT_STATE } from '@/components/editor/contexts/toolbar'
@@ -152,7 +152,7 @@ function ToolbarButton ({ id, isActive, onClick, tooltip, children, showDelay = 
   )
 }
 
-export function ToolbarPlugin ({ name, topLevel }) {
+export function ToolbarPlugin ({ name, topLevel, allowUploads = true, allowMoneroWall = true }) {
   const [editor] = useLexicalComposerContext()
   const { batchUpdateToolbarState, toolbarState, updateToolbarState } = useToolbarState()
   const { isMarkdown } = useEditorMode()
@@ -281,9 +281,11 @@ export function ToolbarPlugin ({ name, topLevel }) {
           <ToolbarButton id='link' isActive={toolbarState.isLink} onClick={() => handleToggleLink()} tooltip='link'>
             <LinkIcon />
           </ToolbarButton>
-          <ToolbarButton id='moneroWall' onClick={() => editor.dispatchCommand(SN_INSERT_MONEROWALL_COMMAND)} tooltip='monerowall (hide content below)'>
-            <LockIcon />
-          </ToolbarButton>
+          {allowMoneroWall && (
+            <ToolbarButton id='moneroWall' onClick={() => editor.dispatchCommand(SN_INSERT_MONEROWALL_COMMAND)} tooltip='monerowall (hide content below)'>
+              <LockIcon />
+            </ToolbarButton>
+          )}
           <span className={styles.divider} />
           <ToolbarDropdown
             icon={<MoreIcon />}
@@ -304,9 +306,11 @@ export function ToolbarPlugin ({ name, topLevel }) {
             <FontStyleIcon />
           </span>
         </ActionTooltip>
-        <ToolbarButton id='upload' onClick={() => editor.dispatchCommand(SN_UPLOAD_FILES_COMMAND)} tooltip='upload files'>
-          <UploadIcon />
-        </ToolbarButton>
+        {allowUploads && (
+          <ToolbarButton id='upload' onClick={() => editor.dispatchCommand(SN_UPLOAD_FILES_COMMAND)} tooltip='upload files'>
+            <UploadIcon />
+          </ToolbarButton>
+        )}
       </div>
     </div>
   )

@@ -206,7 +206,7 @@ Upload fees are applied when you submit your post or comment.
 
 ### Are media uploads stored forever?
 
-Yes, if it was used in a live post or comment. **Unattached uploads are deleted 24 hours after upload** (for accounts and anonymous uploads alike), and media from posts that were deleted or abandoned for non-payment is reaped with the next daily sweep.
+Yes, if it was used in a live post or comment — or is referenced by a live post/comment addendum whose upload fee is settled (or was never due). **Unattached uploads are deleted 24 hours after upload** (for accounts and anonymous uploads alike), and media from posts that were deleted or abandoned for non-payment is reaped with the next daily sweep. An addendum can reference any existing upload without a new fee, but it never keeps media alive whose own upload fee never settled — that media is eventually removed by the same sweep, and the addendum's text remains.
 
 ---
 

@@ -15,6 +15,7 @@ import LocalDraftPlugin from '@/components/editor/plugins/core/local-draft'
 import { MaxLengthPlugin } from '@/components/editor/plugins/core/max-length'
 import MentionsPlugin from '@/components/editor/plugins/mentions'
 import FileUploadPlugin from '@/components/editor/plugins/upload'
+import UploadBlockerPlugin from '@/components/editor/plugins/upload-blocker'
 import { $setText } from '@/lib/lexical/utils'
 import theme from '@/lib/lexical/theme'
 import styles from '@/lib/lexical/theme/editor.module.css'
@@ -76,7 +77,7 @@ const EDITOR_RICH_MODE = {
  * @param {boolean} [props.autoFocus] - whether to auto-focus the editor
  * @returns {JSX.Element} lexical editor component
  */
-export default function Editor ({ name, autoFocus, topLevel, ...props }) {
+export default function Editor ({ name, autoFocus, topLevel, allowUploads = true, allowMoneroWall = true, ...props }) {
   const { isMarkdown } = useEditorMode()
   const [text] = useField({ name })
   const hasMountedRef = useRef(false)
@@ -125,7 +126,7 @@ export default function Editor ({ name, autoFocus, topLevel, ...props }) {
 
   return (
     <LexicalExtensionComposer key={modeConfig.name} extension={editor} contentEditable={null}>
-      <EditorContent topLevel={topLevel} isMarkdown={isMarkdown} name={name} appendedValueRef={appendedValueRef} {...props} />
+      <EditorContent topLevel={topLevel} isMarkdown={isMarkdown} name={name} appendedValueRef={appendedValueRef} allowUploads={allowUploads} allowMoneroWall={allowMoneroWall} {...props} />
     </LexicalExtensionComposer>
   )
 }
@@ -136,6 +137,8 @@ export default function Editor ({ name, autoFocus, topLevel, ...props }) {
  * @param {string} props.placeholder - placeholder text for empty editor
  * @param {Object} props.lengthOptions - max length configuration
  * @param {boolean} props.topLevel - whether this is a top-level editor
+ * @param {boolean} [props.allowUploads=true] - whether the editor supports new Stasher file uploads
+ * @param {boolean} [props.allowMoneroWall=true] - whether the monerowall insert is available
  * @param {boolean} props.isMarkdown - whether the editor is in markdown mode
  * @param {boolean} [props.required] - whether the field is required
  * @param {number} [props.minRows] - minimum number of rows for the editor
@@ -149,14 +152,15 @@ export default function Editor ({ name, autoFocus, topLevel, ...props }) {
 function EditorContent ({
   name, placeholder, lengthOptions,
   topLevel, isMarkdown, required = false,
-  minRows, hint, warn, editorRef, appendValue, appendedValueRef
+  minRows, hint, warn, editorRef, appendValue, appendedValueRef,
+  allowUploads = true, allowMoneroWall = true
 }) {
   const { ref: containerRef, onRef: onContainerRef } = useCallbackRef()
 
   return (
     <div className={classNames(styles.editorContainer)} data-top-level={topLevel ? 'true' : 'false'}>
       <EditorRefPlugin editorRef={editorRef} />
-      <ToolbarPlugin topLevel={topLevel} name={name} />
+      <ToolbarPlugin topLevel={topLevel} name={name} allowUploads={allowUploads} allowMoneroWall={allowMoneroWall} />
       {/* we only need a plain text editor for markdown */}
       <div
         className={classNames(styles.editor, !isMarkdown && 'sn-text')}
@@ -175,7 +179,9 @@ function EditorContent ({
           aria-required={required}
         />
       </div>
-      <FileUploadPlugin editorRef={containerRef} />
+      {allowUploads
+        ? <FileUploadPlugin editorRef={containerRef} />
+        : <UploadBlockerPlugin />}
       <MentionsPlugin />
       <ShortcutsPlugin />
       <AppendValuePlugin value={appendValue} appendedValueRef={appendedValueRef} />

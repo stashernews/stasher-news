@@ -1,8 +1,10 @@
 import { gql } from '@apollo/client'
 import { STREAK_FIELDS } from './streak-fields'
+import { ITEM_ADDENDUM_FIELDS } from './item-addendum'
 
 export const COMMENT_FIELDS = gql`
   ${STREAK_FIELDS}
+  ${ITEM_ADDENDUM_FIELDS}
   fragment CommentFields on Item {
     id
     position
@@ -12,6 +14,9 @@ export const COMMENT_FIELDS = gql`
     text
     lexicalState
     html
+    editMode
+    editExpiresAt
+    ...ItemAddendumFields
     bountyAwardedAt
     user {
       id
@@ -64,6 +69,7 @@ export const COMMENT_FIELDS = gql`
 
 export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
   ${STREAK_FIELDS}
+  ${ITEM_ADDENDUM_FIELDS}
   fragment CommentFieldsNoChildComments on Item {
     id
     position
@@ -73,6 +79,9 @@ export const COMMENT_FIELDS_NO_CHILD_COMMENTS = gql`
     text
     lexicalState
     html
+    editMode
+    editExpiresAt
+    ...ItemAddendumFields
     user {
       id
       name

@@ -87,8 +87,12 @@ export async function imgproxy ({ data: { id, forceFetch = false }, models }) {
   }
 
   let imgproxyUrls = {}
-  if (item.text) {
-    imgproxyUrls = await createImgproxyUrls(id, item.text, { models, forceFetch })
+  // addendum text feeds the same media pipeline as the original body (2026-10-04
+  // spec): reused uploads in an addendum need preview metadata. Both source
+  // fields are read; neither is rewritten.
+  const mediaText = [item.text, item.addendumText].filter(Boolean).join('\n\n')
+  if (mediaText) {
+    imgproxyUrls = await createImgproxyUrls(id, mediaText, { models, forceFetch })
   }
   if (item.url && !isJob(item)) {
     imgproxyUrls = { ...imgproxyUrls, ...(await createImgproxyUrls(id, item.url, { models, forceFetch })) }

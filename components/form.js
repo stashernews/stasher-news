@@ -47,8 +47,10 @@ export function SubmitButton ({
   className, ...props
 }) {
   const formik = useFormikContext()
+  // a form whose edit window ended refuses submission entirely (finding #3)
+  const expired = useContext(FormExpiredContext)
 
-  disabled ||= formik.isSubmitting
+  disabled ||= formik.isSubmitting || expired
   submittingText ||= children
 
   return (
@@ -319,6 +321,7 @@ function InputInner ({
   const [field, meta, helpers] = noForm ? [{}, {}, {}] : useField(props)
   const formik = noForm ? null : useFormikContext()
   const storageKeyPrefix = useContext(StorageKeyPrefixContext)
+  const expired = useContext(FormExpiredContext)
   const isClient = useIsClient()
 
   const storageKey = storageKeyPrefix ? storageKeyPrefix + '-' + props.name : undefined
@@ -326,11 +329,12 @@ function InputInner ({
   const onKeyDownInner = useCallback((e) => {
     const metaOrCtrl = e.metaKey || e.ctrlKey
     if (metaOrCtrl) {
-      if (e.key === 'Enter') formik?.submitForm()
+      // an expired form (finding #3) must not submit from the keyboard either
+      if (e.key === 'Enter' && !expired) formik?.submitForm()
     }
 
     if (onKeyDown) onKeyDown(e)
-  }, [formik?.submitForm, onKeyDown])
+  }, [formik?.submitForm, onKeyDown, expired])
 
   const onChangeInner = useCallback((e) => {
     field?.onChange(e)
@@ -856,6 +860,12 @@ export function Range ({
 
 export const StorageKeyPrefixContext = createContext()
 
+// Set while a form is mounted past the end of its edit window (finding #3): the
+// typed values stay visible, but submission must be refused on EVERY path —
+// native submit, the submit button, and the keyboard shortcuts that route
+// through Formik's submitForm(). The caller renders the expiry notice.
+export const FormExpiredContext = createContext(false)
+
 export function Form ({
   initial, validate, schema, onSubmit, children, initialError, validateImmediately,
   storageKeyPrefix, validateOnChange = true, requireSession, innerRef, enableReinitialize,
@@ -864,6 +874,8 @@ export function Form ({
   const toaster = useToast()
   const initialErrorToasted = useRef(false)
   const { me } = useMe()
+  // set by the expiry-aware callers (finding #3); submission is refused while true
+  const expired = useContext(FormExpiredContext)
 
   useEffect(() => {
     if (initialError && !initialErrorToasted.current) {
@@ -888,6 +900,12 @@ export function Form ({
   }, [storageKeyPrefix])
 
   const onSubmitInner = useCallback(async (values, ...args) => {
+    // Finding #3: the form is still mounted after the window ended (to keep
+    // the typed values visible), so every submission path must be refused here
+    // — the server's late-edit rejection stays the authority for anything that
+    // somehow bypasses the client
+    if (expired) return
+
     if (requireSession && !me) {
       throw new SessionRequiredError()
     }
@@ -904,7 +922,7 @@ export function Form ({
 
     if (!storageKeyPrefix) return
     clearLocalStorage(values)
-  }, [me, onSubmit, clearLocalStorage, storageKeyPrefix])
+  }, [me, onSubmit, clearLocalStorage, storageKeyPrefix, expired])
 
   return (
     <Formik

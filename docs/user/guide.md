@@ -58,6 +58,12 @@ Be kind. Your experience on Stasher News will be far more enjoyable if you consi
 
 When responding to other stashers, consider using full sentences and appropriate grammar. The added context can help readers follow your train of thought and engage in better back-and-forth dialogue.
 
+## Editing posts and comments
+
+During the existing 10-minute edit window, you can edit your post or comment normally. After it ends, the original text is locked, but **edit** lets you add one informational update of up to 200 characters. Links, supported embeds, and existing uploaded media are allowed; new file uploads are disabled. You can replace or remove the update whenever you like. Its divider shows the date/time of the latest change. The original timestamp proof does not cover this mutable update.
+
+A few details worth knowing: links and Markdown syntax count toward the 200-character limit; updates to Monerowalled bodies follow the same access restrictions as the body itself; and media whose original upload fee never settles is eventually removed by the existing cleanup, leaving your update's text intact.
+
 ## What Not To Share on Stasher News
 
 Monero is the tool that the Stasher News community uses to signal which content is (or is not) valued.

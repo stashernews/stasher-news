@@ -3,13 +3,16 @@ import styles from './comment.module.css'
 import Text, { SearchText } from './text'
 import Link from 'next/link'
 import Reply from './reply'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import UpVote from './upvote'
 import VoteColumn from './vote-column'
 import Eye from '@/svgs/eye-fill.svg'
 import EyeClose from '@/svgs/eye-close-line.svg'
 import { useRouter } from 'next/router'
 import CommentEdit from './comment-edit'
+import ItemAddendumForm, { ExpiredFullEditNotice } from './item-addendum-form'
+import ItemAddendum from './item-addendum'
+import useCanEdit from './use-can-edit'
 import { USER_ID, COMMENT_DEPTH_LIMIT, UNKNOWN_LINK_REL, DEFAULT_COMMENTS_PICONEROS_FILTER } from '@/lib/constants'
 import AwardBounty from './award-bounty'
 
@@ -102,6 +105,9 @@ export default function Comment ({
   navigator, ...props
 }) {
   const [edit, setEdit] = useState()
+  // the editor mode captured when the author opened the editor: a FULL window
+  // that expires mid-edit must not silently reinterpret the body as an addendum
+  const [editModeAtOpen, setEditModeAtOpen] = useState()
   const { me } = useMe()
   // Collapse comments that don't meet the viewer's commentsPiconerosFilter threshold
   const commentsPiconerosFilter = me ? me.privates?.commentsPiconerosFilter : DEFAULT_COMMENTS_PICONEROS_FILTER
@@ -115,9 +121,26 @@ export default function Comment ({
   // if comment is registered with the new comments navigator
   const didTrackRef = useRef(false)
   const { ref: readerRef, onRef: onReaderRef } = useCallbackRef()
+  const { ref: addendumReaderRef, onRef: onAddendumReaderRef } = useCallbackRef()
   const router = useRouter()
   const root = useRoot()
-  const { ref: textRef, quote, quoteReply, cancelQuote } = useQuoteReply({ text: item.text, readerRef })
+  const [, , , editMode] = useCanEdit(item)
+  // finding #3: the mode when the editor opened. A FULL window expiring
+  // mid-edit keeps the mounted editor (with its typed values) visible and
+  // refuses submission instead of swapping to the addendum editor.
+  const fullEditExpired = editModeAtOpen === 'FULL' && editMode === 'ADDENDUM'
+  const { ref: textRef, quote, quoteReply, cancelQuote } = useQuoteReply({ text: item.text, readerRef, additionalReaderRefs: [addendumReaderRef] })
+
+  const closeEdit = useCallback(() => {
+    setEdit(false)
+    setEditModeAtOpen(undefined)
+  }, [])
+  const toggleEdit = useCallback(() => {
+    setEdit(open => {
+      if (!open) setEditModeAtOpen(editMode)
+      return !open
+    })
+  }, [editMode])
 
   const { cache } = useApolloClient()
 
@@ -252,7 +275,7 @@ export default function Comment ({
                     </>
                   }
                   edit={edit}
-                  toggleEdit={e => { setEdit(!edit) }}
+                  toggleEdit={toggleEdit}
                   editText={edit ? 'cancel' : 'edit'}
                 />}
 
@@ -277,22 +300,35 @@ export default function Comment ({
           </div>
           {edit
             ? (
-              <CommentEdit
-                comment={item}
-                onSuccess={() => {
-                  setEdit(!edit)
-                }}
-              />
+                editMode === 'ADDENDUM' && !fullEditExpired
+                  ? <ItemAddendumForm item={item} onSuccess={closeEdit} onCancel={closeEdit} />
+                  : (
+                    <>
+                      {fullEditExpired && <ExpiredFullEditNotice onCancel={closeEdit} />}
+                      {/* the window ended with this editor open: keep it
+                          mounted so nothing typed is lost, and let its
+                          `expired` form refusal stop every submission path */}
+                      <CommentEdit
+                        comment={item}
+                        onSuccess={closeEdit}
+                        expired={fullEditExpired}
+                      />
+                    </>
+                    )
               )
             : (
-              <div className={styles.text} ref={textRef}>
-                {item.searchText
-                  ? <SearchText text={item.searchText} />
-                  : (
-                    <Text itemId={item.id} state={item.lexicalState} html={item.html} topLevel={topLevel} rel={item.rel ?? UNKNOWN_LINK_REL} imgproxyUrls={item.imgproxyUrls} readerRef={onReaderRef}>
-                      {truncate ? truncateString(item.text) : undefined}
-                    </Text>)}
-              </div>
+              <>
+                <div className={styles.text} ref={textRef}>
+                  {item.searchText
+                    ? <SearchText text={item.searchText} />
+                    : (
+                      <Text itemId={item.id} state={item.lexicalState} html={item.html} topLevel={topLevel} rel={item.rel ?? UNKNOWN_LINK_REL} imgproxyUrls={item.imgproxyUrls} readerRef={onReaderRef}>
+                        {truncate ? truncateString(item.text) : undefined}
+                      </Text>)}
+                </div>
+                {/* search snippets must not present a partial original as the whole comment */}
+                {!item.searchText && <ItemAddendum item={item} readerRef={onAddendumReaderRef} />}
+              </>
               )}
         </div>
       </div>

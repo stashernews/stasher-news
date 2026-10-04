@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { quote as quoteMd } from '@/lib/md'
 import { getMarkdownFromSelection } from '@/lib/lexical/utils/selection'
 
-export function useQuoteReply ({ text, readerRef }) {
+export function useQuoteReply ({ text, readerRef, additionalReaderRefs = [] }) {
   const ref = useRef(null)
   const [quote, setQuote] = useState(null)
   const [selection, setSelection] = useState(null)
@@ -34,14 +34,22 @@ export function useQuoteReply ({ text, readerRef }) {
     let textToQuote = selection || text
 
     if (selection && readerRef) {
-      const markdown = getMarkdownFromSelection(readerRef)
-      if (markdown) {
-        textToQuote = markdown
+      // quote from whichever reader root (original body or addendum) contains
+      // the selection — never mix an unrelated original selection into an
+      // addendum quote or vice versa
+      const domSelection = window.getSelection()
+      const containingReader = [readerRef, ...additionalReaderRefs]
+        .find(r => r?.current?.contains?.(domSelection?.anchorNode))
+      if (containingReader) {
+        const markdown = getMarkdownFromSelection(containingReader.current)
+        if (markdown) {
+          textToQuote = markdown
+        }
       }
     }
 
     setQuote(quoteMd(textToQuote))
-  }, [selection, text, readerRef])
+  }, [selection, text, readerRef, ...additionalReaderRefs])
 
   const cancelQuote = useCallback(() => {
     setQuote(null)

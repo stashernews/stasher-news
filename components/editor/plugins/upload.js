@@ -6,7 +6,6 @@ import {
   DRAGOVER_COMMAND,
   DROP_COMMAND,
   PASTE_COMMAND,
-  createCommand,
   $createTextNode,
   $createRangeSelection,
   $setSelection,
@@ -27,13 +26,17 @@ import { getDragSelection } from '@/lib/lexical/utils/dom'
 import styles from '@/lib/lexical/theme/editor.module.css'
 import { $insertTextAtSelection } from '@/lib/lexical/utils'
 import { isMarkdownMode } from '@/lib/lexical/commands/utils'
+import { SN_UPLOAD_FILES_COMMAND } from '@/lib/lexical/commands/upload'
 import { $createMediaNode, MediaNode } from '@/lib/lexical/nodes/content/media'
 import { isAbortError } from '@/lib/error'
 
 // submit disabled reason for upload
 export const UPLOAD_SUBMIT_DISABLED_REASON = 'upload'
 
-export const SN_UPLOAD_FILES_COMMAND = createCommand('SN_UPLOAD_FILES_COMMAND')
+// The command itself now lives in lib/lexical/commands/upload.js (repo
+// convention) so the addendum upload blocker can consume it without this
+// module's fee/FileUpload graph. Re-exported here for existing importers.
+export { SN_UPLOAD_FILES_COMMAND } from '@/lib/lexical/commands/upload'
 
 const UPLOAD_FEES_QUERY = gql`
   query uploadFees($s3Keys: [Int]!) {

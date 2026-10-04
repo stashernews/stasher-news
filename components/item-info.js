@@ -92,7 +92,7 @@ export default function ItemInfo ({
   // so we only expose it if there's only one sub
   const subs = item?.subs || root?.subs
   const sub = subs?.length === 1 ? subs[0] : undefined
-  const [canEdit, setCanEdit, editThreshold] = useCanEdit(item)
+  const [canEdit, setCanEdit, editThreshold, editMode] = useCanEdit(item)
 
   useEffect(() => {
     if (!full) {
@@ -222,7 +222,7 @@ export default function ItemInfo ({
           <>
             <EditInfo
               item={item} edit={edit} canEdit={canEdit}
-              setCanEdit={setCanEdit} toggleEdit={toggleEdit} editText={editText} editThreshold={editThreshold}
+              setCanEdit={setCanEdit} toggleEdit={toggleEdit} editText={editText} editThreshold={editThreshold} editMode={editMode}
             />
             {item.payIn && <PayInInfo item={item} updatePayIn={updatePayIn} disableRetry={disableRetry} setDisableRetry={setDisableRetry} />}
             <ActionDropdown>
@@ -431,10 +431,15 @@ export function PayInInfo ({ item, updatePayIn, disableRetry, setDisableRetry })
   )
 }
 
-function EditInfo ({ item, edit, canEdit, setCanEdit, toggleEdit, editText, editThreshold }) {
+function EditInfo ({ item, edit, canEdit, setCanEdit, toggleEdit, editText, editThreshold, editMode }) {
   const router = useRouter()
 
   if (canEdit) {
+    // the live countdown only applies to paid items inside the timed FULL
+    // window; the unpaid first-stage flow keeps its static placeholder and an
+    // expired item transitions to ADDENDUM editing without a countdown
+    const paid = !item.payIn?.payInState || item.payIn?.payInState === 'PAID'
+    const timedFull = editMode === 'FULL'
     return (
       <>
         <span> \ </span>
@@ -443,19 +448,21 @@ function EditInfo ({ item, edit, canEdit, setCanEdit, toggleEdit, editText, edit
           onClick={() => toggleEdit ? toggleEdit() : router.push(`/items/${item.id}/edit`)}
         >
           <span>{editText || 'edit'} </span>
-          {(!item.payIn?.payInState || item.payIn?.payInState === 'PAID')
-            ? <Countdown
-                date={editThreshold}
-                onComplete={() => { setCanEdit(false) }}
-              />
-            : <span>10:00</span>}
+          {timedFull
+            ? (paid
+                ? <Countdown
+                    date={editThreshold}
+                    onComplete={() => { setCanEdit(false) }}
+                  />
+                : <span>10:00</span>)
+            : null}
         </span>
       </>
     )
   }
 
   if (edit && !canEdit) {
-    // if we're still editing after timer ran out
+    // if we're still editing after the mode retracted (deleted under us, etc.)
     return (
       <>
         <span> \ </span>

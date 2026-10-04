@@ -333,6 +333,26 @@ model ItemUpload {
   @@index([uploadId])
 }
 
+// Post-window addendum (2026-10-04 spec): pins media reused by an item's
+// addendum so the daily unreferenced-media sweep spares it while the
+// addendum lives. Deliberately separate from ItemUpload — the paid editor
+// reconciles THAT table from the original text and would drop addendum pins.
+// Retention is fee-aware (worker/deleteUnusedImages.js): a pin retains an
+// upload only when no upload fee is outstanding (paid, or free-tier from a
+// registered user); a never-paid fee-bearing upload keeps its existing
+// abandonment → sweep lifecycle.
+model ItemAddendumUpload {
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  itemId    Int
+  uploadId  Int
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  upload    Upload   @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@id([itemId, uploadId])
+  @@index([uploadId])
+}
+
 // StasherNews: a fee-bearing ITEM_UPDATE (an edit that attaches >10MB uploads)
 // is NOT applied in onBegin — it is stored here and applied by
 // worker/rewardsWalletObserver.flipPendingToLive once the upload fee is
@@ -414,6 +434,7 @@ model Upload {
   User                User[]
   ItemUpload          ItemUpload[]
   draftUploads        DraftUpload[]
+  itemAddendumUploads ItemAddendumUpload[]
   uploadPayIns        UploadPayIn[]
   subBrandingLogos    SubBranding[] @relation("SubBrandingLogo")
   subBrandingFavicons SubBranding[] @relation("SubBrandingFavicon")
@@ -534,6 +555,16 @@ model Item {
   threadSubscriptions     ThreadSubscription[]
   User                    User[]
   itemUploads             ItemUpload[]
+  // Post-window addendum (2026-10-04 spec): one free informational edit below
+  // the locked original. addendumText/addendumUpdatedAt are the displayed
+  // content/time; addendumRevision is the optimistic-concurrency token (never
+  // reset, so a stale tab cannot ABA-overwrite a cleared addendum). The
+  // original text/url/title and their upload pins are untouched by addendum
+  // writes; addendum-only media pins live in ItemAddendumUpload.
+  addendumText            String?
+  addendumUpdatedAt       DateTime?
+  addendumRevision        Int                   @default(0)
+  addendumUploads         ItemAddendumUpload[]
   uploadId                Int?
   netInvestment           BigInt                @default(0)
   feeInvestmentPiconeros  BigInt                @default(0)

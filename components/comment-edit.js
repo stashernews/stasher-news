@@ -1,4 +1,4 @@
-import { Form, SNInput } from '@/components/form'
+import { Form, FormExpiredContext, SNInput } from '@/components/form'
 import styles from './reply.module.css'
 import { commentSchema } from '@/lib/validate'
 import { FeeButtonProvider } from './fee-button'
@@ -6,7 +6,7 @@ import { ItemButtonBar } from './post'
 import { UPDATE_COMMENT } from '@/fragments/payIn'
 import useItemSubmit from './use-item-submit'
 
-export default function CommentEdit ({ comment, editThreshold, onSuccess, onCancel }) {
+export default function CommentEdit ({ comment, editThreshold, expired, onSuccess, onCancel }) {
   const onSubmit = useItemSubmit(UPDATE_COMMENT, {
     payInMutationOptions: {
       cachePhases: {
@@ -51,21 +51,25 @@ export default function CommentEdit ({ comment, editThreshold, onSuccess, onCanc
   return (
     <div className={`${styles.reply} mt-2`}>
       <FeeButtonProvider>
-        <Form
-          initial={{
-            text: comment.text
-          }}
-          schema={commentSchema}
-          onSubmit={onSubmit}
-        >
-          <SNInput
-            name='text'
-            minRows={6}
-            autoFocus
-            required
-          />
-          <ItemButtonBar itemId={comment.id} onDelete={onSuccess} hasCancel={false} />
-        </Form>
+        {/* finding #3: once the window expires the editor stays mounted with
+            its typed values; `expired` refuses every submission path */}
+        <FormExpiredContext.Provider value={expired}>
+          <Form
+            initial={{
+              text: comment.text
+            }}
+            schema={commentSchema}
+            onSubmit={onSubmit}
+          >
+            <SNInput
+              name='text'
+              minRows={6}
+              autoFocus
+              required
+            />
+            <ItemButtonBar itemId={comment.id} onDelete={onSuccess} hasCancel={false} />
+          </Form>
+        </FormExpiredContext.Provider>
       </FeeButtonProvider>
     </div>
   )

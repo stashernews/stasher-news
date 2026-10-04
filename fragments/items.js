@@ -1,6 +1,7 @@
 import { gql } from '@apollo/client'
 import { COMMENTS } from './comments'
 import { STREAK_FIELDS } from './streak-fields'
+import { ITEM_ADDENDUM_FIELDS } from './item-addendum'
 
 export const ITEM_FIELDS = gql`
   ${STREAK_FIELDS}
@@ -12,6 +13,8 @@ export const ITEM_FIELDS = gql`
     title
     url
     excerpt
+    editMode
+    editExpiresAt
     user {
       id
       name
@@ -105,9 +108,11 @@ export const ITEM_FIELDS = gql`
 
 export const ITEM_FULL_FIELDS = gql`
   ${ITEM_FIELDS}
+  ${ITEM_ADDENDUM_FIELDS}
   ${STREAK_FIELDS}
   fragment ItemFullFields on Item {
     ...ItemFields
+    ...ItemAddendumFields
     bountyAwardedAt
     bountyWinnerCommentId
     bountyWinnerName

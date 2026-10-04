@@ -44,6 +44,9 @@ const REVIEWED_NON_SENSITIVE = new Set([
   'rateMoneroWallPost',
   'upsertBio', 'upsertBounty', 'upsertComment', 'upsertDiscussion', 'upsertJob',
   'upsertLink', 'upsertPoll', 'upsertSubBranding',
+  // post-window addendum (2026-10-04 spec): free, owner-only content edit of
+  // the author's own item — no money path by construction.
+  'updateItemAddendum',
   // turf repost (2026-09-24): adds a paid turf to one of the author's own
   // posts — same posting-fee money flow as the upsert* mutations above.
   'repostItem',

@@ -530,3 +530,20 @@
     }
   }
 }
+
+// Post-window addendum (2026-10-04 spec): the single informational edit below
+// a locked original — divider, stamp line, minimal spacing only.
+.stealth-rebrand {
+  .sn-item-addendum {
+    margin-top: 0.75rem;
+
+    hr {
+      margin: 0.5rem 0;
+      opacity: 0.5;
+    }
+
+    .sn-item-addendum-stamp {
+      margin-bottom: 0.25rem;
+    }
+  }
+}

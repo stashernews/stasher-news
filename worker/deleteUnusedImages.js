@@ -1,6 +1,6 @@
 import { deleteObjects } from '@/api/s3'
 import { alert } from '@/lib/alert'
-import { BOSS_RETRY, PUBLIC_MEDIA_URL, UPLOAD_FREE_BYTES_MAX } from '@/lib/constants'
+import { BOSS_RETRY, PUBLIC_MEDIA_URL, UPLOAD_FREE_BYTES_MAX, USER_ID } from '@/lib/constants'
 import { logError } from '@/lib/logger'
 
 // The /uploads/ shape is host-free so desc pins survive domain changes; the
@@ -37,6 +37,25 @@ export async function deleteUnusedImages ({ models, boss }) {
         FROM "ItemUpload"
         JOIN "Item" ON "Item".id = "ItemUpload"."itemId"
         WHERE "ItemUpload"."uploadId" = "Upload".id AND "Item"."deletedAt" IS NULL)
+      -- an addendum pins its reused media only when no upload fee is
+      -- outstanding: paid uploads, and free-tier uploads (≤ UPLOAD_FREE_BYTES_MAX
+      -- from a registered user — anonymous uploads always owe a fee). Unlike
+      -- ItemUpload rows (which only exist post-fee-settlement, so their pin
+      -- needs no paid check), an ItemAddendumUpload row can be created while a
+      -- fee-bearing upload's fee is still unsettled — and a fee whose parent
+      -- edit never settles keeps its existing abandonment → sweep lifecycle,
+      -- so the addendum degrades to text plus a dead link instead of hosting
+      -- the file for free. Mirrors the fee-liability predicate in uploadFees.
+      AND NOT (
+        ("Upload"."paid" = true
+          OR ("Upload".size <= ${UPLOAD_FREE_BYTES_MAX}::INTEGER
+            AND "Upload"."userId" <> ${USER_ID.anon}::INTEGER))
+        AND EXISTS (
+          SELECT 1
+          FROM "ItemAddendumUpload"
+          JOIN "Item" ON "Item".id = "ItemAddendumUpload"."itemId"
+          WHERE "ItemAddendumUpload"."uploadId" = "Upload".id
+            AND "Item"."deletedAt" IS NULL))
       -- pinned by a server-side draft (2026-09-22 spec): pins are derived from
       -- the draft text's media URLs; stale drafts (90d) are deleted by
       -- abandonStaleDrafts, which drops the pins and lets the next sweep reap.

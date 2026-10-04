@@ -1,5 +1,6 @@
 import Item from './item'
 import ItemJob from './item-job'
+import ItemAddendum from './item-addendum'
 import Reply from './reply'
 import Comment from './comment'
 import Text, { SearchText } from './text'
@@ -93,7 +94,8 @@ function TopLevelItem ({ item, noReply, ...props }) {
   const { me } = useMe()
   const ItemComponent = item.isJob ? ItemJob : Item
   const { ref: readerRef, onRef: onReaderRef } = useCallbackRef()
-  const { ref: textRef, quote, quoteReply, cancelQuote } = useQuoteReply({ text: item.text, readerRef })
+  const { ref: addendumReaderRef, onRef: onAddendumReaderRef } = useCallbackRef()
+  const { ref: textRef, quote, quoteReply, cancelQuote } = useQuoteReply({ text: item.text, readerRef, additionalReaderRefs: [addendumReaderRef] })
   const postsPiconerosFilter = me ? me.privates?.postsPiconerosFilter : DEFAULT_POSTS_PICONEROS_FILTER
   const isBelowFilter = !item.mine && postsPiconerosFilter != null && (item.netInvestment ?? 0) < postsPiconerosFilter
 
@@ -113,6 +115,8 @@ function TopLevelItem ({ item, noReply, ...props }) {
     >
       <article className={classNames(styles.fullItemContainer, 'topLevel')} ref={textRef}>
         {item.text && <ItemText item={item} readerRef={onReaderRef} />}
+        {/* outside the item.text gate: a bodyless link/poll can carry an addendum */}
+        {!item.bio && <ItemAddendum item={item} topLevel readerRef={onAddendumReaderRef} />}
         <MoneroWallPanel item={item} />
         <MoneroWallRating item={item} />
         {item.url && !isBelowFilter && <ItemEmbed url={item.url} imgproxyUrls={item.imgproxyUrls} xPreview={item.xPreview} />}

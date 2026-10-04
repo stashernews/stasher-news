@@ -22,6 +22,7 @@ import rewardsWallet from './rewardsWallet'
 import bounty from './bounty'
 import phrase from './phrase'
 import draft from './draft'
+import itemAddendum from './item-addendum'
 
 const date = new GraphQLScalarType({
   name: 'Date',
@@ -103,4 +104,4 @@ const limit = createIntScalar({
 
 export default [user, item, message, notifications, invite, sub,
   upload, search, growth, rewards, referrals, price, admin, blockHeight,
-  domain, { JSONObject }, { Date: date }, { Limit: limit }, { BigInt: bigint }, payIn, monero, rewardsWallet, bounty, phrase, draft]
+  domain, { JSONObject }, { Date: date }, { Limit: limit }, { BigInt: bigint }, payIn, monero, rewardsWallet, bounty, phrase, draft, itemAddendum]
