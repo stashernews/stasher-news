@@ -764,7 +764,7 @@ export default {
 
         pinId = null
       } else {
-        // only max 3 pins allowed per territory and post
+        // only max 6 pins allowed per territory and post
         const [{ count: npins }] = await models.$queryRawUnsafe(`
           SELECT COUNT(p.id)
           FROM "Pin" p
@@ -773,8 +773,8 @@ export default {
             item.parentId ? 'i."parentId" = $1' : 'i."subNames" @> ARRAY[$1]::CITEXT[]'
           )}`, item.parentId ?? item.subNames[0])
 
-        if (npins >= 3) {
-          throw new GqlInputError('max 3 pins allowed')
+        if (npins >= 6) {
+          throw new GqlInputError('max 6 pins allowed')
         }
 
         const [{ pinId: newPinId }] = await models.$queryRawUnsafe(`
