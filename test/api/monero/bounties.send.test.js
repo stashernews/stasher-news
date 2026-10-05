@@ -2,17 +2,23 @@
 
 // Stubbed-wallet unit tests for the bounty escrow signer's dispatch loop
 // (A-13, 2026-08-19 beta incident). The wallet is injected (a plain object
-// exposing getUnlockedBalance / createTx / getTx) and the Prisma client is an
-// in-memory stub, so the suite never touches the network or spends real XMR —
-// same pattern as test/api/monero/rewards.test.js.
+// exposing getUnlockedBalance / createTx / getTx, whose created txs expose the
+// signed transaction's actual fee and outgoing destinations) and the Prisma
+// client is an in-memory stub, so the suite never touches the network or
+// spends real XMR — same pattern as test/api/monero/rewards.test.js.
 //
 // Covers: single-tx payout dispatch (prize + platform fee as destinations with
-// the network fee subtracted from the last destination); the insufficient-
-// balance skip-streak alert, exercised from both the pre-dispatch guard and
-// the in-createTx balance-error catch; and the legacy fee-settlement
+// the network fee subtracted from the last destination) and the settlement
+// snapshot persisted after relay (actual network fee, actual net received
+// amounts, and the fee destination frozen BEFORE dispatch so a later env
+// change cannot reclassify it); zero relay-time hot-wallet receipt writes; the
+// insufficient-balance skip-streak alert, exercised from both the pre-dispatch
+// guard and the in-createTx balance-error catch; and the legacy fee-settlement
 // defer/retry (feePendingAt) for payouts sent before 2026-09-18. Hard
 // (non-balance) errors still fail loudly and are left for manual
-// reconciliation (never auto-retried).
+// reconciliation (never auto-retried); a relayed payout whose settlement facts
+// cannot be read stays SENT with a critical alert (never FAILED, never a
+// re-send).
 
 import { sendBountyPayments, __resetSkipStreaks } from '@/api/monero/bounties'
 import { logInfo, logError } from '../../../lib/logger'
@@ -28,6 +34,7 @@ jest.mock('../../../lib/logger', () => ({
 jest.mock('../../../lib/alert', () => ({ alert: jest.fn() }))
 
 const FEE_ADDR = '5' + 'C'.repeat(94)
+const NEW_FEE_ADDR = '5' + 'D'.repeat(94)
 const WINNER_ADDR = '5' + 'A'.repeat(94)
 
 beforeAll(() => {
@@ -69,15 +76,15 @@ function makeFakeModels (rows) {
         return { ...row }
       }
     },
-    // ROLLOVER booking reads the item and inserts a BOUNTY_ROLLOVER
-    // FeeObservation through $queryRaw; no-op stubs keep the tx-focused tests
-    // independent of booking SQL.
-    item: { async findUnique () { return { id: 1, bountyPiconeros: 12_000_000_000n } } },
-    async $queryRaw () { return [] }
+    // Relay-time hot-wallet receipt writes are forbidden (rewards accounting
+    // repair §4): escrow cash is recognized later from confirmed hot-wallet
+    // receipts, never booked at relay. These spies must stay untouched.
+    $queryRaw: jest.fn(async () => []),
+    feeObservation: { create: jest.fn(async () => ({})), upsert: jest.fn(async () => ({})) }
   }
 }
 
-function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync, throwsOn = {}, netFee = 0n } = {}) {
+function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync, throwsOn = {}, netFee = 0n, missingSettlement = false, onCreateTx } = {}) {
   const calls = [] // createTx requests only (existing assertions depend on this shape)
   const order = [] // method-call order: 'sync' | 'getUnlockedBalance' | 'createTx'
   let balance = unlocked
@@ -97,6 +104,7 @@ function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync,
     async createTx (req) {
       order.push('createTx')
       calls.push(req)
+      if (onCreateTx) onCreateTx(req)
       const addresses = req.destinations ? req.destinations.map(d => d.address) : [req.address]
       for (const address of addresses) {
         if (throwsOn[address]) throw throwsOn[address]
@@ -113,7 +121,22 @@ function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedAfterSync,
       balance -= destSum + (req.subtractFeeFrom ? 0n : netFee)
       n += 1
       const hash = 'ab' + String(n).padStart(6, '0') + 'cd'.repeat(28) // 2+6+56 = 64 hex chars
-      return { getHash: () => hash }
+      // Actual on-chain destinations: wallet2 folds the network fee into each
+      // subtractFeeFrom destination. Without subtractFeeFrom the destination
+      // receives its full requested amount and the fee is paid on top.
+      const destinations = req.destinations
+        ? req.destinations.map((d, i) => ({
+          address: d.address,
+          amount: BigInt(d.amount) - (req.subtractFeeFrom && req.subtractFeeFrom.includes(i) ? netFee : 0n)
+        }))
+        : [{ address: req.address, amount: BigInt(req.amount) }]
+      return {
+        getHash: () => hash,
+        getFee: () => netFee,
+        getOutgoingTransfer: () => (missingSettlement
+          ? undefined
+          : { getDestinations: () => destinations.map(d => ({ getAddress: () => d.address, getAmount: () => d.amount })) })
+      }
     },
     async getTx () { return { getHeight: async () => 200 } }
   }
@@ -166,6 +189,15 @@ test('wallet2 contract: the winner receives the exact prize and ops receives fee
   }))
   expect(effective[0]).toEqual({ address: WINNER_ADDR, amount: 10_000_000_000n })
   expect(effective[1]).toEqual({ address: FEE_ADDR, amount: 2_000_000_000n - netFee })
+
+  // The relayed tx's ACTUAL settlement is snapshotted on the payout: the prize
+  // stays exact, the fee receipt is the post-subtraction net, and the network
+  // fee is the real signed fee.
+  const row = models.store.get(payout.id)
+  expect(row.feeRecipientAddress).toBe(FEE_ADDR)
+  expect(row.networkFeePiconeros).toBe(netFee)
+  expect(row.recipientReceivedPiconeros).toBe(10_000_000_000n)
+  expect(row.feeReceivedPiconeros).toBe(2_000_000_000n - netFee)
 })
 
 test('ROLLOVER sends the full amount as one destination with the miner fee subtracted from it', async () => {
@@ -184,6 +216,118 @@ test('ROLLOVER sends the full amount as one destination with the miner fee subtr
     relay: true
   })
   expect(await wallet.getUnlockedBalance(0)).toBe(0n)
+
+  // The single combined output is snapshotted as the full net receipt with no
+  // separate fee receipt; receipt attribution later splits it from the
+  // separately frozen prize.
+  const row = models.store.get(payout.id)
+  expect(row.networkFeePiconeros).toBe(40_000n)
+  expect(row.recipientReceivedPiconeros).toBe(12_000_000_000n - 40_000n)
+  expect(row.feeReceivedPiconeros).toBe(0n)
+  // No relay-time hot-wallet revenue: the old BOUNTY_ROLLOVER insert is gone.
+  expect(models.$queryRaw).not.toHaveBeenCalled()
+  expect(models.feeObservation.create).not.toHaveBeenCalled()
+  expect(models.feeObservation.upsert).not.toHaveBeenCalled()
+})
+
+test('a fee-waived award skips the fee destination and snapshots one net refund output', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 0n })
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet({ unlocked: 10_000_000_000n, netFee: 40_000n })
+
+  const summary = await sendBountyPayments([payout], { models, wallet })
+
+  expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0, settled: 0 })
+  expect(wallet.calls[0]).toEqual({
+    accountIndex: 0,
+    destinations: [{ address: WINNER_ADDR, amount: 10_000_000_000n }],
+    subtractFeeFrom: [0],
+    relay: true
+  })
+  const row = models.store.get(payout.id)
+  expect(row.feeRecipientAddress).toBeUndefined() // no fee leg, nothing to freeze
+  expect(row.networkFeePiconeros).toBe(40_000n)
+  expect(row.recipientReceivedPiconeros).toBe(10_000_000_000n - 40_000n)
+  expect(row.feeReceivedPiconeros).toBe(0n)
+})
+
+test('persists the configured fee destination before relay, once, when unset', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
+  const models = makeFakeModels([payout])
+  let storedAtRelay
+  const wallet = makeFakeWallet({
+    unlocked: 12_000_000_000n,
+    netFee: 40_000n,
+    onCreateTx: () => { storedAtRelay = models.store.get(payout.id).feeRecipientAddress }
+  })
+
+  await sendBountyPayments([payout], { models, wallet })
+
+  expect(storedAtRelay).toBe(FEE_ADDR) // written BEFORE createTx can move funds
+  expect(models.store.get(payout.id).feeRecipientAddress).toBe(FEE_ADDR)
+})
+
+test('reuses the payout’s stored fee destination after the configured cold address changes', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n, feeRecipientAddress: FEE_ADDR })
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet({ unlocked: 12_000_000_000n, netFee: 40_000n })
+  const previous = process.env.REWARDS_COLD_STORAGE_ADDRESS
+  process.env.REWARDS_COLD_STORAGE_ADDRESS = NEW_FEE_ADDR
+  try {
+    await sendBountyPayments([payout], { models, wallet })
+  } finally {
+    if (previous === undefined) delete process.env.REWARDS_COLD_STORAGE_ADDRESS
+    else process.env.REWARDS_COLD_STORAGE_ADDRESS = previous
+  }
+
+  // The old settlement keeps its frozen destination; the new env value never
+  // reclassifies where this fee lands.
+  expect(wallet.calls[0].destinations[1]).toEqual({ address: FEE_ADDR, amount: 2_000_000_000n })
+  const row = models.store.get(payout.id)
+  expect(row.feeRecipientAddress).toBe(FEE_ADDR)
+  expect(row.feeReceivedPiconeros).toBe(2_000_000_000n - 40_000n)
+})
+
+test('a pre-send fee-destination persist failure leaves the payout QUEUED and dispatches nothing', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
+  const models = makeFakeModels([payout])
+  models.bountyPayment.update = async () => { throw new Error('transient db blip') }
+  const wallet = makeFakeWallet({ unlocked: 12_000_000_000n, netFee: 40_000n })
+  logError.mockClear()
+
+  const summary = await sendBountyPayments([payout], { models, wallet })
+
+  expect(summary).toEqual({ sent: 0, failed: 0, skipped: 0, settled: 0 })
+  expect(wallet.calls).toHaveLength(0) // no on-chain send without a frozen destination
+  expect(models.store.get(payout.id).state).toBe('QUEUED')
+  expect(models.store.get(payout.id).feeRecipientAddress).toBeUndefined()
+  expect(logError).toHaveBeenCalledWith(
+    expect.objectContaining({ payoutId: payout.id }),
+    expect.stringContaining('before dispatch')
+  )
+})
+
+test('a relayed payout whose settlement facts cannot be read stays SENT with a critical alert (no FAILED, no resend)', async () => {
+  const payout = makePayout({ piconeros: 10_000_000_000n, feePiconeros: 2_000_000_000n })
+  const models = makeFakeModels([payout])
+  const wallet = makeFakeWallet({ unlocked: 12_000_000_000n, netFee: 40_000n, missingSettlement: true })
+  alert.mockClear()
+  logError.mockClear()
+
+  const summary = await sendBountyPayments([payout], { models, wallet })
+
+  expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0, settled: 0 })
+  const row = models.store.get(payout.id)
+  expect(row.state).toBe('SENT')
+  expect(row.txHash).toMatch(/^[0-9a-f]{64}$/)
+  expect(row.networkFeePiconeros).toBeUndefined() // recovery is a later read-only metadata task
+  expect(wallet.calls).toHaveLength(1) // relayed exactly once, never re-sent
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    'payout settlement metadata missing',
+    expect.stringContaining('do not re-send'),
+    expect.objectContaining({ dedupeKey: `bounty-settlement-missing-${payout.id}` })
+  )
 })
 
 test('a hard createTx error (non-balance) marks the payout FAILED with the funds still in escrow', async () => {
@@ -209,7 +353,11 @@ test('a hard createTx error (non-balance) marks the payout FAILED with the funds
 test('settles a deferred fee for a SENT payout on a later run (feeTxHash set exactly once, feePendingAt cleared, payout not re-sent)', async () => {
   const payout = makePayout({ state: 'SENT', txHash: 'ab'.repeat(32), feePendingAt: new Date() })
   const models = makeFakeModels([payout])
-  const wallet = makeFakeWallet()
+  let storedAtRelay
+  const wallet = makeFakeWallet({
+    netFee: 40_000n,
+    onCreateTx: () => { storedAtRelay = models.store.get(payout.id).feeRecipientAddress }
+  })
 
   const summary = await sendBountyPayments([payout], { models, wallet })
 
@@ -221,6 +369,13 @@ test('settles a deferred fee for a SENT payout on a later run (feeTxHash set exa
   expect(row.feePendingAt).toBeNull()
   expect(wallet.calls).toHaveLength(1) // fee only, no payout re-send
   expect(wallet.calls[0]).toEqual({ accountIndex: 0, address: FEE_ADDR, amount: 10_000_000_000n, relay: true })
+  // The fee's destination is frozen BEFORE the fee can move, and the actual
+  // settlement fields (real network fee, actual full amount received) are
+  // stored with feeTxHash.
+  expect(storedAtRelay).toBe(FEE_ADDR)
+  expect(row.feeRecipientAddress).toBe(FEE_ADDR)
+  expect(row.feeSettlementNetworkFeePiconeros).toBe(40_000n)
+  expect(row.feeReceivedPiconeros).toBe(10_000_000_000n)
 })
 
 test('skips a deferred-fee retry while the unlocked balance is still short (fee stays pending)', async () => {
@@ -269,7 +424,9 @@ test('never double-sends the fee: a SENT payout with feeTxHash already set is le
 })
 
 test('a fee relayed but unpersisted alerts CRITICAL and stops auto-retry (no double-send)', async () => {
-  const payout = makePayout({ state: 'SENT', txHash: 'ab'.repeat(32), feePendingAt: new Date() })
+  // The destination was already frozen by an earlier attempt, so the FIRST
+  // update here is the post-relay feeTxHash persist (not the pre-send write).
+  const payout = makePayout({ state: 'SENT', txHash: 'ab'.repeat(32), feePendingAt: new Date(), feeRecipientAddress: FEE_ADDR })
   const models = makeFakeModels([payout])
   let updateCalls = 0
   models.bountyPayment.update = async ({ where, data }) => {

@@ -2,6 +2,7 @@ import { daemonClient } from '@/api/monero/daemonClient'
 import { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 import { lwsClient } from '@/api/monero/lwsClient'
+import { readBountySettlement, readFeeSettlement } from '@/api/monero/bountySettlement'
 
 // Bounty escrow signer (A-13, 2026-08-10 amendment). The ONLY component that
 // holds the BOUNTY ESCROW wallet's spend key (separate standalone wallet — never
@@ -12,12 +13,20 @@ import { lwsClient } from '@/api/monero/lwsClient'
 // ROLLOVER / fee-waived refunds), so the winner/refund receives the exact
 // booked amount and the escrow consumes exactly prize + fee (2026-09-18 fix:
 // exact-funded awards used to strand a network fee short).
+// The ACTUAL signed-tx settlement (real network fee, real net received
+// amounts) is snapshotted onto the payout after relay, and the fee destination
+// is frozen BEFORE dispatch (once, when NULL) — never derived from today's
+// environment after the fact. Relay writes NO hot-wallet receipt: escrow cash
+// is recognized later from confirmed hot-wallet receipts only (rewards
+// accounting repair §4).
 // Re-syncs the wallet's chain view once per dispatch before reading balances,
 // so outputs that unlock after open are visible without a worker restart.
 //
 // Fund-safety mirrors api/monero/rewards.js: keys from env (never logged),
 // insufficient-unlocked-balance = SKIP (retry next run) not FAILED, FAILED only
-// on hard createTx errors (funds stay in escrow).
+// on hard createTx errors (funds stay in escrow). A post-relay settlement-read
+// failure is never FAILED and never a re-send: the payout stays SENT with a
+// critical alert, recovered later from read-only escrow history.
 
 const RESTORE_HEIGHT_MARGIN = 1000
 
@@ -182,10 +191,11 @@ export async function getBountyEscrowTxHeight (txHash, { models, lws = lwsClient
 //    booked gross (the network-fee delta is the documented unbooked-ops
 //    class, spec 2026-09-18).
 //  - ROLLOVER and fee-waived payouts: one destination for the full amount,
-//    subtractFeeFrom it, so the escrow still zeroes exactly. ROLLOVER also
-//    books the pool inflow directly (FeeObservation('BOUNTY_ROLLOVER'), born
-//    CONFIRMED — the pool can only distribute money physically present in the
-//    rewards wallet).
+//    subtractFeeFrom it, so the escrow still zeroes exactly.
+// Relay writes NO hot-wallet FeeObservation: the old CONFIRMED-at-relay
+// BOUNTY_ROLLOVER insert is gone because a signed tx is not proof of receipt
+// (rewards accounting repair §4). Receipt attribution uses the actual
+// confirmed hot-wallet receipt plus the settlement facts snapshotted here.
 // Deferred-fee rows (feePendingAt) from before 2026-09-18 are still settled by
 // the legacy retry branch below; new payouts never set it.
 export async function sendBountyPayments (payouts, { models, wallet } = {}) {
@@ -211,6 +221,25 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
   let settled = 0
   const feeAddress = process.env.REWARDS_COLD_STORAGE_ADDRESS || process.env.PLATFORM_REWARDS_ADDRESS
 
+  // Where an AWARD/RECLAIM fee (or a legacy fee retry) will land must be frozen
+  // on the payout BEFORE createTx can move funds: a later env change must never
+  // reclassify an old settlement, and an identity that cannot be persisted must
+  // not dispatch. The stored value wins over today's environment forever after.
+  const resolveFeeDestination = async (payout) => {
+    if (payout.feeRecipientAddress) return payout.feeRecipientAddress
+    if (!feeAddress) {
+      logError({ payoutId: payout.id }, 'sendBountyPayments: no escrow fee destination configured; payout left QUEUED')
+      return null
+    }
+    try {
+      await models.bountyPayment.update({ where: { id: payout.id }, data: { feeRecipientAddress: feeAddress } })
+    } catch (err) {
+      logError({ payoutId: payout.id, err }, 'sendBountyPayments: fee destination persist failed before dispatch; payout left QUEUED (no funds moved)')
+      return null
+    }
+    return feeAddress
+  }
+
   for (const payout of [...queued, ...pendingFees]) {
     if (payout.feePendingAt) {
       // Fee-settlement retry for a payout whose fee was deferred on a prior
@@ -226,15 +255,24 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
         skipped += 1
         continue
       }
+      const feeRecipientAddress = await resolveFeeDestination(payout)
+      if (!feeRecipientAddress) continue
       let feeTxHash = null
+      let feeSettlement = null
+      let settlementError = null
       try {
         const feeTx = await w.createTx({
           accountIndex: 0,
-          address: feeAddress,
+          address: feeRecipientAddress,
           amount: payout.feePiconeros,
           relay: true
         })
         feeTxHash = toTxHash(feeTx.getHash())
+        try {
+          feeSettlement = await readFeeSettlement(feeTx, { feeRecipientAddress })
+        } catch (err) {
+          settlementError = err
+        }
         unlocked -= payout.feePiconeros
       } catch (err) {
         if (isBalanceError(err)) {
@@ -253,10 +291,23 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
       // so the retry stops (never re-relay = no double-send) and alert loudly
       // so ops records the relayed feeTxHash manually.
       try {
-        await models.bountyPayment.update({ where: { id: payout.id }, data: { feeTxHash, feePendingAt: null } })
+        const data = { feeTxHash, feePendingAt: null }
+        if (feeSettlement) {
+          data.feeSettlementNetworkFeePiconeros = feeSettlement.networkFeePiconeros
+          data.feeReceivedPiconeros = feeSettlement.feeReceivedPiconeros
+        }
+        await models.bountyPayment.update({ where: { id: payout.id }, data })
         clearSkipStreak(payout.id)
         settled += 1
         logInfo({ payoutId: payout.id, feeTxHash }, 'sendBountyPayments: deferred fee settlement relayed')
+        if (settlementError) {
+          // The fee moved; only its metadata is missing. Never FAILED, never a
+          // re-send — a later read-only escrow-history recovery fills it in.
+          logError({ payoutId: payout.id, txHash: feeTxHash, err: settlementError }, 'sendBountyPayments: CRITICAL — fee relayed but settlement metadata unavailable; recover from escrow history (do not re-send)')
+          alert('critical', 'fee settlement metadata missing',
+            `bounty payout ${payout.id} fee tx ${feeTxHash} relayed but its settlement facts could not be read (${settlementError.message}); do not re-send — recover from read-only escrow history`,
+            { dedupeKey: `fee-settlement-missing-${payout.id}` })
+        }
       } catch (err) {
         clearSkipStreak(payout.id)
         await models.bountyPayment.update({ where: { id: payout.id }, data: { feePendingAt: null } }).catch(() => {})
@@ -278,6 +329,14 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
     const recipient = payout.recipientAddress
     const amount = payout.piconeros
     const fee = payout.kind === 'ROLLOVER' ? 0n : payout.feePiconeros
+    // Freeze the fee destination before the tx can move funds. Rollover and
+    // fee-waived payouts have no separate fee leg, so there is nothing to
+    // freeze (a rollover's recipientAddress is already frozen at queue time).
+    let feeRecipientAddress = payout.feeRecipientAddress || null
+    if (fee > 0n && !feeRecipientAddress) {
+      feeRecipientAddress = await resolveFeeDestination(payout)
+      if (!feeRecipientAddress) continue
+    }
     // One tx settles both legs, with the miner fee subtracted from the LAST
     // destination (2026-09-18 fix): the ops cut for AWARD/RECLAIM, the payout
     // destination for ROLLOVER and fee-waived payouts. The winner/refund still
@@ -285,7 +344,7 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
     // (the fee rides inside the destination sum) — without a miner-fee reserve,
     // which an exactly funded escrow cannot carry. One network fee, not two.
     const destinations = fee > 0n
-      ? [{ address: recipient, amount }, { address: feeAddress, amount: fee }]
+      ? [{ address: recipient, amount }, { address: feeRecipientAddress, amount: fee }]
       : [{ address: recipient, amount }]
     let tx
     try {
@@ -312,30 +371,17 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
     const txHash = toTxHash(tx.getHash())
     logInfo({ payoutId: payout.id, txHash, kind: payout.kind }, 'sendBountyPayments: payout relayed')
 
-    // ROLLOVER: book the BOUNTY PORTION to the pool (100% rewards via the
-    // BOUNTY_ROLLOVER ledger source). The rewards wallet physically receives
-    // the full amount minus the network fee, the pool ledger books the bounty
-    // portion, and ops booked the fee gross at funding confirmation
-    // (BOUNTY_FEE, 100% ops) — the network-fee delta lands in the same
-    // unbooked-ops class as the AWARD/RECLAIM case (spec 2026-09-18).
-    if (payout.kind === 'ROLLOVER') {
-      // The bounty portion = the item's booked bountyPiconeros, NOT the relayed
-      // amount (bounty + fee). Booking `amount` would double-count the fee
-      // against the pool ledger (BOUNTY_FEE is already booked 100% ops at
-      // funding confirmation).
-      const item = await models.item.findUnique({ where: { id: payout.itemId } })
-      if (!item) {
-        logError({ payoutId: payout.id, itemId: payout.itemId, txHash }, 'sendBountyPayments: CRITICAL — rollover relayed and the bounty portion physically arrived at the rewards wallet, but the bounty item was not found; pool booking skipped; manual reconciliation required')
-      } else {
-        try {
-          await models.$queryRaw`
-            INSERT INTO "FeeObservation" ("txHash","payInId","feeType","postId","subName","recipientMajor","recipientMinor","piconeros","height","state","detectedAt","confirmedAt")
-            VALUES (${txHash}, NULL, 'BOUNTY_ROLLOVER'::"FeeType", ${payout.itemId}, NULL, 0, 0, ${item.bountyPiconeros}, NULL, 'CONFIRMED'::"ObservedState", NOW(), NOW())
-            ON CONFLICT ("txHash","recipientMajor","recipientMinor") DO NOTHING`
-        } catch (err) {
-          logError({ payoutId: payout.id, txHash, err }, 'sendBountyPayments: CRITICAL — rollover relayed but pool booking failed; manual reconciliation required')
-        }
-      }
+    // Snapshot the ACTUAL settlement of the signed tx — the real network fee
+    // and the post-subtraction destination amounts — instead of trusting the
+    // pre-subtraction request. A read failure must NOT fail or re-send an
+    // already-relayed payout: it is alerted after the SENT persist and
+    // recovered later from read-only escrow history.
+    let settlement = null
+    let settlementError = null
+    try {
+      settlement = await readBountySettlement(tx, { payout, feeRecipientAddress })
+    } catch (err) {
+      settlementError = err
     }
 
     // Best-effort block height for maturity: the bounties worker flips
@@ -346,11 +392,20 @@ export async function sendBountyPayments (payouts, { models, wallet } = {}) {
     try { height = await w.getTx(txHash).then(t => t.getHeight()).catch(() => null) } catch { /* ignore */ }
 
     try {
-      await models.bountyPayment.update({
-        where: { id: payout.id },
-        data: { state: 'SENT', txHash, height, sentAt: new Date() }
-      })
+      const data = { state: 'SENT', txHash, height, sentAt: new Date() }
+      if (settlement) {
+        data.networkFeePiconeros = settlement.networkFeePiconeros
+        data.recipientReceivedPiconeros = settlement.recipientReceivedPiconeros
+        data.feeReceivedPiconeros = settlement.feeReceivedPiconeros
+      }
+      await models.bountyPayment.update({ where: { id: payout.id }, data })
       sent += 1
+      if (settlementError) {
+        logError({ payoutId: payout.id, txHash, err: settlementError }, 'sendBountyPayments: CRITICAL — payout relayed but settlement metadata unavailable; recover from escrow history (do not re-send)')
+        alert('critical', 'payout settlement metadata missing',
+          `bounty payout ${payout.id} tx ${txHash} relayed but its settlement facts could not be read (${settlementError.message}); do not re-send — recover from read-only escrow history`,
+          { dedupeKey: `bounty-settlement-missing-${payout.id}` })
+      }
     } catch (err) {
       logError({ payoutId: payout.id, txHash, err }, 'sendBountyPayments: CRITICAL — tx relayed but DB update failed; manual reconciliation required')
       alert('critical', 'relayed-but-unpersisted bounty payout',

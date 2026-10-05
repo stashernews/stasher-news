@@ -27,6 +27,11 @@ jest.mock('../../../lib/lexical/server/html', () => ({
 
 const { Prisma } = require('@prisma/client')
 
+// walletScope() (used by getNextRewardsPool for the ledger read) needs an
+// explicit configured rewards-wallet identity.
+process.env.PLATFORM_REWARDS_ADDRESS = '5HOTTESTWALLET'
+process.env.MONERO_NETWORK = 'stagenet'
+
 let resolvers
 
 beforeEach(() => {
@@ -47,7 +52,7 @@ const CONFIG = {
   walletlessTipRewardsPct: 70
 }
 
-function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null } = {}) {
+function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null, ledger = {} } = {}) {
   const calls = jest.fn(async () => [{
     downvote: 1000000000n,
     posting: 1000000000n,
@@ -59,11 +64,25 @@ function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null } =
     time: new Date('2026-08-07T00:00:00.000Z'),
     ...inflow
   }])
-  return {
+  const models = {
     platformFeeConfig: { upsert: jest.fn(async () => config) },
-    rewardDistribution: { findFirst: jest.fn(async () => lastDistribution) },
+    rewardDistribution: {
+      findFirst: jest.fn(async () => lastDistribution),
+      // The ledger reader loads every recorded distribution (sweep facts).
+      findMany: jest.fn(async () => ledger.distributions ?? [])
+    },
+    rewardPayout: { findMany: jest.fn(async () => ledger.payouts ?? []) },
+    rewardsWalletTransaction: { findMany: jest.fn(async () => ledger.transactions ?? []) },
+    rewardsWalletReconciliation: { findMany: jest.fn(async () => ledger.audits ?? []) },
+    moneroAccount: {
+      findFirst: jest.fn(async () => ({ address: process.env.PLATFORM_REWARDS_ADDRESS, network: 'STAGENET' }))
+    },
     $queryRaw: calls
   }
+  // The pool read runs inside one Serializable transaction; an omitted mock
+  // must not silently exercise a weaker path.
+  models.$transaction = jest.fn(async fn => fn(models))
+  return models
 }
 
 describe('Query.rewards', () => {
@@ -95,15 +114,19 @@ describe('Query.rewards', () => {
     expect(reward.sources).toContainEqual({ name: 'rolled over', value: '6800000000' })
   })
 
-  test('active view pools inflow since the last distribution', async () => {
+  test('active view pools inflow since the last distribution through the shared reader', async () => {
     const periodEnd = new Date(Date.now() - 2 * DAY_MS)
     const models = makeModels({ lastDistribution: { periodEnd } })
     await resolvers.Query.rewards(null, {}, { models })
 
     const [sql] = models.$queryRaw.mock.calls[0]
     expect(sql.join('?')).toContain('"confirmedAt" >= ?')
+    // the eligible-receipt rule travels with the shared reader
+    expect(sql.join('?')).toContain('"walletReceipt" = true')
     // the window start binds the last distribution's periodEnd, not now-WEEK_MS
     expect(models.$queryRaw.mock.calls[0][1]).toEqual(periodEnd)
+    // one consistent Serializable read transaction wraps inflow + ledger
+    expect(models.$transaction).toHaveBeenCalledTimes(1)
   })
 
   test('active view computes the next distribution slot in SQL, not a moving now-based time', async () => {
@@ -116,11 +139,12 @@ describe('Query.rewards', () => {
     // in SQL so polling never sees a moving target.
     expect(sql.join('?')).toContain("date_trunc('week'")
     expect(sql.join('?')).toContain("interval '1 week'")
-    // the query binds only the inflow window start (periodStart, 9×: downvote,
+    // the query binds only the inflow window start (periodStart, 10×: downvote,
     // posting, territory, donate, donateRaw, boost, walletlesstip, bountyrollover,
-    // bountyfee) — no JS-computed time value. 1 strings array + 9 values = 10 args
-    // (regression guard against re-introducing a bound now+7d time).
-    expect(models.$queryRaw.mock.calls[0].length).toBe(10)
+    // bountyrolloverRewards, bountyfee) plus the 20 NULL end binds the open-cycle
+    // reader passes — no JS-computed time value. 1 strings array + 30 values = 31
+    // args (regression guard against re-introducing a bound now+7d time).
+    expect(models.$queryRaw.mock.calls[0].length).toBe(31)
   })
 
   test('drops zero-earmark sources', async () => {
@@ -181,6 +205,25 @@ describe('Query.rewards', () => {
     expect(reward.time.toISOString()).toBe('2026-07-28T00:00:00.000Z') // requested date, not periodEnd
     expect(reward.periodStart).toBe(periodStart)
     expect(reward.periodEnd).toBe(periodEnd)
+    // the source pie is read through the shared reader over the SAME covering
+    // window the distributor used (half-open [start, end) on every subselect)
+    const [sql, ...values] = models.$queryRaw.mock.calls[0]
+    expect(sql.join('?')).toContain('"walletReceipt" = true')
+    expect(values.filter(v => v === periodStart)).toHaveLength(10)
+    expect(values.filter(v => v === periodEnd)).toHaveLength(20)
+  })
+
+  test('historical rewards keep the rollover\'s exact mixed reward component through the shared reader', async () => {
+    // A rollover row stores the full net receipt (139) in piconeros and its
+    // exact reward component (100) in rewardsPiconeros; the ops remainder must
+    // not leak into the historical pool.
+    const models = makeModels({
+      inflow: { downvote: 0n, posting: 0n, territory: 0n, bountyrollover: 139n, bountyrolloverRewards: 100n }
+    })
+    const [reward] = await resolvers.Query.rewards(null, { when: ['2026-08-05'] }, { models })
+
+    expect(reward.total).toBe(100n)
+    expect(reward.sources).toEqual([{ name: 'bounty rollovers', value: '100' }])
   })
 
   test('historical rewards fall back to day inflow before the first distribution', async () => {
@@ -190,6 +233,12 @@ describe('Query.rewards', () => {
     expect(reward.periodStart).toBeUndefined()
     expect(reward.periodEnd).toBeUndefined()
     expect(reward.total).toBe(1000000000n + 700000000n + 60000000000n) // stub earmark
+    // pre-first-distribution fallback = the requested UTC day, read through the
+    // same shared reader (no separate SQL path can drift)
+    const d = new Date('2026-08-05').getTime()
+    const [, ...values] = models.$queryRaw.mock.calls[0]
+    expect(values.filter(v => v instanceof Date && v.getTime() === d)).toHaveLength(10)
+    expect(values.filter(v => v instanceof Date && v.getTime() === d + DAY_MS)).toHaveLength(20)
   })
 
   test('rejects too many dates and invalid dates', async () => {

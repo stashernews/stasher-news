@@ -4,7 +4,6 @@ import { makeIntegratedAddress } from '../monero/integratedAddress'
 import { buildMoneroUri } from '../monero/uri'
 import { bountyFeePiconeros } from '../monero/bounties'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
-import { logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 import { REQUIRED_CONFIRMATIONS, BOUNTY_MIN_PICONEROS } from '@/lib/constants'
 
@@ -14,8 +13,10 @@ import { REQUIRED_CONFIRMATIONS, BOUNTY_MIN_PICONEROS } from '@/lib/constants'
 // PENDING ObservedBounty, and returns a monero: URI paying bounty + fee in one
 // transaction. The webhook (pages/api/monero/webhook.js) drives
 // PENDING -> DETECTED -> CONFIRMED; on CONFIRMED the Item flips to FUNDED with
-// the actual on-chain amount and the platform fee is booked as a BOUNTY_FEE
-// FeeObservation (Task 4 settles the escrow and books the fee out).
+// the actual on-chain amount and the platform fee is FROZEN on the Item
+// (bountyFeePiconeros) so dispositions settle exactly that fee out of escrow —
+// funding never books hot-wallet cash (the coins are still in escrow; see
+// driveBountyFunding).
 
 // Resolve the bounty escrow MoneroAccount (label 'bounty_escrow').
 async function getBountyEscrowAccount (models) {
@@ -151,25 +152,23 @@ async function assertBountyStatus (models, itemId, expected, label) {
   return item
 }
 
-// Disposition fee = the fee BOOKED at funding confirmation (the BOUNTY_FEE
-// FeeObservation driveBountyFunding created), not a recomputation on the
-// already-fee-deducted bounty: f(booked) is a fee on a fee and never equals the
-// booked fee, so it leaves a residual orphaned in escrow (e.g. 5227: booked fee
-// 0.0024 but f(0.0096) = 0.00192 → 0.00048 stuck). Settling the booked fee
-// makes payout total = escrow received, so the signer zeroes the escrow exactly
-// for every funded bounty. Falls back to the formula (status quo) when the
-// ledger row is missing (hand-seeded items) and flags it for reconciliation.
-async function bookedBountyFeePiconeros (models, itemId, bookedPiconeros, config) {
-  const row = await models.feeObservation.findFirst({
-    where: { postId: itemId, feeType: 'BOUNTY_FEE' },
-    orderBy: { id: 'asc' }
-  })
-  if (row) return row.piconeros
-  logError({ itemId }, 'bookedBountyFeePiconeros: BOUNTY_FEE ledger row missing — fell back to formula fee; escrow may not zero exactly')
-  alert('critical', 'missing BOUNTY_FEE ledger row',
-    `bounty item ${itemId} has no BOUNTY_FEE FeeObservation at disposition; formula fee used, escrow may not zero exactly; manual reconciliation required`,
-    { dedupeKey: `bounty-missing-fee-row-${itemId}` })
-  return bountyFeePiconeros(bookedPiconeros, config)
+// Disposition fee = the fee FROZEN on the Item at funding confirmation
+// (bountyFeePiconeros, written once by the FUNDED flip). The fee piconeros stay
+// in escrow with the bounty, so settling the frozen fee makes payout total =
+// escrow received and the signer zeroes the escrow exactly for every funded
+// bounty. Never recompute from config: f(booked) is a fee on a fee and never
+// equals the booked fee, so it leaves a residual orphaned in escrow (e.g. 5227:
+// booked fee 0.0024 but f(0.0096) = 0.00192 → 0.00048 stuck). NULL means the
+// terms are UNKNOWN (legacy or hand-seeded item), never zero: fail closed,
+// alert for reconciliation, and refuse the disposition.
+export async function bookedBountyFeePiconeros (models, itemId) {
+  const row = await models.item.findUnique({ where: { id: itemId }, select: { bountyFeePiconeros: true } })
+  if (row?.bountyFeePiconeros == null) {
+    alert('critical', 'missing frozen bounty fee', `bounty item ${itemId}: frozen fee unknown; disposition refused`,
+      { dedupeKey: `bounty-missing-frozen-fee-${itemId}` })
+    throw new GqlInputError('frozen bounty fee is unknown; reconciliation required')
+  }
+  return row.bountyFeePiconeros
 }
 
 export default {
@@ -196,8 +195,6 @@ export default {
       const winnerAccount = await models.moneroAccount.findFirst({ where: { ownerUserId: winner.userId } })
       if (!winnerAccount) throw new GqlInputError('the winner must attach a wallet to receive the bounty')
 
-      const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
-
       return await models.$transaction(async (tx) => {
         const claimed = await tx.$queryRaw`
           UPDATE "Item" SET "bountyStatus" = 'AWARDED', "bountyWinnerCommentId" = ${winner.id}::int
@@ -206,7 +203,7 @@ export default {
         if (!claimed || claimed.length === 0) {
           throw new GqlInputError('bounty is no longer available to award')
         }
-        const feePiconeros = await bookedBountyFeePiconeros(tx, item.id, item.bountyPiconeros, config)
+        const feePiconeros = await bookedBountyFeePiconeros(tx, item.id)
         await tx.item.update({
           where: { id: winner.id },
           data: { bountyAwardedAt: new Date() }
@@ -232,14 +229,13 @@ export default {
       if (item.userId !== me.id) throw new GqlInputError('only the bounty author can reclaim')
       const authorAccount = await models.moneroAccount.findFirst({ where: { ownerUserId: me.id } })
       if (!authorAccount) throw new GqlInputError('attach a wallet to reclaim the bounty')
-      const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       return await models.$transaction(async (tx) => {
         const claimed = await tx.$queryRaw`
           UPDATE "Item" SET "bountyStatus" = 'REFUNDED'
           WHERE id = ${item.id}::int AND "bountyStatus" = 'EXPIRED'
           RETURNING id::int AS id`
         if (!claimed || claimed.length === 0) throw new GqlInputError('bounty is no longer reclaimable')
-        const feePiconeros = await bookedBountyFeePiconeros(tx, item.id, item.bountyPiconeros, config)
+        const feePiconeros = await bookedBountyFeePiconeros(tx, item.id)
         return tx.bountyPayment.create({
           data: {
             itemId: item.id,
@@ -259,16 +255,15 @@ export default {
       if (!me) throw new GqlAuthenticationError()
       const item = await assertBountyStatus(models, id, 'EXPIRED', 'expired')
       if (item.userId !== me.id) throw new GqlInputError('only the bounty author can roll over')
-      const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       return await models.$transaction(async (tx) => {
         const claimed = await tx.$queryRaw`
           UPDATE "Item" SET "bountyStatus" = 'ROLLED_OVER'
           WHERE id = ${item.id}::int AND "bountyStatus" = 'EXPIRED'
           RETURNING id::int AS id`
         if (!claimed || claimed.length === 0) throw new GqlInputError('bounty is no longer available to roll over')
-        // Full escrow balance = booked bounty + booked fee (= the funding
+        // Full escrow balance = booked bounty + frozen fee (= the funding
         // observed amount), so the escrow zeroes exactly.
-        const feePiconeros = await bookedBountyFeePiconeros(tx, item.id, item.bountyPiconeros, config)
+        const feePiconeros = await bookedBountyFeePiconeros(tx, item.id)
         return tx.bountyPayment.create({
           data: {
             itemId: item.id,

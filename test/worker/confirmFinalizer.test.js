@@ -769,7 +769,7 @@ async function createBountyRoot (userId, title, bountyPiconeros) {
   return postId
 }
 
-test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs driveBountyFunding (Item FUNDED + BOUNTY_FEE booked) — true backstop for a missed webhook CONFIRMED callback', async () => {
+test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs driveBountyFunding (Item FUNDED + fee frozen, no cash row) — true backstop for a missed webhook CONFIRMED callback', async () => {
   const authorId = await createUser(); created.users.push(authorId)
   const postId = await createBountyRoot(authorId, 'bounty-confirm-target', 5_000_000_000n)
   const account = await seedAccount()
@@ -793,15 +793,16 @@ test('a DETECTED ObservedBounty becomes CONFIRMED at 10 confirmations AND runs d
   expect(after.confirmedAt).toBeInstanceOf(Date)
 
   // The finalizer is the BACKSTOP for a missed webhook CONFIRMED callback, so it
-  // must run the same ledger effects as driveBountyFunding — not just flip the
-  // row. Item -> FUNDED with bountyPiconeros = observed − fee (fee booked from
-  // the DECLARED bounty; observed = declared + fee here, so 6e9 → 5e9 booked).
+  // must run the same funding effects as the webhook — not just flip the row.
+  // Item -> FUNDED with bountyPiconeros = observed − fee and the fee terms
+  // FROZEN from the DECLARED bounty (observed = declared + fee here, so 6e9 →
+  // 5e9 booked). Funding stays escrow-internal: no hot-wallet cash row.
   const item = await prisma.item.findUnique({ where: { id: postId } })
   expect(item.bountyStatus).toBe('FUNDED')
   expect(item.bountyPiconeros).toBe(5_000_000_000n)
+  expect(item.bountyFeePiconeros).toBe(feePiconeros)
   expect(item.bountyConfirmedAt).toBeInstanceOf(Date)
-  const fee = await prisma.feeObservation.findFirst({ where: { postId, feeType: 'BOUNTY_FEE' } })
-  expect(fee).toMatchObject({ piconeros: feePiconeros, state: 'CONFIRMED', height: 700 })
+  expect(await prisma.feeObservation.count({ where: { postId, feeType: 'BOUNTY_FEE' } })).toBe(0)
 })
 
 test('a DETECTED ObservedBounty stays DETECTED below 10 confirmations', async () => {
@@ -857,9 +858,8 @@ test('a NULL-height DETECTED bounty (webhook CONFIRMED callback missed at 0-conf
   expect(after.confirmations).toBe(10)
   const item = await prisma.item.findUnique({ where: { id: postId } })
   expect(item.bountyStatus).toBe('FUNDED')
-  const fee = await prisma.feeObservation.findFirst({ where: { postId, feeType: 'BOUNTY_FEE' } })
-  expect(fee).not.toBeNull()
-  expect(fee.state).toBe('CONFIRMED')
+  expect(item.bountyFeePiconeros).toBe(feePiconeros)
+  expect(await prisma.feeObservation.count({ where: { postId, feeType: 'BOUNTY_FEE' } })).toBe(0)
 })
 
 test('a NULL-height DETECTED bounty whose tx is still in mempool (lws reports height null) is left DETECTED, not funded', async () => {

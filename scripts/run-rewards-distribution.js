@@ -2,11 +2,13 @@
 //
 //   sndev monero distribute
 //
-// Imports runDistributionOnce (the testable core, no pg-boss) and prints the
-// resulting RewardDistribution + its QUEUED RewardPayout rows. This is the
-// non-cron path for running a distribution out of band. Task 9's hot-wallet
-// signer is what actually sends the QUEUED payouts on-chain; this script only
-// earmarks the pool and creates the payout ledger.
+// Imports runDistributionOnce (the testable core) and prints the resulting
+// RewardDistribution + its RewardPayout rows. This is the non-cron path for
+// running a distribution out of band. It is NOT ledger-only: the core enters
+// the same completion path as the cron — the real hot-wallet signer broadcasts
+// the QUEUED payouts on-chain and, when the run settles an eligible COMPLETE,
+// the delayed ops-earmark sweep is scheduled as a one-shot through this
+// script's explicitly owned send-only queue client (withOpsSweepQueue).
 //
 // This is a .js (not .mjs) entry run via `tsx --tsconfig jsconfig.json`, mirroring
 // worker/index.js: the rewardsDistributor module imports the `@/` alias, which
@@ -14,6 +16,7 @@
 // exposes the module's named ESM exports correctly.
 import { PrismaClient } from '@prisma/client'
 import { runDistributionOnce } from '@/worker/rewardsDistributor'
+import { withOpsSweepQueue } from '@/lib/opsSweepQueue'
 
 const prisma = new PrismaClient()
 
@@ -22,7 +25,7 @@ function piconerosToXmr (piconeros) {
 }
 
 async function main () {
-  const dist = await runDistributionOnce({ models: prisma })
+  const dist = await withOpsSweepQueue(boss => runDistributionOnce({ models: prisma, boss }))
 
   console.log('--- RewardDistribution ---')
   console.log(`  id                   : ${dist.id}`)
@@ -45,5 +48,5 @@ async function main () {
 }
 
 main()
-  .catch(e => { console.error(e); process.exit(1) })
+  .catch(e => { console.error(e); process.exitCode = 1 })
   .finally(() => prisma.$disconnect())

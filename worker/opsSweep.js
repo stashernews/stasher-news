@@ -16,6 +16,14 @@ import { alert } from '@/lib/alert'
 // forward via opsRolledOverPiconeros, so a skipped tick costs nothing and the
 // next weekly distribution re-enqueues.
 //
+// The sweep itself is the fund-safety boundary (Task 9 / sweepOpsEarmark): it
+// reconciles the journal, bounds the spend by the ledger facts (ALL outstanding
+// rewards, the next rewards pool, the standing fee reserve) plus each tx's real
+// network fee, and returns FAILED with its own specific CRITICAL accounting
+// alert — without touching any distribution state — when the rewards-wallet
+// accounting is unresolved. This handler adds the generic FAILED alert on top
+// and never mutates distribution state itself.
+//
 // Exports (mirrors worker/rewardsDistributor.js):
 //   - runOpsSweepOnce: the testable core (no pg-boss, injectable sweep).
 //   - opsSweep: the pg-boss handler.

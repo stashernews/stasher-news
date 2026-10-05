@@ -606,6 +606,11 @@ model Item {
   bountyPiconeros       BigInt          @default(0)
   bountyStatus          BountyStatus    @default(UNFUNDED)
   bountyConfirmedAt     DateTime?
+  // Frozen escrow fee terms (rewards accounting repair, §3.1): the exact fee the
+  // funding confirmation booked alongside the net prize. NULL means UNKNOWN
+  // legacy terms, NOT zero — dispositions fail closed on missing terms rather
+  // than recomputing under a changed fee config. Abandonment freezes 0.
+  bountyFeePiconeros    BigInt?
   // A-13 award indication: the winning comment (bountyAwardedAt) and the link
   // from the bounty post to it (bountyWinnerCommentId) — set atomically in
   // the payBounty claim transaction. BountyPayment stays the historical record.
@@ -1486,6 +1491,24 @@ enum OpsSweepState {
   FAILED
 }
 
+// Rewards-wallet transaction journal (rewards accounting repair §3.3).
+enum RewardsWalletTxKind {
+  PAYOUT
+  OPS_SWEEP
+  CONSOLIDATION
+}
+
+enum RewardsWalletTxState {
+  PREPARED
+  RELAYED
+  NOT_RELAYED
+}
+
+enum RewardsReconciliationKind {
+  CHECK
+  APPLY
+}
+
 // StasherNews fee ledger (§6.2). Posting/territory fees land on the platform
 // rewards wallet via dedicated subaddresses; the rewardsWalletObserver attributes them.
 enum FeeType {
@@ -1775,6 +1798,16 @@ model BountyPayment {
   sentAt           DateTime?
   confirmedAt      DateTime?
 
+  // Settlement facts captured at dispatch (rewards accounting repair §3.1):
+  // where the fee actually went and the transaction's real miner fee / received
+  // amounts. Environment changes cannot retrospectively move an old fee; the
+  // frozen destination is the settlement authority.
+  feeRecipientAddress              String?
+  networkFeePiconeros              BigInt?
+  recipientReceivedPiconeros       BigInt?
+  feeReceivedPiconeros             BigInt?
+  feeSettlementNetworkFeePiconeros BigInt?
+
   item   Item @relation(fields: [itemId], references: [id])
   winner User @relation(fields: [winnerUserId], references: [id])
 
@@ -1829,6 +1862,15 @@ model FeeObservation {
   // StasherNews donation split (fee-allocation v2): the payer's chosen rewards
   // share copied from the PayIn at attribution; null = 100% to the pool.
   donationRewardsPct Int?
+  // Hot-wallet receipt eligibility (rewards accounting repair §3.2): only rows
+  // with walletReceipt = true AND state CONFIRMED count as hot-wallet receipts.
+  // Legacy funding-time BOUNTY_FEE rows are retained as historical evidence but
+  // marked false; new funding/abandonment writes no FeeObservation at all.
+  walletReceipt    Boolean @default(true)
+  // Exact rewards component for a receipt that needs an explicit mixed split
+  // (e.g. one rollover output carrying prize + fee). NULL uses the source's
+  // existing allocation rule. Enforced 0 <= rewardsPiconeros <= piconeros.
+  rewardsPiconeros BigInt?
 
   payIn PayIn? @relation(fields: [payInId], references: [id])
 
@@ -1856,9 +1898,15 @@ model RewardDistribution {
   opsSweptPiconeros      BigInt             @default(0)
   opsSweepTxHash         String?
   opsSweepState          OpsSweepState      @default(NOT_SWEEPED)
+  // Cumulative RELAYED network cost already included in opsAvailablePiconeros
+  // (rewards accounting repair §5). Legacy rows default to zero; unswept ops
+  // carry reads as opsAvailable - opsSwept - (Fnow - this). Fees incurred after
+  // creation reduce the active carry immediately, exactly once.
+  opsNetworkFeesAccountedPiconeros BigInt @default(0)
 
-  payouts RewardPayout[]
-  earns   Earn[]
+  payouts            RewardPayout[]
+  earns              Earn[]
+  walletTransactions RewardsWalletTransaction[]
 }
 
 // A single curator payout within a distribution (real on-chain tx from the hot wallet).
@@ -1876,6 +1924,63 @@ model RewardPayout {
   curator      User               @relation(fields: [curatorId], references: [id])
 
   @@index([distributionId])
+}
+
+// Rewards-wallet transaction journal (rewards accounting repair §3.3): one row
+// per hot-wallet send, unique by (network, walletAddress, txHash). A PREPARED
+// fee is not an incurred expense; only RELAYED fees count. Never stores keys,
+// signed transaction blobs, or wallet credentials. RewardPayout /
+// RewardDistribution remain the authority for reward and sweep principal —
+// this journal is not a second payout eligibility engine. metadata is a closed
+// union validated in code: payout members are
+// { payoutId, recipientAddress, piconeros: decimalString }; an ops sweep stores
+// its destination; consolidation stores only the primary destination and
+// selfTransfer=true (principal 0).
+model RewardsWalletTransaction {
+  id                  BigInt               @id @default(autoincrement())
+  network             Network
+  walletAddress       String
+  txHash              String
+  kind                RewardsWalletTxKind
+  accountIndex        Int
+  distributionId      Int?
+  principalPiconeros  BigInt
+  networkFeePiconeros BigInt
+  metadata            Json
+  state               RewardsWalletTxState @default(PREPARED)
+  preparedAt          DateTime             @default(now())
+  relayAttemptedAt    DateTime?
+  relayedAt           DateTime?
+
+  distribution RewardDistribution? @relation(fields: [distributionId], references: [id])
+
+  @@unique([network, walletAddress, txHash])
+  @@index([network, walletAddress, state])
+  @@index([distributionId])
+}
+
+// Idempotent reconciliation application audit (rewards accounting repair §8):
+// a CHECK run persists its read-only evidence; an APPLY run is keyed by the
+// manifest digest so duplicate application is a no-op. The table supports CHECK
+// evidence publication only when an operator explicitly requests it.
+model RewardsWalletReconciliation {
+  id                     BigInt                     @id @default(autoincrement())
+  digest                 String
+  kind                   RewardsReconciliationKind
+  network                Network
+  walletAddress          String
+  height                 Int
+  blockHash              String
+  ledgerFingerprint      String
+  evidenceDigest         String
+  positiveDriftPiconeros BigInt
+  report                 Json
+  backupReference        String?
+  checkedAt              DateTime                   @default(now())
+  appliedAt              DateTime?
+
+  @@unique([digest, kind])
+  @@index([network, walletAddress, checkedAt])
 }
 
 // Single-row (id=1) cross-process health bridge. The worker process is the only

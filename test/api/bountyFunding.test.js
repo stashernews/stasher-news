@@ -7,15 +7,16 @@
 // (bounty + fee in one payment). driveBountyFunding is the webhook's CONFIRMED
 // branch: it flips the ObservedBounty to CONFIRMED, flips the Item to FUNDED
 // with bountyPiconeros = observed − fee (net of the platform fee, so
-// dispositions can zero the escrow exactly), and books the BOUNTY_FEE ledger
-// row born CONFIRMED at the funding height.
+// dispositions can zero the escrow exactly), and FREEZES the fee terms on
+// Item.bountyFeePiconeros. Funding books NO hot-wallet cash row — the fee (and
+// the bounty) piconeros are still sitting in escrow, not in the rewards wallet.
 //
 // The lwsClient is stubbed (DI seam on the Apollo `monero` context); everything
 // else is real DB behaviour against a live, migrated database — mirroring
 // test/api/resolvers/monero.test.js.
 
 import { PrismaClient } from '@prisma/client'
-import { initiateBountyFundingCore } from '@/api/resolvers/bounty'
+import { initiateBountyFundingCore, bookedBountyFeePiconeros } from '@/api/resolvers/bounty'
 import { driveBountyFunding, recordBountyReceipt, bountyExpectedPiconeros, handleWebhook } from '@/pages/api/monero/webhook'
 import { updateItem } from '@/api/resolvers/item'
 import { REQUIRED_CONFIRMATIONS } from '@/lib/constants'
@@ -203,7 +204,7 @@ test('initiateBountyFundingCore mints the integrated address, registers the webh
   expect(after.bountyStatus).toBe('PENDING_FUNDING')
 })
 
-test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount and books the BOUNTY_FEE ledger row', async () => {
+test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount and freezes the fee terms on the Item without booking hot-wallet cash', async () => {
   await ensureFeeConfig()
   const userId = await createUser()
   const item = await createPost(userId)
@@ -242,21 +243,44 @@ test('driveBountyFunding confirms the funding with the ACTUAL on-chain amount an
   expect(afterItem.bountyPiconeros).toBe(observed - feePiconeros)
   expect(afterItem.bountyConfirmedAt).toBeInstanceOf(Date)
 
-  // BOUNTY_FEE booked born-CONFIRMED at the funding height, computed from the
-  // declared bounty: max(1e12 / 100, 1e10) = 1e10 — the min-fee floor dominates
-  // (1% of 1e12 is only 1e10, exactly the floor).
-  const fee = await prisma.feeObservation.findFirst({ where: { txHash, feeType: 'BOUNTY_FEE' } })
-  expect(fee).toMatchObject({
-    payInId: null,
-    postId: item.id,
-    recipientMajor: 0,
-    recipientMinor: 0,
-    piconeros: feePiconeros,
-    height: 123456,
-    state: 'CONFIRMED'
+  // The fee terms are FROZEN on the Item at the funding height, computed from
+  // the DECLARED bounty: max(1e12 / 100, 1e10) = 1e10 — the min-fee floor
+  // dominates (1% of 1e12 is only 1e10, exactly the floor).
+  expect(afterItem.bountyFeePiconeros).toBe(10_000_000_000n)
+  // No hot-wallet cash row: the money is still in escrow, so booking any
+  // CONFIRMED BOUNTY_FEE receipt here would fabricate rewards-wallet inflow.
+  expect(await prisma.feeObservation.count({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })).toBe(0)
+})
+
+test('driveBountyFunding freezes the DECLARED fee on an OVERPAYMENT: the booked prize absorbs the excess without booking hot-wallet cash', async () => {
+  await ensureFeeConfig()
+  const userId = await createUser()
+  const item = await createPost(userId)
+  await seedEscrow()
+  await seedPayer(userId)
+
+  const out = await initiateBountyFundingCore({ postId: item.id, models: prisma, monero: makeMockLws(), me: { id: userId } })
+  const bounty = await prisma.observedBounty.findFirst({ where: { paymentId: out.paymentId } })
+  created.bounties.push(bounty.id)
+
+  // The payer sends the 1.01 quote plus 0.01 extra (1.02 total). The frozen fee
+  // still comes from the DECLARED bounty (1e12 → 1e10 floor, never
+  // f(observed)); the excess rides into the booked prize
+  // (bountyPiconeros = counted − fee).
+  const observed = 1_020_000_000_000n
+  const txHash = 'ac'.repeat(32)
+  await prisma.$transaction(async (tx) => {
+    await recordBountyReceipt(tx, bounty, { txHash, piconeros: observed, height: 123458 })
+    await driveBountyFunding(tx, bounty, { txHash, height: 123458, confirmations: 10 })
   })
-  expect(fee.piconeros).toBe(10_000_000_000n)
-  expect(fee.confirmedAt).toBeInstanceOf(Date)
+
+  const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
+  expect(afterItem.bountyStatus).toBe('FUNDED')
+  expect(afterItem.bountyPiconeros).toBe(1_010_000_000_000n)
+  // Declared-based frozen fee, unaffected by the overpayment…
+  expect(afterItem.bountyFeePiconeros).toBe(10_000_000_000n)
+  // …and still no hot-wallet cash row.
+  expect(await prisma.feeObservation.count({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })).toBe(0)
 })
 
 // Regression (2026-08-11 live, items/5227): a minimum bounty (0.01 XMR) paid at
@@ -290,9 +314,10 @@ test('driveBountyFunding books the fee from the DECLARED bounty: a minimum bount
   expect(afterItem.bountyStatus).toBe('FUNDED')
   expect(afterItem.bountyPiconeros).toBe(10_000_000_000n)
 
-  // BOUNTY_FEE booked from the declared bounty (2e9), not the observed 2.4e9.
-  const fee = await prisma.feeObservation.findFirst({ where: { txHash, feeType: 'BOUNTY_FEE' } })
-  expect(fee.piconeros).toBe(2_000_000_000n)
+  // Frozen on the Item from the DECLARED bounty (2e9), never recomputed from
+  // the observed 2.4e9 at disposition, and no hot-wallet cash row.
+  expect(afterItem.bountyFeePiconeros).toBe(2_000_000_000n)
+  expect(await prisma.feeObservation.count({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })).toBe(0)
 })
 
 test('re-entry: PENDING_FUNDING returns the SAME payment id and integrated address without re-minting', async () => {
@@ -558,7 +583,7 @@ test('driveBountyFunding holds an underfunded bounty at DETECTED, books no fee, 
   expect(feeRows).toHaveLength(0)
 })
 
-test('receipts accumulate: a top-up crosses the quote and funds with the cumulative total, booking exactly one fee', async () => {
+test('receipts accumulate: a top-up crosses the quote and funds with the cumulative total, freezing exactly one fee term', async () => {
   await ensureFeeConfig()
   const userId = await createUser()
   const item = await createPost(userId)
@@ -593,8 +618,8 @@ test('receipts accumulate: a top-up crosses the quote and funds with the cumulat
   const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
   expect(afterItem.bountyStatus).toBe('FUNDED')
   expect(afterItem.bountyPiconeros).toBe(1_010_000_000_000n - 10_000_000_000n)
-  const feeRows = await prisma.feeObservation.findMany({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })
-  expect(feeRows).toHaveLength(1)
+  expect(afterItem.bountyFeePiconeros).toBe(10_000_000_000n)
+  expect(await prisma.feeObservation.count({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })).toBe(0)
 })
 
 // --- zero-conf count-eligibility (Task 11) ---
@@ -697,10 +722,11 @@ test('backfilling height makes the receipt count-eligible; the funding flips FUN
   expect(funded).toBe(true)
   const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
   expect(afterItem.bountyStatus).toBe('FUNDED')
-  // Booked from the COUNTED amount (1.01e12 - 1e10 floor fee), not the display fold.
+  // Booked from the COUNTED amount (1.01e12 - 1e10 floor fee), not the display
+  // fold, and the fee terms are frozen on the Item (no cash row).
   expect(afterItem.bountyPiconeros).toBe(1_000_000_000_000n)
-  const fee = await prisma.feeObservation.findFirst({ where: { txHash, feeType: 'BOUNTY_FEE' } })
-  expect(fee).toMatchObject({ piconeros: 10_000_000_000n, height: 100, state: 'CONFIRMED' })
+  expect(afterItem.bountyFeePiconeros).toBe(10_000_000_000n)
+  expect(await prisma.feeObservation.count({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })).toBe(0)
 })
 
 test('a diverging provisional amount is corrected at the height transition and alerts (deduped per bounty+tx)', async () => {
@@ -774,6 +800,8 @@ test('webhook accumulates bounty receipts across partial payments and funds on t
   const afterItem = await prisma.item.findUnique({ where: { id: item.id } })
   expect(afterItem.bountyStatus).toBe('FUNDED')
   expect(afterItem.bountyPiconeros).toBe(1_000_000_000_000n)
+  expect(afterItem.bountyFeePiconeros).toBe(10_000_000_000n)
+  expect(await prisma.feeObservation.count({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })).toBe(0)
   const receipts = await prisma.observedBountyReceipt.findMany({ where: { bountyId: bounty.id } })
   expect(receipts).toHaveLength(2)
 })
@@ -797,4 +825,23 @@ test('re-entry after a PARTIAL payment quotes the REMAINDER and reports received
   expect(second.uri).toContain('tx_amount=0.41')
   expect(second.receivedPiconeros).toBe(600_000_000_000n)
   expect(second.expectedPiconeros).toBe(1_010_000_000_000n)
+})
+
+// --- disposition fee terms: frozen read, fail-closed on NULL ---
+
+test.each([0n, 2_000_000_000n, 9007199254740993n])('disposition reads frozen fee %s exactly', async fee => {
+  const models = { item: { findUnique: jest.fn().mockResolvedValue({ bountyFeePiconeros: fee }) } }
+  expect(await bookedBountyFeePiconeros(models, 42)).toBe(fee)
+})
+
+test('unknown frozen terms cannot be replaced with a formula', async () => {
+  const models = { item: { findUnique: jest.fn().mockResolvedValue({ bountyFeePiconeros: null }) } }
+  await expect(bookedBountyFeePiconeros(models, 42)).rejects.toThrow(/frozen.*fee/i)
+  // Fail-closed: the refusal pages operators for reconciliation.
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    'missing frozen bounty fee',
+    expect.stringContaining('bounty item 42'),
+    { dedupeKey: 'bounty-missing-frozen-fee-42' }
+  )
 })

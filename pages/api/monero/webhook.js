@@ -52,8 +52,8 @@ import { clientIp } from '@/lib/client-ip'
 //   PENDING  -> DETECTED  (0-conf callback: record tx/height/actual piconeros,
 //                          consume the BountyPidMap)
 //   DETECTED -> CONFIRMED (N-conf callback: flip Item to FUNDED with the
-//                          actual on-chain amount, book the BOUNTY_FEE ledger
-//                          row — see driveBountyFunding)
+//                          actual on-chain amount and freeze the fee terms on
+//                          the Item — see driveBountyFunding)
 //
 // lws treats any non-200 as a delivery failure and retries, so every path
 // returns 200 except auth failures (401) and non-POST requests (405).
@@ -522,8 +522,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   // (driveBountyFunding) and backfill height MUST NOT be gated on a live pid map
   // — otherwise the N-conf CONFIRMED callback is unreachable and the funding
   // stays stuck at DETECTED forever (the bug behind item 2808). Once DETECTED,
-  // idempotency is handled by the CONFIRMED state guard (no-op) + the
-  // FeeObservation ON CONFLICT, not by the pid map.
+  // idempotency is handled by the CONFIRMED state guard (no-op) and the
+  // deterministic funding writes, not by the pid map.
   const bounty = await models.observedBounty.findFirst({
     where: { paymentId },
     include: {

@@ -17,10 +17,18 @@ import {
   moneroMonerodHeight,
   moneroReorgsTotal,
   moneroOpsPendingPiconeros,
+  moneroRewardsNetworkFeesPiconeros,
+  moneroOpsDeficitPiconeros,
+  moneroRewardsAccountingUncertain,
   workerPgjobsFailedTotal,
   moneroDetectionLevelTotal,
   moneroTxNotFoundExclusionsTotal
 } from '@/lib/metrics'
+
+// getNextRewardsPool (invoked by collectDBBackedMetrics) reads the ledger via
+// walletScope(), which needs a configured rewards-wallet identity.
+process.env.PLATFORM_REWARDS_ADDRESS = '5METRICSHOT'
+process.env.MONERO_NETWORK = 'stagenet'
 
 const ALL_NAMES = [
   'monero_pending_tips',
@@ -35,6 +43,9 @@ const ALL_NAMES = [
   'monero_monerod_height',
   'monero_reorgs_total',
   'monero_ops_pending_piconeros',
+  'monero_rewards_network_fees_piconeros',
+  'monero_ops_deficit_piconeros',
+  'monero_rewards_accounting_uncertain',
   'worker_pgjobs_failed_total',
   'monero_detection_level_total',
   'monero_tx_not_found_exclusions_total'
@@ -61,7 +72,9 @@ test('every metric is exported as a prom-client metric instance', () => {
     moneroPendingTips, moneroRewardsWalletBalancePiconeros, moneroDistributionStatus,
     moneroWebhooksReceivedTotal, moneroTipsRecoveredTotal, moneroTipsExpiredTotal, moneroJobDurationSeconds, moneroLwsUp,
     moneroMonerodUp, moneroMonerodHeight, moneroReorgsTotal,
-    moneroOpsPendingPiconeros, workerPgjobsFailedTotal,
+    moneroOpsPendingPiconeros, moneroRewardsNetworkFeesPiconeros,
+    moneroOpsDeficitPiconeros, moneroRewardsAccountingUncertain,
+    workerPgjobsFailedTotal,
     moneroDetectionLevelTotal, moneroTxNotFoundExclusionsTotal
   ]
   for (const m of metrics) {
@@ -242,6 +255,7 @@ test('collectDBBackedMetrics maps the latest distribution status + opsPending pi
         boost: 0n,
         walletlesstip: 0n,
         bountyrollover: 0n,
+        bountyrolloverRewards: 0n,
         bountyfee: 0n,
         time: new Date('2026-09-21T00:00:00.000Z')
       }]
@@ -257,16 +271,128 @@ test('collectDBBackedMetrics maps the latest distribution status + opsPending pi
     },
     rewardDistribution: {
       findFirst: jest.fn().mockResolvedValue({
+        id: 1,
         status: 'SENDING',
         periodEnd: new Date('2026-09-14T00:00:00.000Z'),
         opsAvailablePiconeros: 1_000_000_000_000n,
         opsSweptPiconeros: 600_000_000_000n
-      })
-    }
+      }),
+      findMany: jest.fn().mockResolvedValue([{
+        id: 1,
+        opsAvailablePiconeros: 1_000_000_000_000n,
+        opsSweptPiconeros: 600_000_000_000n,
+        opsSweepTxHash: null
+      }])
+    },
+    rewardPayout: { findMany: jest.fn().mockResolvedValue([]) },
+    rewardsWalletTransaction: { findMany: jest.fn().mockResolvedValue([]) },
+    rewardsWalletReconciliation: { findMany: jest.fn().mockResolvedValue([]) },
+    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ address: '5METRICSHOT', network: 'STAGENET' }) }
   }
+  models.$transaction = async fn => fn(models)
   await collectDBBackedMetrics(models)
   expect(await valueOf('monero_distribution_status')).toBe(1)
   expect(await valueOf('monero_ops_pending_piconeros')).toBe(700_000_000_000)
+})
+
+// A RELAYED consolidation is a pure hot-wallet fee fact (principal zero).
+function feeFact (fee, txHash) {
+  return {
+    network: 'STAGENET',
+    walletAddress: '5METRICSHOT',
+    txHash,
+    kind: 'CONSOLIDATION',
+    state: 'RELAYED',
+    distributionId: null,
+    principalPiconeros: 0n,
+    networkFeePiconeros: fee,
+    metadata: { destination: '5METRICSHOT', selfTransfer: true }
+  }
+}
+
+// Models for the rewards-pool accounting gauges: recorded distributions, a
+// cycle inflow and the ledger facts. $queryRaw answers both the pgboss
+// failed-jobs query and the shared inflow reader.
+function accountingModels ({ allTime = {}, distributions = [], transactions = [] } = {}) {
+  const row = {
+    downvote: 0n,
+    posting: 0n,
+    territory: 0n,
+    donate: 0n,
+    donateRaw: 0n,
+    boost: 0n,
+    walletlesstip: 0n,
+    bountyrollover: 0n,
+    bountyrolloverRewards: 0n,
+    bountyfee: 0n,
+    time: new Date('2026-09-21T00:00:00.000Z'),
+    ...allTime
+  }
+  const models = {
+    observedTip: { count: jest.fn().mockResolvedValue(0) },
+    $queryRaw: jest.fn(async (strings) => {
+      const sql = Array.isArray(strings) ? strings.join(' ') : String(strings)
+      if (sql.includes('pgboss')) return [{ failed: 0 }]
+      return [row]
+    }),
+    platformFeeConfig: {
+      upsert: jest.fn().mockResolvedValue({
+        downvoteRewardsPct: 100,
+        postingFeeRewardsPct: 70,
+        territoryFeeRewardsPct: 30,
+        walletlessTipRewardsPct: 70,
+        boostRewardsPct: 30
+      })
+    },
+    rewardDistribution: {
+      findFirst: jest.fn().mockResolvedValue(distributions[distributions.length - 1] ?? null),
+      findMany: jest.fn().mockResolvedValue(distributions)
+    },
+    rewardPayout: { findMany: jest.fn().mockResolvedValue([]) },
+    rewardsWalletTransaction: { findMany: jest.fn().mockResolvedValue(transactions) },
+    rewardsWalletReconciliation: { findMany: jest.fn().mockResolvedValue([]) },
+    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ address: '5METRICSHOT', network: 'STAGENET' }) }
+  }
+  models.$transaction = async fn => fn(models)
+  return models
+}
+
+test('collectDBBackedMetrics exposes signed pending ops, the ops deficit, cumulative fees and uncertainty', async () => {
+  const models = accountingModels({
+    allTime: { downvote: 96n, bountyfee: 4n },
+    distributions: [{
+      id: 1,
+      status: 'COMPLETE',
+      periodEnd: new Date('2026-09-14T00:00:00.000Z'),
+      rolledOverPiconeros: 0n,
+      opsAvailablePiconeros: 10n,
+      opsSweptPiconeros: 10n,
+      opsSweepTxHash: null,
+      opsNetworkFeesAccountedPiconeros: 0n
+    }],
+    transactions: [feeFact(7n, 'dd'.repeat(32))]
+  })
+
+  await collectDBBackedMetrics(models)
+
+  expect(await valueOf('monero_ops_pending_piconeros')).toBe(-3) // -7 fee-adjusted carry + 4 open ops
+  expect(await valueOf('monero_ops_deficit_piconeros')).toBe(3)
+  expect(await valueOf('monero_rewards_network_fees_piconeros')).toBe(7)
+  expect(await valueOf('monero_rewards_accounting_uncertain')).toBe(0)
+  expect(await valueOf('monero_distribution_status')).toBe(2)
+})
+
+test('an accounting-read failure pins uncertainty at 1 and a later clean read restores 0', async () => {
+  const failing = {
+    observedTip: { count: jest.fn().mockResolvedValue(0) },
+    $queryRaw: jest.fn().mockRejectedValue(new Error('db down')),
+    rewardDistribution: { findFirst: jest.fn().mockRejectedValue(new Error('db down')) }
+  }
+  await expect(collectDBBackedMetrics(failing)).resolves.toBeUndefined()
+  expect(await valueOf('monero_rewards_accounting_uncertain')).toBe(1)
+
+  await collectDBBackedMetrics(accountingModels())
+  expect(await valueOf('monero_rewards_accounting_uncertain')).toBe(0)
 })
 
 test('collectDBBackedMetrics is a no-op without models and never throws on a null models arg', async () => {

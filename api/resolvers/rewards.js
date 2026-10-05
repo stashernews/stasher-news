@@ -3,6 +3,9 @@ import { getItem } from './item'
 import { GqlInputError } from '@/lib/error'
 import pay from '../payIn'
 import { getNextRewardsPool, rewardsFromInflow } from '@/lib/rewardsPool'
+import { readRewardsInflow } from '../monero/rewardsInflow'
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 let rewardCache
 
@@ -22,24 +25,10 @@ async function getCachedActiveRewards (staleIn, models) {
   return await updateCachedRewards(models)
 }
 
-// Sum CONFIRMED platform-wallet inflow by source over [periodStart, periodEnd).
-// Used by getRewards for the covering distribution's source pie. `confirmedAt`
-// is a timestamp-without-timezone column holding UTC wall time; binding the JS
-// Dates matches the worker's Prisma aggregate semantics exactly.
-async function inflowByPeriod (periodStart, periodEnd, models) {
-  const [{ downvote, posting, territory, donate, boost, walletlesstip, bountyrollover, bountyfee }] = await models.$queryRaw`
-    SELECT
-      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS downvote,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS posting,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros" * COALESCE("donationRewardsPct", 100) / 100) FROM "FeeObservation" WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS donate,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOOST' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS boost,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS walletlesstip,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOUNTY_ROLLOVER' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS bountyrollover,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOUNTY_FEE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${periodStart} AND "confirmedAt" < ${periodEnd}), 0)::bigint AS bountyfee`
-  return { downvote, posting, territory, donate, boost, walletlesstip, bountyrollover, bountyfee }
-}
-
+// Sum CONFIRMED platform-wallet inflow by source over [periodStart, periodEnd)
+// through the shared reader (api/monero/rewardsInflow.js), so the covering
+// distribution's source pie can never drift from the distributor's settlement
+// window, walletReceipt eligibility or the exact mixed-rollover reward field.
 async function getActiveRewards (models) {
   const { poolPiconeros, rewardsInflowPiconeros, rolledOverPiconeros, time, sources } = await getNextRewardsPool(models)
   // The next distribution's pool = this cycle's rewards earmark + the prior
@@ -77,8 +66,9 @@ async function getRewards (when, models) {
   })
 
   if (covering) {
-    const { sources } = rewardsFromInflow(
-      await inflowByPeriod(covering.periodStart, covering.periodEnd, models), d, config)
+    // Same reader/window as the distributor that created the covering row.
+    const inflow = await readRewardsInflow(models, { start: covering.periodStart, end: covering.periodEnd, config })
+    const { sources } = rewardsFromInflow(inflow.raw, d, config)
     return [{
       total: covering.distributedPiconeros,
       time: d,
@@ -88,18 +78,10 @@ async function getRewards (when, models) {
     }]
   }
 
-  // Pre-first-distribution fallback: the requested UTC day's confirmed inflow.
-  const [{ downvote, posting, territory, donate, boost, walletlesstip, bountyrollover, bountyfee }] = await models.$queryRaw`
-    SELECT
-      COALESCE((SELECT sum("piconeros") FROM "ObservedDownvote" WHERE state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS downvote,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'POSTING' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS posting,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" IN ('TERRITORY_CREATE','TERRITORY_BILLING','TERRITORY_UNARCHIVE','TERRITORY_UPDATE') AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS territory,
-      COALESCE((SELECT sum("piconeros" * COALESCE("donationRewardsPct", 100) / 100) FROM "FeeObservation" WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS donate,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOOST' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS boost,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'TIP_UNWALLETED' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS walletlesstip,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOUNTY_ROLLOVER' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS bountyrollover,
-      COALESCE((SELECT sum("piconeros") FROM "FeeObservation" WHERE "feeType" = 'BOUNTY_FEE' AND state = 'CONFIRMED' AND "confirmedAt" >= ${d} AND "confirmedAt" < ${d} + interval '1 day'), 0)::bigint AS bountyfee`
-  return [rewardsFromInflow({ downvote, posting, territory, donate, boost, walletlesstip, bountyrollover, bountyfee }, d, config)]
+  // Pre-first-distribution fallback: the requested UTC day's confirmed inflow,
+  // read through the same shared reader.
+  const inflow = await readRewardsInflow(models, { start: d, end: new Date(d.getTime() + DAY_MS), config })
+  return [rewardsFromInflow(inflow.raw, d, config)]
 }
 
 export default {

@@ -6,6 +6,7 @@ import {
 import { reverseMapPaymentId, applyDownvoteTransition } from '@/api/monero/downvote'
 import { topUpFeePoolIfLow } from '@/api/monero/feePoolDerive'
 import { createReorgDetector } from '@/lib/reorgDetector'
+import { attributeBountyReceipt, reconcileBountyReceipts } from '@/api/monero/bountyReceipts'
 import { moneroUriAmountPiconeros } from '@/lib/format'
 import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
 import { alert } from '@/lib/alert'
@@ -29,6 +30,11 @@ import { consumeQuotaForFlippedItem, consumeStreakReward } from '@/api/payIn/lib
 //     transitions it to the verified height via applyDownvoteTransition, which
 //     owns the LOG-scaled ranking penalty (weightedDownVotes/downPiconeros) —
 //     exactly once, on the NULL->height transition (Task 13).
+//   - primary address, bounty settlement hash (rewards accounting repair §4):
+//     attributes a verified incoming output to its frozen escrow settlement and
+//     books the single eligible FeeObservation receipt (BOUNTY_FEE 100% ops, or
+//     a BOUNTY_ROLLOVER with an exact mixed split). Unknown/cold outputs and
+//     missing settlement metadata book nothing (the latter alerts and retries).
 // The confirmFinalizer matures FeeObservation/ObservedDownvote DETECTED -> CONFIRMED
 // at REQUIRED_CONFIRMATIONS (separate concern, separate job). Reorg reversal is
 // deferred (accepted v1 limitation — consistent with the tip flow).
@@ -37,8 +43,9 @@ import { consumeQuotaForFlippedItem, consumeStreakReward } from '@/api/payIn/lib
 //   - runRewardsWalletObserverOnce: the testable per-poll core (no pg-boss). Accepts a
 //     `txs` override so tests never touch the network.
 //   - rewardsWalletObserver: the pg-boss handler. Fetches txs via lwsClient, runs the
-//     core, and advances the cursor; recurrence is cron-owned (pgboss.schedule
-//     row rewardsWalletObserver).
+//     core, runs the bounded full-history bounty-receipt recovery pass, and
+//     advances the cursor; recurrence is cron-owned (pgboss.schedule row
+//     rewardsWalletObserver).
 
 // One poll. `txs` is normally fetched from lws by the handler; tests pass it
 // directly. Returns nothing; effects are the FeeObservation/ObservedDownvote rows +
@@ -49,16 +56,18 @@ export async function runRewardsWalletObserverOnce ({ models, account, txs }) {
   }
 }
 
-// Dispatcher — the single seam Phase 4 extends. The subaddress (fee) branch is
-// Phase 3; the payment_id (downvote) branch lands in Phase 4 as a sibling call
-// here without changing this dispatcher's callers. Fee subaddresses short-circuit
-// inside attributeFeeBySubaddress (the major check), so they never reach a
-// payment_id branch.
+// Dispatcher — the single seam the fee, downvote, tip, and bounty branches
+// share. The subaddress (fee) branch is Phase 3; the rest are primary-address
+// branches distinguished by payment_id / settlement hash.
 async function attributeOutput (models, tx, account) {
   if (!account || account.label !== 'platform_rewards') return
   // PHASE 3: attribute posting/territory fees by their receiving subaddress.
   // Short-circuit: a fee subaddress output is never a downvote.
   if (await attributeFeeBySubaddress(models, tx)) return
+  // REWARDS ACCOUNTING REPAIR §4: a known bounty settlement hash arriving at
+  // the rewards wallet books its receipt. Escrow payouts carry no payment_id,
+  // so this is checked before (and independently of) the payment_id branches.
+  if (await attributeBountyReceipt({ models, account, tx })) return
   // PHASE 4: downvotes arrive on the PRIMARY address (major 0) carrying a
   // decrypted payment_id that encodes (postId, nonce) via the DownvotePidMap.
   if (tx.payment_id && await attributeDownvoteByPaymentId(models, tx)) return
@@ -450,13 +459,13 @@ export async function findRewardsAccount (models) {
   })
 }
 
-export async function rewardsWalletObserver ({ models, detectReorg: detect = detectReorg }) {
+export async function rewardsWalletObserver ({ models, lws = lwsClient, detectReorg: detect = detectReorg }) {
   // Recurrence is cron-owned (pgboss.schedule row rewardsWalletObserver); no
   // self-requeue. A failed run is retried per the schedule options and the
   // next cron tick re-creates the run either way.
   const account = await findRewardsAccount(models)
   if (account) {
-    const resp = await lwsClient.getAddressTxs(account, account.lastTxId, account.lastBlockHash)
+    const resp = await lws.getAddressTxs(account, account.lastTxId, account.lastBlockHash)
     if (resp && typeof resp.blockchain_height === 'number') detect(resp.blockchain_height)
     const txs = (resp && resp.transactions) || []
     // bootstrapping filter: skip confirmed txs already behind the cursor. null
@@ -464,6 +473,27 @@ export async function rewardsWalletObserver ({ models, detectReorg: detect = det
     // is what lets a brand-new account's FIRST lws tx, which has id 0, through).
     const fresh = txs.filter(t => t.height == null || typeof t.id !== 'number' || account.lastTxId == null || BigInt(t.id) > account.lastTxId)
     await runRewardsWalletObserverOnce({ models, account, txs: fresh })
+
+    // Bounded bounty-receipt recovery (rewards accounting repair §4), BEFORE
+    // the cursor advance: a settlement output scanned before the sender's DB
+    // persist completed sits behind the cursor and would never re-enter the
+    // fresh slice. Recovery therefore scans the FULL history (the incremental
+    // response above only covers the cursor window) and attributes only known
+    // settlement hashes that still lack a wallet receipt — bounded and
+    // oldest-first inside reconcileBountyReceipts. Best-effort: a recovery
+    // failure must not wedge ordinary fee/downvote/tip attribution (the
+    // 2026-08-10 incident class) — it is alerted and retried next tick.
+    try {
+      const recoveryTxs = account.lastTxId == null
+        ? txs // the incremental fetch was already a full scan
+        : (((await lws.getAddressTxs(account, 0, null)) || {}).transactions || [])
+      await reconcileBountyReceipts({ models, account, transactions: recoveryTxs })
+    } catch (err) {
+      logError('rewardsWalletObserver: bounty receipt recovery failed', err)
+      alert('critical', 'bounty receipt recovery failed',
+        `rewards wallet account ${account.id}: ${err?.message || err} — ordinary attribution continues; recovery retries next tick`,
+        { dedupeKey: 'bounty-receipt-recovery-failed' })
+    }
 
     let maxId = 0
     for (const t of txs) {

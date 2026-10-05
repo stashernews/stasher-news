@@ -55,11 +55,11 @@ import { alert } from '@/lib/alert'
 // ObservedBounty is the EXCEPTION to "ledger-only": a bounty funding whose
 // webhook N-conf CONFIRMED callback was missed (e.g. the pid-map gate bug behind
 // item 2808) must not stay provisional. The finalizer runs driveBountyFunding —
-// the SAME ledger effects as the webhook CONFIRMED path (Item -> FUNDED,
-// BOUNTY_FEE booked) — so the funding completes even when no callback ever fired.
-// It also reconciles lws receipts for still-short DETECTED bounties (and
-// backfills a NULL height from lws when every callback was missed). See
-// backfillNullBountyHeights.
+// the SAME funding effects as the webhook CONFIRMED path (Item -> FUNDED with
+// the fee terms frozen on the Item; no hot-wallet cash row) — so the funding
+// completes even when no callback ever fired. It also reconciles lws receipts
+// for still-short DETECTED bounties (and backfills a NULL height from lws when
+// every callback was missed). See backfillNullBountyHeights.
 //
 // This module exports FOUR things (mirrors worker/moneroIndexer.js):
 //   - runConfirmFinalizerOnce: the testable per-run core (no pg-boss). Takes
@@ -117,7 +117,7 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     take: SCAN_BATCH_SIZE
   })
   const nullHeightFees = await models.feeObservation.findMany({
-    where: { state: 'DETECTED', height: null },
+    where: { state: 'DETECTED', height: null, walletReceipt: true },
     take: SCAN_BATCH_SIZE
   })
   if (nullHeightDownvotes.length || nullHeightFees.length) {
@@ -249,8 +249,11 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
   // Item/Sub already went live on DETECTION; CONFIRMED just finalizes the ledger
   // row so Phase 4's rewardsDistributor can sum paid fees per period. The linked
   // PayIn's own state is left untouched (it is the ITEM_CREATE bookkeeping state).
+  // Wallet-receipt eligibility is required (rewards accounting repair §3.2): an
+  // ineligible legacy accrual row (walletReceipt = false) is historical evidence,
+  // not cash, and must never be matured into a hot-wallet consumer sum.
   const fees = await models.feeObservation.findMany({
-    where: { state: 'DETECTED', height: { not: null } },
+    where: { state: 'DETECTED', height: { not: null }, walletReceipt: true },
     take: SCAN_BATCH_SIZE
   })
   for (const fee of fees) {
@@ -325,11 +328,11 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
   //     height backfill) so a top-up whose callbacks were all lost still
   //     opens the gate.
   //   PASS 2 (fund): run driveBountyFunding for mature DETECTED bounties — the
-  //     SAME ledger effects as the webhook CONFIRMED path (Item -> FUNDED,
-  //     BOUNTY_FEE booked), not just a row flip. Idempotent vs a late webhook
-  //     replay (CONFIRMED state guard + FeeObservation ON CONFLICT) and vs the
-  //     webhook itself (Serializable isolation serializes any overlap; a loser
-  //     aborts and retries next run).
+  //     SAME funding effects as the webhook CONFIRMED path (Item -> FUNDED with
+  //     the fee terms frozen on the Item; no hot-wallet cash row), not just a
+  //     row flip. Idempotent vs a late webhook replay (CONFIRMED state guard +
+  //     the deterministic funding writes) and vs the webhook itself (Serializable
+  //     isolation serializes any overlap; a loser aborts and retries next run).
   const detectedBounties = await models.observedBounty.findMany({
     where: { state: 'DETECTED' },
     include: {

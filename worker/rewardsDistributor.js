@@ -1,10 +1,14 @@
 import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
 import { computeCuratorShares, effectiveTrustWeightFloor } from './curatorShares'
-import { sendPayouts as defaultSendPayouts } from '@/api/monero/rewards'
+import { sendPayouts as defaultSendPayouts, getRewardsWallet } from '@/api/monero/rewards'
+import { reconcileWalletTransactions, errorLabel } from '@/api/monero/rewardsTransactions'
 import logger, { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 import { moneroDistributionStatus } from '@/lib/metrics'
+import { opsCarry, walletScope } from '@/lib/rewardsAccounting'
+import { readRewardsInflow } from '@/api/monero/rewardsInflow'
+import { readRewardsWalletLedger } from '@/api/monero/rewardsLedger'
 
 // rewardsDistributor — StasherNews' weekly rewards-pool distribution job
 // (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
@@ -24,11 +28,14 @@ import { moneroDistributionStatus } from '@/lib/metrics'
 // distribution + QUEUED payouts, finalizeDistribution drives the signer and
 // flips the distribution PENDING -> SENDING -> COMPLETE (payouts QUEUED -> SENT).
 //
-// This module exports TWO things (mirrors worker/rewardsWalletObserver.js /
+// This module exports (mirrors worker/rewardsWalletObserver.js /
 // worker/confirmFinalizer.js):
-//   - runDistributionOnce: the testable per-run core (no pg-boss).
+//   - runDistributionOnce: the testable per-run core (no pg-boss worker).
 //   - rewardsDistributor:   the pg-boss handler. Runs the core once per scheduled
 //                            weekly run (pgboss.schedule cron, Monday 00:00 UTC).
+//   - completeAndEnqueue:  the shared completion path (finalize + eligibility +
+//                            delayed ops-sweep enqueue) used by the core, the
+//                            stale-SENDING watchdog, and the requeue tool.
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -43,27 +50,30 @@ const IDEMPOTENCY_GRACE_MS = 60 * 60 * 1000
 
 const DISTRIBUTION_STATUS_GAUGE = { PENDING: 0, SENDING: 1, COMPLETE: 2, FAILED: 3 }
 
-// One weekly distribution. The testable core: no pg-boss, no network. Accepts
-// the Prisma client (so tests pass their own); creates a throwaway client if
-// omitted. `sendPayouts` is injectable so tests drive the signer with a stub
-// (no real keys/wallet); production leaves it unset and uses the real signer.
+// One weekly distribution. The testable core: no pg-boss worker, no network.
+// Accepts the Prisma client (so tests pass their own); creates a throwaway
+// client if omitted. `sendPayouts` is injectable so tests drive the signer with
+// a stub (no real keys/wallet); production leaves it unset and uses the real
+// signer. `boss` is the send-only queue handle the shared completion path uses
+// to schedule the delayed opsSweep follow-up; `scheduleOpsSweep:false` is the
+// explicit no-scheduler mode (tests, out-of-band tooling) and requires no boss
+// — a missing boss with scheduling enabled throws BEFORE any DB mutation.
+// `getWallet` is an injectable readiness seam for reconcileCompletionAccounting
+// (production leaves it unset and uses the lazy getRewardsWallet singleton).
 // Returns the created (or pre-existing, via idempotency) RewardDistribution
 // with its RewardPayout rows included (post-send state).
-export async function runDistributionOnce ({ models, sendPayouts: injectSendPayouts } = {}) {
+export async function runDistributionOnce ({ models, sendPayouts: injectSendPayouts, boss, scheduleOpsSweep = true, getWallet } = {}) {
+  if (scheduleOpsSweep && !boss) throw new Error('ops sweep scheduler boss required')
   const ownsClient = !models
   const db = ownsClient ? createPrisma() : models
   try {
     const sendPayouts = injectSendPayouts || defaultSendPayouts
     // R02: recover distributions stranded in SENDING by a dead process BEFORE
     // this run's own work, so their QUEUED payouts are re-driven.
-    await recoverStaleDistributions(db, { sendPayouts })
+    await recoverStaleDistributions(db, { sendPayouts, boss, scheduleOpsSweep, getWallet })
     await warnUndeliveredDistributions(db)
     const distribution = await distribute(db)
-    await finalizeDistribution(db, distribution, sendPayouts)
-    return await db.rewardDistribution.findUnique({
-      where: { id: distribution.id },
-      include: { payouts: true }
-    })
+    return await completeAndEnqueue(db, distribution, sendPayouts, { boss, scheduleOpsSweep, getWallet })
   } finally {
     if (ownsClient) db.$disconnect().catch(logError)
   }
@@ -121,102 +131,43 @@ async function distribute (models) {
     const lastDistribution = await tx.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
     const periodStart = lastDistribution?.periodEnd ?? runWindowStart
 
-    // --- Inflow by source (all CONFIRMED, confirmedAt in [periodStart, periodEnd)) ---
-    const [downvoteAgg, postingAgg, territoryAgg, donateRows, boostAgg, walletlessTipAgg, bountyRolloverAgg, bountyFeeAgg] = await Promise.all([
-      tx.observedDownvote.aggregate({
-        _sum: { piconeros: true },
-        where: { state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
-      }),
-      tx.feeObservation.aggregate({
-        _sum: { piconeros: true },
-        where: { feeType: 'POSTING', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
-      }),
-      tx.feeObservation.aggregate({
-        _sum: { piconeros: true },
-        where: {
-          feeType: { in: ['TERRITORY_CREATE', 'TERRITORY_BILLING', 'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE'] },
-          state: 'CONFIRMED',
-          confirmedAt: { gte: periodStart, lt: periodEnd }
-        }
-      }),
-      tx.feeObservation.findMany({
-        where: { feeType: 'DONATE', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } },
-        select: { piconeros: true, donationRewardsPct: true }
-      }),
-      tx.feeObservation.aggregate({
-        _sum: { piconeros: true },
-        where: { feeType: 'BOOST', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
-      }),
-      tx.feeObservation.aggregate({
-        _sum: { piconeros: true },
-        where: { feeType: 'TIP_UNWALLETED', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
-      }),
-      tx.feeObservation.aggregate({
-        _sum: { piconeros: true },
-        where: { feeType: 'BOUNTY_ROLLOVER', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
-      }),
-      tx.feeObservation.aggregate({
-        _sum: { piconeros: true },
-        where: { feeType: 'BOUNTY_FEE', state: 'CONFIRMED', confirmedAt: { gte: periodStart, lt: periodEnd } }
-      })
-    ])
-
-    const downvotePiconeros = toBigInt(downvoteAgg._sum.piconeros)
-    const postingFeePiconeros = toBigInt(postingAgg._sum.piconeros)
-    const territoryFeePiconeros = toBigInt(territoryAgg._sum.piconeros)
-    // DONATE rows are fetched individually: each donation carries its own
-    // donationRewardsPct (payer choice, default 100 -> pool).
-    const donatePiconeros = donateRows.reduce((acc, r) => acc + toBigInt(r.piconeros), 0n)
-    const donateRewardsPiconeros = donateRows.reduce(
-      (acc, r) => acc + toBigInt(r.piconeros) * BigInt(r.donationRewardsPct ?? 100) / 100n, 0n)
-    const boostPiconeros = toBigInt(boostAgg._sum.piconeros)
-    const walletlessTipPiconeros = toBigInt(walletlessTipAgg._sum.piconeros)
-    const bountyRolloverPiconeros = toBigInt(bountyRolloverAgg._sum.piconeros)
-    const bountyFeePiconeros = toBigInt(bountyFeeAgg._sum.piconeros)
-
     // --- Allocation config (platform singleton row, id=1) ---
     const config = await tx.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
 
-    // Rewards earmark: floor each source's contribution at its allocation %. The
-    // remainder (ops share) stays in the rewards wallet and is NOT distributed.
-    // BigInt division floors, so each term is rounded down independently.
-    // DONATE goes donationRewardsPct% to the pool (payer choice, default 100);
-    // BOOST goes boostRewardsPct% (default 30) with the rest to ops;
-    // wallet-less-author tips go walletlessTipRewardsPct% (default 70);
-    // BOUNTY_ROLLOVER goes 100% to the pool (the escrow's bounty portion
-    // physically arrived at the rewards wallet; the fee was booked at funding
-    // as BOUNTY_FEE, 100% ops). The rest is the ops share.
-    const rewardsInflow =
-      downvotePiconeros * BigInt(config.downvoteRewardsPct) / 100n +
-      postingFeePiconeros * BigInt(config.postingFeeRewardsPct) / 100n +
-      territoryFeePiconeros * BigInt(config.territoryFeeRewardsPct) / 100n +
-      donateRewardsPiconeros +
-      boostPiconeros * BigInt(config.boostRewardsPct) / 100n +
-      walletlessTipPiconeros * BigInt(config.walletlessTipRewardsPct) / 100n +
-      bountyRolloverPiconeros
+    // --- Inflow through the ONE shared reader (all CONFIRMED eligible, the
+    // fee sources require walletReceipt=true, exact mixed-rollover reward
+    // split, confirmedAt in [periodStart, periodEnd)). The old independent
+    // aggregates could count funding-time accruals the wallet never received
+    // and could not see a rollover's exact reward component. ---
+    const inflow = await readRewardsInflow(tx, { start: periodStart, end: periodEnd, config })
 
-    // BOUNTY_FEE counts toward totalInflow (it physically arrived at the
+    // Rewards earmark: each source's contribution at its allocation %, floored
+    // per source exactly like lib/rewardsAccounting.js (allocateInflow).
+    const rewardsInflow = inflow.rewardsPiconeros
+    // BOUNTY_FEE counts toward totalPiconeros (it physically arrived at the
     // rewards wallet via the rollover) but 0% toward rewards — it was booked
     // 100% ops at funding confirmation, so opsInflow absorbs all of it.
-    const totalInflow =
-      downvotePiconeros +
-      postingFeePiconeros +
-      territoryFeePiconeros +
-      donatePiconeros +
-      boostPiconeros +
-      walletlessTipPiconeros +
-      bountyRolloverPiconeros +
-      bountyFeePiconeros
-    const opsInflow = totalInflow - rewardsInflow
+    const opsInflow = inflow.opsPiconeros
+
+    // --- One factual ledger for the checkpoint + fee-adjusted carry ---
+    const ledger = await readRewardsWalletLedger(tx, { scope: walletScope() })
 
     // --- Pool: this week's earmark + the prior period's rollover ---
     const rolledOver = toBigInt(lastDistribution?.rolledOverPiconeros)
     const poolPiconeros = rewardsInflow + rolledOver
 
-    // Ops earmark rollover: prior period's unswept ops carried in. opsSwept is
-    // populated by the ops-sweep job (B-sweep); until then it stays 0, so the
-    // full prior opsAvailable rolls forward each week.
-    const opsRolledOver = toBigInt(lastDistribution?.opsAvailablePiconeros) - toBigInt(lastDistribution?.opsSweptPiconeros)
+    // Ops earmark rollover: the prior period's unswept ops carried in, LESS the
+    // network costs incurred after that snapshot's checkpoint (and with a
+    // journal-proven unpersisted sweep substituted for the recorded swept
+    // amount). opsSwept itself is populated by the ops-sweep job; until then it
+    // stays 0, so the full prior opsAvailable (net of real fees) rolls forward.
+    const opsRolledOver = opsCarry({
+      distribution: lastDistribution,
+      totalNetworkFeesPiconeros: ledger.totalNetworkFeesPiconeros,
+      provenSweptPiconeros: lastDistribution
+        ? (ledger.sweptByDistribution.get(lastDistribution.id) ?? 0n)
+        : 0n
+    })
     const opsAvailable = opsInflow + opsRolledOver
 
     // --- Curator trust weighting (#6): config floor + staleness fail-safe.
@@ -325,6 +276,9 @@ async function distribute (models) {
         opsInflowPiconeros: opsInflow,
         opsRolledOverPiconeros: opsRolledOver,
         opsAvailablePiconeros: opsAvailable,
+        // The cumulative RELAYED network cost already inside this snapshot:
+        // every later fee (Fnow - this) debits the active carry exactly once.
+        opsNetworkFeesAccountedPiconeros: ledger.totalNetworkFeesPiconeros,
         payoutCount: payoutRows.length,
         status: 'PENDING'
       }
@@ -442,13 +396,20 @@ function warnPayoutsStranded (distribution, payouts) {
 //     payouts (skipped > 0 || failed > 0), the distribution is marked FAILED
 //     (resumable) with a CRITICAL alert — it never reaches COMPLETE until every
 //     payout is SENT. The ops-earmark sweep is deliberately NOT part of this
-//     function (2026-09-14 decoupling): the handler enqueues worker/opsSweep.js
-//     as a delayed one-shot after COMPLETE, so a sweep problem can never affect
+//     function (2026-09-14 decoupling): the shared completion path
+//     (completeAndEnqueue) enqueues worker/opsSweep.js as a delayed one-shot
+//     after an eligible COMPLETE, so a sweep problem can never affect
 //     distribution status.
 //   - Unpersisted relays: a payout relayed on-chain whose DB persist failed
 //     twice counts as `unpersisted` — same FAILED (resumable) path; the next
 //     run's wallet-history reconciliation flips it SENT without re-sending
 //     (never a silent COMPLETE, never a double pay).
+//   - Unresolved accounting: an additive `accountingUnpersisted` count (an
+//     attempted-but-unproven journal relay, a proven relay whose journal state
+//     could not be persisted, or an unsettled consolidation) also forces the
+//     FAILED (resumable) path — a missing fee cost can never slip into a
+//     COMPLETE distribution. Summaries without the key default to zero, so
+//     older injected/stubbed signers remain accepted.
 export async function finalizeDistribution (models, distribution, sendPayouts) {
   // SENDING = another process is mid-send; COMPLETE = already done. Nothing for
   // this call to drive. (PENDING and FAILED fall through — FAILED is resumable
@@ -482,11 +443,14 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
 
   try {
     const sendSummary = await sendPayouts(payouts, { models })
-    if (sendSummary && (sendSummary.skipped > 0 || sendSummary.failed > 0 || (sendSummary.unpersisted || 0) > 0)) {
+    const accountingUnpersisted = sendSummary?.accountingUnpersisted || 0
+    if (sendSummary && (sendSummary.skipped > 0 || sendSummary.failed > 0 ||
+      (sendSummary.unpersisted || 0) > 0 || accountingUnpersisted > 0)) {
       logError({ distributionId: distribution.id, ...sendSummary }, 'rewardsDistributor: CRITICAL — payouts not fully sent; distribution FAILED (resumable)')
       alert('critical', 'rewards distribution send incomplete',
-        `distribution ${distribution.id}: sent ${sendSummary.sent}, skipped ${sendSummary.skipped}, failed ${sendSummary.failed}, unpersisted ${sendSummary.unpersisted ?? 0}; marked FAILED (resumable) — payouts remain QUEUED` +
-        ((sendSummary.unpersisted || 0) > 0 ? '. WARNING: unpersisted payouts WERE relayed on-chain; the next run reconciles them from wallet history — do NOT manually re-send them.' : ''),
+        `distribution ${distribution.id}: sent ${sendSummary.sent}, skipped ${sendSummary.skipped}, failed ${sendSummary.failed}, unpersisted ${sendSummary.unpersisted ?? 0}, accountingUnpersisted ${accountingUnpersisted}; marked FAILED (resumable) — payouts remain QUEUED` +
+        ((sendSummary.unpersisted || 0) > 0 ? '. WARNING: unpersisted payouts WERE relayed on-chain; the next run reconciles them from wallet history — do NOT manually re-send them.' : '') +
+        (accountingUnpersisted > 0 ? `. WARNING: ${accountingUnpersisted} unresolved rewards-wallet fee/journal accounting item(s) remain (unresolved fee costs or journal state — distinct from relayed-but-unpersisted recipient principal); the next run resolves proven relays from exact-hash wallet history before an all-SENT completion and never blindly re-relays.` : ''),
         { dedupeKey: `dist-${distribution.id}-send-incomplete` })
       // Conditional on SENDING closes the ordinary races (e.g. a stale sender
       // whose row was watchdog-recovered and re-driven, R02, must not clobber
@@ -506,15 +470,149 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
       WHERE id = ${distribution.id} AND status = 'SENDING' RETURNING id`
     moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.COMPLETE)
   } catch (err) {
-    logError({ distributionId: distribution.id, err }, 'rewardsDistributor: finalization failed')
+    logError({ distributionId: distribution.id, errorClass: errorLabel(err) }, 'rewardsDistributor: finalization failed')
     alert('critical', 'rewards distribution finalization failed',
-      `distribution ${distribution.id}: ${err?.message || err}`,
+      `distribution ${distribution.id}: finalization failed (diagnostic withheld; see the worker log errorClass)`,
       { dedupeKey: `dist-${distribution.id}-failed` })
     await models.$queryRaw`
       UPDATE "RewardDistribution" SET status = 'FAILED'
       WHERE id = ${distribution.id} AND status = 'SENDING' RETURNING id`
     moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
   }
+}
+
+function alertCompletionAccountingBlocked (distribution, detail) {
+  alert('critical', 'rewards distribution completion blocked by unresolved wallet accounting',
+    `distribution ${distribution.id}: ${detail}. Recipient rows are untouched (no payout status is rewritten and no new attempt is manufactured); a later run retries the reconciliation before the distribution may complete or schedule a sweep.`,
+    { dedupeKey: `dist-${distribution.id}-accounting-blocked` })
+}
+
+// Readiness gate for the all-SENT / no-QUEUED completion path (Task 10, routed
+// Task 8 finding). A distribution with no QUEUED payouts never calls the
+// signer, so sendPayouts' journal reconciliation (Task 6/8) does not run there:
+// a proven payout relay whose fee journal persist failed would otherwise let
+// the run flip COMPLETE and schedule a sweep with unpersisted accounting.
+//
+// Explicit scoped journal reads cover attempted-but-unproven (PREPARED +
+// relayAttemptedAt) rows that belong to THIS distribution, plus every scoped
+// consolidation attempt (consolidations are distribution-independent). When any
+// exist, the wallet is obtained OUTSIDE DB work and reconcileWalletTransactions
+// resolves them from the wallet's own exact-hash history. The rewards-wallet
+// ledger is ALWAYS re-read before readiness (not only when an attempt remains):
+// an already-RELAYED journal row conflicting with a recorded payout fact
+// (double-send, mismatched amount/address, corrupt metadata) must block an
+// all-SENT completion even when no attempted row is left. An unresolved
+// attempt, a proven-but-unjournaled relay, a ledger contradiction, or any
+// failed read returns false with a CRITICAL accounting alert. No wallet is
+// opened when nothing is unresolved, no payout status is ever rewritten here,
+// and no new send attempt is manufactured. Read-only toward
+// distribution/payout state.
+export async function reconcileCompletionAccounting (models, distribution, { getWallet = getRewardsWallet } = {}) {
+  try {
+    const scope = walletScope()
+    const unresolvedAttemptWhere = {
+      network: scope.network,
+      walletAddress: scope.walletAddress,
+      state: 'PREPARED',
+      relayAttemptedAt: { not: null }
+    }
+    const readAttempted = async () => {
+      const forDistribution = await models.rewardsWalletTransaction.findMany({
+        where: { ...unresolvedAttemptWhere, distributionId: distribution.id },
+        orderBy: { id: 'asc' }
+      })
+      const consolidations = await models.rewardsWalletTransaction.findMany({
+        where: { ...unresolvedAttemptWhere, kind: 'CONSOLIDATION' },
+        orderBy: { id: 'asc' }
+      })
+      return [...forDistribution, ...consolidations]
+    }
+
+    const attempted = await readAttempted()
+    // Wallet work (open + exact-hash resolution) is only warranted when an
+    // attempted-but-unproven relay exists; it happens outside DB work.
+    let reconciliation = null
+    if (attempted.length > 0) {
+      const wallet = await getWallet(models)
+      reconciliation = await reconcileWalletTransactions({ models, wallet, scope })
+    }
+    const accountingUnpersisted = reconciliation?.accountingUnpersisted || 0
+
+    // ALWAYS validate the proved-fact union, even with no attempt remaining: a
+    // conflict detected here (fail-closed on a read failure) must block the
+    // COMPLETE flip and the sweep enqueue.
+    const ledger = await readRewardsWalletLedger(models, { scope })
+    const remaining = attempted.length > 0 ? await readAttempted() : []
+
+    if (remaining.length > 0 || accountingUnpersisted > 0 || ledger.accountingUncertain) {
+      const reasons = []
+      if (remaining.length > 0) reasons.push(`${remaining.length} attempted journal entr${remaining.length === 1 ? 'y is' : 'ies are'} still unproven`)
+      if (accountingUnpersisted > 0) reasons.push(`${accountingUnpersisted} proven relay(s) could not be journaled`)
+      if (ledger.accountingUncertain) reasons.push('the rewards wallet ledger reports unresolved or conflicting facts')
+      logError({
+        distributionId: distribution.id,
+        remaining: remaining.length,
+        accountingUnpersisted,
+        accountingUncertain: ledger.accountingUncertain
+      }, 'rewardsDistributor: CRITICAL — all-SENT completion blocked by unresolved rewards-wallet accounting')
+      alertCompletionAccountingBlocked(distribution, reasons.join('; '))
+      return false
+    }
+    return true
+  } catch (err) {
+    // Fixed, allowlisted diagnostics only: a wallet/RPC/SDK exception can carry
+    // credentials or signed transaction material and the shared logger has no
+    // redaction, so neither the raw error nor its message reaches the log or
+    // the operator alert text.
+    logError({ distributionId: distribution.id, errorClass: errorLabel(err) },
+      'rewardsDistributor: CRITICAL — completion accounting reconciliation failed; refusing COMPLETE')
+    alertCompletionAccountingBlocked(distribution, 'accounting reconciliation failed (diagnostic withheld; see the worker log errorClass)')
+    return false
+  }
+}
+
+// Complete a distribution and (when eligible) schedule its delayed ops sweep.
+// The ONE completion orchestration shared by the weekly cron, manual CLI runs,
+// same-week re-drives, stale-SENDING recovery and requeue: finalizeDistribution
+// owns the payout send/CAS state machine; this function adds the no-QUEUED
+// accounting gate and the enqueue eligibility checks.
+//
+//   - scheduleOpsSweep:false is an explicit no-scheduler mode (tests,
+//     out-of-band tooling) and requires no boss; scheduling enabled with no
+//     boss is a programming error that throws before any DB mutation.
+//   - SENDING: another process owns the row; return it untouched.
+//   - No QUEUED payouts: the signer is never called on that path, so its
+//     journal reconciliation cannot run there — reconcileCompletionAccounting
+//     resolves attempted journal entries and always validates the ledger union;
+//     false readiness blocks the COMPLETE flip (the row stays FAILED-resumable).
+//   - Enqueue only when the freshly re-read row is COMPLETE, is the LATEST
+//     distribution by periodEnd (the sweep job only ever sweeps the latest
+//     row), has every payout SENT/CONFIRMED (no stranded principal), and has no
+//     proven sweep yet (neither SWEPT nor a partial opsSweptPiconeros).
+//   - An enqueue failure never reverts the committed COMPLETE/recipient state:
+//     it logs and alerts CRITICAL; repeating an eligible completion retries the
+//     enqueue and pg-boss's singletonKey suppresses duplicate LIVE jobs. A
+//     crash between the COMPLETE write and the enqueue is NOT covered by the
+//     singleton — the next eligible run re-enqueues (there is no outbox).
+export async function completeAndEnqueue (models, distribution, signer, { boss, scheduleOpsSweep = true, getWallet } = {}) {
+  if (scheduleOpsSweep && !boss) throw new Error('ops sweep scheduler boss required')
+  if (distribution.status === 'SENDING') return distribution
+  const queued = distribution.payouts?.some(p => p.state === 'QUEUED')
+  if (!queued && !await reconcileCompletionAccounting(models, distribution, { getWallet })) return distribution
+  await finalizeDistribution(models, distribution, signer)
+  const fresh = await models.rewardDistribution.findUnique({ where: { id: distribution.id }, include: { payouts: true } })
+  if (!scheduleOpsSweep || fresh?.status !== 'COMPLETE') return fresh
+  const latest = await models.rewardDistribution.findFirst({ orderBy: { periodEnd: 'desc' } })
+  if (latest?.id !== fresh.id || fresh.payouts.some(p => !['SENT', 'CONFIRMED'].includes(p.state)) ||
+      fresh.opsSweepState === 'SWEPT' || fresh.opsSweptPiconeros > 0n) return fresh
+  try {
+    await enqueueOpsSweep(boss, fresh)
+  } catch (err) {
+    logError({ distributionId: fresh.id, errorClass: errorLabel(err) }, 'ops sweep follow-up enqueue failed; payouts remain COMPLETE')
+    alert('critical', 'ops sweep follow-up enqueue failed', `distribution ${fresh.id}: retry eligible completion to enqueue; no inline sweep`,
+      { dedupeKey: `dist-${fresh.id}-enqueue-failed` })
+  }
+  return fresh
 }
 
 // Recovery re-entry for stranded payouts (2026-09-28 incident): a terminal
@@ -536,13 +634,18 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
 //     a recovery must not duplicate them.
 //   drive (confirm + send, when >=1 row actually flipped OR the distribution
 //     still holds QUEUED payouts — the classification-change stranding shape):
-//     re-fetch and call finalizeDistribution with the real signer — the exact cron path
-//     (CAS-protected against concurrent senders, wallet-history
-//     reconciliation, idempotent on QUEUED). NEVER drive a no-op: finalize's
-//     !hasQueued branch would mask the distribution COMPLETE over stranded
+//     re-fetch and run the shared completion path (completeAndEnqueue) with the
+//     real signer — the exact cron path (CAS-protected against concurrent
+//     senders, wallet-history reconciliation, idempotent on QUEUED, and the
+//     same enqueue eligibility for the delayed sweep). NEVER drive a no-op:
+//     the completion path's own accounting readiness gate + finalize's
+//     !hasQueued branch cannot mask the distribution COMPLETE over stranded
 //     rows. A drive crash mid-send is self-healing: the R02 watchdog fails
 //     the SENDING row after 24h and the next run re-drives.
-export async function requeueFailedPayouts (models, distributionId, { confirm = false, send = true, sendPayouts: injectSendPayouts } = {}) {
+export async function requeueFailedPayouts (models, distributionId, { confirm = false, send = true, sendPayouts: injectSendPayouts, boss, scheduleOpsSweep = true, getWallet } = {}) {
+  // A send-capable invocation must own its scheduler before any DB mutation;
+  // dry-run and --no-send are report/ledger-only and need no boss.
+  if (confirm && send && scheduleOpsSweep && !boss) throw new Error('ops sweep scheduler boss required')
   const distribution = await models.rewardDistribution.findUnique({
     where: { id: distributionId },
     include: { payouts: true }
@@ -606,7 +709,7 @@ export async function requeueFailedPayouts (models, distributionId, { confirm = 
   if (send) {
     const signer = injectSendPayouts || defaultSendPayouts
     const fresh = await models.rewardDistribution.findUnique({ where: { id: distributionId }, include: { payouts: true } })
-    await finalizeDistribution(models, fresh, signer)
+    await completeAndEnqueue(models, fresh, signer, { boss, scheduleOpsSweep, getWallet })
     summary.drove = true
     const after = await models.rewardDistribution.findUnique({ where: { id: distributionId } })
     summary.finalStatus = after?.status ?? null
@@ -644,7 +747,7 @@ export async function warnUndeliveredDistributions (models) {
         { dedupeKey: `dist-${dist.id}-undelivered` })
     }
   } catch (err) {
-    logError({ err }, 'rewardsDistributor: undelivered-payouts check failed (non-fatal)')
+    logError({ errorClass: errorLabel(err) }, 'rewardsDistributor: undelivered-payouts check failed (non-fatal)')
   }
 }
 
@@ -665,8 +768,12 @@ const REWARDS_SENDING_STALE_HOURS = Number(process.env.REWARDS_SENDING_STALE_HOU
 // wallet-history reconciliation (reconcileUnpersistedPayouts) absorbs
 // relayed-but-unpersisted rows from the dead process without re-sending.
 // Runs at the top of runDistributionOnce (weekly cron + manual/CLI runs); no
-// self-requeue, no new schedule row.
-export async function recoverStaleDistributions (models, { sendPayouts, staleHours = REWARDS_SENDING_STALE_HOURS } = {}) {
+// self-requeue, no new schedule row. Each recovered row goes through the shared
+// completion path, so an eligible COMPLETE latest row also schedules its
+// delayed sweep (and a missing scheduler boss throws before any mutation when
+// scheduling is enabled).
+export async function recoverStaleDistributions (models, { sendPayouts, staleHours = REWARDS_SENDING_STALE_HOURS, boss, scheduleOpsSweep = true, getWallet } = {}) {
+  if (scheduleOpsSweep && !boss) throw new Error('ops sweep scheduler boss required')
   const staleBefore = new Date(Date.now() - staleHours * 60 * 60 * 1000)
   const stale = await models.rewardDistribution.findMany({
     where: { status: 'SENDING', startedAt: { lt: staleBefore } },
@@ -689,11 +796,11 @@ export async function recoverStaleDistributions (models, { sendPayouts, staleHou
         `distribution ${dist.id} has been SENDING since ${dist.startedAt?.toISOString()} (> ${staleHours}h). The watchdog flipped it FAILED and is re-driving the send now. If some payouts were already relayed before the crash, wallet-history reconciliation prevents a double pay.`,
         { dedupeKey: `dist-${dist.id}-stale-sending` })
       const fresh = await models.rewardDistribution.findUnique({ where: { id: dist.id }, include: { payouts: true } })
-      await finalizeDistribution(models, fresh, sendPayouts || defaultSendPayouts)
+      await completeAndEnqueue(models, fresh, sendPayouts || defaultSendPayouts, { boss, scheduleOpsSweep, getWallet })
     } catch (err) {
-      logError({ distributionId: dist.id, err }, 'rewardsDistributor: stale-SENDING recovery failed')
+      logError({ distributionId: dist.id, errorClass: errorLabel(err) }, 'rewardsDistributor: stale-SENDING recovery failed')
       alert('critical', 'rewards stale-SENDING recovery failed',
-        `distribution ${dist.id}: recovery threw ${err?.message || err}; the row stays FAILED-resumable and the next run retries`,
+        `distribution ${dist.id}: recovery failed (diagnostic withheld; see the worker log errorClass); the row stays FAILED-resumable and the next run retries`,
         { dedupeKey: `dist-${dist.id}-stale-recovery-failed` })
     }
   }
@@ -711,8 +818,12 @@ export const OPS_SWEEP_DELAY_SECONDS = 60 * 60
 // partial relay would over-target without cumulative opsSwept accounting — the
 // weekly distribution re-enqueues (rollover) instead. singletonKey collapses
 // duplicate enqueues of the same row (idempotent across same-week reruns).
+// An eligible COMPLETE row with no boss is a programming error: it throws
+// rather than silently omitting the follow-up (a non-COMPLETE row remains a
+// no-op — no sweep is owed).
 export async function enqueueOpsSweep (boss, distribution) {
-  if (!boss || distribution?.status !== 'COMPLETE') return
+  if (distribution?.status !== 'COMPLETE') return
+  if (!boss) throw new Error('ops sweep scheduler boss required')
   await boss.send('opsSweep', { distributionId: distribution.id }, {
     startAfter: OPS_SWEEP_DELAY_SECONDS,
     singletonKey: `opsSweep-${distribution.id}`
@@ -723,11 +834,11 @@ export async function enqueueOpsSweep (boss, distribution) {
 // by the pgboss.schedule row (cron 0 0 * * 1 UTC, added by migration
 // 20260807160000_schedule_rewards_distributor), NOT a relative self-requeue — so
 // runs land on the same Monday 00:00 UTC the rewards resolver counts down to
-// (api/resolvers/rewards.js). `sndev monero distribute` calls runDistributionOnce
-// directly for out-of-band runs. When the run settles COMPLETE, the handler
-// also enqueues the ops-earmark sweep as a 1h-delayed one-shot (see
-// enqueueOpsSweep) — the sweep is never part of the payout run itself.
+// (api/resolvers/rewards.js). `sndev monero distribute` also runs the shared
+// completion path (with its own send-only queue client) for out-of-band runs.
+// The delayed ops-earmark sweep is enqueued INSIDE the shared completion path
+// (runDistributionOnce -> completeAndEnqueue) — when the run settles COMPLETE
+// and is eligible — so the handler must not enqueue a second time.
 export async function rewardsDistributor ({ models, boss } = {}) {
-  const distribution = await runDistributionOnce({ models })
-  await enqueueOpsSweep(boss, distribution)
+  return await runDistributionOnce({ models, boss })
 }

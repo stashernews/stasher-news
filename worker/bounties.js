@@ -29,10 +29,12 @@ export async function runBountiesOnce ({ models, sendBountyPayments = defaultSen
   // 1.5 Abandon underfunded funding attempts: a DETECTED bounty whose
   // count-eligible (height-verified) receipts never covered declared + fee
   // within the top-up window flips to EXPIRED with bountyPiconeros rewritten to
-  // the COUNT-ELIGIBLE received total and a zero-fee BOUNTY_FEE row — so the
-  // author's reclaimBounty is a fee-waived refund of what was verified on chain
-  // (rollover pays received + 0 too). A provisional daemon-level claim is
-  // display-only: it neither holds the abandonment open nor sets the refund.
+  // the COUNT-ELIGIBLE received total and bountyFeePiconeros frozen to 0n — so
+  // the author's reclaimBounty is a fee-waived refund of what was verified on
+  // chain (rollover pays received + 0 too). No cash row is created: the funding
+  // was escrow-internal and never reached the hot wallet. A provisional
+  // daemon-level claim is display-only: it neither holds the abandonment open
+  // nor sets the refund.
   const abandonCutoff = new Date(Date.now() - BOUNTY_UNDERPAY_ABANDON_DAYS * 24 * 60 * 60 * 1000)
   const staleUnderfunded = await models.observedBounty.findMany({
     where: { state: 'DETECTED', detectedAt: { lt: abandonCutoff } },
@@ -72,20 +74,7 @@ export async function runBountiesOnce ({ models, sendBountyPayments = defaultSen
       await tx.observedBounty.update({ where: { id: bounty.id }, data: { state: 'EXPIRED' } })
       await tx.item.update({
         where: { id: bounty.postId },
-        data: { bountyStatus: 'EXPIRED', bountyPiconeros: received }
-      })
-      await tx.feeObservation.create({
-        data: {
-          txHash: 'abandoned-' + bounty.paymentId,
-          payInId: null,
-          feeType: 'BOUNTY_FEE',
-          postId: bounty.postId,
-          recipientMajor: 0,
-          recipientMinor: 0,
-          piconeros: 0n,
-          state: 'CONFIRMED',
-          confirmedAt: new Date()
-        }
+        data: { bountyStatus: 'EXPIRED', bountyPiconeros: received, bountyFeePiconeros: 0n }
       })
     })
     if (!abandoned) continue

@@ -17,9 +17,15 @@ const REWARDS_WALLET = gql`
       network
       totalReceivedPiconeros
       totalSentPiconeros
+      totalNetworkFeesPiconeros
       balancePiconeros
       balanceXmr
       balanceNeedsReconciliation
+      accountingUncertain
+      reconciliationCheckedAt
+      reconciliationEvidenceCurrent
+      outstandingRewardsPiconeros
+      opsDeficitPiconeros
       nextPoolPiconeros
       pendingSweepPiconeros
       inflowBreakdown {
@@ -49,6 +55,8 @@ const REWARDS_WALLET = gql`
       opsInflowPiconeros
       opsAvailablePiconeros
       opsSweptPiconeros
+      opsNetworkFeesAccountedPiconeros
+      correctedPendingOpsPiconeros
       opsSweepTxHash
       opsSweepState
       payouts {
@@ -74,16 +82,10 @@ function explorerTxUrl (network) {
   return network === 'MAINNET' ? 'https://xmrchain.net/tx/' : 'https://stagenet.xmrchain.net/tx/'
 }
 
-// Monero outputs take ~10 blocks to unlock, so a weekly sweep of the ops earmark
-// is sometimes deferred (SKIPPED_LOCKED): the funds stay in the rewards wallet
-// and roll into next period's opsAvailable. This makes that lag visible, not
-// mysterious. `pendingPiconeros` = what didn't sweep this run.
+// GraphQL BigInt serializes safe integers as JS Numbers, so wire values may
+// arrive as number, string, or bigint; normalize at the view boundary.
 function toBigInt (v) {
   return typeof v === 'bigint' ? v : BigInt(v)
-}
-
-function pendingOpsPiconeros (d) {
-  return toBigInt(d.opsAvailablePiconeros) - toBigInt(d.opsSweptPiconeros)
 }
 
 function opsSweepLabel (state) {
@@ -148,23 +150,47 @@ export default function Transparency ({ ssrData }) {
           <h4 className='text-muted'>Live balance</h4>
           <p className='text-muted'>
             <small>
-              Received, sent, and balance are ledger-derived from the platform's
-              own records: confirmed observations in, recorded payouts and ops
-              sweeps out. The public view key is the wallet address's embedded
-              key and is shown for reference; it cannot decode transaction
-              amounts, so on-chain totals are reconciled against the address.
+              Received, external principal, network fees, and balance are
+              ledger-derived from the platform's own records: confirmed eligible
+              receipts in, recorded payout and ops-sweep principal out, and the
+              actual hot-wallet transaction fees as their own cost line.
+              Balance = received − external principal − network fees. The public
+              view key is the wallet address's embedded key and is shown for
+              reference; it cannot decode transaction amounts, so on-chain
+              totals are reconciled against the address.
             </small>
           </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
-            <Stat label='Balance' value={`${w.balanceXmr} XMR`} sub={`${w.balancePiconeros} piconeros`} />
-            <Stat label='Total received' value={piconerosToXmr(toBigInt(w.totalReceivedPiconeros))} sub='confirmed observations (ledger)' />
-            <Stat label='Total sent' value={piconerosToXmr(toBigInt(w.totalSentPiconeros))} sub='recorded payouts + ops sweeps' />
+            <Stat label='Balance' value={`${w.balanceXmr} XMR`} sub={`${w.balancePiconeros} piconeros — received minus principal minus network fees`} />
+            <Stat label='Total received' value={piconerosToXmr(toBigInt(w.totalReceivedPiconeros))} sub='confirmed eligible receipts (ledger)' />
+            <Stat label='Total sent' value={piconerosToXmr(toBigInt(w.totalSentPiconeros))} sub='external principal — payouts + ops sweeps' />
+            <Stat label='Network fees' value={piconerosToXmr(toBigInt(w.totalNetworkFeesPiconeros))} sub='actual hot-wallet costs; paid by ops' />
+            <Stat label='Rewards still owed' value={piconerosToXmr(toBigInt(w.outstandingRewardsPiconeros))} sub='allocated full rewards not yet delivered' />
           </div>
           {w.balanceNeedsReconciliation && (
             <div className='alert alert-warning mt-3 mb-0'>
               Wallet balance needs reconciliation
             </div>
           )}
+          {toBigInt(w.opsDeficitPiconeros) > 0n && (
+            <div className='alert alert-warning mt-3 mb-0'>
+              Ops debt is unfunded by {piconerosToXmr(toBigInt(w.opsDeficitPiconeros))} — hot-wallet
+              network fees and sweeps exceed the ops earmark
+            </div>
+          )}
+          {w.accountingUncertain && (
+            <div className='alert alert-warning mt-3 mb-0'>
+              Rewards wallet accounting is uncertain: unresolved journal attempts or
+              conflicting ledger facts. The figures above may be incomplete.
+            </div>
+          )}
+          <small className='text-muted d-block mt-2'>
+            {w.reconciliationEvidenceCurrent
+              ? `Ledger facts match the latest published reconciliation check (${new Date(w.reconciliationCheckedAt).toLocaleString()}).`
+              : w.reconciliationCheckedAt
+                ? `The latest published reconciliation check (${new Date(w.reconciliationCheckedAt).toLocaleString()}) no longer matches the current ledger; it does not clear a known discrepancy.`
+                : 'No full-wallet reconciliation check has been published yet.'}
+          </small>
 
           <h4 className='text-muted mt-4'>Current allocation</h4>
           <p className='text-muted'>
@@ -172,9 +198,10 @@ export default function Transparency ({ ssrData }) {
               The wallet holds one consolidated balance. The two figures below are
               what it is literally allocated to right now: the pool that pays out at
               the next weekly distribution, and the platform's share — unswept from
-              the last distribution plus this week's accrual — awaiting its sweep to
-              the ops wallet. Once a distribution's payouts and sweep have settled,
-              the two sum to the whole.
+              the last distribution (after proven sweeps and real network fees) plus
+              this week's accrual — awaiting its sweep to the ops wallet. They are
+              literal allocations, not a pro-rata slice of the balance; a negative
+              ops figure is unfunded debt, not free cash.
             </small>
           </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
@@ -213,8 +240,11 @@ export default function Transparency ({ ssrData }) {
               the ops wallet when the hot wallet has enough unlocked change; when
               it doesn't (recent incoming outputs are still locked), the sweep is
               deferred and the unswept amount rolls into next week's opsAvailable
-              — it forms the "Ops allocation" figure shown above together with
-              that week's accruing ops share.
+              — adjusted for proven sweeps and the real network fees paid in that
+              period, bounded by the next period's fee checkpoint (only the active
+              period uses the cumulative total). The adjusted carry is an updated
+              snapshot of each period, while the "Ops allocation" figure above is
+              the one current allocation.
             </small>
           </p>
           {dists.length === 0
@@ -240,10 +270,15 @@ export default function Transparency ({ ssrData }) {
                     <div className='d-flex flex-wrap justify-content-between align-items-start ms-2 mt-1'>
                       <Stat label='Ops inflow' value={piconerosToXmr(toBigInt(d.opsInflowPiconeros))} sub="this period's ops share" />
                       <Stat label='Ops swept' value={piconerosToXmr(toBigInt(d.opsSweptPiconeros))} sub={`ops sweep: ${opsSweepLabel(d.opsSweepState)}`} />
+                      <Stat label='Fees accounted' value={piconerosToXmr(toBigInt(d.opsNetworkFeesAccountedPiconeros))} sub='hot-wallet fees inside this snapshot' />
                       <Stat
-                        label='Pending ops (rolled over)'
-                        value={piconerosToXmr(pendingOpsPiconeros(d))}
-                        sub={d.opsSweepState === 'SKIPPED_LOCKED' ? 'deferred — locked change, lands next period' : 'to next period'}
+                        label='Pending ops (adjusted)'
+                        value={piconerosToXmr(toBigInt(d.correctedPendingOpsPiconeros))}
+                        sub={toBigInt(d.correctedPendingOpsPiconeros) < 0n
+                          ? "unfunded — fees and sweeps exceed this period's ops earmark"
+                          : d.opsSweepState === 'SKIPPED_LOCKED'
+                            ? 'deferred — locked change, lands next period'
+                            : 'after proven sweeps and network fees'}
                       />
                     </div>
                     {d.opsSweepTxHash && (

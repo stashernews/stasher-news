@@ -293,3 +293,13 @@ test('Streak carries the ladder reward marker and the golden shield flag; Observ
   const tip = schema.match(/model ObservedTip \{[\s\S]*?\n\}/)[0]
   expect(tip).toMatch(/@@index\(\[tipperId, state, detectedAt\]\)/)
 })
+
+test('rewards accounting separates frozen terms, receipts, fees and repair audit', () => {
+  expect(fieldsOf('Item')).toContain('bountyFeePiconeros')
+  expect(fieldsOf('FeeObservation')).toEqual(expect.arrayContaining(['walletReceipt', 'rewardsPiconeros']))
+  expect(fieldsOf('RewardDistribution')).toContain('opsNetworkFeesAccountedPiconeros')
+  expect(modelNames).toEqual(expect.arrayContaining(['RewardsWalletTransaction', 'RewardsWalletReconciliation']))
+  const field = allModels.find(m => m.name === 'Item').fields.find(f => f.name === 'bountyFeePiconeros')
+  expect(field.isRequired).toBe(false)
+  expect(field.type).toBe('BigInt')
+})

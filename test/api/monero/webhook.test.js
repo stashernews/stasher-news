@@ -182,7 +182,7 @@ function mockModels (overrides = {}) {
         update: overrides.txItemUpdate || jest.fn().mockResolvedValue({}),
         // driveBountyFunding computes the fee from the DECLARED bounty
         // (item.bountyPiconeros), not the observed amount. 1e11 declared → fee
-        // 1e10 (floor regime), matching the 1.1e11 observed → 1e11 booked
+        // 1e10 (floor regime), matching the 1.1e11 observed → 1e11 frozen
         // assertions below.
         findUnique: overrides.txItemFind || jest.fn().mockResolvedValue({ bountyPiconeros: 100_000_000_000n })
       },
@@ -1372,15 +1372,17 @@ test('bounty branch: a DETECTED bounty at REQUIRED_CONFIRMATIONS runs the fundin
     data: expect.objectContaining({ state: 'CONFIRMED', confirmations: 10, height: 2172610 })
   }))
   // Item -> FUNDED with the observed amount NET of the platform fee (1.1e11
-  // observed − 1e10 floor fee = 1e11), so dispositions can zero the escrow.
+  // observed − 1e10 floor fee = 1e11) and the fee terms FROZEN on the Item, so
+  // dispositions can zero the escrow exactly.
   expect(txItemUpdate).toHaveBeenCalledWith(expect.objectContaining({
     where: { id: 5 },
-    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 100000000000n, bountyConfirmedAt: expect.any(Date) })
+    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 100000000000n, bountyFeePiconeros: 10000000000n, bountyConfirmedAt: expect.any(Date) })
   }))
-  // BOUNTY_FEE ledger row booked born-CONFIRMED inside the same transaction.
+  // No hot-wallet cash row: the money is still in escrow, so no BOUNTY_FEE
+  // receipt may be written inside the funding transaction.
   const sqlOf = call => Array.isArray(call[0]) ? call[0].join('') : call[0].text
   const sqls = queryRaw.mock.calls.map(sqlOf)
-  expect(sqls.some(sql => sql.includes('BOUNTY_FEE') && sql.includes('CONFIRMED'))).toBe(true)
+  expect(sqls.some(sql => sql.includes('BOUNTY_FEE'))).toBe(false)
   // The lws webhook is torn down after the transaction commits.
   expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-b')
 })
@@ -1418,10 +1420,10 @@ test('bounty branch: the N-conf CONFIRMED callback still funds when the BountyPi
     where: { id: 9 },
     data: expect.objectContaining({ state: 'CONFIRMED', confirmations: 10, height: 2172700 })
   }))
-  // Item -> FUNDED net of fee.
+  // Item -> FUNDED net of fee, with the fee terms frozen on the Item.
   expect(txItemUpdate).toHaveBeenCalledWith(expect.objectContaining({
     where: { id: 6 },
-    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 100000000000n })
+    data: expect.objectContaining({ bountyStatus: 'FUNDED', bountyPiconeros: 100000000000n, bountyFeePiconeros: 10000000000n })
   }))
   // Webhook torn down.
   expect(monero.deleteWebhook).toHaveBeenCalledWith('evt-c')

@@ -20,17 +20,31 @@
 //   docker exec -u apprunner app npx jest test/worker/rewardsDistributor.test.js
 //
 // The ops-earmark sweep is NOT part of finalization (2026-09-14 decoupling):
-// worker/opsSweep.js owns it as a delayed one-shot enqueued by the handler.
+// worker/opsSweep.js owns it as a delayed one-shot enqueued by the shared
+// completion path (completeAndEnqueue) once an eligible distribution is COMPLETE.
 
 import { PrismaClient } from '@prisma/client'
+import * as util from 'node:util'
 import { runDistributionOnce, finalizeDistribution, recoverStaleDistributions, requeueFailedPayouts, warnUndeliveredDistributions } from '@/worker/rewardsDistributor'
 import { applyTipDetected } from '@/api/monero/ranking'
+import { getNextRewardsPool } from '@/lib/rewardsPool'
 
 // lib/alert is mocked so operator pages are assertable without a network side
 // effect (same pattern as test/worker/reconcilePendingTips.test.js).
 import { alert } from '@/lib/alert'
+import { logError, logWarn } from '@/lib/logger'
 jest.mock(`${process.cwd()}/lib/alert`, () => ({
   alert: jest.fn()
+}))
+// The shared logger is mocked so the secret-safe diagnostics can be asserted:
+// no credential-shaped value may appear in any log call.
+jest.mock(`${process.cwd()}/lib/logger`, () => ({
+  __esModule: true,
+  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logInfo: jest.fn(),
+  logWarn: jest.fn(),
+  logError: jest.fn()
 }))
 
 // The beforeAll hook seeds + runs a real distribution against the live dev DB;
@@ -39,6 +53,40 @@ jest.mock(`${process.cwd()}/lib/alert`, () => ({
 jest.setTimeout(30000)
 
 const prisma = new PrismaClient()
+
+// The Task 7 checkpoint fixtures + their tests run only against the dedicated
+// isolated database (same conditional-skip convention as the other repair
+// suites). On a shared dev DB nothing journal-related is seeded with the live
+// wallet identity, and the inherited tests keep their original fixture shape.
+const ISOLATED_DB = (() => {
+  try { return new URL(process.env.DATABASE_URL).pathname === '/stasher_rewards_repair_test' } catch { return false }
+})()
+
+// Task 7 fee-journal fixtures. Every fixture hash carries the 'deadbead'
+// prefix (8 hex chars — a real 64-hex hash collides ~2e-10) so an interrupted
+// run's residue is purgeable without touching a real journal row.
+const JOURNAL_TX_PREFIX = 'deadbead'
+const testHash = suffix => (JOURNAL_TX_PREFIX + suffix).padEnd(64, '0')
+
+// The exact checkpoint arithmetic (spec §5): prior opsAvailable20, opsSwept10,
+// cost checkpoint4, cumulative fees7 (sweep 4 + consolidation 3) => carry 7.
+const PRIOR_OPS_AVAILABLE_PICONEROS = 20n
+const PRIOR_OPS_SWEPT_PICONEROS = 10n
+const PRIOR_OPS_FEES_CHECKPOINT_PICONEROS = 4n
+const PRIOR_SWEEP_HASH = testHash('1')
+const LATE_FEE_HASH = testHash('3')
+const PRIOR_SWEEP_FEE_PICONEROS = 4n
+const CONSOLIDATION_FEE_PICONEROS = 3n
+const LATE_FEE_PICONEROS = 2n
+
+// Resolved in beforeAll from the DB's registered platform wallet (or a
+// throwaway test address on a DB with none): the journal read is scoped by
+// wallet/network, and the reader refuses a configured identity that disagrees
+// with a registered platform_rewards account.
+let TEST_NETWORK = 'STAGENET'
+let TEST_WALLET_ADDRESS = '5' + '8888' + 'A'.repeat(90)
+let expectedCumulativeFees = 0n
+let expectedOpsRolledOver = 0n
 
 // 95-char Monero address placeholder, made unique per call via a counter.
 let addrSeq = 0
@@ -95,7 +143,8 @@ const created = {
   payIns: [],
   fees: [],
   downvotes: [],
-  distributions: []
+  distributions: [],
+  journals: []
 }
 
 let result // the distribution returned by runDistributionOnce (beforeAll)
@@ -103,6 +152,8 @@ let seededCurators // { c1, c2, c3 } — c3 has NO registered payout address
 let genuineRewardsShare // rewards share of genuine (non-fixture) inflow in the period (beforeAll)
 let genuineOpsShare // ops share of genuine (non-fixture) inflow in the period (beforeAll)
 let priorTrustFloor = null
+let priorRewardsAddress
+let priorNetworkEnv
 
 // Task 9 stub signer: records that it was invoked and marks each QUEUED payout
 // SENT with a stable fake tx hash. Injected into runDistributionOnce so the
@@ -122,7 +173,7 @@ const fakeSigner = async (payouts, { models } = {}) => {
 //   rewardsInflow = 5e12*100/100 + 4e12*70/100 + 2e12*30/100
 //                 + 3e12 (DONATE @100%) + 1e12*50/100 (DONATE @50%)
 //                 + 1e12*30/100 (BOOST @30%) + 2e12*70/100 (TIP_UNWALLETED @70%)
-//                 + 2.5e12 (BOUNTY_ROLLOVER @100%)
+//                 + 2.5e12 (BOUNTY_ROLLOVER exact reward component)
 //                 = 5e12 + 2.8e12 + 0.6e12 + 3e12 + 0.5e12 + 0.3e12 + 1.4e12 + 2.5e12 = 16.1e12
 //   pool          = 16.1e12 + 1e12 (prior rollover) = 17.1e12
 //   totalInflow   = rewardsInflow + 0.5e12 (BOUNTY_FEE @0% rewards, 100% ops)
@@ -130,6 +181,10 @@ const fakeSigner = async (payouts, { models } = {}) => {
 //   opsInflow     = totalInflow - rewardsInflow = 0.5e12 (BOUNTY_FEE) + 1.2e12 (posting)
 //                   + 1.4e12 (territory) + 0.5e12 (half DONATE) + 0.7e12 (BOOST)
 //                   + 0.6e12 (TIP_UNWALLETED) = 4.9e12
+// The BOUNTY_FEE fixture is the GENUINE hot fallback receipt (walletReceipt
+// true); an equal-nominal funding accrual with walletReceipt=false is seeded
+// alongside it and must never enter settlement inflow. The BOUNTY_ROLLOVER row
+// stores the full actual net receipt with its exact rewards component.
 const DOWNVOTE_PICONEROS = 5_000_000_000_000n
 const POSTING_FEE_PICONEROS = 4_000_000_000_000n
 const TERRITORY_FEE_PICONEROS = 2_000_000_000_000n
@@ -214,7 +269,7 @@ async function seedPayIn (userId, payInType, major, minor) {
 }
 
 let feeSeq = 0
-async function seedFee (payInId, feeType, major, piconeros, confirmedAt, donationRewardsPct = undefined) {
+async function seedFee (payInId, feeType, major, piconeros, confirmedAt, { donationRewardsPct, walletReceipt = true, rewardsPiconeros } = {}) {
   feeSeq += 1
   const fee = await prisma.feeObservation.create({
     data: {
@@ -225,6 +280,8 @@ async function seedFee (payInId, feeType, major, piconeros, confirmedAt, donatio
       recipientMinor: feeSeq,
       piconeros,
       donationRewardsPct,
+      walletReceipt,
+      rewardsPiconeros,
       height: 3000,
       confirmations: 10,
       state: 'CONFIRMED',
@@ -233,6 +290,29 @@ async function seedFee (payInId, feeType, major, piconeros, confirmedAt, donatio
   })
   created.fees.push(fee.id)
   return fee
+}
+
+// A hot-wallet journal fact (Task 7): scoped to the suite's configured
+// wallet, torn down by id and by the hash prefix. `relayAttemptedAt` marks an
+// attempted-but-unproven PREPARED row (Task 10 completion-readiness fixtures).
+async function seedJournalTransaction ({ txHash, kind, state = 'RELAYED', distributionId = null, principalPiconeros = 0n, networkFeePiconeros = 0n, metadata, relayAttemptedAt = null }) {
+  const row = await prisma.rewardsWalletTransaction.create({
+    data: {
+      network: TEST_NETWORK,
+      walletAddress: TEST_WALLET_ADDRESS,
+      txHash,
+      kind,
+      accountIndex: 0,
+      distributionId,
+      principalPiconeros,
+      networkFeePiconeros,
+      metadata,
+      state,
+      relayAttemptedAt
+    }
+  })
+  created.journals.push(row.id)
+  return row
 }
 
 let downvoteSeq = 0
@@ -282,7 +362,10 @@ async function purgePriorResidue () {
   })
   const staleDistIds = staleDists.map(d => d.id)
 
-  // FK-safe deletion (mirrors afterAll's proven cascade behavior).
+  // FK-safe deletion (mirrors afterAll's proven cascade behavior). The journal
+  // goes FIRST: a fixture journal row may reference a distribution being
+  // deleted (the FK is SET NULL, but the row would survive as residue).
+  await prisma.rewardsWalletTransaction.deleteMany({ where: { txHash: { startsWith: JOURNAL_TX_PREFIX } } })
   await prisma.earn.deleteMany({ where: { OR: [{ distributionId: null }, { distributionId: { in: staleDistIds } }] } })
   if (staleDistIds.length) {
     await prisma.rewardPayout.deleteMany({ where: { distributionId: { in: staleDistIds } } })
@@ -315,6 +398,24 @@ beforeAll(async () => {
   // Self-heal any residue from a prior interrupted run before seeding anew.
   await purgePriorResidue()
 
+  // Resolve the ledger scope before any seeding. The reader refuses a
+  // configured identity that disagrees with a registered platform_rewards
+  // account, so use that account's address when the DB has one (the dev DB)
+  // and a throwaway address otherwise (the isolated DB). Env is restored in
+  // afterAll.
+  priorRewardsAddress = process.env.PLATFORM_REWARDS_ADDRESS
+  priorNetworkEnv = process.env.MONERO_NETWORK
+  const registeredPlatform = await prisma.moneroAccount.findFirst({
+    where: { label: 'platform_rewards' },
+    select: { address: true, network: true }
+  })
+  if (registeredPlatform) {
+    TEST_NETWORK = registeredPlatform.network
+    TEST_WALLET_ADDRESS = registeredPlatform.address
+  }
+  process.env.MONERO_NETWORK = TEST_NETWORK.toLowerCase()
+  process.env.PLATFORM_REWARDS_ADDRESS = TEST_WALLET_ADDRESS
+
   // Snapshot the operator's floor so afterAll can restore it — this suite
   // runs against the shared dev DB and must leave no trace (AGENTS norm).
   const priorConfigRow = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
@@ -340,20 +441,52 @@ beforeAll(async () => {
   }
 
   // Prior period's distribution carrying a rollover into this week's pool.
+  // On the isolated DB it also carries the Task 7 ops snapshot: opsAvailable20,
+  // opsSwept10 (the sweep hash is represented in the journal), checkpoint4. The
+  // fixture journal fees total 7 (sweep 4 + consolidation 3), so the
+  // fee-adjusted carry is 7. On a shared DB the inherited shape (no ops
+  // snapshot) is kept and no journal rows are seeded.
   const priorEnd = new Date(Date.now() - 8 * DAY)
   const priorStart = new Date(Date.now() - 15 * DAY)
-  const prior = await prisma.rewardDistribution.create({
-    data: {
-      periodStart: priorStart,
-      periodEnd: priorEnd,
-      poolPiconeros: PRIOR_ROLLOVER_PICONEROS,
-      distributedPiconeros: 0n,
-      rolledOverPiconeros: PRIOR_ROLLOVER_PICONEROS,
-      payoutCount: 0,
-      status: 'COMPLETE'
-    }
-  })
+  const priorData = {
+    periodStart: priorStart,
+    periodEnd: priorEnd,
+    poolPiconeros: PRIOR_ROLLOVER_PICONEROS,
+    distributedPiconeros: 0n,
+    rolledOverPiconeros: PRIOR_ROLLOVER_PICONEROS,
+    payoutCount: 0,
+    status: 'COMPLETE'
+  }
+  if (ISOLATED_DB) {
+    Object.assign(priorData, {
+      opsAvailablePiconeros: PRIOR_OPS_AVAILABLE_PICONEROS,
+      opsSweptPiconeros: PRIOR_OPS_SWEPT_PICONEROS,
+      opsSweepTxHash: PRIOR_SWEEP_HASH,
+      opsNetworkFeesAccountedPiconeros: PRIOR_OPS_FEES_CHECKPOINT_PICONEROS
+    })
+  }
+  const prior = await prisma.rewardDistribution.create({ data: priorData })
   created.distributions.push(prior.id)
+  if (ISOLATED_DB) {
+    // Task 7 journal facts inside the configured wallet scope: a proven sweep
+    // already represented by the recorded opsSweepTxHash (counted once), and a
+    // consolidation fee (fee-only). Total RELAYED cost 7.
+    await seedJournalTransaction({
+      txHash: PRIOR_SWEEP_HASH,
+      kind: 'OPS_SWEEP',
+      distributionId: prior.id,
+      principalPiconeros: PRIOR_OPS_SWEPT_PICONEROS,
+      networkFeePiconeros: PRIOR_SWEEP_FEE_PICONEROS,
+      metadata: { destination: '5COLDTEST' }
+    })
+    await seedJournalTransaction({
+      txHash: testHash('2'),
+      kind: 'CONSOLIDATION',
+      principalPiconeros: 0n,
+      networkFeePiconeros: CONSOLIDATION_FEE_PICONEROS,
+      metadata: { destination: TEST_WALLET_ADDRESS, selfTransfer: true }
+    })
+  }
 
   // --- Inflow for THIS week (all CONFIRMED, confirmedAt inside the period) ---
   const inPeriod = new Date(Date.now() - 2 * DAY)
@@ -382,7 +515,7 @@ beforeAll(async () => {
 
   // A second donation with a payer-chosen 50% rewards split (fee-allocation v2).
   const halfDonatePayIn = await seedPayIn(authorId, 'DONATE', 3, 2)
-  await seedFee(halfDonatePayIn.id, 'DONATE', 3, HALF_DONATE_PICONEROS, inPeriod, 50)
+  await seedFee(halfDonatePayIn.id, 'DONATE', 3, HALF_DONATE_PICONEROS, inPeriod, { donationRewardsPct: 50 })
 
   // Boost (boostRewardsPct, default 30): funds the pool at 30%, the other 70%
   // is ops. Lands on the BOOST fee subaddress major (5) per the fee-subaddress
@@ -396,13 +529,17 @@ beforeAll(async () => {
   await seedFee(null, 'TIP_UNWALLETED', 4, WALLETLESS_TIP_PICONEROS, inPeriod)
 
   // Bounty rollover (BOUNTY_ROLLOVER): the escrow's bounty portion physically
-  // arrived at the rewards wallet — funds the pool 100% (no allocation %).
+  // arrived at the rewards wallet — stores the full actual net receipt in
+  // `piconeros` and its exact rewards component in `rewardsPiconeros`.
   // payInId is null because a rollover creates no PayIn.
-  await seedFee(null, 'BOUNTY_ROLLOVER', 0, BOUNTY_ROLLOVER_PICONEROS, inPeriod)
+  await seedFee(null, 'BOUNTY_ROLLOVER', 0, BOUNTY_ROLLOVER_PICONEROS, inPeriod, { rewardsPiconeros: BOUNTY_ROLLOVER_PICONEROS })
 
-  // Bounty fee (BOUNTY_FEE): booked at funding confirmation and physically
-  // riding along the rollover tx — 100% ops (0% pool).
+  // Bounty fee (BOUNTY_FEE): the GENUINE hot fallback receipt (walletReceipt
+  // defaults true) — it physically arrived at the wallet and is 100% ops
+  // (0% pool). The equal-nominal funding-time accrual below never arrived and
+  // must not count as settlement inflow.
   await seedFee(null, 'BOUNTY_FEE', 0, BOUNTY_FEE_PICONEROS, inPeriod)
+  await seedFee(null, 'BOUNTY_FEE', 0, BOUNTY_FEE_PICONEROS, inPeriod, { walletReceipt: false })
 
   // --- Curators (tippers): c1, c2 get payout accounts; c3 does NOT ---
   const c1 = await createUser()
@@ -428,8 +565,28 @@ beforeAll(async () => {
   await seedTip({ postId, tipperId: c3, piconeros: 2_000_000_000_000n, confirmedAt: new Date(inPeriod.getTime() + 120000), recipientAccountId: recipientAccount.id })
 
   // --- Run the distribution (Task 9 signer stub injected) ---
-  result = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  result = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, scheduleOpsSweep: false })
   created.distributions.push(result.id)
+
+  // Task 7 drift-robust checkpoint expectations: the cumulative RELAYED fees in
+  // the configured scope at the moment of the run (the 7 fixture piconeros on
+  // the isolated DB, plus any real journal rows on a shared dev DB) and the
+  // fee-adjusted carry they price into opsAvailable. On a shared DB the
+  // inherited prior shape has no ops snapshot, so only the fees debit it:
+  //   isolated: carry = 20 - 10 - (Fnow - 4)   shared: carry = 0 - 0 - (Fnow - 0)
+  const feeAggregate = await prisma.rewardsWalletTransaction.aggregate({
+    _sum: { networkFeePiconeros: true },
+    where: { network: TEST_NETWORK, walletAddress: TEST_WALLET_ADDRESS, state: 'RELAYED' }
+  })
+  expectedCumulativeFees = feeAggregate._sum.networkFeePiconeros ?? 0n
+  const priorOps = ISOLATED_DB
+    ? {
+        available: PRIOR_OPS_AVAILABLE_PICONEROS,
+        swept: PRIOR_OPS_SWEPT_PICONEROS,
+        checkpoint: PRIOR_OPS_FEES_CHECKPOINT_PICONEROS
+      }
+    : { available: 0n, swept: 0n, checkpoint: 0n }
+  expectedOpsRolledOver = priorOps.available - priorOps.swept - (expectedCumulativeFees - priorOps.checkpoint)
 
   // Genuine (non-fixture) confirmed inflow inside the distribution's period:
   // the suite assumes it is the sole inflow source, but real
@@ -440,11 +597,15 @@ beforeAll(async () => {
   // expected-pool math below (the drift-robust pattern of the opsInflow test).
   // The seeded sources stay pinned exactly.
   const configRow = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
+  // Mirror the shared reader's eligibility exactly: only walletReceipt=true
+  // rows are hot-wallet receipts (funding-time accruals are historical
+  // evidence, never cash).
   const genuineFeeGroups = await prisma.feeObservation.groupBy({
     by: ['feeType'],
     _sum: { piconeros: true },
     where: {
       state: 'CONFIRMED',
+      walletReceipt: true,
       confirmedAt: { gte: result.periodStart, lt: result.periodEnd },
       txHash: { not: { startsWith: 'rdfee' } }
     }
@@ -463,7 +624,7 @@ beforeAll(async () => {
   const genuineDonateRewards = (await prisma.$queryRaw`
     SELECT COALESCE(sum("piconeros" * COALESCE("donationRewardsPct", 100) / 100), 0)::bigint AS s
     FROM "FeeObservation"
-    WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED'
+    WHERE "feeType" = 'DONATE' AND state = 'CONFIRMED' AND "walletReceipt" = true
       AND "confirmedAt" >= ${result.periodStart} AND "confirmedAt" < ${result.periodEnd}
       AND "txHash" NOT LIKE 'rdfee%'`)[0].s ?? 0n
   const split = (feeType, pct) => (genuineFees[feeType] ?? 0n) * BigInt(pct) / 100n
@@ -487,7 +648,9 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  // FK-safe teardown.
+  // FK-safe teardown. Journal rows first: they reference distributions, and
+  // the FK only SET NULLs, so they would otherwise survive as residue.
+  await prisma.rewardsWalletTransaction.deleteMany({ where: { id: { in: created.journals } } })
   await prisma.earn.deleteMany({ where: { distributionId: { in: created.distributions } } })
   for (const id of created.distributions) {
     await prisma.rewardPayout.deleteMany({ where: { distributionId: id } })
@@ -513,6 +676,12 @@ afterAll(async () => {
     update: { curatorTrustWeightFloor: priorTrustFloor ?? 1.0 },
     create: { id: 1 }
   })
+
+  // Restore the wallet identity env this suite overrode.
+  if (priorRewardsAddress === undefined) delete process.env.PLATFORM_REWARDS_ADDRESS
+  else process.env.PLATFORM_REWARDS_ADDRESS = priorRewardsAddress
+  if (priorNetworkEnv === undefined) delete process.env.MONERO_NETWORK
+  else process.env.MONERO_NETWORK = priorNetworkEnv
 
   await prisma.$disconnect()
 })
@@ -569,9 +738,11 @@ test('distributedPiconeros + rolledOverPiconeros reconciles to the pool exactly'
 
 test('opsInflowPiconeros is the exact complement of the rewards earmark (totalInflow - rewardsInflow)', async () => {
   // Drift-robust: recompute the period's actual confirmed inflow from the DB
-  // (genuine stagenet activity may add to the pool on the live dev DB).
+  // (genuine stagenet activity may add to the pool on the live dev DB) with
+  // the shared reader's eligibility (walletReceipt=true) so the funding-time
+  // BOUNTY_FEE twin can never inflate the expected settlement inflow.
   const dv = await prisma.observedDownvote.aggregate({ _sum: { piconeros: true }, where: { state: 'CONFIRMED', confirmedAt: { gte: result.periodStart, lt: result.periodEnd } } })
-  const fees = await prisma.feeObservation.aggregate({ _sum: { piconeros: true }, where: { state: 'CONFIRMED', confirmedAt: { gte: result.periodStart, lt: result.periodEnd } } })
+  const fees = await prisma.feeObservation.aggregate({ _sum: { piconeros: true }, where: { state: 'CONFIRMED', walletReceipt: true, confirmedAt: { gte: result.periodStart, lt: result.periodEnd } } })
   const totalInflow = (dv._sum.piconeros ?? 0n) + (fees._sum.piconeros ?? 0n)
   // rewardsInflow is definitional: pool = rewardsInflow + priorRolledOver.
   const rewardsInflow = result.poolPiconeros - PRIOR_ROLLOVER_PICONEROS
@@ -581,8 +752,44 @@ test('opsInflowPiconeros is the exact complement of the rewards earmark (totalIn
 })
 
 test('opsAvailablePiconeros equals opsInflow + opsRolledOver (prior had no ops, so rollover is 0)', async () => {
-  expect(result.opsRolledOverPiconeros).toBe(0n)
+  // Shared DB: the prior carries no ops snapshot (the inherited fixture shape),
+  // so the rollover is the negative of any real journal fees. Isolated DB: the
+  // Task 7 fixture snapshot (20/10/checkpoint 4) applies.
+  expect(result.opsRolledOverPiconeros).toBe(ISOLATED_DB ? expectedOpsRolledOver : -expectedCumulativeFees)
   expect(result.opsAvailablePiconeros).toBe(result.opsInflowPiconeros + result.opsRolledOverPiconeros)
+})
+
+;(ISOLATED_DB ? describe : describe.skip)('fee-adjusted ops checkpoint (isolated DB only)', () => {
+  test('the distribution records the cumulative RELAYED network cost as its ops checkpoint', async () => {
+    expect(result.opsNetworkFeesAccountedPiconeros).toBe(expectedCumulativeFees)
+    expect(expectedCumulativeFees).toBeGreaterThanOrEqual(PRIOR_SWEEP_FEE_PICONEROS + CONSOLIDATION_FEE_PICONEROS)
+  })
+
+  test('the fee-adjusted carry debits real network costs once: carry = 20 - 10 - (7-4)', async () => {
+    expect(result.opsRolledOverPiconeros).toBe(expectedOpsRolledOver)
+    // The old unfee'd carry (opsAvailable - opsSwept = 10) must NOT be reported:
+    // the fees incurred after the checkpoint are debited here, once.
+    expect(result.opsRolledOverPiconeros).toBe(10n - (expectedCumulativeFees - PRIOR_OPS_FEES_CHECKPOINT_PICONEROS))
+  })
+
+  test('a late journal fee inserted after creation debits the active carry now, exactly once', async () => {
+    await seedJournalTransaction({
+      txHash: LATE_FEE_HASH,
+      kind: 'CONSOLIDATION',
+      principalPiconeros: 0n,
+      networkFeePiconeros: LATE_FEE_PICONEROS,
+      metadata: { destination: TEST_WALLET_ADDRESS, selfTransfer: true }
+    })
+    const pool = await getNextRewardsPool(prisma)
+    // The open cycle may hold genuine inflow even on the isolated DB: price it
+    // from the same read instead of assuming zero.
+    const openOps = pool.totalInflowPiconeros - pool.rewardsInflowPiconeros
+    expect(pool.totalNetworkFeesPiconeros).toBe(expectedCumulativeFees + LATE_FEE_PICONEROS)
+    expect(pool.pendingSweepPiconeros).toBe(result.opsAvailablePiconeros - LATE_FEE_PICONEROS + openOps)
+    // Reading again does not debit it a second time.
+    const again = await getNextRewardsPool(prisma)
+    expect(again.pendingSweepPiconeros).toBe(pool.pendingSweepPiconeros)
+  })
 })
 
 test('the distributor pays out (>0) when weightedVotes is populated through the real tip path', async () => {
@@ -749,7 +956,7 @@ test('a signer SKIP (insufficient unlocked) leaves the distribution FAILED — n
   expect(payoutAfter.state).toBe('QUEUED') // resumable
 })
 
-test('a partial send (sent > 0, skipped > 0) also marks the distribution FAILED (resumable)', async () => {
+test('a partial send (sent > 0, skipped > 0) also marks the distribution FAILED (resumable) and leaves Earn/allocations untouched', async () => {
   const curatorId = await createUser()
   const dist = await prisma.rewardDistribution.create({
     data: {
@@ -769,6 +976,16 @@ test('a partial send (sent > 0, skipped > 0) also marks the distribution FAILED 
       data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
     }))
   }
+  // Earn records were written at distribution time and are IMMUTABLE: a
+  // partial on-chain send must not touch them nor the allocated/rollover
+  // amounts — the unpaid reward stays an explicit QUEUED debt.
+  await prisma.earn.createMany({
+    data: [
+      { userId: curatorId, piconeros: 1_000_000_000n, type: 'TIP_POST', rank: 1, typeId: null, distributionId: dist.id, createdAt: dist.periodEnd },
+      { userId: curatorId, piconeros: 1_000_000_000n, type: 'TIP_COMMENT', rank: 2, typeId: null, distributionId: dist.id, createdAt: dist.periodEnd }
+    ]
+  })
+  const earnsBefore = await prisma.earn.findMany({ where: { distributionId: dist.id }, orderBy: { id: 'asc' } })
   await finalizeDistribution(
     prisma,
     { ...dist, payouts },
@@ -778,10 +995,14 @@ test('a partial send (sent > 0, skipped > 0) also marks the distribution FAILED 
     })
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('FAILED')
+  expect(updated.distributedPiconeros).toBe(dist.distributedPiconeros)
+  expect(updated.rolledOverPiconeros).toBe(dist.rolledOverPiconeros)
   const p0 = await prisma.rewardPayout.findUnique({ where: { id: payouts[0].id } })
   const p1 = await prisma.rewardPayout.findUnique({ where: { id: payouts[1].id } })
   expect(p0.state).toBe('SENT')
   expect(p1.state).toBe('QUEUED')
+  const earnsAfter = await prisma.earn.findMany({ where: { distributionId: dist.id }, orderBy: { id: 'asc' } })
+  expect(earnsAfter).toEqual(earnsBefore)
 })
 
 test('a signer hard-failure summary (failed > 0) marks the distribution FAILED too', async () => {
@@ -838,6 +1059,46 @@ test('an unpersisted relay (sent>0, unpersisted>0) marks the distribution FAILED
   expect(updated.completedAt).toBeNull()
   const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
   expect(payoutAfter.state).toBe('QUEUED')
+})
+
+// The Task 8 accounting-failure completion guard seeds users/distributions/
+// payouts directly, so it is gated to the dedicated isolated DB (same
+// conditional-skip convention as the other repair suites) and skipped on a
+// shared dev DB.
+;(ISOLATED_DB ? describe : describe.skip)('accounting-failure completion guard (isolated DB only)', () => {
+  test('an unresolved accounting item (accountingUnpersisted>0) marks the distribution FAILED — never COMPLETE (Task 8)', async () => {
+    const curatorId = await createUser()
+    const dist = await prisma.rewardDistribution.create({
+      data: {
+        periodStart: new Date(Date.now() - 36 * DAY),
+        periodEnd: new Date(Date.now() - 35 * DAY),
+        poolPiconeros: 1_000_000_000n,
+        distributedPiconeros: 1_000_000_000n,
+        rolledOverPiconeros: 0n,
+        payoutCount: 1,
+        status: 'PENDING'
+      }
+    })
+    created.distributions.push(dist.id)
+    const payout = await prisma.rewardPayout.create({
+      data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
+    })
+    alert.mockClear()
+    await finalizeDistribution(
+      prisma,
+      { ...dist, payouts: [payout] },
+      async () => ({ sent: 1, failed: 0, skipped: 0, unpersisted: 0, accountingUnpersisted: 1 }))
+    const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+    expect(updated.status).toBe('FAILED') // never COMPLETE over an unresolved fee cost
+    expect(updated.completedAt).toBeNull()
+    const incompleteCall = alert.mock.calls.find(c => c[1] === 'rewards distribution send incomplete')
+    expect(incompleteCall).toBeTruthy()
+    expect(incompleteCall[2]).toContain('accountingUnpersisted 1')
+    expect(incompleteCall[2]).toContain('unresolved rewards-wallet fee/journal accounting')
+    // The alert distinguishes unresolved fee accounting from relayed-but-
+    // unpersisted recipient principal (which was NOT the failure here).
+    expect(incompleteCall[2]).not.toContain('unpersisted payouts WERE relayed')
+  })
 })
 
 test('a FAILED distribution with all payouts SENT reconciles to COMPLETE on the next run (finalize is sweep-agnostic)', async () => {
@@ -997,7 +1258,7 @@ test('R02: a stale SENDING distribution is watchdog-flipped FAILED, alerted, and
     data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
   })
   alert.mockClear()
-  await recoverStaleDistributions(prisma, { sendPayouts: fakeSigner })
+  await recoverStaleDistributions(prisma, { sendPayouts: fakeSigner, scheduleOpsSweep: false })
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('COMPLETE')
   const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
@@ -1028,7 +1289,7 @@ test('R02: a FRESH SENDING distribution is untouched by the watchdog', async () 
     data: { distributionId: dist.id, curatorId, recipientAddress: makeAddress(), piconeros: 1_000_000_000n, state: 'QUEUED' }
   })
   const invocationsBefore = signerInvocations
-  await recoverStaleDistributions(prisma, { sendPayouts: fakeSigner })
+  await recoverStaleDistributions(prisma, { sendPayouts: fakeSigner, scheduleOpsSweep: false })
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('SENDING')
   expect(signerInvocations).toBe(invocationsBefore)
@@ -1054,14 +1315,14 @@ test('R02: runDistributionOnce wires the watchdog — a stale row is recovered b
   })
   // The week's distribution (beforeAll result) occupies the idempotency
   // window, so this run only exercises the watchdog + a no-op finalize.
-  await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, scheduleOpsSweep: false })
   const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
   expect(updated.status).toBe('COMPLETE')
 })
 
 test('a second run within the same week is idempotent (returns the existing distribution)', async () => {
   const before = await prisma.rewardPayout.count({ where: { distributionId: result.id } })
-  const again = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  const again = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, scheduleOpsSweep: false })
   expect(again.id).toBe(result.id)
   const after = await prisma.rewardPayout.count({ where: { distributionId: result.id } })
   expect(after).toBe(before)
@@ -1096,7 +1357,7 @@ test('referred curators produce a FOREVER_REFERRAL payout + Earn row for the ref
   await seedTip({ postId: post, tipperId: filler, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 61000), recipientAccountId: recipientAccount.id })
 
   // stub signer: marks QUEUED -> SENT; no sweep exists in the finalize path
-  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, scheduleOpsSweep: false })
   created.distributions.push(dist.id)
 
   const curatorPayout = dist.payouts.find(p => p.curatorId === curator)
@@ -1155,7 +1416,7 @@ test('a referrer who is ALSO a paid curator gets exactly one FOREVER_REFERRAL Ea
   await seedTip({ postId: post, tipperId: curator, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 61000), recipientAccountId: recipientAccount.id })
   await seedTip({ postId: post, tipperId: filler, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 121000), recipientAccountId: recipientAccount.id })
 
-  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, scheduleOpsSweep: false })
   created.distributions.push(dist.id)
 
   // --- Both payout-row kinds for the SAME user id: the overlap under test ---
@@ -1230,7 +1491,7 @@ test('R04: referral payouts are computed from PAID curators only (a wallet-less 
   await seedTip({ postId: post, tipperId: curatorPaid, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 1000), recipientAccountId: recipientAccount.id })
   await seedTip({ postId: post, tipperId: curatorWalletless, piconeros: 1_000_000_000n, confirmedAt: new Date(Date.now() - DAY + 61000), recipientAccountId: recipientAccount.id })
 
-  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, scheduleOpsSweep: false })
   created.distributions.push(dist.id)
 
   const paidPayout = dist.payouts.find(p => p.curatorId === curatorPaid)
@@ -1281,7 +1542,7 @@ test('a previous weekly run whose periodEnd sits at this run\'s periodStart boun
   })
   created.distributions.push(boundary.id)
 
-  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  const dist = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, scheduleOpsSweep: false })
   created.distributions.push(dist.id)
 
   expect(dist.id).not.toBe(boundary.id)
@@ -1322,7 +1583,7 @@ test('a run later in the same week still skips when a distribution ended mid-wee
   })
   created.distributions.push(earlierThisWeek.id)
 
-  const again = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner })
+  const again = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, scheduleOpsSweep: false })
   expect(again.id).toBe(earlierThisWeek.id) // found -> returned verbatim, no new row
   expect(again.status).toBe('COMPLETE') // finalizeDistribution early-returns on COMPLETE
 })
@@ -1330,7 +1591,7 @@ test('a run later in the same week still skips when a distribution ended mid-wee
 describe('requeueFailedPayouts (2026-09-28 recovery tool)', () => {
   test('dry-run reports candidates and mutates nothing', async () => {
     const { dist, failed } = await seedStrandedDistribution()
-    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: false })
+    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: false, scheduleOpsSweep: false })
     expect(summary.candidates.map(c => c.id)).toEqual([failed.id])
     expect(summary.candidatePiconeros).toBe(2_000_000_000n)
     expect(summary.requeued).toBe(0)
@@ -1344,7 +1605,7 @@ describe('requeueFailedPayouts (2026-09-28 recovery tool)', () => {
     const stranded = await prisma.rewardPayout.create({
       data: { distributionId: dist.id, curatorId: await createUser(), recipientAddress: makeAddress(), piconeros: 500_000_000n, state: 'FAILED' }
     })
-    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: true, send: false })
+    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: true, send: false, scheduleOpsSweep: false })
     expect(summary.refusedWithTxHash).toEqual([failed.id])
     expect(summary.requeued).toBe(1)
     expect((await prisma.rewardPayout.findUnique({ where: { id: stranded.id } })).state).toBe('QUEUED')
@@ -1354,7 +1615,7 @@ describe('requeueFailedPayouts (2026-09-28 recovery tool)', () => {
 
   test('refuses when the distribution is SENDING (a sender may be live) and flips nothing', async () => {
     const { dist, failed } = await seedStrandedDistribution({ status: 'SENDING' })
-    await expect(requeueFailedPayouts(prisma, dist.id, { confirm: true })).rejects.toThrow(/SENDING/)
+    await expect(requeueFailedPayouts(prisma, dist.id, { confirm: true, scheduleOpsSweep: false })).rejects.toThrow(/SENDING/)
     expect((await prisma.rewardPayout.findUnique({ where: { id: failed.id } })).state).toBe('FAILED')
   })
 
@@ -1363,6 +1624,7 @@ describe('requeueFailedPayouts (2026-09-28 recovery tool)', () => {
     let driveCount = 0
     const summary = await requeueFailedPayouts(prisma, dist.id, {
       confirm: true,
+      scheduleOpsSweep: false,
       sendPayouts: async (rows, { models }) => {
         driveCount += 1
         for (const p of rows) {
@@ -1391,8 +1653,8 @@ describe('requeueFailedPayouts (2026-09-28 recovery tool)', () => {
       }
       return { sent: 1, failed: 0, skipped: 0, unpersisted: 0 }
     })
-    await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer })
-    const second = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer })
+    await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer, scheduleOpsSweep: false })
+    const second = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer, scheduleOpsSweep: false })
     expect(second.requeued).toBe(0)
     expect(second.drove).toBe(false)
     expect(signer).toHaveBeenCalledTimes(1)
@@ -1423,14 +1685,14 @@ describe('requeueFailedPayouts (2026-09-28 recovery tool)', () => {
       }
       return { sent: rows.filter(p => p.state === 'QUEUED').length, failed: 0, skipped: 0, unpersisted: 0 }
     })
-    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer })
+    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer, scheduleOpsSweep: false })
     expect(summary.candidates).toEqual([])
     expect(summary.queuedCount).toBe(1)
     expect(summary.requeued).toBe(0)
     expect(summary.drove).toBe(true)
     expect(summary.finalStatus).toBe('COMPLETE')
     expect((await prisma.rewardPayout.findUnique({ where: { id: queued.id } })).state).toBe('SENT')
-    const second = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer })
+    const second = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: signer, scheduleOpsSweep: false })
     expect(second.drove).toBe(false) // all SENT: no-op, never re-drives
   })
 
@@ -1455,6 +1717,7 @@ describe('requeueFailedPayouts (2026-09-28 recovery tool)', () => {
     await prisma.earn.create({ data: { userId: curatorId, piconeros: 1_000_000_000n, type: 'TIP_POST', rank: 1, typeId: null, distributionId: dist.id, createdAt: new Date(Date.now() - 39 * DAY) } })
     const summary = await requeueFailedPayouts(prisma, dist.id, {
       confirm: true,
+      scheduleOpsSweep: false,
       sendPayouts: async (rows, { models }) => {
         for (const p of rows) {
           if (p.state === 'QUEUED') {
@@ -1541,5 +1804,376 @@ describe('warnUndeliveredDistributions (stranding visibility net)', () => {
       expect.stringContaining(`distribution ${recent.id}`), expect.anything())
     expect(alert).not.toHaveBeenCalledWith('critical', 'rewards payouts undelivered (stranded)',
       expect.stringContaining(`distribution ${done.id}`), expect.anything())
+  })
+})
+
+// Task 10: shared completion enqueue + the all-SENT accounting readiness gate.
+// Every case runs the production orchestration (runDistributionOnce /
+// recoverStaleDistributions / requeueFailedPayouts) with a fake boss and
+// injected signer/wallet against the dedicated isolated DB; the shared dev DB
+// is skipped (same gating as the other repair suites).
+;(ISOLATED_DB ? describe : describe.skip)('shared completion enqueue and readiness gate (isolated DB only)', () => {
+  function fakeBoss () {
+    return { send: jest.fn().mockResolvedValue('job-id') }
+  }
+
+  // The wallet seams reconcileCompletionAccounting may obtain. A wallet is only
+  // EVER fetched when an attempted journal row exists, so most cases never
+  // touch these.
+  function fakeWallet ({ outgoing = [] } = {}) {
+    return {
+      getPrimaryAddress: async () => TEST_WALLET_ADDRESS,
+      getNetworkType: async () => (TEST_NETWORK === 'MAINNET' ? 0 : 2),
+      getOutgoingTransfers: async () => outgoing
+    }
+  }
+
+  // One wallet outgoing-history observation as api/monero/rewardsTransactions
+  // reads it (exact hash, relayed flag, real fee, destination multiset).
+  function outgoingTransfer ({ txHash, feePiconeros, destinations }) {
+    const tx = { getHash: () => txHash, getIsRelayed: () => true, getFee: () => feePiconeros }
+    return {
+      getTx: () => tx,
+      getDestinations: () => destinations.map(d => ({ getAddress: () => d.address, getAmount: () => d.amount }))
+    }
+  }
+
+  // Seeds a distribution and its payouts. `periodEnd` defaults to NOW so the row
+  // is the in-window (and global) latest — the shape runDistributionOnce's
+  // idempotency guard returns and the sweep eligibility checks accept.
+  async function seedDistribution ({ status = 'COMPLETE', periodEnd = new Date(), payouts = [], opsSweepState = 'NOT_SWEEPED', opsSweptPiconeros = 0n, opsAvailablePiconeros = 0n, startedAt } = {}) {
+    const curatorId = await createUser()
+    const total = payouts.reduce((acc, p) => acc + (p.piconeros ?? 1_000_000_000n), 0n)
+    const dist = await prisma.rewardDistribution.create({
+      data: {
+        periodStart: new Date(periodEnd.getTime() - DAY),
+        periodEnd,
+        poolPiconeros: total,
+        distributedPiconeros: total,
+        rolledOverPiconeros: 0n,
+        payoutCount: payouts.length,
+        status,
+        opsSweepState,
+        opsSweptPiconeros,
+        opsAvailablePiconeros,
+        ...(status === 'COMPLETE' ? { completedAt: new Date(periodEnd.getTime() - 1000) } : {}),
+        ...(status === 'SENDING' ? { startedAt: startedAt ?? new Date() } : {})
+      }
+    })
+    created.distributions.push(dist.id)
+    const rows = []
+    for (const p of payouts) {
+      rows.push(await prisma.rewardPayout.create({
+        data: {
+          distributionId: dist.id,
+          curatorId,
+          recipientAddress: p.address ?? makeAddress(),
+          piconeros: p.piconeros ?? 1_000_000_000n,
+          state: p.state,
+          ...(p.txHash ? { txHash: p.txHash } : {})
+        }
+      }))
+    }
+    return { dist, payouts: rows, curatorId }
+  }
+
+  test('empty week: a settled zero-payout distribution completes and enqueues the delayed sweep', async () => {
+    const { dist } = await seedDistribution({ status: 'PENDING', payouts: [] })
+    const boss = fakeBoss()
+    const signer = jest.fn()
+    const result = await runDistributionOnce({ models: prisma, sendPayouts: signer, boss })
+    expect(result.id).toBe(dist.id)
+    expect(result.status).toBe('COMPLETE')
+    expect(signer).not.toHaveBeenCalled()
+    expect(boss.send).toHaveBeenCalledWith('opsSweep', { distributionId: dist.id },
+      { startAfter: 3600, singletonKey: `opsSweep-${dist.id}` })
+  })
+
+  test('a same-week COMPLETE reread re-enqueues through the singleton (retry of an eligible completion)', async () => {
+    const { dist } = await seedDistribution({ status: 'COMPLETE' })
+    const boss = fakeBoss()
+    const signer = jest.fn()
+    const result = await runDistributionOnce({ models: prisma, sendPayouts: signer, boss })
+    expect(result.id).toBe(dist.id)
+    expect(result.status).toBe('COMPLETE')
+    expect(signer).not.toHaveBeenCalled()
+    expect(boss.send).toHaveBeenCalledWith('opsSweep', { distributionId: dist.id },
+      { startAfter: 3600, singletonKey: `opsSweep-${dist.id}` })
+  })
+
+  test('a distribution with stranded FAILED recipients completes with the alert but never enqueues', async () => {
+    const { dist } = await seedDistribution({ status: 'FAILED', payouts: [{ state: 'FAILED' }] })
+    const boss = fakeBoss()
+    alert.mockClear()
+    const result = await runDistributionOnce({ models: prisma, sendPayouts: jest.fn(), boss })
+    expect(result.id).toBe(dist.id)
+    expect(result.status).toBe('COMPLETE')
+    expect(boss.send).not.toHaveBeenCalled()
+    expect(alert).toHaveBeenCalledWith('critical', 'rewards distribution completed with FAILED payouts — manual re-entry required',
+      expect.stringContaining(String(dist.id)), expect.anything())
+  })
+
+  test('a SENDING distribution is left untouched and never enqueues', async () => {
+    const { dist } = await seedDistribution({ status: 'SENDING', payouts: [{ state: 'QUEUED' }] })
+    const boss = fakeBoss()
+    const result = await runDistributionOnce({ models: prisma, sendPayouts: jest.fn(), boss })
+    expect(result.id).toBe(dist.id)
+    expect(result.status).toBe('SENDING')
+    expect(boss.send).not.toHaveBeenCalled()
+  })
+
+  test('stale-SENDING recovery completes the latest row and enqueues the delayed sweep', async () => {
+    const { dist } = await seedDistribution({
+      status: 'SENDING',
+      payouts: [{ state: 'QUEUED' }],
+      startedAt: new Date(Date.now() - 48 * 60 * 60 * 1000)
+    })
+    const boss = fakeBoss()
+    await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, boss })
+    const updated = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+    expect(updated.status).toBe('COMPLETE')
+    expect(boss.send).toHaveBeenCalledWith('opsSweep', { distributionId: dist.id },
+      { startAfter: 3600, singletonKey: `opsSweep-${dist.id}` })
+  })
+
+  test('a recovered stale row that is no longer the latest completes without enqueueing', async () => {
+    await seedDistribution({ status: 'COMPLETE' }) // newer row owns the sweep
+    const { dist: old } = await seedDistribution({
+      status: 'SENDING',
+      periodEnd: new Date(Date.now() - 30 * DAY),
+      payouts: [{ state: 'QUEUED' }],
+      startedAt: new Date(Date.now() - 48 * 60 * 60 * 1000)
+    })
+    const boss = fakeBoss()
+    await recoverStaleDistributions(prisma, { sendPayouts: fakeSigner, boss })
+    expect((await prisma.rewardDistribution.findUnique({ where: { id: old.id } })).status).toBe('COMPLETE')
+    expect(boss.send).not.toHaveBeenCalled()
+  })
+
+  test('an already-SWEPT distribution never re-enqueues a sweep', async () => {
+    await seedDistribution({
+      status: 'COMPLETE',
+      opsSweepState: 'SWEPT',
+      payouts: [{ state: 'SENT', txHash: 'ab'.repeat(32) }]
+    })
+    const boss = fakeBoss()
+    await runDistributionOnce({ models: prisma, sendPayouts: jest.fn(), boss })
+    expect(boss.send).not.toHaveBeenCalled()
+  })
+
+  test('a partially swept distribution (opsSweptPiconeros > 0) never re-enqueues a sweep', async () => {
+    await seedDistribution({
+      status: 'COMPLETE',
+      opsSweepState: 'FAILED',
+      opsSweptPiconeros: 7n,
+      // A sweep can never exceed its snapshot; keep the recorded facts coherent
+      // so this fixture does not (correctly) flag the ledger as corrupt.
+      opsAvailablePiconeros: 10n,
+      payouts: [{ state: 'SENT', txHash: 'ab'.repeat(32) }]
+    })
+    const boss = fakeBoss()
+    await runDistributionOnce({ models: prisma, sendPayouts: jest.fn(), boss })
+    expect(boss.send).not.toHaveBeenCalled()
+  })
+
+  test('a confirmed requeue drives delivery and enqueues the delayed sweep for the latest row', async () => {
+    const { dist } = await seedDistribution({ status: 'FAILED', payouts: [{ state: 'FAILED' }] })
+    const boss = fakeBoss()
+    const summary = await requeueFailedPayouts(prisma, dist.id, { confirm: true, sendPayouts: fakeSigner, boss })
+    expect(summary.drove).toBe(true)
+    expect(summary.finalStatus).toBe('COMPLETE')
+    expect(boss.send).toHaveBeenCalledWith('opsSweep', { distributionId: dist.id },
+      { startAfter: 3600, singletonKey: `opsSweep-${dist.id}` })
+  })
+
+  test('dry-run and --no-send requeues never drive completion and never touch the queue', async () => {
+    const { dist } = await seedDistribution({ status: 'FAILED', payouts: [{ state: 'FAILED' }] })
+    const boss = fakeBoss()
+    const dry = await requeueFailedPayouts(prisma, dist.id, { confirm: false, boss })
+    expect(dry.drove).toBe(false)
+    const ledgerOnly = await requeueFailedPayouts(prisma, dist.id, { confirm: true, send: false, boss })
+    expect(ledgerOnly.drove).toBe(false)
+    expect(boss.send).not.toHaveBeenCalled()
+  })
+
+  // The routed Task 8 finding: a proven payout relay persists the recipients
+  // but the journal fee persist fails (drive 1 -> accountingUnpersisted). The
+  // no-QUEUED path must not flip COMPLETE (or schedule a sweep) until the
+  // attempted journal row is resolved from the wallet's exact-hash history.
+  test('two-drive all-SENT regression: an attempted journal row blocks COMPLETE until exact-hash history proves it', async () => {
+    const { dist, payouts } = await seedDistribution({ status: 'PENDING', payouts: [{ state: 'QUEUED' }] })
+    const payout = payouts[0]
+    const txHash = testHash('a1')
+    const journalFee = 4_000_000n
+    await seedJournalTransaction({
+      txHash,
+      kind: 'PAYOUT',
+      state: 'PREPARED',
+      relayAttemptedAt: new Date(),
+      distributionId: dist.id,
+      principalPiconeros: payout.piconeros,
+      networkFeePiconeros: journalFee,
+      metadata: { payouts: [{ payoutId: payout.id, recipientAddress: payout.recipientAddress, piconeros: payout.piconeros.toString() }] }
+    })
+    const boss = fakeBoss()
+    alert.mockClear()
+
+    // Drive 1: relay proven + recipients persisted, journal fee state failed.
+    const drive1 = jest.fn(async (rows, { models }) => {
+      for (const p of rows) {
+        if (p.state === 'QUEUED') {
+          await models.rewardPayout.update({ where: { id: p.id }, data: { state: 'SENT', txHash } })
+        }
+      }
+      return { sent: 1, failed: 0, skipped: 0, unpersisted: 0, accountingUnpersisted: 1 }
+    })
+    const after1 = await runDistributionOnce({ models: prisma, sendPayouts: drive1, boss })
+    expect(after1.id).toBe(dist.id)
+    expect(after1.status).toBe('FAILED')
+    expect(boss.send).not.toHaveBeenCalled()
+    expect((await prisma.rewardPayout.findUnique({ where: { id: payout.id } })).state).toBe('SENT')
+    const incomplete = alert.mock.calls.find(c => c[1] === 'rewards distribution send incomplete')
+    expect(incomplete).toBeTruthy()
+    expect(incomplete[2]).toContain('unresolved rewards-wallet fee/journal accounting')
+    expect(incomplete[2]).toContain('distinct from relayed-but-unpersisted recipient principal')
+    const journalKey = { network_walletAddress_txHash: { network: TEST_NETWORK, walletAddress: TEST_WALLET_ADDRESS, txHash } }
+    expect((await prisma.rewardsWalletTransaction.findUnique({ where: journalKey })).state).toBe('PREPARED')
+
+    // Drive 2: no QUEUED rows and the signer would return zero — the readiness
+    // gate must reconcile first. History does NOT prove the attempt, so the
+    // distribution stays FAILED and no sweep is enqueued.
+    const drive2 = jest.fn()
+    const unresolvedWallet = jest.fn().mockResolvedValue(fakeWallet({ outgoing: [] }))
+    const after2 = await runDistributionOnce({ models: prisma, sendPayouts: drive2, boss, getWallet: unresolvedWallet })
+    expect(after2.status).toBe('FAILED')
+    expect(drive2).not.toHaveBeenCalled()
+    expect(unresolvedWallet).toHaveBeenCalledTimes(1)
+    expect(boss.send).not.toHaveBeenCalled()
+    expect(alert).toHaveBeenCalledWith('critical', 'rewards distribution completion blocked by unresolved wallet accounting',
+      expect.stringContaining(String(dist.id)), expect.anything())
+    expect((await prisma.rewardsWalletTransaction.findUnique({ where: journalKey })).state).toBe('PREPARED')
+
+    // Drive 3: the wallet's own history proves the exact hash/fee/destinations.
+    // The journal recovers to RELAYED, the all-SENT row completes, and the
+    // delayed sweep is enqueued — still with no payout relay.
+    const outgoing = [outgoingTransfer({
+      txHash,
+      feePiconeros: journalFee,
+      destinations: [{ address: payout.recipientAddress, amount: payout.piconeros }]
+    })]
+    const provedWallet = jest.fn().mockResolvedValue(fakeWallet({ outgoing }))
+    const after3 = await runDistributionOnce({ models: prisma, sendPayouts: drive2, boss, getWallet: provedWallet })
+    expect(after3.status).toBe('COMPLETE')
+    expect(drive2).not.toHaveBeenCalled()
+    expect((await prisma.rewardsWalletTransaction.findUnique({ where: journalKey })).state).toBe('RELAYED')
+    expect(boss.send).toHaveBeenCalledWith('opsSweep', { distributionId: dist.id },
+      { startAfter: 3600, singletonKey: `opsSweep-${dist.id}` })
+    // No new payout attempt and no second journal row were manufactured by the
+    // reconciliation: the same one payout and one journal row are all that exist.
+    expect(await prisma.rewardPayout.count({ where: { distributionId: dist.id } })).toBe(1)
+    expect(await prisma.rewardsWalletTransaction.count({
+      where: { network: TEST_NETWORK, walletAddress: TEST_WALLET_ADDRESS, distributionId: dist.id }
+    })).toBe(1)
+  })
+
+  test('a rejected enqueue leaves persisted SENT recipients and the COMPLETE write untouched', async () => {
+    // Required committed-state regression: drive a real send through the shared
+    // completion path (recipients persist SENT), reject the queue send, and
+    // prove nothing reverts — the enqueue failure is alerted, never a rollback.
+    const { dist, payouts } = await seedDistribution({ status: 'PENDING', payouts: [{ state: 'QUEUED' }] })
+    const payout = payouts[0]
+    const boss = { send: jest.fn().mockRejectedValue(new Error('queue unavailable')) }
+    alert.mockClear()
+    const result = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, boss })
+    expect(result.id).toBe(dist.id)
+    expect(result.status).toBe('COMPLETE')
+    const payoutAfter = await prisma.rewardPayout.findUnique({ where: { id: payout.id } })
+    expect(payoutAfter.state).toBe('SENT')
+    expect(payoutAfter.txHash).toMatch(/^[0-9a-f]{64}$/)
+    const distAfter = await prisma.rewardDistribution.findUnique({ where: { id: dist.id } })
+    expect(distAfter.status).toBe('COMPLETE')
+    expect(distAfter.completedAt).toBeTruthy()
+    expect(boss.send).toHaveBeenCalledWith('opsSweep', { distributionId: dist.id },
+      { startAfter: 3600, singletonKey: `opsSweep-${dist.id}` })
+    expect(alert).toHaveBeenCalledWith('critical', 'ops sweep follow-up enqueue failed',
+      expect.stringContaining(String(dist.id)), expect.objectContaining({ dedupeKey: `dist-${dist.id}-enqueue-failed` }))
+  })
+
+  // Final-review Important regression: readiness failures are wallet/RPC/SDK
+  // exceptions that can carry credentials; only fixed diagnostics may reach
+  // logs or alert transport — never the raw exception or its message.
+  test('a credential-shaped wallet failure in readiness reaches neither logs nor alerts', async () => {
+    const { dist } = await seedDistribution({
+      status: 'FAILED',
+      payouts: [{ state: 'SENT', txHash: testHash('c9') }]
+    })
+    await seedJournalTransaction({
+      txHash: testHash('d9'),
+      kind: 'PAYOUT',
+      state: 'PREPARED',
+      relayAttemptedAt: new Date(),
+      distributionId: dist.id,
+      principalPiconeros: 1_000_000_000n,
+      networkFeePiconeros: 1_000_000n,
+      metadata: { payouts: [{ payoutId: 999999, recipientAddress: '5UNKNOWNPAYOUT', piconeros: '1000000000' }] }
+    })
+    const sensitive = Object.assign(new Error('seed absorb abandon ability'), {
+      name: 'a'.repeat(64),
+      code: 'cr_live_1a2b3c4d5e6f',
+      privateSpendKey: 'f'.repeat(64),
+      signedTxBlob: 'deadbeef'.repeat(8)
+    })
+    const getWallet = jest.fn().mockRejectedValue(sensitive)
+    logError.mockClear()
+    logWarn.mockClear()
+    alert.mockClear()
+    const result = await runDistributionOnce({ models: prisma, sendPayouts: jest.fn(), boss: fakeBoss(), getWallet })
+    expect(result.id).toBe(dist.id)
+    expect(result.status).toBe('FAILED')
+    expect(getWallet).toHaveBeenCalledTimes(1)
+    expect(alert).toHaveBeenCalledWith('critical', 'rewards distribution completion blocked by unresolved wallet accounting',
+      expect.stringContaining(String(dist.id)), expect.anything())
+    const logged = util.inspect([...logError.mock.calls, ...logWarn.mock.calls, ...alert.mock.calls], { depth: 8, maxStringLength: Infinity })
+    expect(logged).not.toContain('seed absorb abandon')
+    expect(logged).not.toContain('cr_live_1a2b3c4d5e6f')
+    expect(logged).not.toContain('f'.repeat(64))
+    expect(logged).not.toContain('deadbeef'.repeat(8))
+    const readinessLog = logError.mock.calls.find(args => String(args[1]).includes('completion accounting reconciliation failed'))
+    expect(readinessLog[0]).toMatchObject({ errorClass: 'unknown' })
+    const blocked = alert.mock.calls.find(args => args[1] === 'rewards distribution completion blocked by unresolved wallet accounting')
+    expect(blocked[2]).toContain('diagnostic withheld')
+    expect(blocked[2]).not.toContain('seed absorb abandon')
+  })
+
+  // Last in the block: this fixture's RELAYED conflict makes the scoped ledger
+  // uncertain until removed, so it must not poison later readiness reads.
+  test('a RELAYED journal conflicting with a recorded payout blocks completion with no unresolved attempt', async () => {
+    const conflictHash = testHash('b1')
+    const { dist, payouts } = await seedDistribution({ status: 'FAILED', payouts: [{ state: 'SENT', txHash: conflictHash }] })
+    const payout = payouts[0]
+    // Same hash, but the journal's member amount disagrees with the recorded
+    // payout: a conflicting proven fact, not an unresolved attempt.
+    await seedJournalTransaction({
+      txHash: conflictHash,
+      kind: 'PAYOUT',
+      distributionId: dist.id,
+      principalPiconeros: payout.piconeros - 1n,
+      networkFeePiconeros: 4_000_000n,
+      metadata: { payouts: [{ payoutId: payout.id, recipientAddress: payout.recipientAddress, piconeros: (payout.piconeros - 1n).toString() }] }
+    })
+    const boss = fakeBoss()
+    const getWallet = jest.fn()
+    alert.mockClear()
+    const result = await runDistributionOnce({ models: prisma, sendPayouts: jest.fn(), boss, getWallet })
+    expect(result.id).toBe(dist.id)
+    expect(result.status).toBe('FAILED') // never completed over conflicting proven facts
+    expect(getWallet).not.toHaveBeenCalled() // no attempt -> no wallet, but the ledger is still validated
+    expect(boss.send).not.toHaveBeenCalled()
+    expect(alert).toHaveBeenCalledWith('critical', 'rewards distribution completion blocked by unresolved wallet accounting',
+      expect.stringContaining(String(dist.id)), expect.anything())
+    // Keep the conflict from poisoning any later readiness read in this suite.
+    await prisma.rewardsWalletTransaction.deleteMany({
+      where: { network: TEST_NETWORK, walletAddress: TEST_WALLET_ADDRESS, txHash: conflictHash }
+    })
   })
 })

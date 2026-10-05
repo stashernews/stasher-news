@@ -306,7 +306,7 @@ async function seedUnderfundedBounty (userId, { received = 600_000_000_000n, age
   return { item, bounty }
 }
 
-test('underfunded DETECTED bounties are abandoned after 7 days: EXPIRED, bountyPiconeros=received, zero-fee row', async () => {
+test('underfunded DETECTED bounties are abandoned after 7 days: EXPIRED, bountyPiconeros=received, fee frozen to 0n', async () => {
   await ensureFeeConfig()
   const userId = await createUser()
   const { item } = await seedUnderfundedBounty(userId)
@@ -320,12 +320,11 @@ test('underfunded DETECTED bounties are abandoned after 7 days: EXPIRED, bountyP
   const bounty = await prisma.observedBounty.findFirst({ where: { postId: item.id } })
   expect(bounty.state).toBe('EXPIRED')
 
-  // the zero-fee row makes bookedBountyFeePiconeros read 0n at disposition:
-  // reclaim pays exactly what was received (fee-waived refund)
-  const fee = await prisma.feeObservation.findFirst({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })
-  expect(fee).toBeTruthy()
-  expect(fee.piconeros).toBe(0n)
-  if (fee) created.fees.push(fee.id)
+  // The frozen zero fee makes bookedBountyFeePiconeros read 0n at disposition:
+  // reclaim pays exactly what was received (fee-waived refund). No cash row is
+  // created — the funding never entered the hot wallet.
+  expect(afterItem.bountyFeePiconeros).toBe(0n)
+  expect(await prisma.feeObservation.count({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })).toBe(0)
 })
 
 test('a fresh underfunded bounty (inside the window) is NOT abandoned', async () => {

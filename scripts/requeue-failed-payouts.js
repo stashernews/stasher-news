@@ -1,15 +1,23 @@
 // Recovery tool for stranded rewards payouts (2026-09-28 incident): flips a
 // distribution's terminal FAILED payouts (NULL txHash — provably pre-relay,
 // never broadcast) back to QUEUED and drives delivery through the normal
-// finalize path. Dry-run by default; --confirm mutates.
+// completion path. Dry-run by default; --confirm mutates.
 //
 //   dev: sndev monero requeue <id> [--confirm] [--no-send]
 //   direct: npx tsx --tsconfig jsconfig.json scripts/requeue-failed-payouts.js <id> [--confirm] [--no-send]
 //   VPS: loader-wrapped (see AGENTS.md) — --send (default) needs PLATFORM_REWARDS_*
 //   --no-send flips rows only (no wallet open); the next same-week distribution
 //   run or another --confirm run delivers them.
+//
+// A confirm+send run drives the same shared completion path as the cron, so an
+// eligible COMPLETE latest row also schedules its delayed ops sweep through the
+// explicitly owned, send-only queue client opened here — and only here (a
+// dry-run or --no-send never constructs one). Arguments are parsed before any
+// connection; a queue close failure is surfaced (exit code) and never causes a
+// payout re-entry.
 import { PrismaClient } from '@prisma/client'
 import { requeueFailedPayouts } from '@/worker/rewardsDistributor'
+import { withOpsSweepQueue } from '@/lib/opsSweepQueue'
 
 const prisma = new PrismaClient()
 
@@ -33,7 +41,10 @@ function parseArgs (argv) {
 
 async function main () {
   const { distributionId, confirm, send } = parseArgs(process.argv.slice(2))
-  const summary = await requeueFailedPayouts(prisma, distributionId, { confirm, send })
+  const summary = await withOpsSweepQueue(
+    boss => requeueFailedPayouts(prisma, distributionId, { confirm, send, boss }),
+    { enabled: confirm && send }
+  )
   console.log(`--- distribution ${summary.distributionId} (status ${summary.status}) ---`)
   if (summary.refusedWithTxHash.length > 0) {
     console.log(`  REFUSED (FAILED with txHash — wallet-history reconciliation path, never requeued): ${summary.refusedWithTxHash.join(', ')}`)
@@ -64,5 +75,5 @@ async function main () {
 }
 
 main()
-  .catch(e => { console.error(e); process.exit(1) })
+  .catch(e => { console.error(e); process.exitCode = 1 })
   .finally(() => prisma.$disconnect())
