@@ -120,13 +120,16 @@ test('promo boost ranks identically to a paid boost from zero (UPDATE branch)', 
       expect(rows[0][field]).toBeCloseTo(rows[1][field], 8)
     }
   })
-  // anchor the pairwise equality to real values, not two zeros
+  // anchor the pairwise equality to real values, not two zeros. The lit
+  // branch runs in the milli-piconero unit the topic/cost classes already use:
+  // a 500000000 (0.5 mXMR) boost contributes exactly 500000 to litCenteredSum,
+  // the same scaling a tip of that amount gets.
   const rows = await prisma.$queryRaw`
     SELECT ranktop::float8 AS ranktop, ranklit::float8 AS ranklit,
            "litCenteredSum"::float8 AS "litCenteredSum", "litCenteredAt"::float8 AS "litCenteredAt"
     FROM "Item" WHERE id IN (${litTwins.paidId}::int, ${litTwins.promoId}::int) ORDER BY id`
   expect(rows[0].ranktop).toBe(STEP)
-  expect(rows[0].litCenteredSum).toBe(STEP)
+  expect(rows[0].litCenteredSum).toBe(STEP / 1000)
   expect(rows[0].litCenteredAt).toBeGreaterThan(0)
   expect(rows[0].ranklit).toBeGreaterThan(0)
 })
@@ -160,7 +163,7 @@ test('promo boost ranks identically to a paid boost seeded in the INSERT (INSERT
     expect(rows[0][field]).toBeCloseTo(rows[1][field], 8)
   }
   expect(rows[0].ranktop).toBe(STEP)
-  expect(rows[0].litCenteredSum).toBe(STEP)
+  expect(rows[0].litCenteredSum).toBe(STEP / 1000)
 })
 
 // Second promo increment: the UPDATE delta branch from a non-zero baseline

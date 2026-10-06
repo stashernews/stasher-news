@@ -74,13 +74,26 @@ $DC run --rm --no-deps -e SN_DOCS_AUTHOR_ID=616 --entrypoint /etc/stashernews/sc
 $DC ps
 ```
 
-The migrations that will deploy (exact directories on `quest-boost-credit`):
+The migrations that will deploy (exact directories on `master`):
 
 - `prisma/migrations/20261005222538_boost_credit_reward_type`
 - `prisma/migrations/20261005222631_boost_credit_ranking`
+- `prisma/migrations/20261006060000_lit_boost_tip_parity`
 
-Both are additive (new enum value + new column + trigger rewrite); no deletes, no
-backfills. Note the AGENTS.md restart-pair rule: app AND worker must restart after
+All three are additive. The first two add the enum value + column and rewrite the
+ranking trigger for the promo term; the third rescales the hot-feed (`lit`)
+boost terms to tip parity (`/1000.0` — 1 mXMR of boost then equals 1 mXMR of
+tips in hot weight, matching ranktop and the FAQ's 1:1 promise) without any
+backfill. Historical hot-ranking weights are explicitly grandfathered for this
+release. Decay and recentering preserve the centered-log sort key, so old boost
+contributions retain their inflated coefficient; they do not self-correct within
+a day or merely on the next rank update. A boost-only 1000x coefficient adds
+`ln(1000)` to a positive sort key (about 39.9 hours of additional freshness at
+the 4h half-life). Mixed historic sums must not be divided wholesale by 1000:
+that would incorrectly rescale tips and costs too. Any historical correction
+requires a separately approved reconstruction design; this migration fixes only
+new boost deltas and does not rewrite past weight.
+Note the AGENTS.md restart-pair rule: app AND worker must restart after
 migrations (cached plan / stale Prisma client failure modes).
 
 Do not print secrets or use bare production `docker exec` for the FAQ. After restart,
