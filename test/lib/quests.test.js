@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { QUEST, QUEST_POOL, BOOST_QUEST_LAST_DAY, utcDay, drawFor, cycleDay, flamePosition, ladderRewardForLevel, questTitle, LADDER_COPY, QUEST_REPLY_REWARDS } from '@/lib/quests'
+import { QUEST, QUEST_POOL, BOOST_QUEST_LAST_DAY, utcDay, drawFor, cycleDay, flamePosition, ladderRewardForLevel, ladderCopyFor, questTitle, QUEST_REPLY_REWARDS, MAX_BANKED_REPLIES, BOOST_CREDIT_PICONEROS, BOOST_CREDIT_EXPIRY_DAYS, MAX_BANKED_BOOSTS } from '@/lib/quests'
 
 // The first day the drawn quest can no longer be BOOST (the cutover itself).
 // Falls back to an ancient date so a missing constant fails assertions below
@@ -58,10 +58,10 @@ test('cycleDay wraps 1..7 and is null without a streak', () => {
   expect(cycleDay(9)).toBe(2)
 })
 
-test('the ladder arms the shield at day 4 and pays replies at days 3 and 5', () => {
+test('the ladder pays a reply at day 3, the shield at day 4, and a boost at day 5', () => {
   expect(ladderRewardForLevel(3)).toBe('reply')
   expect(ladderRewardForLevel(4)).toBe('goldflame')
-  expect(ladderRewardForLevel(5)).toBe('reply')
+  expect(ladderRewardForLevel(5)).toBe('boost')
   expect(ladderRewardForLevel(11)).toBe('goldflame') // week 2 day 4 re-arms
 })
 
@@ -78,16 +78,25 @@ test('the card shows the current cycle day and week', () => {
   expect(flamePosition(8, true)).toEqual({ day: 1, week: 2, litThrough: 1 })
 })
 
-test('ladderRewardForLevel maps total days through the cycle', () => {
+test('ladderRewardForLevel maps total days through the cycle and the week parity', () => {
+  // week 1 (odd): the original set
   expect(ladderRewardForLevel(1)).toBe('reply')
   expect(ladderRewardForLevel(2)).toBe('post')
   expect(ladderRewardForLevel(3)).toBe('reply')
   expect(ladderRewardForLevel(4)).toBe('goldflame')
-  expect(ladderRewardForLevel(5)).toBe('reply')
+  expect(ladderRewardForLevel(5)).toBe('boost')
   expect(ladderRewardForLevel(6)).toBe('post')
   expect(ladderRewardForLevel(7)).toBe('turfdiscount')
   expect(ladderRewardForLevel(8)).toBe('reply') // cycle restarts
-  expect(ladderRewardForLevel(9)).toBe('post') // re-grant next cycle
+  // week 2 (even): day 2 a boost credit, day 5 a post, day 6 a reply
+  expect(ladderRewardForLevel(9)).toBe('boost') // week 2 day 2
+  expect(ladderRewardForLevel(12)).toBe('post') // week 2 day 5
+  expect(ladderRewardForLevel(13)).toBe('reply') // week 2 day 6
+  // week 3 (odd): the original set returns
+  expect(ladderRewardForLevel(16)).toBe('post') // week 3 day 2
+  expect(ladderRewardForLevel(19)).toBe('boost') // week 3 day 5
+  // week 4 (even) swaps again
+  expect(ladderRewardForLevel(23)).toBe('boost') // week 4 day 2
 })
 
 test('quest copy keeps the drawn quests readable', () => {
@@ -98,28 +107,57 @@ test('quest copy keeps the drawn quests readable', () => {
 })
 
 test('ladder copy carries no em dashes and names the shield and the discount', () => {
-  for (const line of Object.values(LADDER_COPY)) {
-    expect(line).not.toContain('—')
+  for (const week of [1, 2, 3, 4]) {
+    for (let d = 1; d <= 7; d++) expect(ladderCopyFor(d, week)).not.toContain('—')
   }
-  expect(LADDER_COPY[4]).toBe('day 4 · golden flame absorbs your next missed streak day')
-  expect(LADDER_COPY[7]).toBe('day 7 · turf creation discount')
+  expect(ladderCopyFor(4, 1)).toBe('day 4 · golden flame absorbs your next missed streak day')
+  expect(ladderCopyFor(7, 2)).toBe('day 7 · turf creation discount')
 })
 
-test('every ladder day has tooltip copy', () => {
-  for (let d = 1; d <= 7; d++) expect(LADDER_COPY[d]).toBeTruthy()
+test('every ladder day has tooltip copy on both week parities', () => {
+  for (const week of [1, 2]) {
+    for (let d = 1; d <= 7; d++) expect(ladderCopyFor(d, week)).toBeTruthy()
+  }
 })
 
-test('rev 4: day 1 banks a reply and the comment quests pay double', () => {
+test('day 1 banks a reply at every week\'s restart, not just a run\'s first', () => {
   expect(ladderRewardForLevel(1)).toBe('reply')
   expect(ladderRewardForLevel(8)).toBe('reply') // every week's day 1, not just a run's first
   expect(ladderRewardForLevel(15)).toBe('reply')
-  expect(QUEST_REPLY_REWARDS[QUEST.UPVOTE]).toBe(1)
-  expect(QUEST_REPLY_REWARDS[QUEST.BOOST]).toBe(1)
-  expect(QUEST_REPLY_REWARDS[QUEST.FIRST_RESPONDER]).toBe(2)
-  expect(QUEST_REPLY_REWARDS[QUEST.TURF]).toBe(2)
+})
+
+test('all quest completions reward one reply and the bank cap is ten', () => {
+  expect(Object.values(QUEST_REPLY_REWARDS)).toEqual([1, 1, 1, 1])
+  expect(MAX_BANKED_REPLIES).toBe(10)
 })
 
 test('rev 4 copy: the day 1 tooltip reads free reply, em-dash free', () => {
-  expect(LADDER_COPY[1]).toBe('day 1 · free reply')
-  for (const line of Object.values(LADDER_COPY)) expect(line).not.toContain('—')
+  expect(ladderCopyFor(1, 1)).toBe('day 1 · free reply')
+  expect(ladderCopyFor(1, 2)).toBe('day 1 · free reply')
+  for (const week of [1, 2]) {
+    for (let d = 1; d <= 7; d++) expect(ladderCopyFor(d, week)).not.toContain('—')
+  }
+})
+
+test('the boost credit rung is day 5 on odd weeks and day 2 on even weeks: amount, exact expiry, cap, and tooltips', () => {
+  // The strength of the paid 0.5 mXMR boost, as rank-only promo units.
+  expect(BOOST_CREDIT_PICONEROS).toBe(500_000_000n)
+  // Exactly 30 days after grant — never a calendar month, never a compressed
+  // quest day (the expiry is pinned again against the DB in
+  // test/api/quests/boost-credit.test.js).
+  expect(BOOST_CREDIT_EXPIRY_DAYS).toBe(30)
+  // Non-stacking: a held credit suppresses the rung instead of refreshing.
+  expect(MAX_BANKED_BOOSTS).toBe(1)
+  expect(ladderCopyFor(5, 1)).toBe('day 5 · one boost credit')
+  expect(ladderCopyFor(5, 3)).toBe('day 5 · one boost credit') // odd weeks keep the set
+  expect(ladderCopyFor(2, 2)).toBe('day 2 · one boost credit')
+  // even weeks swap the day-5 and day-6 rungs too: a post, then a reply
+  expect(ladderCopyFor(5, 2)).toBe('day 5 · +1 free post')
+  expect(ladderCopyFor(6, 2)).toBe('day 6 · +1 free reply')
+  expect(ladderCopyFor(2, 1)).toBe('day 2 · +1 free post')
+  expect(ladderCopyFor(6, 1)).toBe('day 6 · +1 free post')
+})
+
+test('BOOST_CREDIT_EXPIRY_DAYS is exactly 30 spans of 24 real hours', () => {
+  expect(BOOST_CREDIT_EXPIRY_DAYS * 86_400_000).toBe(2_592_000_000)
 })

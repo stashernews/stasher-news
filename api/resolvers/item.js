@@ -26,6 +26,9 @@ import { makeExcerpt } from '@/lib/excerpt'
 import assertGofacYourself from './ofac'
 import assertApiKeyNotPermitted from './apiKey'
 import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
+// Named import (never the barrel): keep boost-credit.js independent of
+// item.js — the wrapper below injects this module's getItem as ctx.readItem.
+import { useBoostCredit as redeemBoostCredit } from './boost-credit'
 import { assertItemCreateAllowance } from '@/api/payIn/itemCreateAllowance'
 import { parse } from 'tldts'
 import { shuffleArray } from '@/lib/rand'
@@ -986,6 +989,10 @@ export default {
       }
       throw new GqlInputError(`unsupported act ${act}`)
     },
+    // Thin wrapper: injects this module's path-aware META reader (getItem) so
+    // the mutation response carries the same shape as the item(id) query,
+    // including the ltree path, without a circular import into boost-credit.
+    useBoostCredit: (parent, args, ctx) => redeemBoostCredit(parent, args, { ...ctx, readItem: getItem }),
     updateCommentsViewAt: async (parent, { id, meCommentsViewedAt }, { me, models }) => {
       if (!me) {
         throw new GqlAuthenticationError()

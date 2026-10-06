@@ -7,7 +7,11 @@ import styles from './upvote.module.css'
 import classNames from 'classnames'
 export default function Boost ({ item, className, ...props }) {
   const { boost } = item
-  const color = useMemo(() => boost ? 'var(--bs-success)' : '#a5a5a5', [boost])
+  // promo credits rank the item too: the icon lights up for paid boosts or
+  // promotional credits alike
+  const promoted = Number(item.promoBoostPiconeros) > 0
+  const lit = !!boost || promoted
+  const color = useMemo(() => lit ? 'var(--bs-success)' : '#a5a5a5', [lit])
 
   const style = useMemo(() => ({
     '--hover-fill': 'var(--bs-success)',
@@ -30,7 +34,7 @@ export default function Boost ({ item, className, ...props }) {
               style={style}
               width={26}
               height={26}
-              className={classNames(styles.boost, className, boost && styles.boosted)}
+              className={classNames(styles.boost, className, lit && styles.boosted)}
             />
           </div>
         </div>}

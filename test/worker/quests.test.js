@@ -1,6 +1,7 @@
 /* eslint-env jest */
 import { PrismaClient } from '@prisma/client'
 import { sweepQuestCompletions } from '@/worker/quests'
+import { advanceQuestStreak } from '@/worker/streak'
 import { resolveDraw } from '@/api/quests/draw'
 import { notifyFlameAdvanced, notifyQuestCompleted } from '@/lib/webPush'
 import { BOOST_QUEST_LAST_DAY, drawFor, utcDay, QUEST } from '@/lib/quests'
@@ -176,7 +177,7 @@ test('recording a completion banks one reply credit, once', async () => {
   expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(2)
 })
 
-test('rev 4: a first responder completion banks two reply credits', async () => {
+test('a first responder completion banks one reply credit', async () => {
   const userId = await mkUser()
   let day = null
   for (let i = 0; i < 30 && !day; i++) {
@@ -186,7 +187,7 @@ test('rev 4: a first responder completion banks two reply credits', async () => 
   expect(day).not.toBeNull()
   const now = new Date(`${day}T12:00:00.000Z`)
   // An active run whose day-1 rung is already granted and whose today is
-  // already counted, so the only new credits come from the doubled quest
+  // already counted, so the only new credit comes from the flat quest
   // reward (the upvote slot stays undone, so the day never clears).
   await prisma.streak.create({ data: { userId, type: 'FLAME', rewardLevel: 1, startedAt: new Date(`${day}T00:00:00.000Z`), lastEvaluatedDay: new Date(`${day}T00:00:00.000Z`) } })
   const [root] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep fr4 root', ${now}) RETURNING id::int AS id`
@@ -197,10 +198,10 @@ test('rev 4: a first responder completion banks two reply credits', async () => 
 
   expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`), quest: QUEST.FIRST_RESPONDER } })).toBe(1)
   const credits = await prisma.streakReward.findMany({ where: { userId, type: 'REPLY' } })
-  expect(credits).toHaveLength(2)
+  expect(credits).toHaveLength(1)
 })
 
-test('rev 4: a double reward fills to the banked cap and stops', async () => {
+test('nine held replies bank one more and stop exactly at the cap of ten', async () => {
   const userId = await mkUser()
   let day = null
   for (let i = 0; i < 30 && !day; i++) {
@@ -211,16 +212,108 @@ test('rev 4: a double reward fills to the banked cap and stops', async () => {
   const now = new Date(`${day}T12:00:00.000Z`)
   await prisma.streak.create({ data: { userId, type: 'FLAME', rewardLevel: 1, startedAt: new Date(`${day}T00:00:00.000Z`), lastEvaluatedDay: new Date(`${day}T00:00:00.000Z`) } })
   await prisma.streakReward.createMany({
-    data: Array.from({ length: 14 }, () => ({ userId, type: 'REPLY', expiresAt: new Date(Date.now() + 86_400_000) }))
+    data: Array.from({ length: 9 }, () => ({ userId, type: 'REPLY', expiresAt: new Date(Date.now() + 86_400_000) }))
   })
-  const [root] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep fr4cap root', ${now}) RETURNING id::int AS id`
-  const [comment] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", "rootId", text, created_at) VALUES (${userId}::int, ${root.id}::int, ${root.id}::int, 'qsweep fr4cap reply', ${now}) RETURNING id::int AS id`
+  const [root] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep cap9 root', ${now}) RETURNING id::int AS id`
+  const [comment] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", "rootId", text, created_at) VALUES (${userId}::int, ${root.id}::int, ${root.id}::int, 'qsweep cap9 reply', ${now}) RETURNING id::int AS id`
   created.items.push(root.id, comment.id)
 
   await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
 
-  // 14 held + the +2 grant fills to exactly 15 and never crosses.
-  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(15)
+  // 9 held + the flat +1 grant lands exactly on the cap of ten and never crosses.
+  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY', consumedAt: null } })).toBe(10)
+  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(10)
+})
+
+test('twelve held replies are grandfathered above the cap and banking resumes after spend-down', async () => {
+  const userId = await mkUser()
+  let day = null
+  for (let i = 0; i < 30 && !day; i++) {
+    const d = utcDay(new Date(Date.now() + i * 86_400_000))
+    if (drawFor(userId, d).drawn === QUEST.FIRST_RESPONDER) day = d
+  }
+  expect(day).not.toBeNull()
+  const now = new Date(`${day}T12:00:00.000Z`)
+  await prisma.streak.create({ data: { userId, type: 'FLAME', rewardLevel: 1, startedAt: new Date(`${day}T00:00:00.000Z`), lastEvaluatedDay: new Date(`${day}T00:00:00.000Z`) } })
+  await prisma.streakReward.createMany({
+    data: Array.from({ length: 12 }, () => ({ userId, type: 'REPLY', expiresAt: new Date(Date.now() + 86_400_000) }))
+  })
+  const [root] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep cap12 root', ${now}) RETURNING id::int AS id`
+  const [comment] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", "rootId", text, created_at) VALUES (${userId}::int, ${root.id}::int, ${root.id}::int, 'qsweep cap12 reply', ${now}) RETURNING id::int AS id`
+  created.items.push(root.id, comment.id)
+
+  // 12 held is above the new cap of ten: the sweep neither grants nor claws
+  // back — the surplus stays spendable (grandfathered) until consumed or expired.
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
+  expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`), quest: QUEST.FIRST_RESPONDER } })).toBe(1)
+  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY', consumedAt: null } })).toBe(12)
+
+  // Spend three rows down (consumed, never deleted)...
+  const held = await prisma.streakReward.findMany({ where: { userId, type: 'REPLY', consumedAt: null }, take: 3 })
+  await prisma.streakReward.updateMany({ where: { id: { in: held.map(r => r.id) } }, data: { consumedAt: new Date() } })
+
+  // ...then a different future drawn FIRST_RESPONDER day: a fresh root and
+  // first reply, swept in that fresh day (the original day's completion stays
+  // in place — freshness comes from the new day's own recorded completion,
+  // which is what re-opens banking).
+  let day1 = null
+  for (let i = 1; i <= 60 && !day1; i++) {
+    const d = utcDay(new Date(Date.parse(`${day}T00:00:00Z`) + i * 86_400_000))
+    if (drawFor(userId, d).drawn === QUEST.FIRST_RESPONDER) day1 = d
+  }
+  expect(day1).not.toBeNull()
+  expect(day1).not.toBe(day)
+  const now1 = new Date(`${day1}T12:00:00.000Z`)
+  const [root1] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep cap12 second root', ${now1}) RETURNING id::int AS id`
+  const [comment1] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", "rootId", text, created_at) VALUES (${userId}::int, ${root1.id}::int, ${root1.id}::int, 'qsweep cap12 second reply', ${now1}) RETURNING id::int AS id`
+  created.items.push(root1.id, comment1.id)
+
+  await sweepQuestCompletions({ models: prisma, now: now1, userIds: created.users })
+
+  // Nine held + one fresh grant refills to exactly ten; the three consumed
+  // rows stay in the ledger, so the lifetime count is 13.
+  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY', consumedAt: null } })).toBe(10)
+  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(13)
+})
+
+// The sweep and a same-day advance both write StreakReward rows; without the
+// user-row lock their count predicates interleave and a 9-held bank can grow
+// past the cap of ten. The lock serializes every cap check (task 3).
+test('a concurrent day-3 rung and completion banking never cross the reply cap', async () => {
+  const userId = await mkUser()
+  // An active run whose previous day is unsettled: the sweep's own advance
+  // defers, so the racing direct advance is the only one that counts the day
+  // and can grant the day-3 reply rung.
+  await prisma.streak.create({ data: { userId, type: 'FLAME', startedAt: new Date(Date.now() - 86_400_000), rewardLevel: 2 } })
+  await prisma.$executeRaw`UPDATE users SET streak = 2 WHERE id = ${userId}::int`
+  await prisma.streakReward.createMany({
+    data: Array.from({ length: 9 }, () => ({ userId, type: 'REPLY', expiresAt: new Date(Date.now() + 86_400_000) }))
+  })
+  // Pick a day whose drawn slot is BOOST so both quest legs are tip/payIn-driven.
+  const day = lastBoostDayFor(userId)
+  expect(day).not.toBeNull()
+  const now = new Date(`${day}T12:00:00.000Z`)
+  const account = await prisma.moneroAccount.create({ data: { ownerUserId: null, address: `qsweeprace${userId}${Date.now()}`.slice(0, 95), label: 'q', network: 'STAGENET', status: 'ACTIVE' } })
+  created.accounts.push(account.id)
+  const [post] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep race post', ${now}) RETURNING id::int AS id`
+  created.items.push(post.id)
+  await prisma.observedTip.create({ data: { txHash: `qsweep-race-${Date.now()}`, postId: post.id, tipperId: userId, recipientAccountId: account.id, paymentId: `qsweep-race-pid-${Date.now()}`, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 5 * 60 * 1000) } })
+  const boostPayIn = await prisma.payIn.create({ data: { userId, payInType: 'BOOST', payInState: 'PAID', piconeros: 100000000n, createdAt: new Date(now.getTime() - 4 * 60 * 1000) } })
+  await prisma.feeObservation.create({ data: { txHash: `qsweep-boost-${boostPayIn.id}-${Date.now()}`, payInId: boostPayIn.id, feeType: 'BOOST', recipientMajor: 5, recipientMinor: 77, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 3 * 60 * 1000) } })
+
+  await Promise.all([
+    sweepQuestCompletions({ models: prisma, now, userIds: [userId] }),
+    advanceQuestStreak({ models: prisma, userId, day })
+  ])
+
+  expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`) } })).toBe(2)
+  // 9 held + the two count-gated banks (sweep) and the count-gated day-3 rung
+  // (advance): whichever order the lock hands out, the bank lands on ten and
+  // never crosses it.
+  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY', consumedAt: null } })).toBe(10)
+  // exactly one advance counted the day (the sweep's own advance defers)
+  const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
+  expect(user.streak).toBe(3)
 })
 
 // M4 residual (2026-09-26 review): candidacy is keyed on the PayIn CREATION

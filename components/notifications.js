@@ -237,15 +237,15 @@ function Flame ({ n }) {
   )
 }
 
-// Per-day flame copy: the day the flame reached, and what that day paid.
+// Cycle day alone cannot identify a historical reward or whether it was banked.
 const FLAME_DAY_COPY = {
-  1: 'your flame is kindled, +1 reply banked',
-  2: 'your flame grows, +1 free post banked',
-  3: 'your flame burns brighter, +1 free reply banked',
+  1: 'your flame is kindled',
+  2: 'your flame grows',
+  3: 'your flame burns brighter',
   4: 'your flame burns golden today, brighter and stronger than ever',
-  5: 'your flame grows, +1 free reply banked',
-  6: 'your flame grows, +1 free post banked',
-  7: 'your flame completes the cycle, turf creation discount banked'
+  5: 'your flame grows',
+  6: 'your flame grows',
+  7: 'your flame completes the cycle'
 }
 
 function FlameDay ({ n }) {

@@ -68,7 +68,7 @@ To earn XMR via [tips](#tips) from fellow stashers peer-to-peer, you need to [at
 
 **2. Weekly rewards**
 
-Stashers can also earn XMR via weekly rewards. Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, boosts and tips to wallet-less authors — plus all downvotes and donations — back to the stashers who curated the best content of the week: the tippers of the top-ranked posts and comments. Distribution happens every Monday at 00:00 UTC, and payouts are sent on-chain to your attached wallet. You can see the current pool and the next distribution time on the [rewards page](/rewards).
+Stashers can also earn XMR via weekly rewards. Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, paid boosts and tips to wallet-less authors — plus all downvotes and donations — back to the stashers who curated the best content of the week: the tippers of the top-ranked posts and comments. Distribution happens every Monday at 00:00 UTC, and payouts are sent on-chain to your attached wallet. You can see the current pool and the next distribution time on the [rewards page](/rewards).
 
 **3. Referrals**
 
@@ -78,7 +78,7 @@ To make referring stashers easy, clicking on `...` next to a post or comment and
 
 **4. Turfs**
 
-Founding a turf is the last way to put XMR to work, though it is not a recommended way to earn XMR for new stashers: you need to pay for the turf in advance. Turf founders do earn revenue: 100% of the posting fees and comment fees paid in their turf (the standard fee plus any premium they set) go directly to their registered Monero wallet. Boosts and cases where the payer has no wallet attached still pay the platform rewards pool.
+Founding a turf is the last way to put XMR to work, though it is not a recommended way to earn XMR for new stashers: you need to pay for the turf in advance. Turf founders do earn revenue: 100% of the posting fees and comment fees paid in their turf (the standard fee plus any premium they set) go directly to their registered Monero wallet. Paid boosts and cases where the payer has no wallet attached still pay the platform rewards pool.
 
 ---
 
@@ -118,7 +118,7 @@ Your view key is stored encrypted with a master key that only the Monero hosting
 
 ### How do I pay for things on Stasher News?
 
-Fees and payments are always paid directly from your own wallet: the site shows you a monero: URI (as a QR code and a link), and you pay it from any Monero wallet. This covers posting and comment fees, turf fees, boosts, downvotes, donations and bounty funding. The platform never takes custody of your money.
+Fees and payments are always paid directly from your own wallet: the site shows you a monero: URI (as a QR code and a link), and you pay it from any Monero wallet. This covers posting and comment fees, turf fees, paid boosts, downvotes, donations and bounty funding. The platform never takes custody of your money.
 
 ---
 
@@ -138,7 +138,7 @@ Badges next to a stasher's name signal activity:
 
 ### What are daily ops?
 
-Two quests are drawn every day at 00:00 UTC: the first is always "send an upvote" (the upvote arrow is a tip), and the second is one of: be the first responder to a post with no replies yet, or post or comment anywhere. Upvote banks one free reply credit; first responder and post-or-comment bank two, because completing those spends a reply or post of your own.
+Two quests are drawn every day at 00:00 UTC: the first is always "send an upvote" (the upvote arrow is a tip), and the second is one of: be the first responder to a post with no replies yet, or post or comment anywhere. Every completed daily quest banks one free reply credit. Clearing both quests advances your flame.
 
 Clearing both quests keeps your flame alive. The flame runs in 7-day cycles, and every day you keep your flame alive earns perks for your account. Miss a day and the run ends, dropping you back to day 1, unless the golden flame shield is armed: the shield absorbs one missed day, your flame holds on as a regular flame, and the shield is gone until it arms again on a future cycle's day 4.
 
@@ -148,7 +148,7 @@ Clearing both quests keeps your flame alive. The flame runs in 7-day cycles, and
 
 Every stasher gets one free reply per day and one free post per month. On top of that, daily ops bank extra reply and post credits you can spend later.
 
-A banked credit is good for one month from the day it was earned, you can hold up to 15 banked replies and 5 banked posts, and your free allowance is always spent before banked credits. You can see your remaining replies and posts on your own profile page.
+You can bank up to 10 free replies and 5 free posts. Existing reply balances above 10 are kept in full; new grants pause until fewer than 10 unexpired, unused replies remain. Suppressed grants are not saved for later. Reply and post credits keep their existing one-month expiry, and your base free allowance is spent first. You can see your remaining replies and posts on your own profile page.
 
 ---
 
@@ -176,7 +176,7 @@ If you switch from monthly to yearly billing, you pay the yearly fee at the swit
 
 ### Do I earn XMR from turfs?
 
-Yes. As a turf founder, you receive 100% of the posting fees and comment fees paid in your turf — the standard fee plus any premium you set — paid directly to your registered Monero wallet. This applies when the payment is to your turf and you have a wallet attached — including the fee when someone reposts a post into your turf and comment fees on posts created in your turf; boosts and cases where the payer has no wallet attached still pay the platform rewards pool, which is distributed weekly to the best curators.
+Yes. As a turf founder, you receive 100% of the posting fees and comment fees paid in your turf — the standard fee plus any premium you set — paid directly to your registered Monero wallet. This applies when the payment is to your turf and you have a wallet attached — including the fee when someone reposts a post into your turf and comment fees on posts created in your turf; paid boosts and cases where the payer has no wallet attached still pay the platform rewards pool, which is distributed weekly to the best curators.
 
 ---
 
@@ -274,7 +274,9 @@ Instead of tipping the same default amount each time, the 'random tips' [setting
 
 ### What are boosts?
 
-A boost is exactly like a tip for ranking purposes: you pay XMR to permanently raise an item's rank by the amount of your boost, 1:1 with tips. Unlike tips, boosts are paid to the platform: 30% of every boost funds the weekly curator rewards pool and 70% supports the platform.
+A boost is exactly like a tip for ranking purposes: you pay XMR to permanently raise an item's rank by the amount of your boost, 1:1 with tips. Unlike tips, paid boosts go to the platform: 30% of every paid boost funds the weekly curator rewards pool and 70% supports the platform.
+
+Day 5 of odd flame weeks (weeks 1, 3, 5, ...) and day 2 of even flame weeks (weeks 2, 4, ...) award one boost credit if you are not already holding one. It expires exactly 30 days after it is granted, and another boost-credit reward does not refresh it. Use it on one of your own live posts for the ranking effect of a 0.5 mXMR boost. It is not XMR, cannot be transferred or cashed out, funds neither the rewards pool nor platform revenue, and does not bypass monetary feed filters. Once used, its ranking contribution persists like a paid boost.
 
 ---
 
@@ -311,7 +313,7 @@ You can earn XMR from the weekly rewards pool by tipping content that ends up pe
 
 ### Can I donate XMR to Stasher News?
 
-Yes. Every week, Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, boosts and tips to wallet-less authors — plus all downvotes and donations — back to the stashers who made the best contributions.
+Yes. Every week, Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, paid boosts and tips to wallet-less authors — plus all downvotes and donations — back to the stashers who made the best contributions.
 
 To donate XMR directly to the Stasher News rewards pool, or to see the rewards that will be distributed to stashers on Monday, click [here](/rewards). When you donate, you choose the split: 100% to the curator rewards pool, 100% to platform operations, or anywhere between (default 100% rewards).
 

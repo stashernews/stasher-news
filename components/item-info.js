@@ -304,6 +304,13 @@ function ItemDetails ({ item, me }) {
       <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.cost) * 1000n)}</div>
       <div className={styles.detailsLabel}>boost</div>
       <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.boost))}</div>
+      {/* promotional credits are rank-only weight, never money: display them
+          separately from the stashed/invested totals formulas above */}
+      {Number(item.promoBoostPiconeros) > 0 &&
+        <>
+          <div className={styles.detailsLabel}>promo boost</div>
+          <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(item.promoBoostPiconeros))}</div>
+        </>}
       <div className={styles.detailsLabel}>stashed</div>
       <div className={styles.detailsValue}>{piconerosToMXmr(BigInt(Number(item.piconeros)))}</div>
       <div className={styles.detailsLabel}>downvotes</div>

@@ -35,6 +35,8 @@ ${STREAK_FIELDS}
       flameWeek
       goldFlame
       turfDiscountHeld
+      boostCreditId
+      boostCreditExpiresAt
       questResetsAt
       freePostCount
       freePostsLeft

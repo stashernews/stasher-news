@@ -276,6 +276,7 @@ enum StreakRewardType {
   POST
   REPLY
   TURF_DISCOUNT
+  BOOST
 }
 
 // Typed streak rewards (spec 2026-09-23-daily-quests, rev 3): the ledger of
@@ -284,7 +285,9 @@ enum StreakRewardType {
 // comment creation; POST credits are granted by the ladder, consumed at post
 // creation (base quota first, soonest-expiring first). TURF_DISCOUNT is
 // consumed by turf creation and never stacked (grants suppressed while one is
-// held).
+// held). BOOST credits are the day-5 flame reward (spec
+// 2026-10-05-quest-rebalance-boost-credit): one available at a time, 30-day
+// expiry, consumed by exact-ID redemption on the author's own live post.
 model StreakReward {
   id         Int              @id @default(autoincrement())
   createdAt  DateTime         @default(now()) @map("created_at")
@@ -509,6 +512,7 @@ model Item {
   weightedVotes           Float                 @default(0)
   subWeightedVotes        Float                 @default(0)
   boost                   BigInt                @default(0)
+  promoBoostPiconeros     BigInt                @default(0)
   pollCost                Int?
   commentPiconeros        BigInt                @default(0)
   commentTipRankPiconeros BigInt                @default(0)

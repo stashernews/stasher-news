@@ -273,7 +273,9 @@ test('StreakReward ledger exists with typed per-reward expiry and provenance', (
   expect(modelNames).toContain('StreakReward')
   const fields = fieldsOf('StreakReward')
   ;['userId', 'streakId', 'type', 'grantedAt', 'expiresAt', 'consumedAt', 'itemId'].forEach(f => expect(fields).toContain(f))
-  expect(valuesOf('StreakRewardType').sort()).toEqual(['POST', 'REPLY', 'TURF_DISCOUNT'])
+  // BOOST joins the ledger (spec 2026-10-05-quest-rebalance-boost-credit):
+  // the day-5 flame reward credit, redeemed as a promo ranking boost.
+  expect(valuesOf('StreakRewardType').sort()).toEqual(['BOOST', 'POST', 'REPLY', 'TURF_DISCOUNT'])
   expect(modelNames).toContain('QuestCompletion')
   ;['userId', 'day', 'quest'].forEach(f => expect(fieldsOf('QuestCompletion')).toContain(f))
   expect(valuesOf('QuestType').sort()).toEqual(['BOOST', 'FIRST_RESPONDER', 'TURF', 'UPVOTE'])

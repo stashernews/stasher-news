@@ -139,6 +139,12 @@ export default gql`
     flameWeek: Int!
     goldFlame: Boolean!
     turfDiscountHeld: Boolean!
+
+    """
+    the held flame boost credit, if one is available (unconsumed, unexpired)
+    """
+    boostCreditId: ID
+    boostCreditExpiresAt: Date
     questResetsAt: Date!
     freePostCount: Int!
     freePostsLeft: Int!

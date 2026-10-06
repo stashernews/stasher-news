@@ -47,6 +47,9 @@ export default gql`
     updateNoteId(id: ID!, noteId: String!): Item!
     upsertComment(id: ID, text: String!, parentId: ID, hash: String, hmac: String, sendProtocolId: Int): PayIn!
     act(id: ID!, piconeros: BigInt, act: String): PayIn!
+    # Exact-credit boost redemption: spends the caller's held boost
+    # credit on one of their own live posts (rank-only promo weight).
+    useBoostCredit(itemId: ID!, rewardId: ID!): Item!
     pollVote(id: ID!, sendProtocolId: Int): PayIn!
     updateCommentsViewAt(id: ID!, meCommentsViewedAt: Date!): Date
   }
@@ -140,6 +143,10 @@ export default gql`
     depth: Int
     mine: Boolean!
     boost: BigInt!
+    # StasherNews: the rank-only promo weight of a redeemed boost credit
+    # (spec 2026-10-05-quest-rebalance-boost-credit). Never money: it moves
+    # nothing in PayIn, the rewards wallet, or the monetary filters.
+    promoBoostPiconeros: BigInt!
     bounty: Int
     bountyPaidTo: [Int]
     noteId: String

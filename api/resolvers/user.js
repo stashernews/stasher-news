@@ -7,6 +7,7 @@ import { questDay, questResetsAt } from '@/lib/questClock'
 import { resolveDraw } from '@/api/quests/draw'
 import { completionsFor } from '@/api/quests/completions'
 import { territoryFeePrivatesFor } from '@/api/monero/territoryFee'
+import { resolveBoostCreditAvailability } from '@/api/quests/boost-credit'
 import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/validate'
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
 import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES, SN_SYSTEM_ONLY_IDS } from '@/lib/constants'
@@ -1038,6 +1039,24 @@ export default {
       return streak?.goldActive ?? false
     },
     turfDiscountHeld: async (user, args, { models }) => heldReward(models, user.id, 'TURF_DISCOUNT'),
+    // Day-5 boost credit view (spec 2026-10-05-quest-rebalance-boost-credit).
+    // Both fields await ONE per-request availability read: the context object
+    // is built fresh per request (pages/api/graphql.js), so it is a safe
+    // memoization key — unlike the process-wide `models` client — and
+    // resolveBoostCreditAvailability caches the promise on it. A grant landing
+    // between the two field resolutions can therefore never mix an id from one
+    // row with an expiry from another (spec §5.2 "resolve both from the same
+    // available-credit reader"), and the read issues once per request. The
+    // explicit identity guard below is what keeps a foreign request from ever
+    // reaching the ledger (no foreign leakage).
+    boostCreditId: async (user, args, ctx) => {
+      if (String(ctx.me?.id) !== String(user.id)) return null
+      return (await resolveBoostCreditAvailability(ctx, user.id))?.id ?? null
+    },
+    boostCreditExpiresAt: async (user, args, ctx) => {
+      if (String(ctx.me?.id) !== String(user.id)) return null
+      return (await resolveBoostCreditAvailability(ctx, user.id))?.expiresAt ?? null
+    },
     questResetsAt: () => questResetsAt(),
     freePostCount: (user) => {
       if (user.freePostResetAt && new Date() >= new Date(user.freePostResetAt)) {

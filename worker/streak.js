@@ -1,8 +1,9 @@
 import { notifyFlameAdvanced, notifyShieldUsed, notifyStreakLost } from '@/lib/webPush'
-import { cycleDay, ladderRewardForLevel, MAX_BANKED_POSTS, MAX_BANKED_REPLIES } from '@/lib/quests'
+import { cycleDay, ladderRewardForLevel, MAX_BANKED_BOOSTS, MAX_BANKED_POSTS, MAX_BANKED_REPLIES } from '@/lib/quests'
+import { lockRewardUser, rewardNow } from '@/api/quests/boost-credit'
 import { questDay } from '@/lib/questClock'
 
-const REWARD_TYPE = { post: 'POST', reply: 'REPLY', turfdiscount: 'TURF_DISCOUNT' }
+const REWARD_TYPE = { post: 'POST', reply: 'REPLY', boost: 'BOOST', turfdiscount: 'TURF_DISCOUNT' }
 const BANKED_CAP = { POST: MAX_BANKED_POSTS, REPLY: MAX_BANKED_REPLIES }
 const DAY_MS = 86_400_000
 
@@ -16,7 +17,8 @@ const DAY_MS = 86_400_000
  * sweep's path) an active flame whose previous day is still pending evaluation
  * is left alone: that day may yet consume the shield or end the run, which
  * would change the level. Returns the notification payload, or null when there
- * was nothing to do.
+ * was nothing to do. All reward writes serialize on a per-user row lock taken
+ * at the start of the transaction (api/quests/boost-credit lockRewardUser).
  */
 export async function advanceQuestStreak ({ models, userId, day, requirePrevSettled = false }) {
   const dayDate = new Date(`${day}T00:00:00.000Z`)
@@ -24,6 +26,11 @@ export async function advanceQuestStreak ({ models, userId, day, requirePrevSett
   let notification = null
 
   await models.$transaction(async tx => {
+    // Serialize reward writes for the user first (task 3): the row lock must
+    // precede every read below, so a concurrent sweep/evaluation of the same
+    // day blocks until this transaction commits and then re-reads the settled
+    // guard, seeing the day already advanced instead of double-granting.
+    if (!await lockRewardUser(tx, userId)) return
     const user = await tx.user.findUnique({ where: { id: userId }, select: { streak: true } })
     if (!user) return
     const streak = await tx.streak.findFirst({ where: { userId, type: 'FLAME', endedAt: null } })
@@ -105,8 +112,15 @@ export async function evaluateQuestStreaks ({ models, now = new Date(), userIds 
     } else if (known) {
       // One transaction per user: the guard, the shield consume or run end, and
       // the marker commit together, so a crash mid-evaluation can neither
-      // phantom-hold nor lose the day on the retry.
+      // phantom-hold nor lose the day on the retry. The user lock is taken
+      // first — the same row lock the advance path holds — and state is
+      // re-read under it, so this cannot interleave with a concurrent advance
+      // of the same day. `user.streak` from the outer loop is stale by design:
+      // the shield payload uses the re-read value.
       await models.$transaction(async tx => {
+        if (!await lockRewardUser(tx, userId)) return
+        const current = await tx.user.findUnique({ where: { id: userId }, select: { streak: true } })
+        if (!current) return
         const streak = await tx.streak.findFirst({ where: { userId, type: 'FLAME', endedAt: null } })
         if (!streak) return
         if (streak.lastEvaluatedDay && streak.lastEvaluatedDay >= dayDate) return
@@ -114,7 +128,7 @@ export async function evaluateQuestStreaks ({ models, now = new Date(), userIds 
         await tx.streak.update({ where: { id: streak.id }, data: { lastEvaluatedDay: dayDate } })
         if (streak.goldActive) {
           await tx.streak.update({ where: { id: streak.id }, data: { goldActive: false } })
-          notification = { kind: 'shield', day: cycleDay(user.streak) }
+          notification = { kind: 'shield', day: cycleDay(current.streak) }
         } else {
           await tx.streak.update({ where: { id: streak.id }, data: { endedAt: dayDate } })
           await tx.user.update({ where: { id: userId }, data: { streak: null } })
@@ -132,10 +146,22 @@ export async function evaluateQuestStreaks ({ models, now = new Date(), userIds 
 /**
  * Grant every ungranted ladder level up to `to`. POST and REPLY bank capped
  * credits: grants stop at MAX_BANKED_POSTS / MAX_BANKED_REPLIES (spec rev 3
- * §2.4, count-before-insert). TURF_DISCOUNT stays non-stacking (suppressed
- * while one is held). The goldflame rung arms the golden flame shield instead
- * of granting a ledger row. The marker advances even when a reward is
- * suppressed, so the next cycle re-attempts on its own day.
+ * §2.4, count-before-insert). BOOST banks at most one credit
+ * (MAX_BANKED_BOOSTS): the rung — day 5 on odd weeks, day 2 on even weeks —
+ * is suppressed while one is held WITHOUT refreshing the held row's expiry,
+ * and it re-grants only once that row is consumed or expired; its expiry is
+ * exactly 30 real days after granting —
+ * never a calendar month, never a compressed quest day. TURF_DISCOUNT stays
+ * non-stacking (suppressed while one is held). The goldflame rung arms the
+ * golden flame shield instead of granting a ledger row. The marker advances
+ * even when a reward is suppressed, so the next cycle re-attempts on its own
+ * day.
+ *
+ * Precondition: the caller's transaction MUST already hold the user row lock
+ * (lockRewardUser) — every reward write for a user serializes on it, so the
+ * count predicates here read committed state under the lock and concurrent
+ * sweeps/rungs cannot double-grant or cross a cap. `models` is that same
+ * transaction client; this helper never opens a nested transaction.
  */
 export async function grantLadderRewards ({ models, userId, streak, from, to }) {
   const granted = []
@@ -149,6 +175,33 @@ export async function grantLadderRewards ({ models, userId, streak, from, to }) 
     }
     const type = REWARD_TYPE[kind]
     if (!type) continue // flame is cosmetic
+    if (type === 'BOOST') {
+      // The boost-credit rung — day 5 on odd flame weeks, day 2 on even weeks
+      // (spec 2026-10-05-quest-rebalance-boost-credit):
+      // count available rows under the caller's user lock and stop at the
+      // cap of one — a held credit suppresses this rung without refreshing
+      // its expiry. Unlike POST/REPLY the grant timestamps come from the
+      // database wall clock, and spec §5.1 requires sampling it AFTER
+      // acquiring locks: the caller's row lock may have parked through a
+      // long wait, and now_utc() would stay frozen at the transaction's
+      // BEGIN (before the wait), so a credit expiring mid-wait would still
+      // count as held while the fresh grant landed on a later clock. The
+      // single rewardNow sample below is therefore the one source of truth
+      // for BOTH the availability predicate and the inserted row's
+      // created_at/grantedAt/expiresAt.
+      const grantedAt = await rewardNow(models)
+      const [held] = await models.$queryRaw`
+        SELECT count(*)::int AS held FROM "StreakReward"
+        WHERE "userId" = ${userId} AND "type" = 'BOOST'::"StreakRewardType"
+          AND "consumedAt" IS NULL AND "expiresAt" > ${grantedAt}::timestamp`
+      if ((held?.held ?? 0) >= MAX_BANKED_BOOSTS) continue
+      await models.$queryRaw`
+        INSERT INTO "StreakReward" ("userId", "streakId", created_at, "grantedAt", "expiresAt", type)
+        VALUES (${userId}, ${streak.id}, ${grantedAt}, ${grantedAt},
+          ${grantedAt}::timestamp + interval '30 days', 'BOOST'::"StreakRewardType")`
+      granted.push({ level, kind })
+      continue
+    }
     if (type !== 'POST' && type !== 'REPLY') {
       const held = await models.streakReward.findFirst({
         where: { userId, type, consumedAt: null, expiresAt: { gt: new Date() } },

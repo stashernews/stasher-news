@@ -63,6 +63,7 @@ export const ITEM_FIELDS = gql`
     piconeros
     meAnonPiconeros @client
     boost
+    promoBoostPiconeros
     bounty
     bountyPaidTo
     bountyStatus

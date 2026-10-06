@@ -4,6 +4,7 @@ import { resolveDraw } from '@/api/quests/draw'
 import { completionsFor } from '@/api/quests/completions'
 import { notifyFlameAdvanced, notifyQuestCompleted } from '@/lib/webPush'
 import { advanceQuestStreak } from '@/worker/streak'
+import { lockRewardUser } from '@/api/quests/boost-credit'
 
 // Look back further than the cron cadence (*/5) so a delayed tick can't miss
 // an action; the QuestCompletion unique key makes overlap harmless.
@@ -104,23 +105,31 @@ export async function sweepQuestCompletions ({ models, now = new Date(), userIds
   // for good (later ticks P2002-skip the recorded completions).
   await advanceClearedDays({ models, days: [...new Set([...days, ...lateObserved.map(l => l.day)])], userIds })
 
-  // Bank the quest's reply credits (rev 4: comment-cost quests pay double so
-  // completing them nets a gain): only with an active flame, never past the
-  // banked-reply cap, one capped insert per credit so a double grant fills
-  // to the cap and stops. Ladder rewards granted by the advance above are
-  // independent (marker-keyed), so this adds per-quest credits without
-  // double-granting.
+  // Bank each quest's reply credit (flat +1 per completion, quest-rebalance
+  // spec §3.1): only with an active flame, never past the banked-reply cap,
+  // one capped insert per credit so the grant fills to the cap and stops.
+  // The cap gates new grants only: rows held above it are grandfathered and
+  // nothing here deletes or claws back — spending rows down is what lets a
+  // fresh completion bank again. Ladder rewards granted by the advance above
+  // are independent (marker-keyed), so this adds per-quest credits without
+  // double-granting. Each insert runs in a short transaction that takes the
+  // user row lock first (task 3): the same lock the advance holds, so the
+  // count predicate reads committed state and a race between this banking
+  // and a same-day ladder rung can never cross MAX_BANKED_REPLIES.
   for (const { userId, quest } of recorded) {
     const amount = QUEST_REPLY_REWARDS[quest] ?? 1
     for (let i = 0; i < amount; i++) {
-      await models.$queryRaw`
-        INSERT INTO "StreakReward" ("userId", "streakId", created_at, "grantedAt", "expiresAt", "type")
-        SELECT ${userId}, s.id, now_utc(), now_utc(), now_utc() + interval '1 month', 'REPLY'::"StreakRewardType"
-        FROM "Streak" s
-        WHERE s."userId" = ${userId} AND s."type" = 'FLAME' AND s."endedAt" IS NULL
-          AND (SELECT count(*) FROM "StreakReward" r
-               WHERE r."userId" = ${userId} AND r."type" = 'REPLY'
-                 AND r."consumedAt" IS NULL AND r."expiresAt" > now_utc()) < ${MAX_BANKED_REPLIES}`
+      await models.$transaction(async tx => {
+        if (!await lockRewardUser(tx, userId)) return
+        await tx.$queryRaw`
+          INSERT INTO "StreakReward" ("userId", "streakId", created_at, "grantedAt", "expiresAt", "type")
+          SELECT ${userId}, s.id, now_utc(), now_utc(), now_utc() + interval '1 month', 'REPLY'::"StreakRewardType"
+          FROM "Streak" s
+          WHERE s."userId" = ${userId} AND s."type" = 'FLAME' AND s."endedAt" IS NULL
+            AND (SELECT count(*) FROM "StreakReward" r
+                 WHERE r."userId" = ${userId} AND r."type" = 'REPLY'
+                   AND r."consumedAt" IS NULL AND r."expiresAt" > now_utc()) < ${MAX_BANKED_REPLIES}`
+      })
     }
   }
 }
