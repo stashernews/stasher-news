@@ -54,6 +54,20 @@ those authorized ops).
   expiry-driven disable; `ItemDetails` shows a separate non-zero-only "promo boost"
   row, deliberately left out of the stashed/invested/comment money totals.
 
+**Post-writing update (2026-10-06, rides the same deploy — NO new migration):**
+the base free-reply quota moved from 1/day to **1/week, resetting Mondays
+00:00 UTC** (the rewards-distribution cron moment), use-it-or-lose-it — an
+unused weekly reply does not accumulate; base-first spending and the 30-day
+banked credits are unchanged. Code: `lib/constants.js`
+(`FREE_COMMENTS_PER_WEEK`), `api/monero/postingFee.js`,
+`api/payIn/lib/freebie.js` (`getNextWeekStart`). No schema change: existing
+`users.freeCommentResetAt` values self-heal — any user whose old daily window
+is still open gets at most one extra reply at the old boundary, then their next
+reset-branch write lands on a Monday (self-heal decision, 2026-10-06; no data
+migration). UI copy: the daily-ops supplies tooltip and the fee dialog now show
+bare totals (no "left today" / banked split), and `docs/user/faq.md` reads
+"per week".
+
 ## Production rollout (authorized ops; not yet executed)
 
 ```bash

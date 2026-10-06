@@ -52,7 +52,7 @@ See the [section about turfs](#turfs) for details.
 
 ### Do I need Monero to use Stasher News?
 
-No. You don't need Monero to get started. Browsing is free, and posting fees deter spam and fund curator rewards. Every stasher gets 1 free post per month and 1 free reply per day, with the daily allowance resetting at 00:00 UTC each day. A post beyond the monthly free one costs 1 mXMR and a reply beyond the daily free one costs 0.6 mXMR; turfs can add a premium on top. Anonymous posts cost 10 mXMR and anonymous comments cost 1.8 mXMR.
+No. You don't need Monero to get started. Browsing is free, and posting fees deter spam and fund curator rewards. Every stasher gets 1 free post per month and 1 free reply per week, with the weekly reply allowance resetting every Monday at 00:00 UTC. A post beyond the monthly free one costs 1 mXMR and a reply beyond the weekly free one costs 0.6 mXMR; turfs can add a premium on top. Anonymous posts cost 10 mXMR and anonymous comments cost 1.8 mXMR.
 
 You'll need a Monero wallet to receive tips and rewards, since all payments are delivered peer-to-peer on the Monero network.
 
@@ -146,7 +146,7 @@ Clearing both quests keeps your flame alive. The flame runs in 7-day cycles, and
 
 ### How many free replies and posts do I get?
 
-Every stasher gets one free reply per day and one free post per month. On top of that, daily ops bank extra reply and post credits you can spend later.
+Every stasher gets one free reply per week (resetting every Monday at 00:00 UTC) and one free post per month. On top of that, daily ops bank extra reply and post credits you can spend later.
 
 You can bank up to 10 free replies and 5 free posts. Existing reply balances above 10 are kept in full; new grants pause until fewer than 10 unexpired, unused replies remain. Suppressed grants are not saved for later. Reply and post credits keep their existing one-month expiry, and your base free allowance is spent first. You can see your remaining replies and posts on your own profile page.
 

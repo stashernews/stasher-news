@@ -314,14 +314,14 @@ export function useFeeButton () {
   return context
 }
 
-function FreebieDialog ({ freeCommentsLeft, freePostsLeft, freePostCredits }) {
+export function FreebieDialog ({ freeCommentsLeft, freePostsLeft, freePostCredits }) {
   return (
     <>
       <div className='fw-bold'>this one is on us</div>
       <ul className='mt-2'>
         <li>Free items are visible like any other, and earn real XMR tips.</li>
         {freeCommentsLeft !== null && (
-          <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left today.</li>
+          <li>You have {freeCommentsLeft} free comment{freeCommentsLeft !== 1 ? 's' : ''} left.</li>
         )}
         {freePostsLeft !== null && (
           <li>You have {freePostsLeft} free post{freePostsLeft !== 1 ? 's' : ''} left this month{freePostCredits > 0 ? ` (${freePostCredits} banked from streaks)` : ''}.</li>

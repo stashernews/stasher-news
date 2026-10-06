@@ -953,3 +953,78 @@ describe('onPaid — comment denormalization timing', () => {
     expect(await replyCount(commentId)).toBe(0)
   })
 })
+
+// --- finding 6: a stale free-reply prospect cannot double-spend one banked
+// REPLY credit. getInitial prices BEFORE payIn's payer row lock, so two
+// requests can both see the last credit and both price themselves free; the
+// locked onPaid consumption must fail closed for the loser and roll its item
+// and payIn back. ---
+describe('reply quota — stale prospects cannot double-spend a banked REPLY credit', () => {
+  function deferred () {
+    let resolve
+    const promise = new Promise(_resolve => { resolve = _resolve })
+    return { promise, resolve }
+  }
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+  test('two concurrent free replies priced off one banked REPLY credit: exactly one commits, the loser rolls back', async () => {
+    const authorId = await createUser()
+    const userId = await createUser()
+    await ensureFeeConfig()
+    const rootId = await createRootPost(authorId)
+    // weekly base exhausted, exactly one banked REPLY credit
+    await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 1, "freeCommentResetAt" = now() + interval '1 day' WHERE id = ${userId}::int`
+    await prisma.$executeRaw`INSERT INTO "StreakReward" ("userId", "grantedAt", "expiresAt", "type") VALUES (${userId}::int, now_utc(), now_utc() + interval '2 days', 'REPLY')`
+
+    // Hold the payer row lock on a separate connection so BOTH pay() calls
+    // finish getInitial (both see the credit and price free) before either
+    // begin() can spend it — deterministic stale-prospect interleaving, not a
+    // timing race. Reads are not blocked by the row lock; consumption is.
+    const holder = new PrismaClient()
+    const locked = deferred()
+    const release = deferred()
+    const holding = holder.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::int FOR NO KEY UPDATE`
+      locked.resolve()
+      await release.promise
+    }, { timeout: 15000 })
+    await locked.promise
+
+    let settled = 0
+    const track = p => { p.then(() => { settled++ }, () => { settled++ }); return p }
+    const p1 = track(pay('ITEM_CREATE', { userId, parentId: String(rootId), text: 'race reply one' }, { me: { id: userId } }))
+    const p2 = track(pay('ITEM_CREATE', { userId, parentId: String(rootId), text: 'race reply two' }, { me: { id: userId } }))
+    // both are blocked inside begin() by now: priced, nothing spent
+    await sleep(1000)
+    expect(settled).toBe(0)
+
+    release.resolve()
+    await holding
+    const results = await Promise.allSettled([p1, p2])
+    try {
+      const fulfilled = results.filter(r => r.status === 'fulfilled')
+      const rejected = results.filter(r => r.status === 'rejected')
+
+      // track whatever committed BEFORE asserting so cleanup survives a RED run
+      const replies = await prisma.item.findMany({ where: { userId, parentId: rootId } })
+      for (const reply of replies) created.items.push(reply.id)
+      for (const r of fulfilled) created.payIns.push(r.value.id)
+
+      expect(fulfilled).toHaveLength(1)
+      expect(rejected).toHaveLength(1)
+      expect(String(rejected[0].reason.message)).toContain('no free comments left')
+
+      // exactly one reply committed; the loser's item + payIn rolled back
+      expect(replies).toHaveLength(1)
+      expect(replies[0].freebie).toBe(true)
+      expect(replies[0].feeStatus).toBe('FEE_NOT_REQUIRED')
+
+      // the single credit was spent exactly once; the exhausted base is untouched
+      expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY', consumedAt: { not: null } } })).toBe(1)
+      const user = await prisma.user.findUnique({ where: { id: userId } })
+      expect(user.freeCommentCount).toBe(1)
+    } finally {
+      await holder.$disconnect()
+    }
+  })
+})

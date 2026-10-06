@@ -4,6 +4,7 @@ import { getItemMentions, getMentions, performBotBehavior, getSubs, getRootPrima
 import { extractMentions } from '@/lib/lexical/server/mentions'
 import { canonicalizeItemText } from '@/lib/url'
 import { GqlInputError } from '@/lib/error'
+import { moneroUriAmountPiconeros } from '@/lib/format'
 import { getItem } from '@/api/resolvers/item'
 import { getTempImgproxyUrls } from '../lib/upload'
 import { incrementFreeCommentCount, incrementFreePostCount } from '../lib/freebie'
@@ -380,6 +381,14 @@ export async function onBegin (tx, payInId, args) {
   // items never consume quota. Recomputed here rather than threaded from
   // getInitial — the same-payer row lock serializes this user's payIn
   // operations, so it agrees with getInitial's branch decision.
+  //
+  // The quota helpers are RESERVATION-AWARE: a PENDING_FEE feeQuotaEligible
+  // item holds its unit from creation (pendingQuotaReservations), so `left`
+  // here is the slot count still spendable. That makes the re-check below the
+  // concurrency gate for the upload-fee race: two simultaneous submissions
+  // both priced upload-fee-only off the same unspent unit (getInitial runs
+  // before the payer lock), and the loser must be rejected HERE — before any
+  // payment — instead of alerting at its fee flip.
   let feeQuotaEligible = false
   if (feeRequired && !data.bio && payIn.userId !== USER_ID.anon) {
     const homeSub = parentId ? await getRootPrimarySub(tx, Number(parentId)) : null
@@ -389,9 +398,33 @@ export async function onBegin (tx, payInId, args) {
       const quotaConfig = await tx.platformFeeConfig.findUnique({ where: { id: 1 } })
       const payer = quotaConfig ? await tx.user.findUnique({ where: { id: payIn.userId } }) : null
       if (payer) {
-        feeQuotaEligible = parentId
-          ? (await commentQuotaFor(tx, payer)).left > 0
-          : (await postQuotaFor(tx, payer, quotaConfig)).left > 0
+        const quota = parentId
+          ? await commentQuotaFor(tx, payer)
+          : await postQuotaFor(tx, payer, quotaConfig)
+        feeQuotaEligible = quota.left > 0
+        // Concurrent double-submit guard: this pay-in was priced
+        // upload-fee-ONLY (the quota had a slot at getInitial), but under the
+        // lock the reservation-aware quota has none left — another submission
+        // reserved or spent the unit in between. Throwing rolls back the
+        // unpaid payIn/item; a fresh submit re-prices against the held unit.
+        //
+        // "Priced upload-fee-only" is recognizable from the stored payIn:
+        // getInitial's in-quota branch routes to a rewards-wallet subaddress
+        // and prices the URI at exactly the upload fees — never owner-direct
+        // (that leg is feeLegOrSubaddress and carries the item fee), never
+        // charged (a charged URI = item fee + upload fees > upload fees).
+        // Charged items, owner-free items, bios, and anons never reach this
+        // throw: charged legs fail the amount equality, the rest never enter
+        // the quota block.
+        if (!feeQuotaEligible && payIn.moneroSubaddressMajor != null && payIn.moneroPaymentId == null) {
+          const expected = moneroUriAmountPiconeros(payIn.moneroUri)
+          if (expected != null && expected > 0n) {
+            const { totalFeesPiconeros } = await uploadFees(uploadIds, { models: tx, me: { id: payIn.userId } })
+            if (expected === totalFeesPiconeros) {
+              throw new Error(parentId ? 'no free comments left' : 'no free posts left')
+            }
+          }
+        }
       }
     }
   }

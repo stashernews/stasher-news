@@ -15,7 +15,22 @@
 
 import { PrismaClient } from '@prisma/client'
 import { runRewardsWalletObserverOnce, findRewardsAccount } from '@/worker/rewardsWalletObserver'
+import { alert } from '@/lib/alert'
+import { logError } from '@/lib/logger'
 import { sweepFakeRewardsWallets } from '../helpers/sweepRewardsWallets'
+
+// The flip-time quota bookkeeping is guarded by flipPendingToLive (it logs +
+// alerts instead of wedging the observer); mock those sinks so the findings-6
+// surfacing assertions below can pin them without network/log noise. Mirrors
+// rewardsWalletObserver.flip.test.js.
+jest.mock('../../lib/alert', () => ({ __esModule: true, alert: jest.fn() }))
+jest.mock('../../lib/logger', () => ({
+  __esModule: true,
+  logInfo: jest.fn(),
+  logWarn: jest.fn(),
+  logError: jest.fn(),
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+}))
 
 const prisma = new PrismaClient()
 
@@ -99,7 +114,12 @@ async function seedPendingFeePost (minor, moneroUri = null) {
 // comment-fee subaddress (major 1, minor). Mirrors what itemCreate.onBegin
 // produces for a reply beyond the monthly freebie quota.
 async function seedPendingFeeComment (minor, moneroUri = null) {
-  const userId = await createUser()
+  return await seedPendingFeeCommentFor(await createUser(), minor, moneroUri)
+}
+
+// The same seed for a caller-provided user: lets one user accumulate several
+// pending-fee replies (the consecutive-flip credit-consumption test below).
+async function seedPendingFeeCommentFor (userId, minor, moneroUri = null) {
   const root = await prisma.item.create({
     data: { userId, title: 'reply-thread root', status: 'ACTIVE' }
   })
@@ -191,6 +211,20 @@ async function seedPendingFeeSubWithUri (minor, moneroUri = null) {
 
 function lwsFeeTx (hash, piconeros, major, minor, height = 1234) {
   return { hash, piconeros: BigInt(piconeros), recipient: { maj_i: major, min_i: minor }, height, id: 1, payment_id: null }
+}
+
+// One banked REPLY credit row, unconsumed unless a test says otherwise.
+async function seedReplyCredit (userId, { expiresInDays = 2, expiresDaysAgo = null } = {}) {
+  if (expiresDaysAgo != null) {
+    await prisma.$executeRaw`
+      INSERT INTO "StreakReward" ("userId", "grantedAt", "expiresAt", "type")
+      VALUES (${userId}::int, now_utc() - ${expiresDaysAgo + 1}::int * interval '1 day',
+        now_utc() - ${expiresDaysAgo}::int * interval '1 day', 'REPLY'::"StreakRewardType")`
+    return
+  }
+  await prisma.$executeRaw`
+    INSERT INTO "StreakReward" ("userId", "grantedAt", "expiresAt", "type")
+    VALUES (${userId}::int, now_utc(), now_utc() + ${expiresInDays}::int * interval '1 day', 'REPLY'::"StreakRewardType")`
 }
 
 test('rewardsWalletObserver attributes a posting fee by subaddress, creates FeeObservation DETECTED, flips Item FEE_PAID', async () => {
@@ -565,4 +599,129 @@ test('quota consumption is exactly-once across re-polls (R01)', async () => {
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [tx] })
   const user = await prisma.user.findUnique({ where: { id: comment.userId } })
   expect(user.freeCommentCount).toBe(1)
+})
+
+// --- finding 6: the flip-time comment spend is base-first, credit-aware and
+// serialized. Before the fix the comment branch force-incremented an already
+// exhausted base counter and never touched a banked REPLY credit, so the
+// credit-aware creation gate (commentQuotaFor) could waive the reply fee on
+// upload-fee replies indefinitely without ever spending the credit. ---
+
+async function consumedReplyCredits (userId) {
+  return await prisma.streakReward.count({ where: { userId, type: 'REPLY', consumedAt: { not: null } } })
+}
+
+test('a feeQuotaEligible COMMENT flip spends the live weekly base first and leaves a banked REPLY credit untouched', async () => {
+  const { comment, major, minor } = await seedPendingFeeComment(subMinor())
+  await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
+  await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 0, "freeCommentResetAt" = now() + interval '3 days' WHERE id = ${comment.userId}::int`
+  await seedReplyCredit(comment.userId)
+
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f6' + '01'.repeat(31), '1000000000', major, minor)] })
+
+  const user = await prisma.user.findUnique({ where: { id: comment.userId } })
+  expect(user.freeCommentCount).toBe(1)
+  expect(await consumedReplyCredits(comment.userId)).toBe(0)
+})
+
+test('a stale weekly window re-baselines at the flip and still preserves the held REPLY credit', async () => {
+  const { comment, major, minor } = await seedPendingFeeComment(subMinor())
+  await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
+  await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 3, "freeCommentResetAt" = now() - interval '1 day' WHERE id = ${comment.userId}::int`
+  await seedReplyCredit(comment.userId)
+
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f6' + '02'.repeat(31), '1000000000', major, minor)] })
+
+  const user = await prisma.user.findUnique({ where: { id: comment.userId } })
+  expect(user.freeCommentCount).toBe(1) // never accumulates
+  expect(new Date(user.freeCommentResetAt).getTime()).toBeGreaterThan(Date.now())
+  expect(await consumedReplyCredits(comment.userId)).toBe(0)
+})
+
+test('a base-exhausted COMMENT flip consumes exactly one banked REPLY credit, soonest-expiring first, and leaves the over-quota counter alone', async () => {
+  const { comment, major, minor } = await seedPendingFeeComment(subMinor())
+  await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
+  await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 1, "freeCommentResetAt" = now() + interval '1 day' WHERE id = ${comment.userId}::int`
+  await seedReplyCredit(comment.userId, { expiresInDays: 2 })
+  await seedReplyCredit(comment.userId, { expiresInDays: 20 })
+
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f6' + '03'.repeat(31), '1000000000', major, minor)] })
+
+  const user = await prisma.user.findUnique({ where: { id: comment.userId } })
+  expect(user.freeCommentCount).toBe(1) // the exhausted base is not incremented
+  expect(await consumedReplyCredits(comment.userId)).toBe(1)
+  const [consumed] = await prisma.$queryRaw`
+    SELECT "expiresAt" FROM "StreakReward"
+    WHERE "userId" = ${comment.userId}::int AND type = 'REPLY' AND "consumedAt" IS NOT NULL`
+  // the 2-day credit went first, not the 20-day one
+  expect(new Date(consumed.expiresAt).getTime() - Date.now()).toBeLessThan(5 * 86_400_000)
+})
+
+test('consecutive base-exhausted flips drain credits one at a time; the exhausted flip is surfaced WITHOUT blocking publication', async () => {
+  const userId = await createUser()
+  const first = await seedPendingFeeCommentFor(userId, subMinor())
+  const second = await seedPendingFeeCommentFor(userId, subMinor())
+  const third = await seedPendingFeeCommentFor(userId, subMinor())
+  for (const s of [first, second, third]) {
+    await prisma.item.update({ where: { id: s.comment.id }, data: { feeQuotaEligible: true } })
+  }
+  await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 1, "freeCommentResetAt" = now() + interval '1 day' WHERE id = ${userId}::int`
+  await seedReplyCredit(userId, { expiresInDays: 2 })
+  await seedReplyCredit(userId, { expiresInDays: 20 })
+
+  alert.mockClear()
+  logError.mockClear()
+  await runRewardsWalletObserverOnce({
+    models: prisma,
+    account: rewardsWallet,
+    txs: [
+      lwsFeeTx('f6' + '04'.repeat(31), '1000000000', first.major, first.minor),
+      lwsFeeTx('f6' + '05'.repeat(31), '1000000000', second.major, second.minor),
+      lwsFeeTx('f6' + '06'.repeat(31), '1000000000', third.major, third.minor)
+    ]
+  })
+
+  // every paid item went live — bookkeeping can never gate publication
+  for (const s of [first, second, third]) {
+    const live = await prisma.item.findUnique({ where: { id: s.comment.id } })
+    expect(live.feeStatus).toBe('FEE_PAID')
+  }
+  expect(await consumedReplyCredits(userId)).toBe(2)
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  expect(user.freeCommentCount).toBe(1)
+
+  // the third flip's missing credit is surfaced through the existing guard
+  const logged = logError.mock.calls.find(c => c[0] === 'flipPendingToLive: quota consumption failed')
+  expect(logged).toBeTruthy()
+  expect(String(logged[1]?.message)).toContain('no free comments left')
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    expect.any(String),
+    expect.stringContaining(`payIn ${third.payIn.id}`),
+    { dedupeKey: `flip-quota-${third.payIn.id}` })
+})
+
+test('an EXPIRED banked REPLY credit cannot underwrite the flip: the paid item goes live and the missing credit is surfaced', async () => {
+  const { comment, payIn, major, minor } = await seedPendingFeeComment(subMinor())
+  await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
+  await prisma.$executeRaw`UPDATE users SET "freeCommentCount" = 1, "freeCommentResetAt" = now() + interval '1 day' WHERE id = ${comment.userId}::int`
+  await seedReplyCredit(comment.userId, { expiresDaysAgo: 1 })
+
+  alert.mockClear()
+  logError.mockClear()
+  await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f6' + '07'.repeat(31), '1000000000', major, minor)] })
+
+  const live = await prisma.item.findUnique({ where: { id: comment.id } })
+  expect(live.feeStatus).toBe('FEE_PAID')
+  expect(await consumedReplyCredits(comment.userId)).toBe(0)
+  const user = await prisma.user.findUnique({ where: { id: comment.userId } })
+  expect(user.freeCommentCount).toBe(1)
+  const logged = logError.mock.calls.find(c => c[0] === 'flipPendingToLive: quota consumption failed')
+  expect(logged).toBeTruthy()
+  expect(String(logged[1]?.message)).toContain('no free comments left')
+  expect(alert).toHaveBeenCalledWith(
+    'critical',
+    expect.any(String),
+    expect.stringContaining(`payIn ${payIn.id}`),
+    { dedupeKey: `flip-quota-${payIn.id}` })
 })

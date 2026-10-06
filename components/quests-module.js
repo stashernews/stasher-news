@@ -132,14 +132,14 @@ function DrawnIcon ({ type }) {
   return <ComposeIcon />
 }
 
-function suppliesTooltip (p) {
+export function suppliesTooltip (p) {
   // One line per section, each its own sentence; rendered with <br/> so long
-  // supplies tooltips stay readable.
+  // supplies tooltips stay readable. Replies and posts read as bare totals:
+  // the weekly base and any banked credits are one number (2026-10-06 weekly
+  // quota rebalance), never a per-window/banked breakdown.
   return [
-    `${p.freeCommentsLeft} free ${p.freeCommentsLeft === 1 ? 'reply' : 'replies'} left today` +
-      (p.freeReplyCredits > 0 ? `, ${p.freeReplyCredits} banked from your flame` : '') + '.',
-    `${p.freePostsLeft} free ${p.freePostsLeft === 1 ? 'post' : 'posts'} left this month` +
-      (p.freePostCredits > 0 ? `, ${p.freePostCredits} banked from your flame` : '') + '.',
+    `${p.freeCommentsLeft} free ${p.freeCommentsLeft === 1 ? 'reply' : 'replies'} left.`,
+    `${p.freePostsLeft} free ${p.freePostsLeft === 1 ? 'post' : 'posts'} left.`,
     p.boostCreditId != null && '1 boost credit.',
     p.goldFlame && 'your golden flame absorbs a missed day, keeping your streak alive.'
   ].filter(Boolean)

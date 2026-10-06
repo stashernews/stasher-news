@@ -309,14 +309,16 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
       // only cost was the upload fee) consumes its free quota HERE — the
       // creation-time increments skip non-freeborn items. Exactly-once (only
       // the winning flip branch reaches this) and best-effort: its OWN
-      // transaction, so a DB-level failure (which would poison the flip tx and
-      // defeat consumeQuotaForFlippedItem's internal JS catch) logs + alerts
-      // instead of rolling the flip back or wedging the cursor. An over- or
-      // under-shot count is inert (free-left clamps at 0; the window reset
-      // re-baselines).
+      // transaction, so a failure (a missing/expired credit, or any DB error —
+      // it surfaces rather than being swallowed) logs + alerts instead of
+      // rolling the flip back or wedging the cursor. The timeout matches
+      // payIn begin's 10s: the quota transaction takes the user reward lock,
+      // which can legitimately wait behind a concurrent payIn/quest-banking
+      // transaction longer than Prisma's 5s default. An over- or under-shot
+      // count is inert (free-left clamps at 0; the window reset re-baselines).
       if (flipped.feeQuotaEligible) {
         try {
-          await models.$transaction(tx => consumeQuotaForFlippedItem(tx, { item: flipped, userId: payIn.userId }))
+          await models.$transaction(tx => consumeQuotaForFlippedItem(tx, { item: flipped, userId: payIn.userId }), { timeout: 10000 })
         } catch (err) {
           logError('flipPendingToLive: quota consumption failed', err)
           alert('critical', 'flipped item quota consumption failed',

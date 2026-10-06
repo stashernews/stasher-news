@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import { Prisma } from '@prisma/client'
-import { incrementFreeCommentCount, incrementFreePostCount, getNextDayStart, consumeQuotaForFlippedItem, consumeStreakReward } from '@/api/payIn/lib/freebie'
+import { incrementFreeCommentCount, incrementFreePostCount, getNextWeekStart, consumeQuotaForFlippedItem, consumeStreakReward } from '@/api/payIn/lib/freebie'
 
 // A mock tx whose user.update is a jest.fn; config always resolves so the helpers
 // proceed to the quota/branch logic. $queryRaw dispatches on the SQL text: the
@@ -19,11 +19,19 @@ function mkTx (user, { tips = [], credits = [{ id: 11 }] } = {}) {
     item: { findFirst: async () => null },
     $queryRaw: jest.fn(async (strings) => {
       const sql = String(strings.join(''))
+      // consumeQuotaForFlippedItem takes the universal reward-write user lock
+      // (api/quests/boost-credit lockRewardUser) before reading quota state.
+      if (sql.includes('FROM users')) return user ? [{ id: 5 }] : []
       if (sql.includes('ObservedTip')) return tips
       if (sql.includes('StreakReward')) return credits
       return []
     })
   }
+}
+
+// $queryRaw calls whose SQL touches StreakReward (the credit consume), in order.
+function streakRewardSql (tx) {
+  return tx.$queryRaw.mock.calls.map(c => String(c[0].join(''))).filter(sql => sql.includes('StreakReward'))
 }
 
 const ANON = 27
@@ -46,14 +54,14 @@ test('incrementFreeCommentCount is a no-op for anon', async () => {
   expect(tx.user.update).not.toHaveBeenCalled()
 })
 
-test('incrementFreeCommentCount increments within the flat daily quota', async () => {
+test('incrementFreeCommentCount increments within the flat weekly quota', async () => {
   const tx = mkTx({ freeCommentCount: 0, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) })
   await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })
   // one tier: every user's increment guard is the flat quota of 1
   expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 1 } }) }))
 })
 
-test('the daily quota is flat: a recent tip does not raise the increment guard', async () => {
+test('the weekly quota is flat: a recent tip does not raise the increment guard', async () => {
   const tx = mkTx(
     { freeCommentCount: 0, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null },
     { tips: [{ n: 1 }] }
@@ -63,7 +71,7 @@ test('the daily quota is flat: a recent tip does not raise the increment guard',
   expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 1 } }) }))
 })
 
-test('the daily quota is flat: a day-3 streak does not raise the increment guard', async () => {
+test('the weekly quota is flat: a day-3 streak does not raise the increment guard', async () => {
   const tx = mkTx({ freeCommentCount: 0, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000), streak: 3 })
   await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })
   expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 1 } }) }))
@@ -85,7 +93,7 @@ test('a P2025 lost race at the quota guard fails loudly (genuine exhaustion or a
     .rejects.toThrow('no free comments left')
 })
 
-test('incrementFreeCommentCount consumes a banked REPLY credit when the daily base is exhausted', async () => {
+test('incrementFreeCommentCount consumes a banked REPLY credit when the weekly base is exhausted', async () => {
   const user = { freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null }
   const consumed = []
   const tx = {
@@ -104,17 +112,25 @@ test('incrementFreeCommentCount consumes a banked REPLY credit when the daily ba
   expect(tx.user.update).not.toHaveBeenCalled()
 })
 
-test('incrementFreeCommentCount leaves the counter alone with no credit left (the gate should not have granted the freebie)', async () => {
+test('incrementFreeCommentCount rejects when the base is exhausted and no REPLY credit is left (no fail-open freebie)', async () => {
   const user = { freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null }
   const tx = {
     user: { findUnique: async () => user, update: jest.fn(async () => ({})) },
     platformFeeConfig: { findUnique: async () => ({ freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7 }) },
     $queryRaw: jest.fn(async () => [])
   }
-  // No throw: an over-base freebie without credits is inert bookkeeping here;
-  // the credit-aware gate (commentQuotaFor) is what should have priced it.
-  await expect(incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })).resolves.toBeUndefined()
-  expect(tx.user.update).not.toHaveBeenCalled()
+  // A freebie the credit-aware gate granted off a stale prospect (the credit
+  // was spent on a concurrent creation) must not commit for free: consume
+  // fails closed, the caller's payIn transaction rolls the item back.
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    await expect(incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })).rejects.toThrow('no free comments left')
+    expect(tx.user.update).not.toHaveBeenCalled()
+    // expected quota exhaustion is not logged as an unexpected failure
+    expect(errorSpy).not.toHaveBeenCalled()
+  } finally {
+    errorSpy.mockRestore()
+  }
 })
 
 test('incrementFreePostCount is a no-op for comments and bios (freebie=true or parentId set)', async () => {
@@ -142,27 +158,33 @@ test('incrementFreePostCount increments for a free post within the flat monthly 
   expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freePostCount: { lt: 1 } }) }))
 })
 
-test('getNextDayStart returns the next 00:00 UTC midnight', () => {
-  jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 8, 12, 23, 59, 59, 999)))
+test('getNextWeekStart returns the next Monday 00:00 UTC from any weekday', () => {
+  jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 8, 12, 10, 30, 0))) // Saturday
   try {
-    expect(getNextDayStart()).toEqual(new Date(Date.UTC(2026, 8, 13, 0, 0, 0, 0)))
-    // exactly at midnight, the window that just opened is "current" — next reset is the following midnight
-    jest.setSystemTime(new Date(Date.UTC(2026, 8, 12, 0, 0, 0, 0)))
-    expect(getNextDayStart()).toEqual(new Date(Date.UTC(2026, 8, 13, 0, 0, 0, 0)))
+    expect(getNextWeekStart()).toEqual(new Date(Date.UTC(2026, 8, 14, 0, 0, 0, 0))) // Sat -> Mon
+    jest.setSystemTime(new Date(Date.UTC(2026, 8, 13, 23, 59, 59, 999))) // Sunday
+    expect(getNextWeekStart()).toEqual(new Date(Date.UTC(2026, 8, 14, 0, 0, 0, 0))) // Sun -> Mon (+1d)
+    // exactly Monday 00:00, the window that just opened is "current" — the next
+    // reset is the FOLLOWING Monday, a full week out (never a same-day reset)
+    jest.setSystemTime(new Date(Date.UTC(2026, 8, 14, 0, 0, 0, 0)))
+    expect(getNextWeekStart()).toEqual(new Date(Date.UTC(2026, 8, 21, 0, 0, 0, 0)))
+    jest.setSystemTime(new Date(Date.UTC(2026, 8, 17, 12, 0, 0))) // mid-week Thursday
+    expect(getNextWeekStart()).toEqual(new Date(Date.UTC(2026, 8, 21, 0, 0, 0, 0)))
   } finally {
     jest.useRealTimers()
   }
 })
 
-test('incrementFreeCommentCount rolls a stale counter over to a fresh daily window', async () => {
-  jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 8, 12, 10, 30, 0)))
+test('incrementFreeCommentCount rolls a stale counter over to a fresh weekly window (never accumulating)', async () => {
+  jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 8, 12, 10, 30, 0))) // Saturday
   try {
     const stale = new Date(Date.UTC(2026, 8, 11, 0, 0, 0, 0))
     const tx = mkTx({ freeCommentCount: 2, freeCommentResetAt: stale, stackedPiconeros: 0n, createdAt: new Date(Date.UTC(2026, 8, 12)) })
     await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })
+    // the stale count (2) re-baselines to exactly 1, and the window runs to next Monday
     expect(tx.user.update).toHaveBeenCalledWith({
       where: { id: 5, freeCommentResetAt: stale },
-      data: { freeCommentCount: 1, freeCommentResetAt: new Date(Date.UTC(2026, 8, 13, 0, 0, 0, 0)) }
+      data: { freeCommentCount: 1, freeCommentResetAt: new Date(Date.UTC(2026, 8, 14, 0, 0, 0, 0)) }
     })
   } finally {
     jest.useRealTimers()
@@ -189,23 +211,32 @@ test('consumeQuotaForFlippedItem is a no-op when the user row is missing', async
   expect(tx.user.update).not.toHaveBeenCalled()
 })
 
-test('consumeQuotaForFlippedItem opens a fresh daily window for a comment when none is open', async () => {
-  const tx = mkTx({ freeCommentCount: 4, freeCommentResetAt: null })
-  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: 5 })
-  expect(tx.user.update).toHaveBeenCalledWith({
-    where: { id: 5 },
-    data: { freeCommentCount: 1, freeCommentResetAt: expect.any(Date) }
-  })
+test('consumeQuotaForFlippedItem opens a fresh weekly window for a comment when none is open', async () => {
+  jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 8, 15, 10, 30, 0))) // Tuesday
+  try {
+    const tx = mkTx({ freeCommentCount: 4, freeCommentResetAt: null })
+    await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: 5 })
+    expect(tx.user.update).toHaveBeenCalledWith({
+      // same optimistic reset guard incrementFreeCommentCount uses (belt and
+      // braces under the user lock)
+      where: { id: 5, freeCommentResetAt: null },
+      data: { freeCommentCount: 1, freeCommentResetAt: new Date(Date.UTC(2026, 8, 21, 0, 0, 0, 0)) }
+    })
+  } finally {
+    jest.useRealTimers()
+  }
 })
 
-test('consumeQuotaForFlippedItem force-increments the comment counter with NO quota precondition', async () => {
-  // count 9 (over any quota) still increments — the flip must never be rejected
+test('consumeQuotaForFlippedItem is base-first: past the base it consumes a banked REPLY credit instead of force-incrementing', async () => {
+  // count 9 (over any quota) must NOT force-increment: the credit-aware
+  // creation gate priced this upload-fee reply off a banked credit, so the
+  // flip spends that credit and leaves the counter alone.
   const tx = mkTx({ freeCommentCount: 9, freeCommentResetAt: new Date(Date.now() + 86_400_000) })
-  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: 5 })
-  expect(tx.user.update).toHaveBeenCalledWith({
-    where: { id: 5 },
-    data: { freeCommentCount: { increment: 1 } }
-  })
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1, id: 99 }, userId: 5 })
+  expect(tx.user.update).not.toHaveBeenCalled()
+  const consumed = streakRewardSql(tx)
+  expect(consumed).toHaveLength(1)
+  expect(consumed[0]).toContain('FOR UPDATE SKIP LOCKED')
 })
 
 test('consumeQuotaForFlippedItem increments the post counter within quota for a top-level item', async () => {
@@ -232,10 +263,13 @@ test('consumeQuotaForFlippedItem rolls a stale post window over to a fresh month
   }
 })
 
-test('consumeQuotaForFlippedItem NEVER throws — a failed update is swallowed (the flip must proceed)', async () => {
+test('consumeQuotaForFlippedItem surfaces a failed bookkeeping update to its caller (the flip already committed)', async () => {
+  // The caller (flipPendingToLive) runs this in its OWN post-flip transaction
+  // and guards it: a reject logs + alerts, can neither roll the flip back nor
+  // wedge the observer cursor. Swallowing the failure here would hide it.
   const tx = mkTx({ freeCommentCount: 0, freeCommentResetAt: null })
   tx.user.update = jest.fn(async () => { throw new Error('db blip') })
-  await expect(consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: 5 })).resolves.toBeUndefined()
+  await expect(consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1 }, userId: 5 })).rejects.toThrow('db blip')
 })
 
 // --- consumeStreakReward (typed banked rewards: soonest-expiring first) ---
@@ -293,20 +327,68 @@ test('incrementFreePostCount throws no free posts left when base and rewards are
     .rejects.toThrow('no free posts left')
 })
 
-test('consumeQuotaForFlippedItem never throws and falls back to rewards at the flip', async () => {
-  const user = { freePostCount: 5, freePostResetAt: new Date(Date.now() + 30 * 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000), streak: null }
+test('consumeQuotaForFlippedItem surfaces a DB failure at the flip to its caller (never a silent swallow)', async () => {
   const tx = {
-    user: { findUnique: async () => user, update: jest.fn(async () => { throw new Error('db gone') }) },
+    user: { findUnique: async () => { throw new Error('db gone') }, update: jest.fn() },
     platformFeeConfig: { findUnique: async () => { throw new Error('db gone') } },
     $queryRaw: jest.fn(async () => { throw new Error('db gone') })
   }
+  await expect(consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: null, id: 9 }, userId: 5 })).rejects.toThrow('db gone')
+})
+
+test('consumeQuotaForFlippedItem never rejects a post flip: a missing banked POST credit is a no-op (POST semantics intact)', async () => {
+  const user = { freePostCount: 5, freePostResetAt: new Date(Date.now() + 30 * 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000), streak: null }
+  const tx = mkTx(user, { credits: [] })
   await expect(consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: null, id: 9 }, userId: 5 })).resolves.toBeUndefined()
+  expect(tx.user.update).not.toHaveBeenCalled()
 })
 
 test('consumeQuotaForFlippedItem consumes a banked reward when the post base quota is exhausted at the flip', async () => {
   const tx = mkTx({ freePostCount: 5, freePostResetAt: new Date(Date.now() + 30 * 86_400_000), stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000), streak: null })
   await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: null, id: 9 }, userId: 5 })
   expect(tx.user.update).not.toHaveBeenCalled()
-  const sql = String(tx.$queryRaw.mock.calls[0][0].join(''))
-  expect(sql).toContain('StreakReward')
+  expect(streakRewardSql(tx)).toHaveLength(1)
+})
+
+// --- finding 6: serialized, base-first, fail-closed flip consumption ---
+
+test('consumeQuotaForFlippedItem locks the user row BEFORE reading quota state (no stale pre-lock snapshot)', async () => {
+  const calls = []
+  const user = { freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null }
+  const tx = {
+    user: {
+      findUnique: async () => { calls.push('user.findUnique'); return user },
+      update: jest.fn(async () => { calls.push('user.update'); return {} })
+    },
+    platformFeeConfig: { findUnique: async () => null },
+    $queryRaw: jest.fn(async (strings) => {
+      const sql = String(strings.join(''))
+      if (sql.includes('FROM users')) { calls.push('lock-user'); return [{ id: 5 }] }
+      if (sql.includes('StreakReward')) { calls.push('consume-reward'); return [{ id: 11 }] }
+      return []
+    })
+  }
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1, id: 99 }, userId: 5 })
+  expect(calls[0]).toBe('lock-user')
+  expect(calls).toContain('consume-reward')
+})
+
+test('consumeQuotaForFlippedItem spends a fresh weekly base before any banked REPLY credit', async () => {
+  // a stale window resets to a fresh one; the held credit must survive
+  const user = { freeCommentCount: 3, freeCommentResetAt: new Date(Date.now() - 60_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null }
+  const tx = mkTx(user, { credits: [{ id: 11 }] })
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1, id: 99 }, userId: 5 })
+  expect(streakRewardSql(tx)).toHaveLength(0)
+  expect(tx.user.update).toHaveBeenCalledWith({
+    where: { id: 5, freeCommentResetAt: user.freeCommentResetAt },
+    data: { freeCommentCount: 1, freeCommentResetAt: expect.any(Date) }
+  })
+})
+
+test('consumeQuotaForFlippedItem rejects when the base is exhausted and no valid REPLY credit remains', async () => {
+  // e.g. the credit expired while the upload fee was in flight. The caller
+  // surfaces this (log + alert); the already-paid item still goes live.
+  const tx = mkTx({ freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000) }, { credits: [] })
+  await expect(consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1, id: 7 }, userId: 5 })).rejects.toThrow('no free comments left')
+  expect(tx.user.update).not.toHaveBeenCalled()
 })
