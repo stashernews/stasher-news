@@ -150,7 +150,7 @@ test('a run\'s first day banks the day 1 rung plus both quest credits', async ()
   expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(3)
 })
 
-test('recording a completion banks one reply credit, once', async () => {
+test('a quest completion banks one reply credit, once', async () => {
   const userId = await mkUser()
   // An active flame whose previous day is still pending: the sweep's advance
   // defers, so every credit below comes from the per-quest banking.
@@ -175,6 +175,56 @@ test('recording a completion banks one reply credit, once', async () => {
 
   await sweepQuestCompletions({ models: prisma, now, userIds: created.users }) // re-run: nothing new banks
   expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(2)
+})
+
+// Quest credits are flame-independent (product clarification 2026-10-06):
+// completing a quest banks its reply on the tick it is recorded, with no
+// streak row at all, and the two completions bank independently even when
+// they land in different sweep ticks (the old flame-gated banking silently
+// dropped the earlier tick's credit once the day later cleared).
+test('quest completions bank with no flame at all, across separate ticks', async () => {
+  const userId = await mkUser() // no streak row, users.streak stays null
+  let day = null
+  for (let i = 0; i < 30 && !day; i++) {
+    const d = utcDay(new Date(Date.now() + i * 86_400_000))
+    if (drawFor(userId, d).drawn === QUEST.FIRST_RESPONDER) day = d
+  }
+  expect(day).not.toBeNull()
+  const now = new Date(`${day}T12:00:00.000Z`)
+
+  // Tick 1: the first-responder action alone (the upvote slot stays undone,
+  // so the day does not clear and no run is created).
+  const [root] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep nf root', ${now}) RETURNING id::int AS id`
+  const [comment] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", "parentId", "rootId", text, created_at) VALUES (${userId}::int, ${root.id}::int, ${root.id}::int, 'qsweep nf reply', ${now}) RETURNING id::int AS id`
+  created.items.push(root.id, comment.id)
+
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
+
+  expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`), quest: QUEST.FIRST_RESPONDER } })).toBe(1)
+  expect(await prisma.streak.count({ where: { userId, type: 'FLAME' } })).toBe(0)
+  const first = await prisma.streakReward.findMany({ where: { userId, type: 'REPLY' } })
+  expect(first).toHaveLength(1) // banks with no flame, on its own tick
+  expect(first[0].streakId).toBeNull()
+
+  // Tick 2: the upvote completes the day. Its credit banks on THIS tick even
+  // though no flame existed when the first-responder credit banked; the clear
+  // also starts the run, whose day-1 rung adds one more reply.
+  const account = await prisma.moneroAccount.create({ data: { ownerUserId: null, address: `qsweepnf${userId}${Date.now()}`.slice(0, 95), label: 'q', network: 'STAGENET', status: 'ACTIVE' } })
+  created.accounts.push(account.id)
+  const [post] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'qsweep nf tip post', ${now}) RETURNING id::int AS id`
+  created.items.push(post.id)
+  await prisma.observedTip.create({ data: { txHash: `qsweep-nf-${Date.now()}`, postId: post.id, tipperId: userId, recipientAccountId: account.id, paymentId: `qsweep-nf-pid-${Date.now()}`, piconeros: 100000000n, state: 'DETECTED', detectedAt: new Date(now.getTime() - 5 * 60 * 1000) } })
+
+  await sweepQuestCompletions({ models: prisma, now, userIds: created.users })
+
+  expect(await prisma.questCompletion.count({ where: { userId, day: new Date(`${day}T00:00:00.000Z`) } })).toBe(2)
+  const [streak] = await prisma.streak.findMany({ where: { userId, type: 'FLAME' } })
+  expect(streak).toBeDefined() // the cleared day starts the run
+  const all = await prisma.streakReward.findMany({ where: { userId, type: 'REPLY' }, orderBy: { id: 'asc' } })
+  expect(all).toHaveLength(3) // first responder + upvote + day-1 ladder rung
+  expect(all[0].streakId).toBeNull() // banked before any run existed
+  expect(all[1].streakId).toBe(streak.id) // upvote, banked on the clearing tick
+  expect(all[2].streakId).toBe(streak.id) // day-1 rung
 })
 
 test('a first responder completion banks one reply credit', async () => {
