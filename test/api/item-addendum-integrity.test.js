@@ -11,6 +11,7 @@ import { PrismaClient } from '@prisma/client'
 import addendumResolvers from '@/api/resolvers/item-addendum'
 import { deleteItemByAuthor } from '@/lib/item'
 import { createMoneroWallLoader } from '@/lib/monero-wall/loader'
+import { PUBLIC_MEDIA_URL } from '@/lib/constants'
 
 // lexicalHTMLGenerator's module graph is ESM-only (github-slugger) and cannot
 // load in jest's sandbox; the lock tests below assert null paths, which never
@@ -135,9 +136,12 @@ test('a pin-write failure rolls the whole save back (text, time, revision, pins)
       return fn(proxied)
     }, opts)
   }
-  // the save references a real upload so the pin createMany actually runs
+  // the save references a real upload so the pin createMany actually runs.
+  // PUBLIC_MEDIA_URL, not process.env.NEXT_PUBLIC_MEDIA_URL directly:
+  // AWS_S3_URL_REGEXP is compiled from this same constant at import time, and
+  // CI runners define only NEXT_PUBLIC_MEDIA_DOMAIN (no .env.development).
   await expect(addendumResolvers.Mutation.updateItemAddendum(
-    null, { id: String(itemId), text: `${process.env.NEXT_PUBLIC_MEDIA_URL}/${upload.id}`, expectedRevision: 0 },
+    null, { id: String(itemId), text: `${PUBLIC_MEDIA_URL}/${upload.id}`, expectedRevision: 0 },
     { me: { id: userId }, models: brokenModels }
   )).rejects.toThrow(/injected pin failure/)
 

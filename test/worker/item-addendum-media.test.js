@@ -24,6 +24,15 @@ jest.mock('../../lib/md', () => ({
   extractUrls: text => [...String(text ?? '').matchAll(/https?:\/\/[^\s)]+/g)].map(m => m[0])
 }))
 
+// worker/imgproxy resolves internal uploads against NEXT_PUBLIC_MEDIA_URL at
+// call time. next/jest loads env with dev=false, so CI has no .env.development
+// and defines only NEXT_PUBLIC_MEDIA_DOMAIN — pin the media origin here
+// (mirrors test/worker/imgproxy.test.js) and restore it afterwards.
+const ORIGINAL_MEDIA_URL = process.env.NEXT_PUBLIC_MEDIA_URL
+beforeAll(() => {
+  process.env.NEXT_PUBLIC_MEDIA_URL = 'https://media.test/uploads'
+})
+
 const prisma = new PrismaClient()
 const created = { users: [], items: [], uploads: [] }
 
@@ -35,6 +44,8 @@ afterAll(async () => {
   for (const id of created.uploads) await prisma.upload.delete({ where: { id } }).catch(() => {})
   for (const id of created.users) await prisma.user.delete({ where: { id } }).catch(() => {})
   await prisma.$disconnect()
+  if (ORIGINAL_MEDIA_URL === undefined) delete process.env.NEXT_PUBLIC_MEDIA_URL
+  else process.env.NEXT_PUBLIC_MEDIA_URL = ORIGINAL_MEDIA_URL
 })
 
 const UPLOAD_SIZE_LARGE = UPLOAD_FREE_BYTES_MAX + 1024
