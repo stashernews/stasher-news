@@ -23,6 +23,11 @@
 #   * orphan Earn rows (distributionId IS NULL)
 #   * MoneroAccounts: the makeAddress signature (address ends in 90 'A's),
 #     accounts referenced by test tips, accounts owned by test users
+#   * bounty residue: BountyPayment rows won by test (empty-name) users, paid
+#     out of their items, or carrying 'btest*' fixture hashes — plus their
+#     escrow journal rows (EscrowWalletTransaction) and proofs — and
+#     ObservedBounty rows on test users' items / test accounts ('uf-*'
+#     txHashes, 'obtest*' paymentIds)
 #   * users with NULL name (created by the tests via INSERT ... DEFAULT VALUES)
 #     and their remaining PayIns/Items
 # REAL rows are never matched by these patterns (verified against the dev DB).
@@ -104,6 +109,41 @@ DELETE FROM "ObservedDownvote" WHERE "txHash" LIKE 'rddv%' OR "txHash" LIKE 'dis
 DELETE FROM "PayIn"
 WHERE id IN (SELECT id FROM _fee_payins) OR "userId" IN (SELECT id FROM _tu);
 
+-- Test bounty rows. A test (empty-name) user's payouts block the users delete
+-- on BountyPayment_winnerUserId_fkey, ObservedBounty rows pointing at the
+-- cascading Items block it on ObservedBounty_postId_fkey, and ObservedBounty
+-- also RESTRICTs the test MoneroAccount delete via recipientAccountId — so
+-- this cleanup runs BEFORE both. Test signals: winner/item owned by an
+-- empty-name user, or fixture hashes ('btest*' payouts, 'uf-*' txHashes /
+-- 'obtest*' paymentIds — impossible in real 64-char hex). Escrow journal rows
+-- (and their proofs) RESTRICT the payout delete, so they go first. Real
+-- payouts are won by named users and are never matched here.
+CREATE TEMP TABLE _test_bounties AS
+  SELECT id FROM "BountyPayment"
+  WHERE "winnerUserId" IN (SELECT id FROM _tu)
+     OR "itemId" IN (SELECT i.id FROM "Item" i
+                     JOIN users u ON u.id = i."userId" WHERE u.name IS NULL)
+     OR "txHash" LIKE 'btest%';
+
+SELECT 'test bounty payouts' AS t, count(*) FROM _test_bounties;
+
+DELETE FROM "PaymentTransactionProof"
+WHERE "escrowJournalId" IN (
+  SELECT id FROM "EscrowWalletTransaction"
+  WHERE "bountyPaymentId" IN (SELECT id FROM _test_bounties));
+
+DELETE FROM "EscrowWalletTransaction"
+WHERE "bountyPaymentId" IN (SELECT id FROM _test_bounties);
+
+DELETE FROM "BountyPayment" WHERE id IN (SELECT id FROM _test_bounties);
+
+DELETE FROM "ObservedBounty"
+WHERE "postId" IN (SELECT i.id FROM "Item" i
+                   JOIN users u ON u.id = i."userId" WHERE u.name IS NULL)
+   OR "recipientAccountId" IN (SELECT id FROM _tip_accounts)
+   OR "txHash" LIKE 'uf-%'
+   OR "paymentId" LIKE 'obtest%';
+
 -- View keys before the accounts they lock.
 DELETE FROM "MoneroViewKey"
 WHERE "accountId" IN (
@@ -127,7 +167,8 @@ WHERE address ~ 'A{90}$'
    OR id IN (SELECT id FROM _tip_accounts)
    OR "ownerUserId" IN (SELECT id FROM _tu);
 
--- Test users (their Items cascade; PayIns/Earn/payouts already removed).
+-- Test users (their Items cascade; PayIns/Earn/payouts/bounty rows already
+-- removed).
 -- Reply rows authored by / notifying test users (left behind by payIn-engine
 -- comment fixtures) block the user delete below on the Reply_userId_fkey /
 -- Reply_ancestorUserId_fkey constraints, so clear them first. Real Reply rows
@@ -142,6 +183,7 @@ DROP TABLE _tu;
 DROP TABLE _fee_payins;
 DROP TABLE _tip_accounts;
 DROP TABLE _test_dists;
+DROP TABLE _test_bounties;
 
 COMMIT;
 \echo '=== rewards-test residue cleanup complete ==='
