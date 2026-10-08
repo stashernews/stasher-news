@@ -6,13 +6,14 @@ sub: stasher
 
 # Stasher News Privacy Policy
 
-##### Last Updated: August 28, 2026
+##### Last Updated: October 8, 2026
 
 Short version: we collect as little as possible, never sell anything, and don't try to know who you are.
 
 ##### What we collect
 
-- Your nym and, if you sign in by email, the email address used for login codes.
+- Your nym and, if you sign in by email, the email address used for login codes. We store it only as a salted hash and an encrypted envelope — never as plaintext.
+- If you signed up with an email, you also receive the biweekly community newsletter by default. Our email provider (Resend) receives the address to deliver login codes, the weekly digest, and the newsletter. Every newsletter carries an unsubscribe link, and the newsletter is a separate setting from the weekly digest in [settings](/settings).
 - If you attach a wallet (optional): its address and a private *view* key, so we can watch for incoming tips and rewards. View keys can only watch — they can never spend. They're stored encrypted, and your spending keys never touch our servers.
 - The posts and comments you submit.
 - Tips, downvotes, fees, and payouts are Monero transactions — visible on the blockchain.

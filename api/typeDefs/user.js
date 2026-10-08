@@ -97,6 +97,7 @@ export default gql`
     noteQuests: Boolean!
     noteEarning: Boolean!
     emailNotifications: Boolean!
+    newsletterOptIn: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!
     noteMentions: Boolean!
@@ -199,6 +200,7 @@ export default gql`
     noteQuests: Boolean!
     noteEarning: Boolean!
     emailNotifications: Boolean!
+    newsletterOptIn: Boolean!
     noteInvites: Boolean!
     noteItemPiconeros: Boolean!
     noteMentions: Boolean!

@@ -21,6 +21,41 @@ import { Prisma } from '@prisma/client'
 import { enabledAuthMethods } from '@/lib/authProviderEnv'
 import { phraseFingerprint } from '@/lib/recoveryPhrase'
 import { isVerifiedBadgeEnabled } from '@/lib/verified-badge-flag'
+import { checkNewsletterConfig, enrollContact, unsubscribeContact } from '@/lib/newsletter'
+import { decryptEmail } from '@/lib/emailCrypto'
+import { maskEmail } from '@/lib/crypto'
+import { logWarn } from '@/lib/logger'
+
+// The local newsletterOptIn flag is the source of truth; this best-effort push
+// keeps Resend in step immediately (the daily newsletterSync reconcile
+// backstops any miss). Never throws into the settings save. It applies the
+// same safety guards as enroll/sync: a suppressed or unverified contact is
+// never (re)subscribed, and an address the user would not recognize (hint
+// drift) is never mailed.
+async function pushNewsletterOptIn ({ models, me, optIn }) {
+  if (optIn === undefined) return
+  try {
+    const missing = checkNewsletterConfig()
+    const meRow = await models.user.findUnique({
+      where: { id: me.id },
+      select: { emailCiphertext: true, emailHint: true, emailVerified: true, newsletterSuppressed: true }
+    })
+    if (missing.length || !meRow?.emailCiphertext || !meRow.emailVerified) return
+    const email = decryptEmail(meRow.emailCiphertext)
+    if (meRow.emailHint && maskEmail({ email }) !== meRow.emailHint) return
+    if (optIn) {
+      if (meRow.newsletterSuppressed) return
+      const r = await enrollContact({ email })
+      if (r.ok && r.contactId) {
+        try { await models.user.update({ where: { id: me.id }, data: { resendContactId: r.contactId } }) } catch (err) { logWarn('setSettings: newsletter contactId save failed', { code: err?.code }) }
+      }
+    } else {
+      await unsubscribeContact({ email })
+    }
+  } catch (err) {
+    logWarn('setSettings: newsletter push skipped', { code: err?.code })
+  }
+}
 
 const contributors = new Set()
 
@@ -660,9 +695,13 @@ export default {
           })
         }
 
-        return await models.user.update({ where: { id: me.id }, data: { ...settingsData, nostrRelays: { deleteMany: {}, connectOrCreate } } })
+        const updated = await models.user.update({ where: { id: me.id }, data: { ...settingsData, nostrRelays: { deleteMany: {}, connectOrCreate } } })
+        await pushNewsletterOptIn({ models, me, optIn: data.newsletterOptIn })
+        return updated
       } else {
-        return await models.user.update({ where: { id: me.id }, data: { ...settingsData, nostrRelays: { deleteMany: {} } } })
+        const updated = await models.user.update({ where: { id: me.id }, data: { ...settingsData, nostrRelays: { deleteMany: {} } } })
+        await pushNewsletterOptIn({ models, me, optIn: data.newsletterOptIn })
+        return updated
       }
     },
     setWalkthrough: async (parent, { upvotePopover, tipPopover }, { me, models }) => {
@@ -750,7 +789,8 @@ export default {
       // both pass the count on stale reads (the loser aborts with P2034, the
       // client retries and then sees the correct count). Same idiom as
       // api/monero/selfTip.js.
-      return await models.$transaction(async (tx) => {
+      let pendingNewsletterUnsubEmail = null
+      const result = await models.$transaction(async (tx) => {
         const user = await tx.user.findUnique({ where: { id: me.id } })
         if (!user) {
           throw new GqlAuthenticationError()
@@ -785,13 +825,35 @@ export default {
         } else if (authType === 'phrase') {
           updated = await tx.user.update({ where: { id: me.id }, data: { phrasePubkey: null } })
         } else if (authType === 'email') {
-          updated = await tx.user.update({ where: { id: me.id }, data: { email: null, emailVerified: null, emailHash: null, emailHint: null, emailCiphertext: null } })
+          // capture the address before it is erased so the newsletter contact
+          // can be unsubscribed after the transaction — a cleared ciphertext
+          // would otherwise strand a subscribed Resend contact forever, with no
+          // Settings surface left to control it
+          const prev = await tx.user.findUnique({ where: { id: me.id }, select: { emailCiphertext: true, newsletterOptIn: true } })
+          if (prev?.emailCiphertext && prev.newsletterOptIn) {
+            try { pendingNewsletterUnsubEmail = decryptEmail(prev.emailCiphertext) } catch { /* undecryptable: operator/reconcile handles */ }
+          }
+          updated = await tx.user.update({
+            where: { id: me.id },
+            data: { email: null, emailVerified: null, emailHash: null, emailHint: null, emailCiphertext: null, newsletterOptIn: false, resendContactId: null }
+          })
         } else {
           throw new GqlInputError('no such account')
         }
 
         return await authMethods(updated, undefined, { models: tx, me })
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+
+      // best-effort, post-transaction (never network inside the tx): stop the
+      // newsletter at Resend for the address we just detached
+      if (pendingNewsletterUnsubEmail && !checkNewsletterConfig().length) {
+        try {
+          await unsubscribeContact({ email: pendingNewsletterUnsubEmail })
+        } catch (err) {
+          logWarn('unlinkAuth: newsletter unsubscribe failed', { code: err?.code })
+        }
+      }
+      return result
     },
     subscribeUserPosts: async (parent, { id }, { me, models }) => {
       if (!me) {

@@ -24,6 +24,9 @@ model User {
   emailCiphertext         String?
   emailNotifications      Boolean              @default(true)
   emailDigestSentAt       DateTime?
+  newsletterOptIn         Boolean              @default(true)
+  newsletterSuppressed    Boolean              @default(false)
+  resendContactId         String?
   checkedNotesAt          DateTime?
   foundNotesAt            DateTime?
   apiKeyHash              String?              @unique(map: "users.apikeyhash_unique") @db.Char(64)
@@ -2115,7 +2118,31 @@ model HealthSnapshot {
   // max(UserSubTrust.updated_at), which territory create/unarchive also
   // refresh with incidental rows.
   trustCompletedAt  DateTime?
-  updatedAt        DateTime  @updatedAt
+  // Newsletter bridge (worker/newsletter.js writes on each sync; /api/health
+  // and /metrics read). nullable = "not known yet" before the first sync.
+  newsletterConfigured     Boolean?
+  newsletterContactsActive Int?
+  newsletterLastSentAt     DateTime?
+  // Freshness for the newsletter bridge ONLY. The shared updatedAt is bumped by
+  // healthProbe every 60s, so it cannot tell whether the newsletter last synced;
+  // readers gate on THIS (stale → newsletter state reads "not known").
+  newsletterSyncedAt       DateTime?
+  updatedAt                DateTime  @updatedAt
+}
+
+// One row per newsletter issue. periodKey (ISO week, e.g. "2026-W41") is the
+// idempotency key for the biweekly send: the weekly cron tick only builds an
+// issue when no campaign has sentAt within the last 14 days, and a re-run
+// updates the existing row instead of double-sending.
+model NewsletterCampaign {
+  id                Int       @id @default(autoincrement())
+  createdAt         DateTime  @default(now())
+  periodKey         String    @unique
+  resendBroadcastId String?
+  subject           String
+  status            String
+  sentAt            DateTime?
+  stats             Json?
 }
 
 // Downvote payment_id reverse map (created at URI-generation time).

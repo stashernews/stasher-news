@@ -112,6 +112,7 @@ export default function Settings ({ ssrData }) {
             noteBadges: settings?.noteBadges,
             noteQuests: settings?.noteQuests,
             emailNotifications: settings?.emailNotifications,
+            newsletterOptIn: settings?.newsletterOptIn,
             hideFromTopUsers: settings?.hideFromTopUsers,
             hideBadges: settings?.hideBadges,
             hideStashAmount: settings?.hideStashAmount,
@@ -237,11 +238,16 @@ export default function Settings ({ ssrData }) {
           <Checkbox
             label={`email me a weekly digest of replies, mentions, and earnings${settings?.authMethods?.emailHint ? ` (${settings.authMethods.emailHint})` : ''}`}
             name='emailNotifications'
+            groupClassName='mb-0'
+          />
+          <Checkbox
+            label='email me the biweekly newsletter (community roundup)'
+            name='newsletterOptIn'
             groupClassName={settings?.authMethods?.email ? 'mb-3' : 'mb-0'}
           />
           {!settings?.authMethods?.email &&
             <div className='text-muted fw-light mb-3'>
-              <Link href='/settings/logins'>link an email</Link> to receive it
+              <Link href='/settings/logins'>link an email</Link> to receive them
             </div>}
           <div className='form-label'>privacy</div>
           <Checkbox
