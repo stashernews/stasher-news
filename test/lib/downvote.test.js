@@ -8,14 +8,16 @@ import {
   isLargeDownvote
 } from '@/lib/downvote'
 
-test('downvote bounds: min 1e8, max 2.5e10, large threshold 1e10', () => {
-  expect(DOWNVOTE_MIN_PICONEROS).toBe(100_000_000)
+test('downvote bounds: min 5e8, max 2.5e10, large threshold 1e10', () => {
+  expect(DOWNVOTE_MIN_PICONEROS).toBe(500_000_000)
   expect(DOWNVOTE_MAX_PICONEROS).toBe(25_000_000_000)
   expect(DOWNVOTE_LARGE_PICONEROS).toBe(10_000_000_000)
 })
 
-test('downvoteAmountError accepts the new preset amounts', () => {
+test('downvoteAmountError accepts the preset amounts', () => {
+  expect(downvoteAmountError(500_000_000)).toBeNull()
   expect(downvoteAmountError(1_000_000_000)).toBeNull()
+  expect(downvoteAmountError(5_000_000_000)).toBeNull()
   expect(downvoteAmountError(10_000_000_000)).toBeNull()
   expect(downvoteAmountError(25_000_000_000)).toBeNull()
 })
