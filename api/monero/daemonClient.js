@@ -27,7 +27,8 @@ const DEFAULT_TIMEOUT_MS = 15000
 
 // monerod's restricted RPC rejects /get_transactions requests carrying more
 // than 100 hashes: HTTP 200, `status: "Too many transactions requested in
-// restricted mode"`, and NO `txs` array (verified v0.18.5.1). Batch at 50 —
+// restricted mode"`, and NO `txs` array (verified v0.18.5.1 and re-verified
+// v0.18.5.3). Batch at 50 —
 // comfortably under the cap, and decode_as_json responses stay smaller.
 export const MAX_TX_HASHES_PER_REQUEST = 50
 
