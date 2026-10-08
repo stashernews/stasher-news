@@ -13,6 +13,7 @@ import { FeeButtonProvider } from '@/components/fee-button'
 import { bioSchema } from '@/lib/validate'
 import { useRouter } from 'next/router'
 import PageLoading from '@/components/page-loading'
+import Custom404 from '../404'
 import { ItemButtonBar } from '@/components/post'
 import useItemSubmit from '@/components/use-item-submit'
 import { UPSERT_BIO } from '@/fragments/payIn'
@@ -113,6 +114,9 @@ export default function User ({ ssrData }) {
   if (!data && !ssrData) return <PageLoading />
 
   const { user } = data || ssrData
+  // unknown names resolve user:null on the client (issue #14) — render 404
+  // content instead of crashing on user.name below
+  if (!user) return <Custom404 />
   const mine = me?.name === user.name
 
   return (

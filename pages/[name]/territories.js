@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import { USER, USER_WITH_SUBS } from '@/fragments/users'
 import { useQuery } from '@apollo/client/react'
 import PageLoading from '@/components/page-loading'
+import Custom404 from '../404'
 import { UserLayout } from '.'
 import TerritoryList from '@/components/territory-list'
 
@@ -16,6 +17,9 @@ export default function UserTerritories ({ ssrData }) {
   if (!data && !ssrData) return <PageLoading />
 
   const { user } = data || ssrData
+  // unknown names resolve user:null on the client (issue #14) — render 404
+  // content instead of letting UserHeader dereference it
+  if (!user) return <Custom404 />
 
   return (
     <UserLayout user={user}>
