@@ -1,25 +1,41 @@
 import { logInfo, logWarn, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
-import { isUniqueViolation } from '@/lib/error'
 import { money } from '@/lib/rewardsAccounting'
+import { daemonClient } from './daemonClient'
+import { collectPaymentChainEvidence, commitPaymentPromotionAtBoundary, prepareRecordedPaymentAddresses, readPaymentAuditHashes } from './paymentChainEvidence'
+import { verifyPaymentTransaction } from './paymentVerification'
+import {
+  assertPreparedPayment,
+  claimPaymentAttempt,
+  preparePaymentDispatch
+} from './paymentProofStore'
+import { createPaymentProofKeyProvider } from './paymentProofKeys'
 
 // Durable per-transaction journal for rewards hot-wallet sends (rewards
 // accounting repair §3.3 / send-time journal boundary).
 //
 // Every payout batch, ops sweep and consolidation follows the same boundary:
 //
-//   build(relay:false) -> prepare PREPARED row -> CAS the attempt ->
+//   build(relay:false) -> prepare the durable journal+proof PAIR ->
+//   authenticate the pair against the SAME built object -> CAS the attempt ->
 //   relayTx(the SAME object) -> persist RELAYED
 //
-// The journal is the accounting authority for network fees and for the
-// principal/metadata needed to classify a send; RewardPayout /
+// The pair (journal row + encrypted payment proof) commits atomically BEFORE
+// any broadcast; only a durable, authenticated pair authorizes the single
+// relay attempt. The journal is the accounting authority for network fees and
+// for the principal/metadata needed to classify a send; RewardPayout /
 // RewardDistribution remain the authority for reward and sweep principal (this
 // journal is not a second payout eligibility engine). A PREPARED fee is not an
 // incurred expense; only a proven RELAYED fee is. A transport exception is
 // never proof of non-relay: the row stays PREPARED+attempted (accounting
-// uncertainty) and is resolved only from the wallet's own outgoing history by
-// exact hash with an explicit relayed/confirmed flag. A built-but-unrelayed
-// transaction cached in history is not evidence of relay.
+// uncertainty) and is resolved only by a FRESH CONFIRMED whole-payment
+// verification from a dedicated audit session (never from destination-shaped
+// wallet history). A built-but-unrelayed transaction cached in history is not
+// evidence of relay.
+//
+// A thrown preparation/claim result is never read as "no journal exists": an
+// unknown commit can contain a complete pair, so the dispatch stays withheld
+// until a fresh DB/pair read resolves the outcome.
 //
 // This module never signs anything, never re-signs, never relays in
 // reconciliation, and never stores keys, signed blobs or wallet credentials.
@@ -38,14 +54,16 @@ const NETWORK_TYPES = { MAINNET: 0, STAGENET: 2 }
 const TX_HASH_RE = /^[0-9a-f]{64}$/
 const JOURNAL_KINDS = new Set(['PAYOUT', 'OPS_SWEEP', 'CONSOLIDATION'])
 
-// DB-only idempotent preparation may retry a concurrent serialization/unique
-// conflict; relay is NEVER wrapped in a database retry (a blind re-relay after
-// an uncertain outcome is a real double pay).
-const PREPARE_CONFLICT_RETRIES = 5
-
 // One persist retry for a proven relay (spec: post-relay persistence failure is
 // an accounting failure, never a reason to forget the relay).
 const RELAYED_PERSIST_ATTEMPTS = 2
+
+// Relay provenance values (closed set): a direct relay observation stamps the
+// drive that performed the broadcast; a chain-proof observation stamps the
+// fresh verified confirmation that PROVED the relay — it never claims the
+// historical submission time.
+const DIRECT_RELAY_PROVENANCE = 'direct-relay-observation'
+const CHAIN_PROOF_PROVENANCE = 'chain-proof-observation'
 
 function normalizeHash (value) {
   if (typeof value !== 'string') return null
@@ -186,62 +204,44 @@ function validateMetadata ({ kind, metadata, principalPiconeros, scope }) {
   return { destination, selfTransfer: true }
 }
 
-// Stable fingerprint for immutability comparison: object keys sorted
-// recursively, values exact (BigInts already normalized to strings).
-function canonicalJson (value) {
-  if (Array.isArray(value)) return value.map(canonicalJson)
-  if (value && typeof value === 'object') {
-    const out = {}
-    for (const key of Object.keys(value).sort()) out[key] = canonicalJson(value[key])
-    return out
-  }
-  return value
-}
-
-const metadataFingerprint = metadata => JSON.stringify(canonicalJson(metadata))
-
-function assertImmutableMatch (existing, candidate) {
-  const same = existing.kind === candidate.kind &&
-    existing.accountIndex === candidate.accountIndex &&
-    (existing.distributionId ?? null) === (candidate.distributionId ?? null) &&
-    money(existing.principalPiconeros) === candidate.principalPiconeros &&
-    money(existing.networkFeePiconeros) === candidate.networkFeePiconeros &&
-    metadataFingerprint(existing.metadata) === metadataFingerprint(candidate.metadata)
-  if (!same) {
-    throw new Error(`conflict: immutable rewards wallet journal facts differ for transaction ${candidate.txHash}`)
-  }
-}
-
-// DB-only idempotent preparation may retry a concurrent unique/serialization
-// conflict (Prisma P2002/P2034, raw 23505/40001). Relay is never retried here.
-const isRetryablePreparationConflict = err =>
-  isUniqueViolation(err) ||
-  err?.code === 'P2034' ||
-  err?.cause?.code === 'P2034' ||
-  /could not serialize access/i.test(String(err?.message || ''))
-
 // --- preparation -------------------------------------------------------------
 
-// Persist the immutable PREPARED row for a built-but-UNRELAYED transaction.
-// The transaction's hash and real fee are read first so an unreadable or
-// invalid fee/hash never reaches the journal (and therefore never relays).
-// Re-preparing the same (network, walletAddress, txHash) with identical facts
-// returns the existing row; any differing immutable fact throws. A never-
-// attempted PREPARED row may later be abandoned by operators without expense.
+// Lazily-built provider over the separate TX-proof registry (the production
+// path). There is deliberately NO view-key or other fallback registry: a
+// missing/misconfigured registry fails sealing and the dispatch never relays.
+const defaultKeyProvider = () => createPaymentProofKeyProvider(process.env)
+
+// Persist the durable journal+proof PAIR for a built-but-UNRELAYED transaction
+// (Finding #1 capture barrier). Preparation is delegated to the atomic pair
+// store: the claims derive from the built transaction's REAL fields (hash,
+// fee, actual destinations, key bundle) plus the caller's owner expectations,
+// and the journal row + encrypted proof land together in one Serializable
+// transaction before anything may relay. The transaction's hash and real fee
+// are read first so an unreadable or invalid fee/hash never reaches the
+// journal. Re-preparing the same (network, walletAddress, txHash) with
+// identical facts returns the existing pair unchanged; any differing immutable
+// fact is a conflict.
+//
+// THROWN OUTCOMES ARE NOT "NO JOURNAL EXISTS": an unknown commit can contain a
+// complete pair. Callers must resolve with a fresh DB/pair read before any
+// broadcast and keep the dispatch withheld while the outcome is unresolved.
 export async function prepareWalletTransaction ({
   models,
+  wallet,
   scope,
   tx,
   kind,
   accountIndex,
   distributionId = null,
   principalPiconeros,
-  metadata
+  metadata,
+  keyProvider
 }) {
   const journalModel = models?.rewardsWalletTransaction
   if (!journalModel || typeof models.$transaction !== 'function') {
     throw new Error('prepareWalletTransaction: a transactional models client is required')
   }
+  if (!wallet) throw new Error('prepareWalletTransaction: a wallet that can prove the rewards scope is required')
   const scoped = normalizeScope(scope)
   if (!JOURNAL_KINDS.has(kind)) throw new Error('invalid rewards wallet transaction kind')
   if (!Number.isSafeInteger(accountIndex) || accountIndex < 0) throw new Error('invalid journal account index')
@@ -250,51 +250,42 @@ export async function prepareWalletTransaction ({
   }
   const principal = money(principalPiconeros)
   if (principal < 0n) throw new Error('negative journal principal')
+  // Local closed-union pass preserves the exact historical error surface and
+  // the caller-scope CONSOLIDATION destination rule; the store re-validates
+  // everything from the wallet's own proven scope.
+  const normalizedMetadata = validateMetadata({ kind, metadata, principalPiconeros: principal, scope: scoped })
 
-  const rawHash = tx && typeof tx.getHash === 'function' ? await tx.getHash() : null
-  const txHash = rawHash == null ? '' : String(rawHash).toLowerCase()
-  if (!TX_HASH_RE.test(txHash)) throw new Error('invalid transaction hash')
-  const networkFeePiconeros = money(tx && typeof tx.getFee === 'function' ? await tx.getFee() : null)
-  if (networkFeePiconeros < 0n) throw new Error('negative transaction fee')
-
-  const data = {
-    network: scoped.network,
-    walletAddress: scoped.walletAddress,
-    txHash,
-    kind,
-    accountIndex,
-    distributionId: distributionId == null ? null : distributionId,
-    principalPiconeros: principal,
-    networkFeePiconeros,
-    metadata: validateMetadata({ kind, metadata, principalPiconeros: principal, scope: scoped })
+  const dispatched = await preparePaymentDispatch({
+    models,
+    wallet,
+    tx,
+    owner: {
+      journalRole: 'REWARDS',
+      kind,
+      accountIndex,
+      distributionId: distributionId == null ? null : distributionId,
+      principalPiconeros: principal,
+      metadata: normalizedMetadata
+    },
+    keyProvider: keyProvider ?? defaultKeyProvider()
+  })
+  // The wallet is the scope authority: a drift between the caller's expected
+  // scope and the wallet's proven scope must never journal the pair.
+  if (dispatched.journal.network !== scoped.network ||
+    dispatched.journal.walletAddress !== scoped.walletAddress) {
+    throw new Error('prepareWalletTransaction: wallet scope does not match the requested rewards wallet scope')
   }
-  const key = { network_walletAddress_txHash: { ...scoped, txHash } }
-
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await models.$transaction(async client => {
-        const existing = await client.rewardsWalletTransaction.findUnique({ where: key })
-        if (existing) {
-          assertImmutableMatch(existing, data)
-          return existing
-        }
-        return client.rewardsWalletTransaction.create({ data })
-      }, { isolationLevel: 'Serializable' })
-    } catch (err) {
-      if (attempt >= PREPARE_CONFLICT_RETRIES || !isRetryablePreparationConflict(err)) throw err
-      logInfo({ txHash, attempt }, 'prepareWalletTransaction: retrying a DB-only preparation conflict')
-    }
-  }
+  return dispatched.journal
 }
 
 // --- relay -------------------------------------------------------------------
 
-async function persistRelayedState (journalModel, id, relayedAt) {
+async function persistRelayedState (journalModel, id, relayedAt, relayProvenance) {
   for (let attempt = 1; attempt <= RELAYED_PERSIST_ATTEMPTS; attempt++) {
     try {
       const updated = await journalModel.updateMany({
         where: { id, state: 'PREPARED' },
-        data: { state: 'RELAYED', relayedAt }
+        data: { state: 'RELAYED', relayedAt, relayProvenance }
       })
       if (updated.count === 1) return true
       // A concurrent writer may already have recorded the same proof.
@@ -309,12 +300,27 @@ async function persistRelayedState (journalModel, id, relayedAt) {
   return false
 }
 
-// Claim the single relay attempt with a CAS, then relay the SAME built object.
-// A relay exception keeps PREPARED+attempt (never NOT_RELAYED, never a blind
-// re-relay). A proven relay is marked RELAYED with one persist retry; if both
-// writes fail the relay is still reported as relayed with accountingUnpersisted
-// so the caller can persist proven recipient principal and stay resumable.
-export async function relayWalletTransaction ({ models, wallet, journal, tx }) {
+// Relay the SAME built object through the full capture barrier:
+//
+//   1. `assertPreparedPayment` freshly loads + authenticates the durable
+//      journal+proof pair against the built object (hash, fee, actual
+//      destinations, exact key bundle) — only a durable authentic pair
+//      authorizes an attempt;
+//   2. `claimPaymentAttempt` performs the DB-only locked claim: inside ONE
+//      Serializable transaction it re-locks and re-authenticates the pair,
+//      compares `expectedProof` (id/revision/digest) so key rotation cannot
+//      invalidate the authorization between validation and claim, and CASes
+//      exactly `state='PREPARED' AND relayAttemptedAt IS NULL`;
+//   3. only an ACKNOWLEDGED claim releases the OUTSIDE-transaction relay of
+//      the same object, exactly once.
+//
+// An ambiguous/unknown acknowledgement of the claim prevents the broadcast and
+// the dispatch stays withheld. A relay exception keeps PREPARED+attempt (never
+// NOT_RELAYED, never a blind re-relay). A proven relay is marked RELAYED with
+// `direct-relay-observation` provenance and one persist retry; if both writes
+// fail the relay is still reported as relayed with accountingUnpersisted so
+// the caller can persist proven recipient principal and stay resumable.
+export async function relayWalletTransaction ({ models, wallet, journal, tx, keyProvider }) {
   const journalModel = models?.rewardsWalletTransaction
   if (!journalModel || typeof journalModel.updateMany !== 'function') {
     throw new Error('relayWalletTransaction: journal model is required')
@@ -330,17 +336,33 @@ export async function relayWalletTransaction ({ models, wallet, journal, tx }) {
   const builtHash = normalizeHash(tx && typeof tx.getHash === 'function' ? await tx.getHash() : null)
   if (builtHash !== txHash) throw new Error('relayWalletTransaction: transaction does not match the journaled hash')
 
-  const claimed = await journalModel.updateMany({
-    where: { id: journal.id, state: 'PREPARED', relayAttemptedAt: null },
-    data: { relayAttemptedAt: new Date() }
+  // Fresh pair authentication immediately before the locked claim.
+  const expectedProof = await assertPreparedPayment({
+    models,
+    wallet,
+    tx,
+    journalRole: 'REWARDS',
+    journalId: journal.id,
+    keyProvider: keyProvider ?? defaultKeyProvider()
   })
-  if (claimed.count !== 1) throw new Error('transaction already attempted or accounting uncertain')
+  // Locked DB-only claim: reloads + re-authenticates the pair inside the
+  // transaction and CASes the single attempt. A thrown result here (including
+  // an unknown commit outcome) leaves the dispatch withheld — no broadcast.
+  await claimPaymentAttempt({
+    models,
+    wallet,
+    tx,
+    journalRole: 'REWARDS',
+    journalId: journal.id,
+    keyProvider: keyProvider ?? defaultKeyProvider(),
+    expectedProof
+  })
 
   let relayedHash
   try {
     relayedHash = await wallet.relayTx(tx)
   } catch (err) {
-    logError({ txHash, errorClass: errorLabel(err) }, 'relayWalletTransaction: relay outcome uncertain — journal stays PREPARED+attempted until wallet history resolves it')
+    logError({ txHash, errorClass: errorLabel(err) }, 'relayWalletTransaction: relay outcome uncertain — journal stays PREPARED+attempted until a fresh confirmed verification resolves it')
     return { txHash, networkFeePiconeros: journal.networkFeePiconeros, relayed: false, uncertain: true, accountingUnpersisted: 0 }
   }
   if (normalizeHash(relayedHash) !== txHash) {
@@ -348,7 +370,7 @@ export async function relayWalletTransaction ({ models, wallet, journal, tx }) {
     return { txHash, networkFeePiconeros: journal.networkFeePiconeros, relayed: false, uncertain: true, accountingUnpersisted: 0 }
   }
 
-  const persisted = await persistRelayedState(journalModel, journal.id, new Date())
+  const persisted = await persistRelayedState(journalModel, journal.id, new Date(), DIRECT_RELAY_PROVENANCE)
   if (!persisted) {
     logError({ txHash }, 'relayWalletTransaction: CRITICAL — relay proven but the journal state was not persisted')
     alert('critical', 'Rewards wallet relay not journaled', `Transaction ${txHash} was relayed but its journal record could not be updated; costs and principal remain unpersisted until reconciliation recovers it.`)
@@ -360,132 +382,284 @@ export async function relayWalletTransaction ({ models, wallet, journal, tx }) {
 
 // --- reconciliation -----------------------------------------------------------
 
-function readBoolean (object, getter) {
-  if (typeof object?.[getter] !== 'function') return false
+// Attempted-but-unproven relays are resolved ONLY by a fresh, trusted,
+// CONFIRMED whole-payment verification from a DEDICATED GENESIS-RESTORED AUDIT
+// SESSION — never the signer singleton (whose cached restore height and
+// in-memory state must never serve as an audit authority), and never from
+// destination-shaped wallet history (a built-but-unrelayed cached tx or an
+// address/amount match can never prove a relay). The session is the Task 4
+// chain-evidence collector over the audit wallet's unfiltered scan plus the
+// audit wallet's own checkTxKey receipt checker; the Task 5 verifier gates the
+// authenticated capture pair against the raw confirmed chain.
+
+// The audit wallet is opened from the platform rewards keys in env, restored
+// from GENESIS (restore height 0 — no historical mixing), in-memory, and
+// closed by the caller in `finally`. Same conventions as the evidence
+// collector's audit wallets. Never logs any key material.
+async function openGenesisAuditWallet (scope) {
+  const address = process.env.PLATFORM_REWARDS_ADDRESS
+  const spendKey = process.env.PLATFORM_REWARDS_SPEND_KEY
+  const viewKey = process.env.PLATFORM_REWARDS_VIEW_KEY
+  if (!address || !spendKey || !viewKey) {
+    throw new Error('rewards journal audit: the rewards wallet keys are not configured')
+  }
+  const moneroTs = await import('monero-ts')
+  const api = moneroTs.default || moneroTs
+  const networkType = NETWORK_TYPES[scope.network]
+  if (networkType === undefined) throw new Error('rewards journal audit: unsupported network')
+  const serverUri = process.env.MONEROD_URL || 'http://monerod:38081'
+  // Dedicated in-memory audit wallet — deliberately NOT the signer singleton.
+  return api.createWalletFull({
+    password: 'rewards-journal-audit',
+    networkType,
+    primaryAddress: address,
+    privateSpendKey: spendKey,
+    privateViewKey: viewKey,
+    restoreHeight: 0,
+    server: { uri: serverUri },
+    proxyToWorker: false
+  })
+}
+
+// The derivation domain for the audit scan: the scope primary address plus
+// every account/subaddress the audit wallet actually exposes, so any
+// SDK-discovered owned index is inside the domain (the collector refuses a
+// narrowed domain). Read failures make the session unavailable — never a
+// guessed domain.
+async function auditDerivation (auditWallet, scope, models) {
   try {
-    return object[getter]() === true
+    // Address cache so every derived entry carries its DECODED address (the
+    // collector validates the prepared domain's position→address mapping).
+    const addressCache = new Map()
+    const addressAt = async (majorIndex, minorIndex) => {
+      const key = `${majorIndex}:${minorIndex}`
+      if (addressCache.has(key)) return addressCache.get(key)
+      let address = null
+      try {
+        address = typeof auditWallet.getAddress === 'function'
+          ? await auditWallet.getAddress(majorIndex, minorIndex)
+          : null
+      } catch { address = null }
+      if ((address === null || address === undefined) && typeof auditWallet.getSubaddress === 'function') {
+        try {
+          const subaddress = await auditWallet.getSubaddress(majorIndex, minorIndex)
+          address = typeof subaddress?.getAddress === 'function' ? subaddress.getAddress() : null
+        } catch { address = null }
+      }
+      if (typeof address !== 'string' || address === '') return null
+      addressCache.set(key, address)
+      return address
+    }
+    const derived = []
+    const push = async (majorIndex, minorIndex) => {
+      const address = await addressAt(majorIndex, minorIndex)
+      if (address === null) return false
+      if (!derived.some(entry => entry.majorIndex === majorIndex && entry.minorIndex === minorIndex)) {
+        derived.push({ majorIndex, minorIndex, address })
+      }
+      return true
+    }
+
+    // Prepare the domain BEFORE scanning (final-review I2): the primary plus
+    // fee-account primaries 1..5 (created on the dedicated in-memory audit
+    // wallet when missing — never on the signer) and every recorded minor
+    // INCLUDING account-0 minors. Pre-listing the currently exposed accounts
+    // alone never declares the derivation complete.
+    const recorded = await prepareRecordedPaymentAddresses({ models, wallet: auditWallet, scope })
+    for (const row of recorded) {
+      if (!(await push(row.majorIndex, row.minorIndex))) return null
+    }
+    const accounts = typeof auditWallet.getAccounts === 'function'
+      ? (await auditWallet.getAccounts()) || []
+      : []
+    const majors = new Set()
+    for (const account of accounts) {
+      const majorIndex = typeof account?.getIndex === 'function' ? account.getIndex() : null
+      if (!Number.isSafeInteger(majorIndex) || majorIndex < 0) return null
+      majors.add(majorIndex)
+    }
+    for (let major = 1; major <= AUDIT_DERIVATION_MAJORS; major++) {
+      if (!majors.has(major)) {
+        if (typeof auditWallet.createAccount !== 'function') return null
+        await auditWallet.createAccount()
+      }
+    }
+    if (!(await push(0, 0))) return null
+    for (let major = 1; major <= AUDIT_DERIVATION_MAJORS; major++) {
+      if (!(await push(major, 0))) return null
+    }
+    for (const major of [0, ...majors]) {
+      if (typeof auditWallet.getSubaddresses !== 'function') continue
+      const subaddresses = (await auditWallet.getSubaddresses(major)) || []
+      for (let minorIndex = 0; minorIndex < subaddresses.length; minorIndex++) {
+        if (!(await push(major, minorIndex))) return null
+      }
+    }
+    return { complete: true, primaryAddress: scope.walletAddress, derived, mismatches: [] }
+  } catch {
+    return null
+  }
+}
+
+// The daemon tip is the ONLY boundary authority: the highest EXISTING block
+// index plus its block hash (mirrors the evidence collector).
+async function auditBoundary (daemon) {
+  try {
+    if (typeof daemon?.getHeight !== 'function' || typeof daemon?.getBlockHashByHeight !== 'function') return null
+    const chainLength = await daemon.getHeight()
+    if (!Number.isSafeInteger(chainLength) || chainLength < 1) return null
+    const height = chainLength - 1
+    const blockHash = normalizeHash(await daemon.getBlockHashByHeight(height))
+    return blockHash ? { height, blockHash } : null
+  } catch {
+    return null
+  }
+}
+
+// monero-ts caches the daemon height for ~30 seconds; absorb that with a
+// bounded resync before the strict count >= boundary index + 1 check, which is
+// never weakened.
+const AUDIT_SCAN_RESYNC_ATTEMPTS = 3
+// The prepared derivation domain covers the primary plus fee-account
+// primaries 1..5 (final-review I2) — the same majors the fee-account
+// infrastructure provisions.
+const AUDIT_DERIVATION_MAJORS = 5
+
+async function auditScannedHeight (auditWallet, minCount) {
+  let scanned = null
+  try {
+    scanned = typeof auditWallet.getHeight === 'function' ? await auditWallet.getHeight() : null
+  } catch { return null }
+  for (let attempt = 0; (scanned === null || scanned < minCount) && attempt < AUDIT_SCAN_RESYNC_ATTEMPTS; attempt++) {
+    try {
+      if (typeof auditWallet.sync !== 'function') break
+      await auditWallet.sync()
+      scanned = await auditWallet.getHeight()
+    } catch {
+      return null
+    }
+  }
+  return scanned
+}
+
+// Build ONE verification session from the dedicated audit wallet: identity is
+// proven before any scan, the boundary is the live daemon tip, the wallet's
+// scan must cover the boundary block, and the collector + receipt checker are
+// bound to the audit wallet. Any failure yields null — attempted rows then
+// stay unresolved (fail closed), never promoted.
+async function buildAuditSession ({ auditWallet, daemon, scope, models }) {
+  try {
+    if (!auditWallet || typeof auditWallet.getOutputs !== 'function' ||
+      typeof auditWallet.getPrimaryAddress !== 'function' ||
+      typeof auditWallet.getNetworkType !== 'function' ||
+      typeof auditWallet.checkTxKey !== 'function') return null
+    await assertWalletScope(auditWallet, scope)
+    const derivation = await auditDerivation(auditWallet, scope, models)
+    if (derivation === null) return null
+    const boundary = await auditBoundary(daemon)
+    if (boundary === null) return null
+    const scanned = await auditScannedHeight(auditWallet, boundary.height + 1)
+    if (scanned === null || scanned < boundary.height + 1) return null
+    const session = await collectPaymentChainEvidence({
+      wallet: auditWallet,
+      daemon,
+      scope,
+      derivation,
+      boundary,
+      auditedHashes: await readPaymentAuditHashes({ models, scope, journalRole: 'REWARDS' })
+    })
+    // Bracket the collection against the tip (final-review I4): a chain that
+    // moved during the session refuses (null → rows retain uncertainty and
+    // the next bounded run reruns), never a mixed-boundary promotion.
+    const tipAfter = await auditBoundary(daemon)
+    if (tipAfter === null || tipAfter.height !== boundary.height ||
+      tipAfter.blockHash !== boundary.blockHash) {
+      return null
+    }
+    return { ...session, checkTxKey: (...args) => auditWallet.checkTxKey(...args) }
+  } catch {
+    return null
+  }
+}
+
+// Verify ONE attempted PREPARED row through the fresh audit session. Returns
+// the safe PaymentVerificationV1 only when the verification is COMPLETE;
+// missing sessions, missing/lost proof keys, chain-evidence failures,
+// non-complete results and throwing loads all resolve to null so the row
+// RETAINS uncertainty (never NOT_RELAYED, never a promotion). Only fixed
+// labels ever reach the logs — never SDK/daemon/session material.
+async function verifyAttemptedRow ({ models, row, session, keyProvider }) {
+  if (!session) return null
+  try {
+    const result = await verifyPaymentTransaction({
+      models,
+      journalRole: 'REWARDS',
+      journalId: row.id,
+      session,
+      keyProvider,
+      observedAt: new Date().toISOString()
+    })
+    if (!result || result.status !== 'complete') {
+      logWarn({ txHash: row.txHash, kind: row.kind, issues: result?.issues ?? null }, 'reconcileWalletTransactions: fresh verification is not complete — retaining uncertainty')
+      return null
+    }
+    return result
+  } catch (err) {
+    logError({ txHash: row.txHash, kind: row.kind, errorClass: errorLabel(err) }, 'reconcileWalletTransactions: fresh verification unavailable — retaining uncertainty')
+    return null
+  }
+}
+
+// Exact agreement between a COMPLETE verification and the journal row's own
+// immutable facts: scope, hash, journal identity, capture binding, source
+// account, network fee, and — per kind — the exact participant set and
+// principal. The verifier already authenticated the capture pair against the
+// row and gated the confirmed chain against it; this comparison is the explicit
+// row-level gate before a promotion may write. Any unreadable fact fails.
+function verificationMatchesRow (result, row) {
+  try {
+    if (!result || result.status !== 'complete' || result.captureMode !== 'CAPTURE_V1') return false
+    if (result.journalRole !== 'REWARDS' || String(result.journalId) !== String(row.id)) return false
+    if (!result.scope || result.scope.network !== row.network ||
+      result.scope.walletAddress !== row.walletAddress) return false
+    if (result.txHash !== row.txHash) return false
+    if (typeof result.claimDigest === 'string' && row.claimDigest != null &&
+      result.claimDigest !== row.claimDigest) return false
+    if (!Array.isArray(result.sourceAccounts) || !result.sourceAccounts.includes(String(row.accountIndex))) return false
+    if (result.totals?.F == null || BigInt(result.totals.F) !== money(row.networkFeePiconeros)) return false
+    const principal = money(row.principalPiconeros)
+    const members = Array.isArray(result.members) ? result.members : []
+    if (row.kind === 'PAYOUT') {
+      const expected = Array.isArray(row.metadata?.payouts) ? row.metadata.payouts : []
+      if (expected.length === 0 || members.length !== expected.length) return false
+      const remaining = members.map(member => ({
+        id: String(member?.id),
+        address: member?.address,
+        actual: BigInt(member?.actualPiconeros)
+      }))
+      for (const payout of expected) {
+        const amount = money(payout.piconeros)
+        const index = remaining.findIndex(member =>
+          member.id === String(payout.payoutId) &&
+          member.address === payout.recipientAddress &&
+          member.actual === amount)
+        if (index === -1) return false
+        remaining.splice(index, 1)
+      }
+      return true
+    }
+    if (row.kind === 'OPS_SWEEP') {
+      return members.length === 1 &&
+        String(members[0]?.id) === '1' &&
+        members[0]?.address === row.metadata?.destination &&
+        BigInt(members[0]?.actualPiconeros) === principal
+    }
+    // CONSOLIDATION: zero external participants, zero external principal — the
+    // owned self transfer is proven by the verifier's owned-partition gates.
+    return members.length === 0 && principal === 0n
   } catch {
     return false
   }
-}
-
-// Index the wallet's own outgoing history by exact hash. Each history entry is
-// kept as a separate observation so contradictory evidence for one hash (a
-// second fee, a different recipient set) can never be merged away. Relay
-// evidence is an explicit relayed/confirmed flag; a cached built tx with
-// isRelayed=false is not evidence. Missing/erroring evidence read within an
-// observation is recorded as unreadable and can never satisfy a claim.
-function readDestination (destination) {
-  if (!destination) return { address: null, amount: null }
-  const address = typeof destination.getAddress === 'function' ? destination.getAddress() : null
-  let amount = null
-  if (typeof destination.getAmount === 'function') {
-    try {
-      const raw = destination.getAmount()
-      if (raw != null) amount = money(raw)
-    } catch { /* unreadable amount can never satisfy a principal claim */ }
-  }
-  return { address, amount }
-}
-
-function indexOutgoingHistory (outgoing) {
-  const byHash = new Map()
-  for (const transfer of Array.isArray(outgoing) ? outgoing : []) {
-    const tx = typeof transfer?.getTx === 'function' ? transfer.getTx() : null
-    if (!tx) continue
-    const hash = normalizeHash(typeof tx.getHash === 'function' ? tx.getHash() : null)
-    if (!hash) continue
-
-    const observation = {
-      relayed: readBoolean(tx, 'getIsRelayed') || readBoolean(tx, 'getIsConfirmed'),
-      fee: null,
-      feeUnreadable: true,
-      destinations: null,
-      destinationsUnreadable: true
-    }
-    if (typeof tx.getFee === 'function') {
-      try {
-        const raw = tx.getFee()
-        if (raw != null) {
-          observation.fee = money(raw)
-          observation.feeUnreadable = false
-        }
-      } catch { /* stays unreadable */ }
-    }
-    if (typeof transfer.getDestinations === 'function') {
-      try {
-        observation.destinations = (transfer.getDestinations() || []).map(readDestination)
-        observation.destinationsUnreadable = false
-      } catch { /* stays unreadable */ }
-    }
-
-    const observations = byHash.get(hash) || []
-    observations.push(observation)
-    byHash.set(hash, observations)
-  }
-  return byHash
-}
-
-// EXACT agreement with the journal's immutable facts. Every observation for the
-// exact hash must carry a readable fee equal to the stored fee and a readable
-// destination set exactly matching the stored claim — no extra external
-// recipient, none missing, no duplicate-observation contradiction. Anything
-// less is retained uncertainty, never a RELAYED proof.
-function historyAgrees (row, observations) {
-  if (!Array.isArray(observations) || observations.length === 0) return false
-  if (!observations.some(o => o.relayed)) return false
-  const storedFee = money(row.networkFeePiconeros)
-  for (const observation of observations) {
-    if (observation.feeUnreadable || observation.fee !== storedFee) return false
-    if (observation.destinationsUnreadable || observation.destinations === null) return false
-    if (!destinationsAgree(row, observation.destinations)) return false
-  }
-  return true
-}
-
-function destinationsAgree (row, destinations) {
-  if (row.kind === 'PAYOUT') return payoutDestinationsAgree(row, destinations)
-  if (row.kind === 'OPS_SWEEP') return sweepDestinationsAgree(row, destinations)
-  return consolidationDestinationsAgree(row, destinations)
-}
-
-// PAYOUT: the destination multiset equals the metadata members exactly
-// (address + exact amount); an unclaimed extra recipient fails.
-function payoutDestinationsAgree (row, destinations) {
-  const members = row.metadata?.payouts
-  if (!Array.isArray(members) || members.length === 0) return false
-  if (destinations.length !== members.length) return false
-  const remaining = destinations.slice()
-  for (const member of members) {
-    let amount
-    try {
-      amount = money(member.piconeros)
-    } catch {
-      return false
-    }
-    const index = remaining.findIndex(d => d.address === member.recipientAddress && d.amount === amount)
-    if (index === -1) return false
-    remaining.splice(index, 1)
-  }
-  return true
-}
-
-// OPS_SWEEP: one external recipient, exactly the stored destination + principal.
-function sweepDestinationsAgree (row, destinations) {
-  const destination = row.metadata?.destination
-  if (typeof destination !== 'string' || destination === '') return false
-  if (destinations.length !== 1) return false
-  return destinations[0].address === destination && destinations[0].amount === money(row.principalPiconeros)
-}
-
-// CONSOLIDATION: every outgoing destination is the wallet's own primary address
-// (a self transfer); the internal principal amount is not an external claim, but
-// an external recipient must never be accepted as a consolidation.
-function consolidationDestinationsAgree (row, destinations) {
-  const destination = row.metadata?.destination
-  if (typeof destination !== 'string' || destination === '') return false
-  if (destinations.length === 0) return false
-  return destinations.every(d => d.address === destination)
 }
 
 // --- durable RELAYED participant recovery ------------------------------------
@@ -493,8 +667,8 @@ function consolidationDestinationsAgree (row, destinations) {
 // A RELAYED PAYOUT journal row is durable proof that its relay happened. The
 // recipient-row persist may have failed after that relay, leaving members
 // QUEUED (or otherwise live); a later drive must NEVER build a fresh
-// transaction for them, even when the wallet-history read throws or returns
-// nothing. This recovery is DB-only and includes this pass's history-proven
+// transaction for them, even when no chain history or proof key is available.
+// This recovery is DB-only and includes this pass's verification-proven
 // promotions. All competing proofs are validated BEFORE any payout write:
 //
 //   - every live member (persisted payout row in QUEUED/FAILED) named by a
@@ -666,20 +840,40 @@ async function recoverLiveRelayedPayouts ({ models, journalModel, scope }) {
 }
 
 // Resolve durable RELAYED payout participants and attempted-but-unproven
-// journal rows. NEVER signs, sends or re-relays. The durable recovery (above)
-// does not depend on wallet history. Attempted PREPARED rows are first
-// resolved from the wallet's own scoped history, where rows whose relay is
-// proven with agreeing fee/metadata are recovered to RELAYED idempotently and
-// missing or erroring histories, conflicting facts and built-but-unrelayed
-// cached txs all RETAIN uncertainty. Then the complete durable proof set,
-// including every in-pass promotion, is validated before recovering payouts.
+// journal rows. NEVER signs, sends or re-relays. The durable recovery (below)
+// is DB-only and does not depend on any chain read or proof key. Attempted
+// PREPARED rows are resolved ONLY by a fresh CONFIRMED whole-payment
+// verification from a dedicated genesis-restored audit session (never the
+// signer singleton, never destination-shaped history): a COMPLETE result that
+// exactly matches the row's scope/hash/kind/source/participants/principal/fee
+// promotes the row to RELAYED with the verification's observation time
+// ("relay proven by this observation" — never a claimed historical submission
+// time) and `chain-proof-observation` provenance. Missing sessions, lost proof
+// keys, non-complete results and exact-match failures all RETAIN uncertainty.
+// Legacy attempted rows without a complete surviving proof stay unresolved (no
+// destination-only promotion). Then the complete durable proof set, including
+// every in-pass promotion, is validated before recovering payouts.
 // Returns the payout IDs of everything still
 // unsettled (so callers exclude them from new sends), the members RECOVERED to
 // SENT from durable RELAYED proofs this call, whether any ops sweep or
 // consolidation is unsettled (blocks sweeping), and how many proven relays,
 // unresolved durable proofs or proven-but-unjournaled relays claim accounting
 // uncertainty.
-export async function reconcileWalletTransactions ({ models, wallet, scope }) {
+//
+// `daemon` (default the shared restricted daemon client) and `keyProvider`
+// (default the lazily-built separate TX-proof registry) are injectable so
+// callers and tests can pass fakes; `auditWallet` (additive, like the evidence
+// collector's injected audit wallets) bypasses the env-key wallet open for
+// tests. When the audit session cannot be built, attempted rows stay
+// unresolved (fail closed) while the durable DB-only recovery still runs.
+export async function reconcileWalletTransactions ({
+  models,
+  wallet,
+  scope,
+  daemon = daemonClient,
+  keyProvider,
+  auditWallet = null
+}) {
   const journalModel = models?.rewardsWalletTransaction
   if (!journalModel || typeof journalModel.findMany !== 'function') {
     throw new Error('reconcileWalletTransactions: journal model is required')
@@ -698,6 +892,8 @@ export async function reconcileWalletTransactions ({ models, wallet, scope }) {
     orderBy: { id: 'asc' }
   })
   if (uncertain.length > 0) {
+    // The signer wallet must still prove it is the accounting authority for
+    // this scope before any resolution runs (identity gate, unchanged).
     await assertWalletScope(wallet, scoped)
 
     const collect = row => {
@@ -714,25 +910,47 @@ export async function reconcileWalletTransactions ({ models, wallet, scope }) {
       }
     }
 
-    let outgoing
+    // ONE dedicated audit session for the whole pass, built lazily (only when
+    // uncertainty exists) and closed in `finally`. An unavailable session —
+    // unconfigured keys, scan failure, daemon trouble — retains uncertainty
+    // for every attempted row instead of ever guessing.
+    let session = null
+    let openedAuditWallet = null
     try {
-      outgoing = typeof wallet.getOutgoingTransfers === 'function' ? await wallet.getOutgoingTransfers() : null
-    } catch (err) {
-      logWarn({ errorClass: errorLabel(err) }, 'reconcileWalletTransactions: wallet history unavailable — retaining uncertainty')
-      outgoing = null
-    }
-    if (!outgoing) {
-      for (const row of uncertain) collect(row)
-    } else {
-      const history = indexOutgoingHistory(outgoing)
+      if (auditWallet) {
+        session = await buildAuditSession({ auditWallet, daemon, scope: scoped, models })
+      } else {
+        try {
+          openedAuditWallet = await openGenesisAuditWallet(scoped)
+        } catch (err) {
+          logWarn({ errorClass: errorLabel(err) }, 'reconcileWalletTransactions: the dedicated audit wallet is unavailable — retaining uncertainty')
+        }
+        if (openedAuditWallet) {
+          session = await buildAuditSession({ auditWallet: openedAuditWallet, daemon, scope: scoped, models })
+        }
+      }
+      if (!session) {
+        logWarn('reconcileWalletTransactions: no fresh audit session — attempted relays stay unresolved')
+      }
+
       for (const row of uncertain) {
-        if (!historyAgrees(row, history.get(row.txHash))) {
-          logError({ txHash: row.txHash, kind: row.kind }, 'reconcileWalletTransactions: wallet history does not prove the exact journal fact — retaining uncertainty')
+        const verification = await verifyAttemptedRow({ models, row, session, keyProvider: keyProvider ?? defaultKeyProvider() })
+        if (!verificationMatchesRow(verification, row)) {
+          if (verification) {
+            logError({ txHash: row.txHash, kind: row.kind }, 'reconcileWalletTransactions: fresh verification does not exactly match the journal row — retaining uncertainty')
+          }
           collect(row)
           continue
         }
-        if (await persistRelayedState(journalModel, row.id, new Date())) {
-          logInfo({ txHash: row.txHash, kind: row.kind }, 'reconcileWalletTransactions: recovered a proven relay into the journal')
+        // The fresh confirmed observation PROVES the relay; `relayedAt` records
+        // when that proof was observed, never a historical submission time.
+        if (await commitPaymentPromotionAtBoundary({
+          models,
+          daemon,
+          boundary: session.boundary,
+          promote: client => persistRelayedState(client.rewardsWalletTransaction, row.id, new Date(verification.observedAt), CHAIN_PROOF_PROVENANCE)
+        })) {
+          logInfo({ txHash: row.txHash, kind: row.kind }, 'reconcileWalletTransactions: fresh confirmed verification recovered a proven relay into the journal')
         } else {
           // Proven relay, unsettled journal state: alert and never release it to a
           // new send until the journal records the proof.
@@ -742,12 +960,67 @@ export async function reconcileWalletTransactions ({ models, wallet, scope }) {
           collect(row)
         }
       }
+    } finally {
+      if (openedAuditWallet) {
+        try {
+          await openedAuditWallet.close()
+        } catch { /* closing an audit wallet must never mask the result */ }
+      }
     }
   }
 
+  // Durable-but-unattempted captured pairs (a crash in the prepare→claim
+  // window): provably unbroadcast — relay strictly requires the acknowledged
+  // claim CAS — but their named payouts / sweep leg are RESERVED from
+  // rebuilding under a new hash until explicit operator handling resolves the
+  // pair (verified teardown). Reusing the existing uncertainty machinery, they
+  // surface exactly where the brief mandates: PAYOUT members land in
+  // `uncertainPayoutIds` (sendPayouts already excludes them from fresh
+  // selection), OPS_SWEEP sets `uncertainSweep` (blocking further sweeps), and
+  // CONSOLIDATION rows are surfaced without new blocking semantics (they are
+  // recovery-only). One CRITICAL alert per stale pair with a stable per-hash
+  // dedupeKey: never an automatic resend of the reserved members, never an
+  // automatic deletion. Pairs created and claimed within a normal drive are
+  // attempted (or RELAYED) by the time a LATER drive reconciles, so a
+  // successful drive cannot trip this; the unattempted query only matches
+  // genuinely interrupted dispatches.
+  const stale = await journalModel.findMany({
+    where: {
+      network: scoped.network,
+      walletAddress: scoped.walletAddress,
+      state: 'PREPARED',
+      relayAttemptedAt: null,
+      dispatchId: { not: null }
+    },
+    orderBy: { id: 'asc' }
+  })
+  for (const row of stale) {
+    let reserved
+    if (row.kind === 'PAYOUT') {
+      const members = Array.isArray(row.metadata?.payouts) ? row.metadata.payouts : []
+      if (members.length === 0) {
+        logError({ txHash: row.txHash }, 'reconcileWalletTransactions: stale PAYOUT pair has unreadable metadata')
+      }
+      for (const member of members) {
+        if (Number.isSafeInteger(member?.payoutId)) payoutIds.add(member.payoutId)
+      }
+      reserved = 'its named payouts'
+    } else if (row.kind === 'OPS_SWEEP') {
+      result.uncertainSweep = true
+      reserved = 'the sweep leg'
+    } else {
+      reserved = 'the consolidation leg'
+    }
+    logError({ txHash: row.txHash, kind: row.kind }, 'reconcileWalletTransactions: CRITICAL — durable-but-unattempted captured pair reserves its members from rebuilding until explicit operator handling resolves it')
+    alert('critical', 'Rewards wallet pair reserved (durable but unattempted)',
+      `Captured pair ${row.txHash} (${row.kind}) is durable but was never attempted — it is provably unbroadcast. ${reserved} it names stay reserved from rebuilding; resolve it by explicit operator handling (a verified teardown of the pair). The reserved members are never automatically re-sent and the pair is never automatically deleted.`,
+      { dedupeKey: `rewards-pair-unattempted-${row.txHash}` })
+  }
+
   // Recover only after all promotions so competing old/new proofs are rejected
-  // before payout mutation. Throwing/empty history never erases durable proof;
-  // a recovery read/write failure propagates and fresh sends fail closed.
+  // before payout mutation. The durable recovery never reads chain history and
+  // never needs a proof key; a recovery read/write failure propagates and
+  // fresh sends fail closed.
   const durable = await recoverLiveRelayedPayouts({ models, journalModel, scope: scoped })
   for (const recovered of durable.recovered) result.recoveredPayoutIds.push(recovered)
   for (const id of durable.uncertainPayoutIds) payoutIds.add(id)

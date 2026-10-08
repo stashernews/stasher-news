@@ -19,16 +19,33 @@
 // the stub (the real worker would have sent it, but the stub is not the signer).
 
 import { PrismaClient } from '@prisma/client'
+import { ed25519 } from '@noble/curves/ed25519'
+import { base58xmr } from '@scure/base'
+import { keccak256 } from 'js-sha3'
 import { runBountiesOnce } from '@/worker/bounties'
+import { sendBountyPayments } from '@/api/monero/bounties'
+import { createPaymentProofKeyProvider } from '@/api/monero/paymentProofKeys'
 import { BOUNTY_UNDERPAY_ABANDON_DAYS } from '@/lib/constants'
+import { secretBundleHex } from '@/test/fixtures/payment-proof'
+
+// lib/alert and lib/logger are mocked: the Task 7 capture-barrier extension
+// below drives the REAL escrow signer, whose refused/uncertain dispatch paths
+// page ops — those pages are assertable side effects, never network calls.
+jest.mock('../../lib/alert', () => ({ alert: jest.fn() }))
+jest.mock('../../lib/logger', () => ({
+  __esModule: true,
+  logInfo: jest.fn(),
+  logWarn: jest.fn(),
+  logError: jest.fn()
+}))
 
 const prisma = new PrismaClient()
 
 const ADDR = '5' + '3'.repeat(94) // 95-char Monero address placeholder
 
 // Tracks every row created across tests so afterAll can tear them down in
-// FK-safe order: BountyPayment -> FeeObservation -> ObservedBounty ->
-// MoneroAccount -> Item -> users.
+// FK-safe order: payment proofs -> escrow journals -> BountyPayment ->
+// FeeObservation -> ObservedBounty -> MoneroAccount -> Item -> users.
 const created = { users: [], items: [], payments: [], accounts: [], bounties: [], fees: [] }
 
 // Pin the fee config deterministically (min 0.01 XMR / 1% — same regime as
@@ -48,15 +65,38 @@ async function ensureFeeConfig () {
 }
 
 afterAll(async () => {
-  await prisma.bountyPayment.deleteMany({ where: { id: { in: created.payments } } })
+  // Captured escrow pairs leave TOGETHER and BEFORE their payouts: the store's
+  // delete guard is a DEFERRABLE constraint trigger evaluated at COMMIT, and
+  // the EscrowWalletTransaction -> BountyPayment FK is Restrict. The teardown
+  // is scoped to this suite's synthetic barrier wallet so residue from an
+  // interrupted run self-heals too.
+  const barrierJournals = await prisma.escrowWalletTransaction.findMany({
+    where: { walletAddress: BARRIER_SCOPE_WALLET },
+    select: { bountyPaymentId: true }
+  })
+  const barrierPaymentIds = [...new Set(barrierJournals.map(journal => journal.bountyPaymentId))]
+  const barrierPayouts = barrierPaymentIds.length === 0
+    ? []
+    : await prisma.bountyPayment.findMany({
+      where: { id: { in: barrierPaymentIds } },
+      select: { id: true, itemId: true, winnerUserId: true }
+    })
+  await prisma.$transaction([
+    prisma.paymentTransactionProof.deleteMany({ where: { escrowJournal: { walletAddress: BARRIER_SCOPE_WALLET } } }),
+    prisma.escrowWalletTransaction.deleteMany({ where: { walletAddress: BARRIER_SCOPE_WALLET } })
+  ])
+  const paymentIds = [...new Set([...created.payments, ...barrierPaymentIds])]
+  const itemIds = [...new Set([...created.items, ...barrierPayouts.map(payout => payout.itemId)])]
+  const userIds = [...new Set([...created.users, ...barrierPayouts.map(payout => payout.winnerUserId)])]
+  await prisma.bountyPayment.deleteMany({ where: { id: { in: paymentIds } } })
   await prisma.feeObservation.deleteMany({ where: { id: { in: created.fees } } })
   await prisma.observedBounty.deleteMany({ where: { id: { in: created.bounties } } })
   await prisma.moneroAccount.deleteMany({ where: { id: { in: created.accounts } } })
-  for (const id of created.items) {
+  for (const id of itemIds) {
     await prisma.itemUserAgg.deleteMany({ where: { itemId: id } })
     await prisma.item.deleteMany({ where: { id } })
   }
-  for (const id of created.users) await prisma.user.deleteMany({ where: { id } })
+  for (const id of userIds) await prisma.user.deleteMany({ where: { id } })
   // Restore the live dev config row the suite pinned deterministically.
   if (configSnapshot) {
     await prisma.platformFeeConfig.update({ where: { id: 1 }, data: configSnapshot })
@@ -437,4 +477,135 @@ test('a QUEUED payout with a stale feePendingAt is offered to the signer exactly
   await runBountiesOnce({ models: prisma, sendBountyPayments: send, getHeight: async () => 209 })
 
   expect(seen.filter(id => id === payout.id)).toHaveLength(1)
+})
+
+// --- Task 7 extension: the worker's send phase drives the REAL capture barrier.
+
+// Deterministic synthetic address helpers (throwaway, Task 1 style; scalar
+// space 920+ stays clear of the api suites).
+const point = scalar => Buffer.from(ed25519.ExtendedPoint.BASE.multiply(BigInt(scalar)).toRawBytes()).toString('hex')
+const encodeStagenetPrimaryAddress = ({ spendKey, viewKey }) => {
+  const body = new Uint8Array(65)
+  body[0] = 24 // stagenet primary prefix
+  body.set(Buffer.from(spendKey, 'hex'), 1)
+  body.set(Buffer.from(viewKey, 'hex'), 33)
+  const checksum = Buffer.from(keccak256(body), 'hex').subarray(0, 4)
+  return base58xmr.encode(new Uint8Array([...body, ...checksum]))
+}
+const makeWorkerAddress = n => encodeStagenetPrimaryAddress({ spendKey: point(2n * BigInt(n)), viewKey: point(2n * BigInt(n) + 1n) })
+
+const BARRIER_WINNER = makeWorkerAddress(921)
+const BARRIER_COLD = makeWorkerAddress(922)
+const BARRIER_SCOPE_WALLET = makeWorkerAddress(920)
+const BARRIER_NET_FEE = 40_000n
+
+// Synthetic throwaway TX-proof registry (never a real secret).
+const keyProvider = createPaymentProofKeyProvider({
+  TXPROOF_MASTER_KEYS: JSON.stringify({ 1: Buffer.alloc(32, 19).toString('base64') }),
+  TXPROOF_MASTER_KEY_CURRENT_VERSION: '1'
+})
+
+// Capture-grade fake escrow signer (SDK-shaped getters the capture store
+// reads). Builds relay:false; relayTx is the single broadcast.
+function makeCaptureWallet ({ unlocked = 1_000_000_000_000_000n } = {}) {
+  let balance = unlocked
+  let builds = 0
+  return {
+    relayTx: jest.fn(async tx => String(await tx.getHash()).toLowerCase()),
+    getPrimaryAddress: jest.fn(async () => BARRIER_SCOPE_WALLET),
+    getNetworkType: jest.fn(async () => 2),
+    sync: jest.fn(async () => {}),
+    getUnlockedBalance: jest.fn(async () => balance),
+    getTx: jest.fn(async () => ({ getHeight: async () => 205 })),
+    createTx: jest.fn(async req => {
+      const requested = req.destinations
+        ? req.destinations.map(d => ({ address: d.address, amount: BigInt(d.amount) }))
+        : [{ address: req.address, amount: BigInt(req.amount) }]
+      const destSum = requested.reduce((acc, d) => acc + d.amount, 0n)
+      if (balance < destSum + (req.subtractFeeFrom ? 0n : BARRIER_NET_FEE)) throw new Error('not enough unlocked money')
+      balance -= destSum + (req.subtractFeeFrom ? 0n : BARRIER_NET_FEE)
+      builds += 1
+      const hash = ('9c' + String(builds).padStart(4, '0') + 'd4').repeat(8)
+      const keySeed = 600n + BigInt(builds) * 7n
+      const actual = requested.map((d, i) => ({
+        address: d.address,
+        amount: d.amount - (req.subtractFeeFrom && req.subtractFeeFrom.includes(i) ? BARRIER_NET_FEE : 0n)
+      }))
+      const outputKeys = actual.map((_, i) => point(keySeed + 10n + BigInt(i)))
+      outputKeys.push(point(keySeed + 10n + BigInt(outputKeys.length)))
+      return {
+        getHash: () => hash,
+        getFee: () => BARRIER_NET_FEE,
+        getOutgoingTransfer: () => ({ getDestinations: () => actual.map(d => ({ getAddress: () => d.address, getAmount: () => d.amount })) }),
+        getChangeAddress: () => BARRIER_SCOPE_WALLET,
+        getChangeAmount: () => destSum - BARRIER_NET_FEE,
+        // The SDK captures the SECRET-bundle STRING (final-review C1).
+        getKey: () => secretBundleHex(keySeed, 3)
+      }
+    })
+  }
+}
+
+test('the worker send phase drives the real capture barrier: a relay timeout leaves the payout QUEUED and the next cron tick never re-broadcasts', async () => {
+  const authorId = await createUser()
+  const winnerId = await createUser()
+  const item = await createBountyPost(authorId)
+  const payout = await prisma.bountyPayment.create({
+    data: {
+      itemId: item.id,
+      winnerUserId: winnerId,
+      piconeros: 10_000_000_000n,
+      feePiconeros: 2_000_000_000n,
+      recipientAddress: BARRIER_WINNER,
+      feeRecipientAddress: BARRIER_COLD,
+      kind: 'AWARD',
+      state: 'QUEUED'
+    }
+  })
+  created.payments.push(payout.id)
+
+  // The dedicated TX-proof audit wallet must stay unconfigured: reconciliation
+  // resolves attempted uncertainty ONLY through its dedicated session, which
+  // no test may fabricate from the signer.
+  const envSnapshot = {
+    addr: process.env.BOUNTY_ESCROW_ADDRESS,
+    spend: process.env.BOUNTY_ESCROW_SPEND_KEY,
+    view: process.env.BOUNTY_ESCROW_VIEW_KEY
+  }
+  delete process.env.BOUNTY_ESCROW_ADDRESS
+  delete process.env.BOUNTY_ESCROW_SPEND_KEY
+  delete process.env.BOUNTY_ESCROW_VIEW_KEY
+  try {
+    const wallet = makeCaptureWallet()
+    wallet.relayTx.mockRejectedValueOnce(new Error('secret-sentinel timeout'))
+    // The signer is the REAL sendBountyPayments, scoped to this suite's payout
+    // (the same discipline as the stub: a stray sibling row is not ours).
+    const realSend = (payouts, { models }) => sendBountyPayments(
+      payouts.filter(p => p.id === payout.id),
+      { models, wallet, keyProvider }
+    )
+
+    await runBountiesOnce({ models: prisma, sendBountyPayments: realSend, getHeight: async () => 209 })
+    await runBountiesOnce({ models: prisma, sendBountyPayments: realSend, getHeight: async () => 209 })
+
+    expect(wallet.relayTx).toHaveBeenCalledTimes(1) // one possible broadcast, ever
+    const after = await prisma.bountyPayment.findUnique({ where: { id: payout.id } })
+    expect(after.state).toBe('QUEUED')
+    expect(after.txHash).toBeNull()
+    expect(after.recipientAddress).toBe(BARRIER_WINNER)
+    expect(after.piconeros).toBe(10_000_000_000n)
+    expect(after.feeRecipientAddress).toBe(BARRIER_COLD)
+    // The durable attempted dispatch is what withholds the leg.
+    const journal = await prisma.escrowWalletTransaction.findFirst({ where: { bountyPaymentId: payout.id } })
+    expect(journal.state).toBe('PREPARED')
+    expect(journal.relayAttemptedAt).not.toBeNull()
+    expect(journal.relayedAt).toBeNull()
+  } finally {
+    if (envSnapshot.addr === undefined) delete process.env.BOUNTY_ESCROW_ADDRESS
+    else process.env.BOUNTY_ESCROW_ADDRESS = envSnapshot.addr
+    if (envSnapshot.spend === undefined) delete process.env.BOUNTY_ESCROW_SPEND_KEY
+    else process.env.BOUNTY_ESCROW_SPEND_KEY = envSnapshot.spend
+    if (envSnapshot.view === undefined) delete process.env.BOUNTY_ESCROW_VIEW_KEY
+    else process.env.BOUNTY_ESCROW_VIEW_KEY = envSnapshot.view
+  }
 })

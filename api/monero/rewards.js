@@ -14,6 +14,7 @@ import {
   relayWalletTransaction,
   reconcileWalletTransactions
 } from '@/api/monero/rewardsTransactions'
+import { createPaymentProofKeyProvider } from '@/api/monero/paymentProofKeys'
 
 // Rewards hot-wallet signer (Phase 4 Task 9 / design spec §5.6, §6.2).
 //
@@ -73,6 +74,28 @@ const CONSOLIDATION_MIN_PICONEROS = 100_000_000n
 const TX_FEE_HEADROOM_PICONEROS = BigInt(process.env.REWARDS_TX_FEE_HEADROOM_PICONEROS || '1000000000')
 
 let walletPromise = null
+
+// The separate TX-proof key registry, read lazily per send. Importing the
+// module never needs a configured registry; a missing/misconfigured one fails
+// pair sealing (and therefore preparation) CLOSED — there is deliberately no
+// other key or view-key fallback.
+const paymentProofKeys = () => createPaymentProofKeyProvider(process.env)
+
+// Resolve a pair-preparation outcome. A THROWN preparation result is never
+// "no journal exists": an unknown commit can contain a complete pair, so the
+// dispatch stays withheld until ONE fresh DB/pair read (idempotent
+// re-preparation) resolves it — a fresh authentic pair read re-authorizes the
+// dispatch; a failing read never proves the pair absent and the caller keeps
+// the same-dispatch send suppressed (nothing is relayed either way: the relay
+// barrier only opens after an acknowledged preparation).
+async function prepareDispatchResolved ({ context, prepare, message }) {
+  try {
+    return await prepare()
+  } catch (err) {
+    logError({ ...context, errorClass: errorLabel(err) }, `${message} — commit outcome unknown; resolving with one fresh pair read (no relay either way)`)
+    return await prepare()
+  }
+}
 
 // Singleton: opens + syncs the wallet once, memoizing the promise so every
 // sendPayouts call reuses the same in-memory wallet. A cached rejection is
@@ -232,7 +255,7 @@ function resolveNetworkType (api, env) {
 // them), and an unreadable journal is fail-closed (no fresh sends). A proven
 // relay always persists the recipient principal, even when the journal fee
 // state could not be persisted; an uncertain attempt leaves recipients QUEUED
-// until exact-hash wallet history resolves it and is never blindly re-relayed.
+// until a fresh confirmed verification resolves it and it is never blindly re-relayed.
 //
 // Each account's batch is built create-then-relay: createTx({ relay: false })
 // constructs + validates the tx (including its real fee) WITHOUT moving funds.
@@ -841,42 +864,50 @@ async function relayBucketTx (w, models, accountIndex, payouts, planInfo = {}) {
 
   let journal
   try {
-    journal = await prepareWalletTransaction({
-      models,
-      scope,
-      tx,
-      kind: 'PAYOUT',
-      accountIndex,
-      distributionId: batch[0].distributionId,
-      principalPiconeros: batch.reduce((acc, p) => acc + p.piconeros, 0n),
-      metadata: {
-        payouts: batch.map(p => ({ payoutId: p.id, recipientAddress: p.recipientAddress, piconeros: p.piconeros.toString() }))
-      }
+    journal = await prepareDispatchResolved({
+      context: { accountIndex, payoutCount: batch.length },
+      message: 'sendPayouts: CRITICAL — payout pair preparation failed',
+      prepare: () => prepareWalletTransaction({
+        models,
+        wallet: w,
+        scope,
+        tx,
+        kind: 'PAYOUT',
+        accountIndex,
+        distributionId: batch[0].distributionId,
+        principalPiconeros: batch.reduce((acc, p) => acc + p.piconeros, 0n),
+        metadata: {
+          payouts: batch.map(p => ({ payoutId: p.id, recipientAddress: p.recipientAddress, piconeros: p.piconeros.toString() }))
+        },
+        keyProvider: paymentProofKeys()
+      })
     })
   } catch (err) {
-    // No durable journal row means NO relay: the bucket stays QUEUED and is
-    // retried next run (nothing was broadcast, so there is no uncertainty).
+    // The pair outcome is unresolved after a fresh read: this dispatch stays
+    // withheld — the bucket stays QUEUED, nothing was broadcast (the relay
+    // barrier never opened) and a later drive re-resolves from the DB.
     logError({ accountIndex, payoutCount: batch.length, errorClass: errorLabel(err) },
-      'sendPayouts: CRITICAL — payout journal preparation failed; bucket stays QUEUED (nothing relayed)')
+      'sendPayouts: CRITICAL — payout pair read failed; dispatch withheld, bucket stays QUEUED (nothing relayed)')
     return { txHash: null, sent: [], skipped: build.dropped.concat(batch), failed: build.failed.length, unpersisted: 0, accountingUnpersisted: 0, dropped: build.dropped, retryableSkipped: build.retryableSkipped, filled: build.filled, retryableBuildFailure: false }
   }
 
   let relay
   try {
-    relay = await relayWalletTransaction({ models, wallet: w, journal, tx })
+    relay = await relayWalletTransaction({ models, wallet: w, journal, tx, keyProvider: paymentProofKeys() })
   } catch (err) {
-    // Claim/identity failure: this built tx was NOT relayed by us, but the
-    // journal row may already be attempted (concurrent drive) — retain
-    // accounting uncertainty and never mark the recipients FAILED.
+    // Pair/claim failure (including an unknown claim acknowledgement): this
+    // built tx was NOT broadcast, but the journal row may already be attempted
+    // (concurrent drive) — retain accounting uncertainty and never mark the
+    // recipients FAILED.
     logError({ accountIndex, payoutCount: batch.length, errorClass: errorLabel(err) },
-      'sendPayouts: CRITICAL — journal relay claim failed; bucket stays QUEUED')
+      'sendPayouts: CRITICAL — payout pair/attempt claim failed; dispatch withheld, bucket stays QUEUED')
     return { txHash: null, sent: [], skipped: build.dropped.concat(batch), failed: build.failed.length, unpersisted: 0, accountingUnpersisted: 1, dropped: build.dropped, retryableSkipped: build.retryableSkipped, filled: build.filled, retryableBuildFailure: false }
   }
   if (!relay.relayed) {
     // Possibly broadcast: recipients stay QUEUED and journal reconciliation
-    // excludes them until exact-hash history settles the attempt (never FAILED,
+    // excludes them until a fresh confirmed verification settles the attempt (never FAILED,
     // never blindly re-relayed).
-    logError({ accountIndex, txHash }, 'sendPayouts: relay outcome uncertain — bucket stays QUEUED until exact-hash history resolves the journal')
+    logError({ accountIndex, txHash }, 'sendPayouts: relay outcome uncertain — bucket stays QUEUED until a fresh confirmed verification resolves the journal')
     return { txHash: null, sent: [], skipped: build.dropped.concat(batch), failed: build.failed.length, unpersisted: 0, accountingUnpersisted: 1, dropped: build.dropped, retryableSkipped: build.retryableSkipped, filled: build.filled, retryableBuildFailure: false }
   }
 
@@ -977,19 +1008,26 @@ async function consolidateFeeAccounts (w, models, scope, { reason } = {}) {
         const txHash = toTxHash(tx.getHash())
         let journal
         try {
-          journal = await prepareWalletTransaction({
-            models,
-            scope,
-            tx,
-            kind: 'CONSOLIDATION',
-            accountIndex: idx,
-            principalPiconeros: 0n,
-            metadata: { selfTransfer: true, destination: scope.walletAddress }
+          journal = await prepareDispatchResolved({
+            context: { accountIndex: idx, txHash, reason },
+            message: 'sendPayouts: CRITICAL — consolidation pair preparation failed',
+            prepare: () => prepareWalletTransaction({
+              models,
+              wallet: w,
+              scope,
+              tx,
+              kind: 'CONSOLIDATION',
+              accountIndex: idx,
+              principalPiconeros: 0n,
+              metadata: { selfTransfer: true, destination: scope.walletAddress },
+              keyProvider: paymentProofKeys()
+            })
           })
         } catch (err) {
-          // No durable journal row means NO relay: the sweep stays unbuilt and
-          // the next drive re-attempts it (nothing was broadcast).
-          logError({ accountIndex: idx, txHash, reason, errorClass: errorLabel(err) }, 'sendPayouts: CRITICAL — consolidation journal preparation failed; nothing relayed')
+          // The pair outcome is unresolved after a fresh read: this dispatch
+          // stays withheld — nothing was broadcast (the relay barrier never
+          // opened) and the next drive re-resolves from the DB.
+          logError({ accountIndex: idx, txHash, reason, errorClass: errorLabel(err) }, 'sendPayouts: CRITICAL — consolidation pair read failed; dispatch withheld, nothing relayed')
           alert('critical', 'rewards fee-account consolidation failed',
             `consolidation sweep of rewards wallet account ${idx} could not be journaled; refusing to relay`,
             { dedupeKey: `rewards-consolidate-${idx}` })
@@ -997,10 +1035,10 @@ async function consolidateFeeAccounts (w, models, scope, { reason } = {}) {
         }
         let relay
         try {
-          relay = await relayWalletTransaction({ models, wallet: w, journal, tx })
+          relay = await relayWalletTransaction({ models, wallet: w, journal, tx, keyProvider: paymentProofKeys() })
         } catch (err) {
           accountingFailures += 1
-          logError({ accountIndex: idx, txHash, reason, errorClass: errorLabel(err) }, 'sendPayouts: CRITICAL — consolidation relay claim failed; accounting remains unresolved')
+          logError({ accountIndex: idx, txHash, reason, errorClass: errorLabel(err) }, 'sendPayouts: CRITICAL — consolidation pair/attempt claim failed; accounting remains unresolved')
           continue
         }
         if (relay.relayed) {
@@ -1047,7 +1085,7 @@ function setBalanceGauge (models, unlocked) {
 // instant a tx relays).
 //
 // Ops may only sweep what is genuinely theirs. Before any wallet relay the
-// sweep reconciles the journal from exact-hash wallet history and refuses when
+// sweep reconciles the journal from fresh confirmed payment verifications and refuses when
 // accounting is unresolved, then reads ONE consistent DB snapshot (ledger +
 // next pool + all-time inflow) and bounds the whole run by:
 //   B = min( corrected ops carry, unlocked - outstanding reward principal -
@@ -1066,7 +1104,7 @@ function setBalanceGauge (models, unlocked) {
 // exact principal and fee) and only the original validated object is relayed;
 // opsSweptPiconeros records PRINCIPAL ONLY (the fee is a journal expense). An
 // uncertain relay stops all further account sweeps and leaves the journal
-// attempt unresolved, blocking the next sweep until wallet history proves the
+// attempt unresolved, blocking the next sweep until a fresh confirmed verification proves the
 // outcome — an unknown send is never treated as safely unbroadcast. Relay-
 // before-persist: a relayed tx hash is captured the instant the relay succeeds
 // and logged before any DB write, so it is never silently lost; a persist
@@ -1281,10 +1319,10 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
     return { state: 'FAILED' }
   }
 
-  // Resolve every attempted-but-unproven journal relay from exact-hash wallet
-  // history. A provable relay is journaled here; an unprovable one BLOCKS the
-  // sweep until verification — an unknown send is never treated as safely
-  // unbroadcast (Task 6/9 boundary).
+  // Resolve every attempted-but-unproven journal relay from a fresh confirmed
+  // whole-payment verification. A provable relay is journaled here; an
+  // unprovable one BLOCKS the sweep — an unknown send is never treated as
+  // safely unbroadcast (Task 6/9 boundary).
   const reconciliation = await reconcileWalletTransactions({ models, wallet: w, scope })
   if (reconciliation.uncertainSweep || reconciliation.accountingUnpersisted > 0) {
     return await refuseSweepAccounting({
@@ -1294,7 +1332,7 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
       hashes: [],
       swept: 0n,
       reason: reconciliation.uncertainSweep
-        ? 'an attempted ops-sweep relay is not resolved by exact-hash wallet history'
+        ? 'an attempted ops-sweep relay is not resolved by a fresh confirmed verification'
         : 'a proven relay could not be persisted in the journal'
     })
   }
@@ -1467,22 +1505,28 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
 
     let journal
     try {
-      journal = await prepareWalletTransaction({
-        models,
-        scope,
-        tx: built.tx,
-        kind: 'OPS_SWEEP',
-        accountIndex: acc.accountIndex,
-        distributionId: distribution.id,
-        principalPiconeros: built.principal,
-        metadata: { destination: coldAddress }
+      journal = await prepareDispatchResolved({
+        context: { distributionId: distribution.id, accountIndex: acc.accountIndex },
+        message: 'sweepOpsEarmark: CRITICAL — sweep pair preparation failed',
+        prepare: () => prepareWalletTransaction({
+          models,
+          wallet: w,
+          scope,
+          tx: built.tx,
+          kind: 'OPS_SWEEP',
+          accountIndex: acc.accountIndex,
+          distributionId: distribution.id,
+          principalPiconeros: built.principal,
+          metadata: { destination: coldAddress },
+          keyProvider: paymentProofKeys()
+        })
       })
     } catch (err) {
-      // No durable journal row means NO relay: nothing was broadcast for this
-      // account. Stop — an accounting write failure must surface, not be
-      // papered over.
+      // The pair outcome is unresolved after a fresh read: no relay happened
+      // for this account (the barrier never opened). Stop — an unresolved
+      // dispatch must surface, not be papered over.
       logError({ distributionId: distribution.id, accountIndex: acc.accountIndex, errorClass: errorLabel(err) },
-        'sweepOpsEarmark: CRITICAL — sweep journal preparation failed; no relay')
+        'sweepOpsEarmark: CRITICAL — sweep pair read failed; dispatch withheld, no relay')
       if (hashes.length > 0) {
         return await persistPartialSweepFailure({
           distribution,
@@ -1502,13 +1546,14 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
 
     let relay
     try {
-      relay = await relayWalletTransaction({ models, wallet: w, journal, tx: built.tx })
+      relay = await relayWalletTransaction({ models, wallet: w, journal, tx: built.tx, keyProvider: paymentProofKeys() })
     } catch (err) {
-      // Claim/identity failure: this built tx was NOT relayed by us, but the
-      // journal row may already be attempted (concurrent drive) — retain
-      // uncertainty and never treat it as safely unbroadcast.
+      // Pair/claim failure (including an unknown claim acknowledgement): this
+      // built tx was NOT broadcast, but the journal row may already be
+      // attempted (concurrent drive) — retain uncertainty and never treat it
+      // as safely unbroadcast.
       logError({ distributionId: distribution.id, accountIndex: acc.accountIndex, errorClass: errorLabel(err) },
-        'sweepOpsEarmark: CRITICAL — journal relay claim failed; blocking further sweeps until history verification')
+        'sweepOpsEarmark: CRITICAL — journal relay claim failed; blocking further sweeps until fresh verification')
       if (hashes.length > 0) {
         return await persistPartialSweepFailure({
           distribution,
@@ -1524,16 +1569,16 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
       // wallet before returning (isolated from the result).
       await refreshBalanceGauge({ distributionId: distribution.id, models, wallet: w })
       alert('critical', 'rewards ops sweep relay uncertain',
-        `distribution ${distribution.id}: a journaled sweep attempt could not be claimed/relayed (${journal.txHash}); it is NOT proven unbroadcast and blocks further sweeps until exact-hash history verification.`,
+        `distribution ${distribution.id}: a journaled sweep attempt could not be claimed/relayed (${journal.txHash}); it is NOT proven unbroadcast and blocks further sweeps until fresh verification.`,
         { dedupeKey: `dist-${distribution.id}-sweep-uncertain-${journal.txHash}` })
       return { state: 'FAILED' }
     }
     if (!relay.relayed) {
       // Possibly broadcast: stop ALL further account sweeps. The journal row
       // stays PREPARED+attempted and blocks the next run until exact-hash
-      // history resolves it; known partial facts are recorded and alerted.
+      // fresh verification resolves it; known partial facts are recorded and alerted.
       logError({ distributionId: distribution.id, accountIndex: acc.accountIndex, txHash: relay.txHash },
-        'sweepOpsEarmark: CRITICAL — relay outcome uncertain; stopping further sweeps until history verification')
+        'sweepOpsEarmark: CRITICAL — relay outcome uncertain; stopping further sweeps until fresh verification')
       if (hashes.length > 0) {
         return await persistPartialSweepFailure({
           distribution,
@@ -1542,14 +1587,14 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
           hashes,
           swept,
           alertTitle: 'partial ops sweep relayed then relay outcome uncertain',
-          alertBody: `distribution ${distribution.id}: ${hashes.length} sweep tx(s) already relayed (${hashes.join(',')}); sweep tx ${relay.txHash} (account ${acc.accountIndex}) may or may not have been broadcast. Partial sweep persisted; the unresolved journal attempt blocks the next sweep until exact-hash history proves the outcome.`
+          alertBody: `distribution ${distribution.id}: ${hashes.length} sweep tx(s) already relayed (${hashes.join(',')}); sweep tx ${relay.txHash} (account ${acc.accountIndex}) may or may not have been broadcast. Partial sweep persisted; the unresolved journal attempt blocks the next sweep until a fresh confirmed verification proves the outcome.`
         })
       }
       // The send may have reached the network: refresh the gauge from the
       // actual wallet before returning (isolated from the result).
       await refreshBalanceGauge({ distributionId: distribution.id, models, wallet: w })
       alert('critical', 'rewards ops sweep relay uncertain',
-        `distribution ${distribution.id}: sweep tx ${relay.txHash} (account ${acc.accountIndex}) may or may not have been broadcast and its journal attempt is unresolved. No further account sweeps were attempted; the next sweep is blocked until exact-hash history proves the outcome.`,
+        `distribution ${distribution.id}: sweep tx ${relay.txHash} (account ${acc.accountIndex}) may or may not have been broadcast and its journal attempt is unresolved. No further account sweeps were attempted; the next sweep is blocked until a fresh confirmed verification proves the outcome.`,
         { dedupeKey: `dist-${distribution.id}-sweep-uncertain-${relay.txHash}` })
       return { state: 'FAILED' }
     }

@@ -240,3 +240,382 @@ describe('module surface', () => {
     expect(() => daemon.createDaemonClient({ daemonUrl: MONEROD_URL })).not.toThrow()
   })
 })
+
+// ---- getPaymentTransactions (strict raw evidence for the payment-proof chain
+// adapter; strictly additive to getTransactions, which keeps its own shape) ----
+
+const HASH_A = 'aa'.repeat(32)
+const HASH_B = 'bb'.repeat(32)
+
+// Build one monerod /get_transactions entry whose decoded tx has one key input,
+// two outputs (legacy key + tagged_key) and a 7-piconero RingCT fee.
+function rawTxEntry (hash, overrides = {}) {
+  const tx = {
+    version: 2,
+    extra: [1, 2, 3, 4],
+    vin: [{ key: { k_image: '11'.repeat(32), amount: 100 } }],
+    vout: [
+      { amount: 33, target: { key: '22'.repeat(32) } },
+      { amount: 60, target: { tagged_key: { key: '33'.repeat(32) } } }
+    ],
+    rct_signatures: { txnFee: 7, outPk: [] },
+    ...(overrides.tx ?? {})
+  }
+  return {
+    tx_hash: hash,
+    block_height: 195,
+    in_pool: false,
+    output_indices: [5, 6],
+    as_json: overrides.asJson === undefined ? JSON.stringify(tx) : overrides.asJson,
+    ...(overrides.entry ?? {})
+  }
+}
+
+function rawResponse (entries, extra = {}) {
+  return jsonRes(200, { status: 'OK', txs: entries, missed_hashes: [], missed_tx: [], ...extra })
+}
+
+async function expectRawCode (promise, code) {
+  let caught = null
+  try { caught = await promise } catch (e) { caught = e }
+  expect(caught).not.toBeNull()
+  expect(caught.code).toBe(code)
+}
+
+describe('getPaymentTransactions', () => {
+  // I1: strict raw records now also carry `blockHash`, resolved per distinct
+  // block_height through get_block_header_by_height on the same transport.
+  const headerResponse = hash => jsonRes(200, {
+    id: '0',
+    jsonrpc: '2.0',
+    result: hash === null ? {} : { block_header: { hash } }
+  })
+  const routedTransport = (getTransactionsResponder, headerHash = 'dd'.repeat(32)) =>
+    recordingTransport(({ url, opts }) => {
+      if (!url.endsWith('/get_transactions')) return headerResponse(headerHash)
+      return getTransactionsResponder({ url, opts })
+    })
+
+  test('POSTs {txs_hashes, decode_as_json: true, prune: false} and returns strict raw records', async () => {
+    const t = routedTransport(() => rawResponse([rawTxEntry(HASH_A)]))
+    const client = makeClient(t)
+
+    const out = await client.getPaymentTransactions([HASH_A])
+
+    expect(t.calls[0].url).toBe(`${MONEROD_URL}/get_transactions`)
+    expect(JSON.parse(t.calls[0].opts.body)).toEqual({
+      txs_hashes: [HASH_A],
+      decode_as_json: true,
+      prune: false
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0]).toEqual({
+      txHash: HASH_A,
+      isCoinbase: false,
+      inputKeyImages: ['11'.repeat(32)],
+      voutKeys: ['22'.repeat(32), '33'.repeat(32)],
+      outputIndices: [5, 6],
+      feePiconeros: 7n,
+      blockHeight: 195,
+      inTxPool: false,
+      extra: '01020304',
+      // I1: resolved from get_block_header_by_height, never fabricated.
+      blockHash: 'dd'.repeat(32)
+    })
+    const headerCall = t.calls.find(c => c.url.endsWith('/json_rpc'))
+    expect(headerCall).toBeDefined()
+    expect(JSON.parse(headerCall.opts.body)).toEqual({
+      jsonrpc: '2.0',
+      id: '0',
+      method: 'get_block_header_by_height',
+      params: { height: 195 }
+    })
+  })
+
+  test('resolves one block hash per DISTINCT block_height and attaches it to every record', async () => {
+    const entryB = rawTxEntry(HASH_B, { entry: { block_height: 196 } })
+    const t = routedTransport(() => rawResponse([rawTxEntry(HASH_A), entryB]))
+    const client = makeClient(t)
+
+    const out = await client.getPaymentTransactions([HASH_A, HASH_B])
+
+    const headerCalls = t.calls.filter(c => c.url.endsWith('/json_rpc'))
+    expect(headerCalls.map(c => JSON.parse(c.opts.body).params.height).sort()).toEqual([195, 196])
+    const byHash = Object.fromEntries(out.map(record => [record.txHash, record]))
+    expect(byHash[HASH_A].blockHash).toBe('dd'.repeat(32))
+    expect(byHash[HASH_B].blockHash).toBe('dd'.repeat(32))
+    // Three transactions sharing ONE height resolve that height exactly once.
+    const shared = routedTransport(() => rawResponse([
+      rawTxEntry(HASH_A),
+      rawTxEntry(HASH_B, { entry: { block_height: 195 } })
+    ]))
+    const client2 = makeClient(shared)
+    const out2 = await client2.getPaymentTransactions([HASH_A, HASH_B])
+    expect(shared.calls.filter(c => c.url.endsWith('/json_rpc'))).toHaveLength(1)
+    expect(out2.every(record => record.blockHash === 'dd'.repeat(32))).toBe(true)
+  })
+
+  test('attaches null for an unresolvable header hash — never a fabricated value', async () => {
+    const entryB = rawTxEntry(HASH_B, { entry: { block_height: 196 } })
+    // Height 195 resolves; height 196 returns a header response without a
+    // usable hash.
+    const t = recordingTransport(({ url, opts }) => {
+      if (!url.endsWith('/get_transactions')) {
+        const { params } = JSON.parse(opts.body)
+        return headerResponse(params.height === 196 ? null : 'dd'.repeat(32))
+      }
+      return rawResponse([rawTxEntry(HASH_A), entryB])
+    })
+    const client = makeClient(t)
+    const out = await client.getPaymentTransactions([HASH_A, HASH_B])
+    const byHash = Object.fromEntries(out.map(record => [record.txHash, record]))
+    expect(byHash[HASH_A].blockHash).toBe('dd'.repeat(32))
+    expect(byHash[HASH_B].blockHash).toBeNull()
+
+    const missingHeader = routedTransport(() => rawResponse([rawTxEntry(HASH_A)]), null)
+    const client2 = makeClient(missingHeader)
+    const out2 = await client2.getPaymentTransactions([HASH_A])
+    expect(out2[0].blockHash).toBeNull()
+  })
+
+  test('header transport and RPC failures keep the existing throw discipline', async () => {
+    const httpFail = recordingTransport(({ url }) => {
+      if (!url.endsWith('/get_transactions')) return jsonRes(500, {})
+      return rawResponse([rawTxEntry(HASH_A)])
+    })
+    const client = makeClient(httpFail)
+    await expect(client.getPaymentTransactions([HASH_A])).rejects.toThrow(/HTTP 500/)
+
+    const rpcFail = recordingTransport(({ url }) => {
+      if (!url.endsWith('/get_transactions')) {
+        return jsonRes(200, { id: '0', jsonrpc: '2.0', error: { code: -26, message: 'block not found' } })
+      }
+      return rawResponse([rawTxEntry(HASH_A)])
+    })
+    const client2 = makeClient(rpcFail)
+    await expect(client2.getPaymentTransactions([HASH_A])).rejects.toThrow(/get_block_header_by_height/)
+  })
+
+  test('accepts as_json as an already-parsed object and extra as a hex string', async () => {
+    const t = recordingTransport(() => rawResponse([{
+      tx_hash: HASH_A,
+      block_height: 1,
+      in_pool: false,
+      output_indices: [0],
+      as_json: {
+        version: 2,
+        extra: 'deadbeef',
+        vin: [{ key: { k_image: '11'.repeat(32) } }],
+        vout: [{ amount: 1, target: { key: '22'.repeat(32) } }],
+        rct_signatures: { txnFee: 1 }
+      }
+    }]))
+    const client = makeClient(t)
+    const out = await client.getPaymentTransactions([HASH_A])
+    expect(out[0].extra).toBe('deadbeef')
+    expect(out[0].feePiconeros).toBe(1n)
+  })
+
+  test('accepts a coinbase gen vin with zero fee and no key images', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A, {
+      tx: {
+        version: 2,
+        extra: [],
+        vin: [{ gen: { height: 194 } }],
+        vout: [{ amount: 100, target: { key: '22'.repeat(32) } }],
+        rct_signatures: {}
+      },
+      entry: { output_indices: [9] }
+    })]))
+    const client = makeClient(t)
+    const out = await client.getPaymentTransactions([HASH_A])
+    expect(out[0]).toMatchObject({
+      txHash: HASH_A,
+      isCoinbase: true,
+      inputKeyImages: [],
+      voutKeys: ['22'.repeat(32)],
+      outputIndices: [9],
+      feePiconeros: 0n,
+      inTxPool: false
+    })
+    expect(out[0].extra).toBe('')
+  })
+
+  test.each([
+    [0, []],
+    [1, [1]],
+    [50, [50]],
+    [51, [50, 1]],
+    [101, [50, 50, 1]]
+  ])('batches %i hash(es) at MAX_TX_HASHES_PER_REQUEST', async (count, expectedBatches) => {
+    const hashes = Array.from({ length: count }, (_, i) => i.toString(16).padStart(64, '0'))
+    const t = routedTransport(({ opts }) => {
+      const { txs_hashes: batch } = JSON.parse(opts.body)
+      return rawResponse(batch.map(h => rawTxEntry(h, {
+        tx: { extra: [1] },
+        entry: { output_indices: undefined }
+      })))
+    })
+    const client = makeClient(t)
+    const out = await client.getPaymentTransactions(hashes)
+    const batchCalls = t.calls.filter(c => c.url.endsWith('/get_transactions'))
+    expect(batchCalls.map(c => JSON.parse(c.opts.body).txs_hashes.length)).toEqual(expectedBatches)
+    expect(out).toHaveLength(count)
+    if (count > 0) expect(out[count - 1].txHash).toBe(hashes[count - 1])
+    if (count === 0) expect(t.calls).toHaveLength(0)
+  })
+
+  test('throws DaemonRpcError on a non-OK status (restricted-mode cap included)', async () => {
+    const t = recordingTransport(() => jsonRes(200, {
+      status: 'Too many transactions requested in restricted mode'
+    }))
+    const client = makeClient(t)
+    const err = await client.getPaymentTransactions([HASH_A]).catch(e => e)
+    expect(err.name).toBe('DaemonRpcError')
+    expect(err.message).toMatch(/Too many transactions requested in restricted mode/)
+  })
+
+  test('throws DaemonHttpError on a non-2xx status', async () => {
+    const t = recordingTransport(() => jsonRes(500, {}))
+    const client = makeClient(t)
+    await expect(client.getPaymentTransactions([HASH_A])).rejects.toThrow(/HTTP 500/)
+  })
+
+  test('refuses missed hashes instead of silently returning fewer transactions', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A)], { missed_hashes: [HASH_B] }))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A, HASH_B]), 'DAEMON_MISSED_TX_HASH')
+  })
+
+  test('refuses legacy missed_tx reports too', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A)], { missed_tx: [HASH_B] }))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A, HASH_B]), 'DAEMON_MISSED_TX_HASH')
+  })
+
+  test('refuses pruned/partial daemon forms', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A, { entry: { pruned_as_json: '{}' } })]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'RAW_PRUNED_JSON_UNSUPPORTED')
+  })
+
+  test('refuses unparseable as_json', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A, { asJson: '{not json' })]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'RAW_TX_JSON_MALFORMED')
+  })
+
+  test('refuses missing as_json', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A, { entry: { as_json: undefined } })]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'RAW_TX_JSON_MISSING')
+  })
+
+  test('refuses a returned tx_hash that was not requested, and duplicates', async () => {
+    const unknownHash = 'cc'.repeat(32)
+    const t = recordingTransport(() => rawResponse([rawTxEntry(unknownHash)]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'RAW_HASH_MISMATCH')
+
+    const dup = recordingTransport(() => rawResponse([rawTxEntry(HASH_A), rawTxEntry(HASH_A)]))
+    const client2 = makeClient(dup)
+    await expectRawCode(client2.getPaymentTransactions([HASH_A]), 'RAW_TX_DUPLICATE')
+  })
+
+  test('refuses in-pool transactions for the confirmed-only adapter', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A, { entry: { in_pool: true } })]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'RAW_TX_IN_POOL')
+  })
+
+  test('refuses duplicate input key images and duplicate output keys', async () => {
+    const dupKI = rawTxEntry(HASH_A, {
+      tx: { vin: [{ key: { k_image: '11'.repeat(32) } }, { key: { k_image: '11'.repeat(32) } }] },
+      entry: { output_indices: [5, 6] }
+    })
+    const t = recordingTransport(() => rawResponse([dupKI]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'DUPLICATE_INPUT_KEY_IMAGE')
+
+    const dupOut = rawTxEntry(HASH_A, {
+      tx: { vout: [{ target: { key: '22'.repeat(32) } }, { target: { key: '22'.repeat(32) } }] }
+    })
+    const t2 = recordingTransport(() => rawResponse([dupOut]))
+    const client2 = makeClient(t2)
+    await expectRawCode(client2.getPaymentTransactions([HASH_A]), 'DUPLICATE_OUTPUT_KEY')
+  })
+
+  test('refuses vout entries without a usable target key', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A, {
+      tx: { vout: [{ amount: 1, target: {} }] },
+      entry: { output_indices: [5] }
+    })]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'RAW_VOUT_KEY_MALFORMED')
+  })
+
+  test('refuses unsafe integers before BigInt conversion and length-mismatched output_indices', async () => {
+    const unsafeFee = rawTxEntry(HASH_A, { tx: { rct_signatures: { txnFee: 2 ** 53 } } })
+    const t = recordingTransport(() => rawResponse([unsafeFee]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'RAW_INTEGER_UNSAFE')
+
+    const boundaryFee = rawTxEntry(HASH_A, { tx: { rct_signatures: { txnFee: Number.MAX_SAFE_INTEGER } } })
+    const tOk = recordingTransport(() => rawResponse([boundaryFee]))
+    const clientOk = makeClient(tOk)
+    const ok = await clientOk.getPaymentTransactions([HASH_A])
+    expect(ok[0].feePiconeros).toBe(BigInt(Number.MAX_SAFE_INTEGER))
+
+    const badIndices = rawTxEntry(HASH_A, { entry: { output_indices: [5] } })
+    const t2 = recordingTransport(() => rawResponse([badIndices]))
+    const client2 = makeClient(t2)
+    await expectRawCode(client2.getPaymentTransactions([HASH_A]), 'RAW_OUTPUT_INDICES_LENGTH')
+
+    const unsafeIndex = rawTxEntry(HASH_A, { entry: { output_indices: [5, 2 ** 53] } })
+    const t3 = recordingTransport(() => rawResponse([unsafeIndex]))
+    const client3 = makeClient(t3)
+    await expectRawCode(client3.getPaymentTransactions([HASH_A]), 'RAW_INTEGER_UNSAFE')
+
+    const unsafeHeight = rawTxEntry(HASH_A, { entry: { block_height: 1.5 } })
+    const t4 = recordingTransport(() => rawResponse([unsafeHeight]))
+    const client4 = makeClient(t4)
+    await expectRawCode(client4.getPaymentTransactions([HASH_A]), 'RAW_INTEGER_UNSAFE')
+  })
+
+  test('refuses missing fee on non-coinbase transactions', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A, {
+      tx: { rct_signatures: { outPk: [] } }
+    })]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'RAW_FEE_MISSING')
+  })
+
+  test('refuses missing extra on non-coinbase transactions and malformed extra shapes', async () => {
+    const noExtra = rawTxEntry(HASH_A, { tx: { extra: undefined } })
+    const t = recordingTransport(() => rawResponse([noExtra]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions([HASH_A]), 'RAW_EXTRA_MISSING')
+
+    const badHexExtra = rawTxEntry(HASH_A, { tx: { extra: 'zz' } })
+    const t2 = recordingTransport(() => rawResponse([badHexExtra]))
+    const client2 = makeClient(t2)
+    await expectRawCode(client2.getPaymentTransactions([HASH_A]), 'RAW_EXTRA_MALFORMED')
+  })
+
+  test('refuses malformed hash input and duplicate requested hashes', async () => {
+    const t = recordingTransport(() => rawResponse([]))
+    const client = makeClient(t)
+    await expectRawCode(client.getPaymentTransactions(['NOPE']), 'RAW_HASH_INVALID')
+    await expectRawCode(client.getPaymentTransactions([HASH_A.toUpperCase()]), 'RAW_HASH_INVALID')
+    await expectRawCode(client.getPaymentTransactions([HASH_A, HASH_A]), 'RAW_HASH_DUPLICATE')
+    await expectRawCode(client.getPaymentTransactions('aa'), 'RAW_HASH_LIST_INVALID')
+    expect(t.calls).toHaveLength(0)
+  })
+
+  test('keeps the existing getTransactions surface untouched', async () => {
+    const t = recordingTransport(() => rawResponse([rawTxEntry(HASH_A)]))
+    const client = makeClient(t)
+    const lenient = await client.getTransactions([HASH_A])
+    expect(lenient).toEqual([{ hash: HASH_A, extra: Buffer.from([1, 2, 3, 4]), vout: ['22'.repeat(32), '33'.repeat(32)] }])
+  })
+})

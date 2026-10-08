@@ -12,6 +12,7 @@
 // requested totals.
 
 import { readBountySettlement, readFeeSettlement, readTxSettlement } from '@/api/monero/bountySettlement'
+import { secretBundleHex } from '@/test/fixtures/payment-proof'
 
 const txWith = (fee, destinations) => ({
   getFee: () => fee,
@@ -33,10 +34,12 @@ test('preserves actual net cold fee and exact prize separately', async () => {
   })
 })
 
-test('rejects ambiguous coalesced prize/fee address attribution', async () => {
+test('attributes coalesced shared address from frozen prize and subtract-last fee obligations', async () => {
   const payout = { kind: 'AWARD', recipientAddress: '5HOT', piconeros: 10n, feePiconeros: 4n }
   await expect(readBountySettlement(txWith(1n, [{ address: '5HOT', amount: 13n }]),
-    { payout, feeRecipientAddress: '5HOT' })).rejects.toThrow(/ambiguous/i)
+    { payout, feeRecipientAddress: '5HOT' })).resolves.toEqual({
+    networkFeePiconeros: 1n, recipientReceivedPiconeros: 10n, feeReceivedPiconeros: 3n
+  })
 })
 
 test('RECLAIM settles the refund exactly and the fee destination net of the network fee', async () => {
@@ -144,4 +147,63 @@ test('readFeeSettlement returns the actual fee received and the fee tx network c
 test('readFeeSettlement rejects a fee tx that does not pay the frozen destination', async () => {
   const tx = txWith(1n, [{ address: '5ELSEWHERE', amount: 4n }])
   await expect(readFeeSettlement(tx, { feeRecipientAddress: '5COLD' })).rejects.toThrow(/ambiguous/i)
+})
+
+// --- Task 7: extraction happens BEFORE the capture pair commits -------------
+// The settlement is now read from the BUILT (signed, unrelayed) tx, before the
+// durable journal+proof pair exists. These pins keep the reader's output
+// exactly the frozen settlement expectation shape the escrow dispatch
+// preparation consumes, on a capture-grade built object (hash/fee/actual
+// destinations/change/key bundle getters) — the reader must be indifferent to
+// the extra SDK getters and to whether the tx was ever relayed.
+
+const NET_FEE = 40_000n
+const BUILT_PRIZE = 10_000_000_000n
+const BUILT_FEE = 2_000_000_000n
+const captureGradeBuiltTx = (fee, actualDestinations) => ({
+  // capture-grade getters (ignored by the reader, present on built txs)
+  getHash: () => 'ab'.repeat(32),
+  getChangeAddress: () => '5CHANGE',
+  getChangeAmount: () => 5n,
+  // The SDK captures the SECRET-bundle STRING (final-review C1).
+  getKey: () => secretBundleHex(900n, 2),
+  // settlement-authoritative getters
+  getFee: () => fee,
+  getOutgoingTransfer: () => ({
+    getDestinations: () => actualDestinations.map(d => ({ getAddress: () => d.address, getAmount: () => d.amount }))
+  })
+})
+
+test('a capture-grade BUILT award tx settles the exact prize and the fee net of the subtracted network fee', async () => {
+  const payout = { kind: 'AWARD', recipientAddress: '5WINNER', piconeros: BUILT_PRIZE, feePiconeros: BUILT_FEE }
+  // subtractFeeFrom: [1] — the ops cut absorbs the network fee.
+  const tx = captureGradeBuiltTx(NET_FEE, [
+    { address: '5WINNER', amount: BUILT_PRIZE },
+    { address: '5COLD', amount: BUILT_FEE - NET_FEE }
+  ])
+  expect(await readBountySettlement(tx, { payout, feeRecipientAddress: '5COLD' })).toEqual({
+    networkFeePiconeros: NET_FEE,
+    recipientReceivedPiconeros: BUILT_PRIZE,
+    feeReceivedPiconeros: BUILT_FEE - NET_FEE
+  })
+})
+
+test('a capture-grade BUILT rollover tx settles one net output with a zero fee receipt', async () => {
+  const payout = { kind: 'ROLLOVER', recipientAddress: '5WINNER', piconeros: 12_000_000_000n, feePiconeros: 0n }
+  // subtractFeeFrom: [0] — the single payout destination absorbs the fee.
+  const tx = captureGradeBuiltTx(NET_FEE, [{ address: '5WINNER', amount: 12_000_000_000n - NET_FEE }])
+  expect(await readBountySettlement(tx, { payout, feeRecipientAddress: null })).toEqual({
+    networkFeePiconeros: NET_FEE,
+    recipientReceivedPiconeros: 12_000_000_000n - NET_FEE,
+    feeReceivedPiconeros: 0n
+  })
+})
+
+test('a capture-grade BUILT legacy fee tx settles the full frozen fee with no subtraction', async () => {
+  // The legacy branch's separate fee destination: full amount, the network fee
+  // is a separate escrow cost on top.
+  const tx = captureGradeBuiltTx(NET_FEE, [{ address: '5COLD', amount: 4n }])
+  expect(await readFeeSettlement(tx, { feeRecipientAddress: '5COLD' })).toEqual({
+    networkFeePiconeros: NET_FEE, feeReceivedPiconeros: 4n
+  })
 })

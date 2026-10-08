@@ -1,5 +1,6 @@
 import { daemonClient } from '@/api/monero/daemonClient'
 import { sendBountyPayments as defaultSendBountyPayments, bountyFeePiconeros, getBountyEscrowTxHeight } from '@/api/monero/bounties'
+import { errorLabel } from '@/api/monero/rewardsTransactions'
 import { REQUIRED_CONFIRMATIONS, BOUNTY_UNDERPAY_ABANDON_DAYS } from '@/lib/constants'
 import { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
@@ -8,10 +9,13 @@ import { alert } from '@/lib/alert'
 // pgboss.schedule cron row `bounties` (cron-owned, retryLimit 0):
 //   1. EXPIRY: FUNDED bounties past bountyExpiryDays (from bountyConfirmedAt)
 //      flip to EXPIRED (author can then reclaim or roll over).
-//   2. SEND: QUEUED BountyPayments are sent by the escrow signer
-//      (relay-before-persist; FAILED rows are resumable by a later run only via
-//      a re-queue — FAILED funds stay in escrow). SENT payouts with a deferred
-//      fee (feePendingAt set) are re-offered to the signer for fee settlement.
+//   2. SEND: QUEUED BountyPayments are sent by the escrow signer through the
+//      capture barrier (relay:false build -> durable journal+proof pair ->
+//      CAS-claimed single relay attempt -> relay -> persist; FAILED rows are
+//      resumable by a later run only via a re-queue — FAILED funds stay in
+//      escrow). SENT and CONFIRMED payouts with a deferred fee (feePendingAt
+//      set) are re-offered to the signer for fee settlement (the change can
+//      unlock after the prize matures).
 //   3. MATURITY: SENT payouts flip to CONFIRMED at REQUIRED_CONFIRMATIONS
 //      (daemon height fetched once per run). A payout whose height was unknown
 //      at relay time (NULL) has it backfilled from lws by tx hash.
@@ -129,10 +133,16 @@ export async function bounties ({ boss, models }) {
   try {
     await runBountiesOnce({ models })
   } catch (err) {
-    logError({ err }, 'bounties: run failed')
+    // Fixed classification labels only (final-review M6): raw error objects
+    // and messages can carry transport detail, so the log record carries a
+    // machine label, never the error itself.
+    logError({ errorClass: errorLabel(err) }, 'bounties: run failed')
   }
   // Recurrence is cron-owned (pgboss.schedule row bounties, retryLimit 0).
-  // Deliberately still NO retry: the payout dispatch (sendBountyPayments) is
-  // relay-before-persist with no claim/CAS, so a mid-dispatch retry could
-  // double-send an on-chain payout. The next cron tick re-runs the sweep.
+  // Deliberately still NO retry: sendBountyPayments now commits the durable
+  // journal+proof pair and CAS-claims the single relay attempt before any
+  // broadcast (relay:false build -> prepare -> claim -> relay -> persist), so a
+  // mid-dispatch interruption leaves the leg withheld for reconciliation
+  // instead of double-sending. An immediate job retry would only re-scan the
+  // same sweep, so the next cron tick re-runs it with fresh state.
 }

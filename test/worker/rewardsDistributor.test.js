@@ -412,6 +412,14 @@ beforeAll(async () => {
   if (registeredPlatform) {
     TEST_NETWORK = registeredPlatform.network
     TEST_WALLET_ADDRESS = registeredPlatform.address
+  } else {
+    // The reader refuses an ABSENT registered platform_rewards identity (the
+    // shared v2 audit snapshot proves it before any read), so this suite
+    // registers the configured wallet itself and tears it down in afterAll.
+    const account = await prisma.moneroAccount.create({
+      data: { ownerUserId: null, address: TEST_WALLET_ADDRESS, label: 'platform_rewards', network: TEST_NETWORK, status: 'ACTIVE' }
+    })
+    created.accounts.push(account.id)
   }
   process.env.MONERO_NETWORK = TEST_NETWORK.toLowerCase()
   process.env.PLATFORM_REWARDS_ADDRESS = TEST_WALLET_ADDRESS
@@ -2000,7 +2008,7 @@ describe('warnUndeliveredDistributions (stranding visibility net)', () => {
   // but the journal fee persist fails (drive 1 -> accountingUnpersisted). The
   // no-QUEUED path must not flip COMPLETE (or schedule a sweep) until the
   // attempted journal row is resolved from the wallet's exact-hash history.
-  test('two-drive all-SENT regression: an attempted journal row blocks COMPLETE until exact-hash history proves it', async () => {
+  test('two-drive all-SENT regression: an attempted journal row blocks COMPLETE until a fresh confirmed verification proves it — wallet history alone never promotes', async () => {
     const { dist, payouts } = await seedDistribution({ status: 'PENDING', payouts: [{ state: 'QUEUED' }] })
     const payout = payouts[0]
     const txHash = testHash('a1')
@@ -2053,23 +2061,35 @@ describe('warnUndeliveredDistributions (stranding visibility net)', () => {
       expect.stringContaining(String(dist.id)), expect.anything())
     expect((await prisma.rewardsWalletTransaction.findUnique({ where: journalKey })).state).toBe('PREPARED')
 
-    // Drive 3: the wallet's own history proves the exact hash/fee/destinations.
-    // The journal recovers to RELAYED, the all-SENT row completes, and the
-    // delayed sweep is enqueued — still with no payout relay.
+    // Drive 3 (capture-era contract, Finding #1): an attempted PREPARED row is
+    // promoted ONLY by a fresh confirmed complete-payment verification — the
+    // wallet's own outgoing history (exact hash, fee and destinations) NEVER
+    // proves a relay by itself. No verifier session is available here, so the
+    // attempt retains uncertainty: the row stays PREPARED+attempted, the
+    // distribution stays FAILED, and no sweep is enqueued.
     const outgoing = [outgoingTransfer({
       txHash,
       feePiconeros: journalFee,
       destinations: [{ address: payout.recipientAddress, amount: payout.piconeros }]
     })]
-    const provedWallet = jest.fn().mockResolvedValue(fakeWallet({ outgoing }))
-    const after3 = await runDistributionOnce({ models: prisma, sendPayouts: drive2, boss, getWallet: provedWallet })
-    expect(after3.status).toBe('COMPLETE')
+    const historyWallet = jest.fn().mockResolvedValue(fakeWallet({ outgoing }))
+    const after3 = await runDistributionOnce({ models: prisma, sendPayouts: drive2, boss, getWallet: historyWallet })
+    expect(after3.status).toBe('FAILED')
     expect(drive2).not.toHaveBeenCalled()
-    expect((await prisma.rewardsWalletTransaction.findUnique({ where: journalKey })).state).toBe('RELAYED')
-    expect(boss.send).toHaveBeenCalledWith('opsSweep', { distributionId: dist.id },
-      { startAfter: 3600, singletonKey: `opsSweep-${dist.id}` })
-    // No new payout attempt and no second journal row were manufactured by the
-    // reconciliation: the same one payout and one journal row are all that exist.
+    const unresolved3 = await prisma.rewardsWalletTransaction.findUnique({ where: journalKey })
+    expect(unresolved3.state).toBe('PREPARED')
+    expect(unresolved3.relayAttemptedAt).not.toBeNull()
+    expect(unresolved3.relayedAt).toBeNull()
+    expect(boss.send).not.toHaveBeenCalled()
+    expect(alert).toHaveBeenCalledWith('critical', 'rewards distribution completion blocked by unresolved wallet accounting',
+      expect.stringContaining(String(dist.id)), expect.anything())
+    // The recorded delivery stands (never FAILED, never re-sent), and no new
+    // payout attempt or second journal row was manufactured: the same one
+    // payout and one journal row are all that exist. (The positive promotion
+    // path — a fresh confirmed complete verification stamping RELAYED with
+    // chain-proof-observation provenance — is pinned end to end in
+    // test/api/monero/rewardsTransactions.test.js.)
+    expect((await prisma.rewardPayout.findUnique({ where: { id: payout.id } })).state).toBe('SENT')
     expect(await prisma.rewardPayout.count({ where: { distributionId: dist.id } })).toBe(1)
     expect(await prisma.rewardsWalletTransaction.count({
       where: { network: TEST_NETWORK, walletAddress: TEST_WALLET_ADDRESS, distributionId: dist.id }

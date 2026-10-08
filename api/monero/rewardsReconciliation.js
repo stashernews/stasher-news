@@ -1,6 +1,25 @@
 import { createHash } from 'node:crypto'
 import { allocateInflow, money, opsCarry, standingReserve } from '@/lib/rewardsAccounting'
 import { summarizeRewardsLedger } from '@/api/monero/rewardsLedger'
+import {
+  isObservableMonetaryReceipt,
+  readRewardsAuditReserve,
+  readRewardsAuditSnapshot
+} from '@/api/monero/rewardsAuditSnapshot'
+import {
+  ACCOUNTING_FINGERPRINT_VERSION,
+  accountingAuditFingerprint,
+  isCurrentAccountingFingerprint
+} from '@/lib/rewardsAuditFingerprint'
+import { buildJournalRelayOperation, buildLegacyBackfillRelayProof, LEGACY_BACKFILL_REASON } from '@/api/monero/rewardsRelayProof'
+import {
+  paymentVerificationFacts,
+  validatePaymentVerification
+} from '@/api/monero/paymentVerification'
+import {
+  recordedBatchMembershipMismatch,
+  recordedOutflowCoverage
+} from '@/api/monero/rewardsOutflowCoverage'
 
 // Deterministic, evidence-bound accounting repair manifest (rewards accounting
 // repair §8, Task 12). PURE: the function is a total function of its input
@@ -33,16 +52,22 @@ import { summarizeRewardsLedger } from '@/api/monero/rewardsLedger'
 //     opsCarryProvenance: { [distributionId]: { verified: true, source } }
 //   }
 //
-// Output manifest:
-//   { version: 1, scope, boundary, evidenceDigest, ledgerFingerprint,
-//     protectedRewardsFingerprint, preconditionFingerprint, decisionsDigest,
-//     issues[], operations[], before, after, digest }
-// All money values are exact decimal strings; BigInts never escape.
+// Output manifest (v2, rewards reconciliation plan Tasks 1–3):
+//   { version: 2, accountingFingerprintVersion: 2, scope, boundary,
+//     evidenceDigest, ledgerFingerprint, protectedRewardsFingerprint,
+//     preconditionFingerprint, decisionsDigest, issues[], operations[],
+//     before, after, digest }
+// `ledgerFingerprint` is the SHARED `accounting:v2:` audit identity from
+// Task 1 (`accountingAuditFingerprint` over the same snapshot input the
+// builder consumed) — the union money digest is no longer an accounting
+// authority. All money values are exact decimal strings; BigInts never escape.
 //
 // The apply gate (Task 13) consumes three extra public interfaces from this
 // module, all fail-closed:
-//   - `readRepairLedger(tx, scope)` reads the same safe row projections the
-//     builder consumes, scoped to the configured wallet;
+//   - `readRepairLedger(models, scope, { reserve } = {})` reads the same safe
+//     row projections the builder consumes through the ONE shared audit
+//     snapshot (complete groups + config + reserve + the v2 audit fingerprint),
+//     scoped to the registered platform wallet;
 //   - `assertRepairPreconditions(manifest, ledger, evidence)` is the pure
 //     comparator: the approved evidence digest/scope/boundary must still hold,
 //     the scoped ledger fingerprint and protected reward snapshot must be
@@ -59,10 +84,15 @@ import { summarizeRewardsLedger } from '@/api/monero/rewardsLedger'
 // so an apply can refuse a new/changed observation, transaction, reward
 // contract or config even when the change has no matching operation.
 //
-// Operations are the closed repair vocabulary Task 13 applies:
+// Operations are the closed repair vocabulary the guarded APPLY applies:
 //   { kind: 'update'|'insert', table, id|txHash|key, before, after, reason }
 // `before` carries the exact expected current values (null for an insert), and
-// for updates only the fields the repair changes. No operation ever touches a
+// for updates only the fields the repair changes. A confirmed attempted
+// PREPARED -> RELAYED journal promotion additionally carries its closed v2
+// `relayProof` (api/monero/rewardsRelayProof.js); the same proof also binds
+// the ONE journal-less legacy backfill insert authorized by complete
+// independently surviving evidence (rewards reconciliation Task 4, reason
+// `legacy-complete-payment-backfill`). Every other operation never touches a
 // reward contract (RewardPayout / Earn / distribution reward totals), a payout
 // state, or an actual sweep principal/hash.
 //
@@ -209,6 +239,10 @@ function intOrNull (value) {
   return Number.isSafeInteger(value) ? value : null
 }
 
+function stringOrNull (value) {
+  return typeof value === 'string' ? value : null
+}
+
 function numericId (value) {
   if (Number.isSafeInteger(value)) return value
   if (typeof value === 'bigint' && value <= BigInt(Number.MAX_SAFE_INTEGER)) return Number(value)
@@ -343,7 +377,12 @@ export function normalizeEvidence (value) {
         bridge: {
           pendingIncoming: arrayOf(evidence.escrow.bridge?.pendingIncoming).map(normalizeIncomingEntry).sort(byHashKey),
           pendingOutgoing: arrayOf(evidence.escrow.bridge?.pendingOutgoing).map(normalizeOutgoingEntry).sort(byHashKey)
-        }
+        },
+        // The collector's ESCROW payment verifications (rewards reconciliation
+        // Task 4): projected like the top-level verifications so the reverse
+        // escrow-leg coverage can bind collected evidence — never silently
+        // discarded.
+        paymentVerifications: arrayOf(evidence.escrow.paymentVerifications)
       }
     : null
   const balances = evidence.balances && typeof evidence.balances === 'object' ? evidence.balances : {}
@@ -353,6 +392,16 @@ export function normalizeEvidence (value) {
     if (amount != null) accounts[key] = amount
   }
   return {
+    // The v2 evidence contract (rewards reconciliation Task 3): the approved
+    // collection carries its contract version, the explicit observation
+    // window and the safe verifier results it was built from. Payment
+    // verifications are part of the approved evidence digest; repair
+    // authorization against them requires evidenceVersion 2 (enforced where
+    // they are indexed for promotion).
+    evidenceVersion: intOrNull(evidence.evidenceVersion),
+    collectionStartedAt: isoOrNull(evidence.collectionStartedAt),
+    observedAt: isoOrNull(evidence.observedAt),
+    paymentVerifications: arrayOf(evidence.paymentVerifications),
     scope: evidence.scope && typeof evidence.scope === 'object'
       ? { network: evidence.scope.network ?? null, walletAddress: evidence.scope.walletAddress ?? null }
       : null,
@@ -483,8 +532,19 @@ function normalizeJournalRow (row) {
     // string here yields the same fingerprint for real Prisma Dates and for
     // structurally-cloned (cross-realm) dates, while `relayAttempted` remains
     // the builder's own boolean view.
+    preparedAt: isoOrNull(row.preparedAt),
     relayAttemptedAt: isoOrNull(row.relayAttemptedAt),
-    relayAttempted: row.relayAttemptedAt != null
+    relayAttempted: row.relayAttemptedAt != null,
+    relayedAt: isoOrNull(row.relayedAt),
+    relayProvenance: stringOrNull(row.relayProvenance),
+    // Proof-era capture + declared-proof facts (rewards reconciliation
+    // Task 3): the promotion binds a verified payment to the row's own
+    // capture identity, and the complete precondition fingerprint covers them.
+    dispatchId: stringOrNull(row.dispatchId),
+    captureContractVersion: intOrNull(row.captureContractVersion),
+    claimDigest: normalizeHash(row.claimDigest),
+    paymentClaims: row.paymentClaims ?? null,
+    proofId: stringOrNull(row.proofId)
   }
 }
 
@@ -518,6 +578,26 @@ function normalizeLedger (value) {
     distributions: arrayOf(ledger.distributions).map(normalizeDistribution).filter(Boolean).sort(sortByNumberedId),
     transactions: arrayOf(ledger.transactions).map(normalizeJournalRow).filter(Boolean).sort((a, b) => a.txHash.localeCompare(b.txHash)),
     bountyPayments: arrayOf(ledger.bountyPayments).map(normalizeBountyPayment).filter(Boolean).sort(sortByNumberedId),
+    // Recorded escrow journals (final-review I1 round 3): the authoritative
+    // leg rows the reverse escrow coverage binds against — a leg's covering
+    // verification must bind the recorded journal owner and carry the leg's
+    // frozen membership. Raw paymentClaims travel verbatim (the claims
+    // derivation authenticates them against the row's own digest).
+    escrowTransactions: arrayOf(ledger.escrowTransactions).map(row => ({
+      id: numericId(row?.id),
+      network: stringOrNull(row?.network),
+      walletAddress: stringOrNull(row?.walletAddress),
+      txHash: normalizeHash(row?.txHash),
+      kind: stringOrNull(row?.kind),
+      leg: stringOrNull(row?.leg),
+      bountyPaymentId: numericId(row?.bountyPaymentId),
+      itemId: intOrNull(row?.itemId),
+      state: stringOrNull(row?.state),
+      dispatchId: stringOrNull(row?.dispatchId),
+      claimDigest: normalizeHash(row?.claimDigest),
+      paymentClaims: row?.paymentClaims ?? null
+    })).filter(row => row.txHash != null)
+      .sort((a, b) => a.txHash.localeCompare(b.txHash) || (a.id ?? -1) - (b.id ?? -1)),
     observedBounties: arrayOf(ledger.observedBounties).map(row => ({
       id: numericId(row?.id),
       txHash: normalizeHash(row?.txHash),
@@ -665,7 +745,22 @@ export function buildRewardsReconciliation (input = {}) {
   const scope = normalizeScope(input.scope)
   const boundary = normalizeBoundary(input.boundary)
   const evidence = normalizeEvidence(input.evidence)
+  // Raw receipt visibility (final-review B2): the ONE shared receipt rule
+  // classifies the RAW rows — a raw-formed malformed amount (`7`, `'07'`,
+  // `'+7'`) is not an observable monetary row even though the normalizer can
+  // read it. The complete raw group stays the fingerprint/precondition
+  // authority (every row is retained and projected below); this classification
+  // only fixes the monetary working set the analysis consumes.
+  const observableReceiptIds = new Set()
+  for (const row of arrayOf(input.ledger?.receipts)) {
+    const id = numericId(row?.id)
+    if (id != null && isObservableMonetaryReceipt(row)) observableReceiptIds.add(id)
+  }
   const ledger = normalizeLedger(input.ledger)
+  // The ONE shared monetary working-set filter (final-review I3), driven by
+  // the RAW classification above: applied separately INSIDE analysis, never to
+  // the fingerprint or precondition input.
+  const analysisReceipts = ledger.receipts.filter(row => observableReceiptIds.has(row.id))
   const decisions = input.decisions && typeof input.decisions === 'object' ? input.decisions : {}
   const config = normalizeConfig(input.config)
   const reserveInputs = input.reserve && typeof input.reserve === 'object' ? input.reserve : {}
@@ -674,6 +769,10 @@ export function buildRewardsReconciliation (input = {}) {
   const issues = []
   const operations = []
   const issue = (code, details = {}) => issues.push({ code, ...details })
+
+  // The approved normalized-collection digest: bound into the manifest and
+  // into every relayProof so an apply can never mix evidence generations.
+  const evidenceDigest = digestOf(evidence)
 
   // -- Evidence integrity ---------------------------------------------------
 
@@ -808,7 +907,7 @@ export function buildRewardsReconciliation (input = {}) {
 
   // -- Receipt/receipt-evidence matching ------------------------------------
 
-  const afterReceipts = ledger.receipts.map(row => ({ ...row }))
+  const afterReceipts = analysisReceipts.map(row => ({ ...row }))
   const afterReceiptById = new Map(afterReceipts.map(row => [row.id, row]))
   const receiptCorrections = []
   const matchedReceiptIds = new Set()
@@ -1008,7 +1107,7 @@ export function buildRewardsReconciliation (input = {}) {
 
   // Booked cash rows with no chain evidence: identified funding accruals are
   // marked noncash; anything else is an unmatched booked receipt.
-  for (const receipt of ledger.receipts) {
+  for (const receipt of analysisReceipts) {
     if (matchedReceiptIds.has(receipt.id)) continue
     if (receipt.walletReceipt !== true || receipt.state !== 'CONFIRMED') continue
     if (receipt.piconeros == null) {
@@ -1042,6 +1141,79 @@ export function buildRewardsReconciliation (input = {}) {
       txHash: receipt.txHash,
       amountPiconeros: receipt.piconeros.toString()
     })
+  }
+
+  // -- Safe payment-verification collection ---------------------------------
+
+  // Proof-era authority (rewards reconciliation Task 3): the approved
+  // collection may carry #1 verifier results. They are indexed by
+  // role/scope/hash with duplicate/conflict detection BEFORE any outgoing
+  // classification, and repair authorization against them requires the v2
+  // evidence contract — an old report can still be displayed, but its
+  // verifications never promote a relay.
+  const verificationsByRoleAndHash = new Map()
+  const suppliedVerifications = arrayOf(input.evidence?.paymentVerifications)
+  if (suppliedVerifications.length > 0) {
+    if (evidence.evidenceVersion !== 2) {
+      issue('EVIDENCE_VERSION_UNSUPPORTED', {
+        reason: 'payment verifications authorize repair only under the v2 evidence contract'
+      })
+    } else {
+      for (const entry of suppliedVerifications) {
+        if (!validatePaymentVerification(entry)) {
+          issue('PAYMENT_VERIFICATION_INVALID', {
+            reason: 'a collected payment verification is not a safe PaymentVerificationV1 result'
+          })
+          continue
+        }
+        if (!entry.scope || entry.scope.network !== scope.network ||
+          entry.scope.walletAddress !== scope.walletAddress) {
+          issue('PAYMENT_VERIFICATION_SCOPE_MISMATCH', {
+            txHash: entry.txHash,
+            journalRole: entry.journalRole,
+            reason: 'a collected payment verification names another wallet scope'
+          })
+          continue
+        }
+        const key = `${entry.journalRole}:${entry.txHash}`
+        const prior = verificationsByRoleAndHash.get(key)
+        if (prior !== undefined) {
+          const conflicts = prior === null ||
+            String(prior.journalId) !== String(entry.journalId) ||
+            JSON.stringify(canonicalValue(paymentVerificationFacts(prior))) !==
+              JSON.stringify(canonicalValue(paymentVerificationFacts(entry)))
+          if (conflicts) {
+            issue('PAYMENT_VERIFICATION_CONFLICT', {
+              txHash: entry.txHash,
+              journalRole: entry.journalRole,
+              reason: 'two collected verifications disagree for one journal role/scope/hash'
+            })
+            verificationsByRoleAndHash.set(key, null) // poisoned: never binds
+          }
+          continue
+        }
+        verificationsByRoleAndHash.set(key, entry)
+      }
+    }
+  }
+
+  // -- Reverse recorded-outflow coverage ------------------------------------
+
+  // Every recorded outflow (payouts, recorded sweep hashes, escrow settlement
+  // legs) is proved row-first against a COMPLETE payment verification —
+  // INDEPENDENT of any drift computation: there is deliberately no
+  // aggregate-drift guard here or anywhere below. Relay journal rows, confirmed
+  // history and pending bridge entries are operational recovery facts and
+  // chain presence, never strict coverage (final-review I1): a recorded
+  // outflow without complete proof stays a named issue whatever the
+  // destination/fee history shows. Exact same-cause records are deduplicated
+  // against the builder's own.
+  const emittedIssueKeys = new Set(issues.map(entry => JSON.stringify(canonicalValue(entry))))
+  for (const record of recordedOutflowCoverage({ ledger, evidence, scope })) {
+    const key = JSON.stringify(canonicalValue(record))
+    if (emittedIssueKeys.has(key)) continue
+    emittedIssueKeys.add(key)
+    issues.push(record)
   }
 
   // -- Hot outgoing classification ------------------------------------------
@@ -1089,12 +1261,114 @@ export function buildRewardsReconciliation (input = {}) {
   const verifyJournalDestinations = (row, entry) =>
     journalRelayEvidenceMismatch({ row, entry, scope, ownedAddresses })
 
+  // Journal-less legacy backfill (rewards reconciliation Task 4): a complete
+  // independently surviving legacy verification — never a destination-only or
+  // tx-hash-only input, and never a new signing operation — backfills ONE
+  // historical journal row carrying the same closed v2 relayProof with null
+  // journal/dispatch/claim/proof-inventory identity. `relayedAt` is the time
+  // the evidence was checked (the observation), never a reconstructed
+  // broadcast time, and every proof-era capture column is explicitly null.
+  const legacyBackfillVerification = txHash => {
+    const bound = verificationsByRoleAndHash.get(`REWARDS:${txHash}`)
+    if (!bound || bound.status !== 'complete' || bound.captureMode !== 'LEGACY_SURVIVING_PROOF') return null
+    return bound
+  }
+  const pushLegacyBackfill = ({ kind, entry, verification, distributionId, principalPiconeros, metadata }) => {
+    let relayProof
+    try {
+      relayProof = buildLegacyBackfillRelayProof({ verification, evidenceDigest })
+    } catch (err) {
+      if (typeof err?.code !== 'string' || !err.message.startsWith(`${err.code}: `)) throw err
+      issue(err.code, { txHash: entry.txHash, reason: err.message.slice(err.code.length + 2) })
+      return
+    }
+    const after = {
+      network: scope.network,
+      walletAddress: scope.walletAddress,
+      txHash: entry.txHash,
+      kind,
+      state: 'RELAYED',
+      accountIndex: entry.accountIndex ?? 0,
+      distributionId,
+      principalPiconeros: principalPiconeros.toString(),
+      networkFeePiconeros: BigInt(verification.totals.F).toString(),
+      metadata,
+      relayAttemptedAt: null,
+      relayedAt: verification.observedAt,
+      relayProvenance: LEGACY_BACKFILL_REASON,
+      dispatchId: null,
+      captureContractVersion: null,
+      claimDigest: null,
+      paymentClaims: null,
+      proofId: null
+    }
+    operations.push({
+      kind: 'insert',
+      table: 'RewardsWalletTransaction',
+      key: { network: scope.network, walletAddress: scope.walletAddress, txHash: entry.txHash },
+      before: null,
+      after,
+      relayProof,
+      reason: LEGACY_BACKFILL_REASON
+    })
+    afterTransactions.push({ ...after, principalPiconeros, networkFeePiconeros: BigInt(after.networkFeePiconeros) })
+  }
+
+  // Evidence-bound promotion of one attempted PREPARED row (rewards
+  // reconciliation Task 3): the complete verified payment resolves the row's
+  // journal contradiction/pending-attempt state with ONE closed operation, or
+  // records the exact refusal — generic issues are never doubled for a row a
+  // verification was collected for.
+  const relayPromotionAttemptedHashes = new Set()
+  const promotedAfterByHash = new Map()
+  const promoteJournalRow = (row, verification) => {
+    if (promotedAfterByHash.has(row.txHash)) return
+    try {
+      const operation = buildJournalRelayOperation({
+        row,
+        verification,
+        evidenceDigest,
+        collectionStartedAt: evidence.collectionStartedAt,
+        collectedAt: evidence.observedAt
+      })
+      operations.push(operation)
+      const afterRow = afterTransactions.find(candidate => candidate.txHash === row.txHash)
+      if (afterRow) {
+        // The copied after-ledger resolves BEFORE fees/principal, ops
+        // carry/checkpoints and uncertainty are recomputed below.
+        afterRow.state = 'RELAYED'
+        afterRow.relayedAt = operation.after.relayedAt
+        afterRow.relayProvenance = operation.after.relayProvenance
+        if (operation.after.networkFeePiconeros !== undefined) {
+          afterRow.networkFeePiconeros = BigInt(operation.after.networkFeePiconeros)
+        }
+        promotedAfterByHash.set(row.txHash, afterRow)
+      }
+    } catch (err) {
+      if (typeof err?.code !== 'string' || !err.message.startsWith(`${err.code}: `)) throw err
+      issue(err.code, { txHash: row.txHash, kind: row.kind, reason: err.message.slice(err.code.length + 2) })
+    }
+  }
+
   for (const entry of evidence.outgoing.filter(row => row.isConfirmed && !row.inTxPool).sort(byHashKey)) {
     if (!entry.txHash) {
       issue('INVALID_EVIDENCE_ENTRY', { reason: 'confirmed outgoing without a transaction hash' })
       continue
     }
     if (foreignJournalHashes.has(entry.txHash)) continue // excluded foreign fact: the scope issue already blocks APPLY
+    const candidateRow = journalAnalysisByHash.get(entry.txHash)
+    if (candidateRow && candidateRow.state === 'PREPARED' && candidateRow.relayAttempted &&
+      (journalByHash.get(entry.txHash)?.length ?? 0) === 1) {
+      const bound = verificationsByRoleAndHash.get(`REWARDS:${entry.txHash}`)
+      if (bound !== undefined) {
+        // A verification was collected for this row: the promotion path owns
+        // its issue handling. No restored destination requirement — the
+        // verifier's own receipt/structure/partition gates are the authority.
+        relayPromotionAttemptedHashes.add(entry.txHash)
+        if (bound !== null) promoteJournalRow(candidateRow, bound)
+        continue
+      }
+    }
     if (entry.destinations.length === 0 || !entry.destinationsReadable ||
       entry.destinations.some(destination => destination.address == null || destination.amountPiconeros == null)) {
       issue('MISSING_DESTINATIONS', { txHash: entry.txHash })
@@ -1123,129 +1397,66 @@ export function buildRewardsReconciliation (input = {}) {
       continue
     }
 
-    // No journal row: classify from existing ledger membership or owned
-    // destinations. Never guess an unexplained outflow into consolidation.
+    // No journal row: a journal-less historical payout backfills ONLY from a
+    // complete independently surviving proof of the exact recorded batch.
+    // Destination-only or tx-hash-only evidence inserts nothing — the reverse
+    // coverage names the gap (missing history, pending or member mismatch).
     const payouts = payoutsByHash.get(entry.txHash) ?? []
     if (payouts.length > 0) {
-      const expected = payouts.map(payout => ({ address: payout.recipientAddress, amount: payout.piconeros ?? 0n }))
-      const duplicates = payouts.some((payout, index) =>
-        payouts.some((other, otherIndex) => otherIndex !== index &&
-          other.recipientAddress === payout.recipientAddress && other.piconeros === payout.piconeros))
-      if (duplicates) {
-        issue('AMBIGUOUS_PAYOUT_PAIRING', { txHash: entry.txHash })
+      const bound = legacyBackfillVerification(entry.txHash)
+      if (bound && recordedBatchMembershipMismatch(payouts, bound.members) === null) {
+        const distributionIds = new Set(payouts.map(payout => payout.distributionId).filter(id => id != null))
+        pushLegacyBackfill({
+          kind: 'PAYOUT',
+          entry,
+          verification: bound,
+          distributionId: distributionIds.size === 1 ? [...distributionIds][0] : null,
+          principalPiconeros: payouts.reduce((acc, payout) => acc + (payout.piconeros ?? 0n), 0n),
+          metadata: {
+            payouts: payouts
+              .map(payout => ({ payoutId: payout.id, recipientAddress: payout.recipientAddress, piconeros: (payout.piconeros ?? 0n).toString() }))
+              .sort((a, b) => a.payoutId - b.payoutId)
+          }
+        })
         continue
       }
-      if (!multisetMatches(expected, destinationsOf(entry))) {
-        issue('JOURNAL_DESTINATION_MISMATCH', { txHash: entry.txHash, reason: 'wallet destinations do not match any recorded payout rows' })
-        continue
+      if (payouts.some(payout => payout.state === 'SENT' || payout.state === 'CONFIRMED')) {
+        continue // a recorded row claims this hash: already named row-first
       }
-      if (entry.feePiconeros == null) {
-        issue('MISSING_OUTGOING_FEE', { txHash: entry.txHash })
-        continue
-      }
-      const principal = payouts.reduce((acc, payout) => acc + (payout.piconeros ?? 0n), 0n)
-      const distributionIds = new Set(payouts.map(payout => payout.distributionId).filter(id => id != null))
-      const inserted = {
-        network: scope.network,
-        walletAddress: scope.walletAddress,
-        txHash: entry.txHash,
-        kind: 'PAYOUT',
-        state: 'RELAYED',
-        accountIndex: entry.accountIndex ?? 0,
-        distributionId: distributionIds.size === 1 ? [...distributionIds][0] : null,
-        principalPiconeros: principal,
-        networkFeePiconeros: BigInt(entry.feePiconeros),
-        metadata: {
-          payouts: payouts
-            .map(payout => ({ payoutId: payout.id, recipientAddress: payout.recipientAddress, piconeros: (payout.piconeros ?? 0n).toString() }))
-            .sort((a, b) => a.payoutId - b.payoutId)
-        },
-        relayAttemptedAt: null
-      }
-      operations.push({
-        kind: 'insert',
-        table: 'RewardsWalletTransaction',
-        key: { network: scope.network, walletAddress: scope.walletAddress, txHash: entry.txHash },
-        before: null,
-        after: {
-          ...inserted,
-          principalPiconeros: principal.toString(),
-          networkFeePiconeros: BigInt(entry.feePiconeros).toString()
-        },
-        reason: 'wallet-history-relay'
-      })
-      afterTransactions.push(inserted)
-      continue
     }
 
     const sweepOwners = sweepHashOwners.get(entry.txHash)
     if (sweepOwners != null) {
-      if (sweepOwners.length !== 1) {
-        issue('SWEEP_OWNERSHIP_MISMATCH', { txHash: entry.txHash, distributionIds: sweepOwners })
-        continue
+      const bound = legacyBackfillVerification(entry.txHash)
+      if (bound && bound.members.length === 1) {
+        pushLegacyBackfill({
+          kind: 'OPS_SWEEP',
+          entry,
+          verification: bound,
+          distributionId: sweepOwners.length === 1 ? sweepOwners[0] : null,
+          principalPiconeros: BigInt(bound.members[0].actualPiconeros),
+          metadata: { destination: bound.members[0].address }
+        })
       }
-      const external = destinationsOf(entry).filter(destination => !ownedAddresses.has(destination.address))
-      if (external.length !== 1) {
-        issue('JOURNAL_DESTINATION_MISMATCH', { txHash: entry.txHash, reason: 'recorded sweep hash with unreadable external destination' })
-        continue
-      }
-      if (entry.feePiconeros == null) {
-        issue('MISSING_OUTGOING_FEE', { txHash: entry.txHash })
-        continue
-      }
-      const inserted = {
-        network: scope.network,
-        walletAddress: scope.walletAddress,
-        txHash: entry.txHash,
-        kind: 'OPS_SWEEP',
-        state: 'RELAYED',
-        accountIndex: entry.accountIndex ?? 0,
-        distributionId: sweepOwners[0],
-        principalPiconeros: external[0].amount,
-        networkFeePiconeros: BigInt(entry.feePiconeros),
-        metadata: { destination: external[0].address },
-        relayAttemptedAt: null
-      }
-      operations.push({
-        kind: 'insert',
-        table: 'RewardsWalletTransaction',
-        key: { network: scope.network, walletAddress: scope.walletAddress, txHash: entry.txHash },
-        before: null,
-        after: { ...inserted, principalPiconeros: external[0].amount.toString(), networkFeePiconeros: BigInt(entry.feePiconeros).toString() },
-        reason: 'wallet-history-relay'
-      })
-      afterTransactions.push(inserted)
-      continue
+      continue // the recorded hash's coverage gap is already named row-first
     }
 
     if (entry.isSelfTransfer && destinationsOf(entry).every(destination => ownedAddresses.has(destination.address))) {
-      if (entry.feePiconeros == null) {
-        issue('MISSING_OUTGOING_FEE', { txHash: entry.txHash })
+      const bound = legacyBackfillVerification(entry.txHash)
+      if (bound && bound.members.length > 0 &&
+        bound.members.every(member => ownedAddresses.has(member.address))) {
+        pushLegacyBackfill({
+          kind: 'CONSOLIDATION',
+          entry,
+          verification: bound,
+          distributionId: null,
+          principalPiconeros: 0n,
+          metadata: { destination: scope.walletAddress, selfTransfer: true }
+        })
         continue
       }
-      const inserted = {
-        network: scope.network,
-        walletAddress: scope.walletAddress,
-        txHash: entry.txHash,
-        kind: 'CONSOLIDATION',
-        state: 'RELAYED',
-        accountIndex: entry.accountIndex ?? 0,
-        distributionId: null,
-        principalPiconeros: 0n,
-        networkFeePiconeros: BigInt(entry.feePiconeros),
-        metadata: { destination: scope.walletAddress, selfTransfer: true },
-        relayAttemptedAt: null
-      }
-      operations.push({
-        kind: 'insert',
-        table: 'RewardsWalletTransaction',
-        key: { network: scope.network, walletAddress: scope.walletAddress, txHash: entry.txHash },
-        before: null,
-        after: { ...inserted, principalPiconeros: '0', networkFeePiconeros: BigInt(entry.feePiconeros).toString() },
-        reason: 'wallet-history-relay'
-      })
-      afterTransactions.push(inserted)
-      continue
+      // Without surviving proof an internal transfer stays a named unresolved
+      // outflow — never auto-classified from destinations alone.
     }
 
     issue('UNKNOWN_OUTGOING', {
@@ -1269,6 +1480,7 @@ export function buildRewardsReconciliation (input = {}) {
       continue
     }
     if (row.state === 'PREPARED') {
+      if (relayPromotionAttemptedHashes.has(row.txHash)) continue // resolved, or its exact promotion refusal was recorded
       if (!row.relayAttempted) continue
       const pending = bridgePendingByHash.get(row.txHash)
       if (!(pending && pending.relayState === 'pool' && pending.isRelayed)) {
@@ -1324,6 +1536,8 @@ export function buildRewardsReconciliation (input = {}) {
   ])
   if (beforeSummary.accountingUncertain && !issues.some(entry => ledgerIssueCodes.has(entry.code))) {
     const adjustedJournal = analysisJournal.map(row => {
+      const promotedAfter = promotedAfterByHash.get(row.txHash)
+      if (promotedAfter) return promotedAfter // the relay is resolved: exact state/fee proven above
       if (row.state === 'PREPARED' && row.relayAttempted) {
         const pending = bridgePendingByHash.get(row.txHash)
         if (pending && pending.relayState === 'pool' && pending.isRelayed) {
@@ -1357,15 +1571,13 @@ export function buildRewardsReconciliation (input = {}) {
     issue('MISSING_ESCROW_EVIDENCE', { reason: 'registered bounty payouts require the escrow wallet history for settlement recovery' })
   } else {
     for (const payment of openPayments) {
-      if (!payment.txHash) {
-        issue('MISSING_SETTLEMENT_EVIDENCE', { table: 'BountyPayment', id: payment.id, reason: 'relayed payment without a transaction hash' })
-        continue
-      }
+      // A missing transaction hash or a leg absent from escrow evidence is
+      // named row-first by the reverse recorded-outflow coverage
+      // (RECORDED_ESCROW_LEG_EVIDENCE_MISSING) — settlement columns are not
+      // evidence, and the same cause is never issued twice here.
+      if (!payment.txHash) continue
       const leg = escrowOutgoingByHash.get(payment.txHash)
-      if (!leg) {
-        issue('MISSING_SETTLEMENT_EVIDENCE', { table: 'BountyPayment', id: payment.id, txHash: payment.txHash })
-        continue
-      }
+      if (!leg) continue
       const recovered = recoverSettlement({ payment, leg, escrowOutgoingByHash, scope, issue })
       if (recovered) settlementOps.push(recovered)
     }
@@ -1400,7 +1612,7 @@ export function buildRewardsReconciliation (input = {}) {
       rewardFundingDeficit += correction.beforeRewards - correction.afterRewards
     }
   }
-  for (const receipt of ledger.receipts) {
+  for (const receipt of analysisReceipts) {
     if (receipt.walletReceipt !== false || receipt.state !== 'CONFIRMED' ||
       receipt.feeType !== 'BOUNTY_FEE' || receipt.piconeros == null) continue
     if (!isIdentifiedFundingReceipt(receipt, fundingIdentification)) continue
@@ -1412,7 +1624,7 @@ export function buildRewardsReconciliation (input = {}) {
     affectedDistributions.set(distribution.id, distribution)
   }
   for (const distribution of [...affectedDistributions.values()].sort((a, b) => a.periodEnd - b.periodEnd || a.id - b.id)) {
-    const beforeOps = periodOpsPiconeros(ledger.receipts, distribution, decisions)
+    const beforeOps = periodOpsPiconeros(analysisReceipts, distribution, decisions)
     const afterOps = periodOpsPiconeros(afterReceipts, distribution, decisions)
     if (beforeOps == null || afterOps == null) {
       issue('UNVERIFIED_ALLOCATION', {
@@ -1579,7 +1791,7 @@ export function buildRewardsReconciliation (input = {}) {
   }
 
   const beforeTotals = stateTotals({
-    receipts: ledger.receipts,
+    receipts: analysisReceipts,
     downvotes: ledger.downvotes,
     summary: beforeSummary,
     distributionRows: ledger.distributions,
@@ -1650,11 +1862,20 @@ export function buildRewardsReconciliation (input = {}) {
   })
 
   const manifest = {
-    version: 1,
+    version: 2,
+    accountingFingerprintVersion: ACCOUNTING_FINGERPRINT_VERSION,
     scope,
     boundary,
-    evidenceDigest: digestOf(evidence),
-    ledgerFingerprint: beforeSummary.fingerprint,
+    evidenceDigest,
+    // The SHARED v2 audit identity over the COMPLETE raw snapshot input the
+    // builder consumed (rewards reconciliation Task 1; final-review I3) —
+    // never a union money digest and never a filtered working set.
+    ledgerFingerprint: accountingAuditFingerprint({
+      scope: input.scope,
+      ledger: input.ledger,
+      config: input.config,
+      reserve: input.reserve
+    }),
     protectedRewardsFingerprint,
     preconditionFingerprint: ledgerPreconditionFingerprint(input.ledger, config),
     decisionsDigest,
@@ -2205,27 +2426,106 @@ function ledgerPreconditionView (ledger, config) {
     observedBountyReceipts: normalized.observedBountyReceipts.map(row => ({ ...row })),
     items: normalized.items.map(row => ({ id: row.id, bountyPiconeros: amount(row.bountyPiconeros), bountyFeePiconeros: amount(row.bountyFeePiconeros) })),
     earns: normalized.earns.map(row => ({ ...row, piconeros: amount(row.piconeros) })),
+    // v2 snapshot groups (rewards reconciliation Task 2): the complete
+    // precondition now also binds the escrow journal, the declared-proof
+    // inventory, the proven wallet identities/subaddresses and the audited
+    // reserve inputs. Money becomes exact decimal strings; dates canonicalize
+    // to the same ISO instant for Prisma Dates and ISO strings alike.
+    escrowTransactions: arrayOf(ledger.escrowTransactions).map(row => ({
+      id: numericId(row?.id),
+      network: stringOrNull(row?.network),
+      walletAddress: stringOrNull(row?.walletAddress),
+      txHash: normalizeHash(row?.txHash),
+      dispatchId: stringOrNull(row?.dispatchId),
+      proofId: stringOrNull(row?.proofId),
+      captureContractVersion: intOrNull(row?.captureContractVersion),
+      claimDigest: normalizeHash(row?.claimDigest),
+      paymentClaims: row?.paymentClaims ?? null,
+      kind: stringOrNull(row?.kind),
+      leg: stringOrNull(row?.leg),
+      bountyPaymentId: intOrNull(row?.bountyPaymentId),
+      itemId: intOrNull(row?.itemId),
+      accountIndex: intOrNull(row?.accountIndex),
+      principalPiconeros: amount(row?.principalPiconeros),
+      networkFeePiconeros: amount(row?.networkFeePiconeros),
+      metadata: row?.metadata ?? null,
+      state: stringOrNull(row?.state),
+      preparedAt: isoOrNull(row?.preparedAt),
+      relayAttemptedAt: isoOrNull(row?.relayAttemptedAt),
+      relayedAt: isoOrNull(row?.relayedAt),
+      relayProvenance: stringOrNull(row?.relayProvenance)
+    })),
+    proofInventory: arrayOf(ledger.proofInventory).map(entry => ({
+      owner: {
+        journalRole: stringOrNull(entry?.owner?.journalRole),
+        journalId: numericId(entry?.owner?.journalId)
+      },
+      reference: {
+        txHash: normalizeHash(entry?.reference?.txHash),
+        kind: stringOrNull(entry?.reference?.kind),
+        dispatchId: stringOrNull(entry?.reference?.dispatchId),
+        leg: stringOrNull(entry?.reference?.leg),
+        bountyPaymentId: intOrNull(entry?.reference?.bountyPaymentId),
+        itemId: intOrNull(entry?.reference?.itemId)
+      },
+      proof: entry?.proof == null
+        ? null
+        : {
+            proofId: stringOrNull(entry.proof.proofId),
+            revision: intOrNull(entry.proof.revision),
+            masterKeyVersion: intOrNull(entry.proof.masterKeyVersion),
+            bindingVersion: intOrNull(entry.proof.bindingVersion),
+            envelopeVersion: intOrNull(entry.proof.envelopeVersion),
+            payloadVersion: intOrNull(entry.proof.payloadVersion),
+            claimDigest: normalizeHash(entry.proof.claimDigest),
+            bindingDigest: normalizeHash(entry.proof.bindingDigest),
+            envelopeIntegrityDigest: normalizeHash(entry.proof.envelopeIntegrityDigest)
+          }
+    })),
+    accounts: arrayOf(ledger.accounts).map(row => ({
+      id: numericId(row?.id),
+      label: stringOrNull(row?.label),
+      network: stringOrNull(row?.network),
+      address: stringOrNull(row?.address)
+    })).filter(row => row.id != null),
+    subaddresses: arrayOf(ledger.subaddresses).map(row => ({
+      id: numericId(row?.id),
+      accountId: numericId(row?.accountId),
+      majorIndex: intOrNull(row?.majorIndex),
+      minorIndex: intOrNull(row?.minorIndex),
+      address: stringOrNull(row?.address),
+      state: stringOrNull(row?.state)
+    })).filter(row => row.id != null),
+    reserve: {
+      feeHeadroomPiconeros: decimalOrNull(ledger.reserve?.feeHeadroomPiconeros),
+      dustFloorPiconeros: decimalOrNull(ledger.reserve?.dustFloorPiconeros)
+    },
     config: normalizeConfig(config)
   }
 }
 
 // Complete approved-precondition fingerprint. Embedded in the manifest at build
 // time and recomputed from a fresh scoped read before any apply: any new or
-// changed observation, journal transaction, reward-contract row, item term or
-// fee-config value changes it and refuses the apply.
+// changed observation, journal transaction, reward-contract row, item term,
+// fee-config value, escrow fact, declared proof, wallet identity/subaddress or
+// audited reserve input changes it and refuses the apply.
 export function ledgerPreconditionFingerprint (ledger, config) {
   return digestOf(ledgerPreconditionView(ledger, config))
 }
 
 // The STABLE chain facts a rescan must still prove: scope, derivation, restore
-// provenance, the full total balance, every CONFIRMED incoming/outgoing fact
-// and every PENDING bridge proof (escrow included). Tip heights, block hashes,
-// confirmation counts and locked/unlocked balances are deliberately excluded —
-// they legitimately move while the chain advances — but adding, removing or
-// changing any confirmed fact OR any pending attempt/proof the approved
-// manifest may rely on is an incompatible rescan: the CLI refuses and requires
-// a new manifest/review. New material unknowns (a fresh pending item) change
-// the lists too and are refused.
+// provenance, the full total balance, every CONFIRMED incoming/outgoing fact,
+// every PENDING bridge proof (escrow included) and every nested ESCROW
+// payment-verification fact. Tip heights, block hashes, confirmation counts
+// and locked/unlocked balances are deliberately excluded — they legitimately
+// move while the chain advances — but adding, removing or changing any
+// confirmed fact, any pending attempt/proof OR any collected escrow verifier
+// fact the approved manifest may rely on is an incompatible rescan: the CLI
+// refuses and requires a new manifest/review (final-review I2). Verification
+// facts enter through #1's stable-facts projection so advancing confirmation
+// counts and the later recheck time never enter; an entry that is not a safe
+// PaymentVerificationV1 result is retained as an explicit invalid marker so
+// garbage can never silently alias a real fact.
 function chainIncomingFact (entry) {
   return {
     txHash: entry.txHash,
@@ -2276,6 +2576,19 @@ function chainPendingOutgoingFact (entry) {
   }
 }
 
+// Stable verifier-fact projection of a collected verification list. A valid
+// result projects through #1's `paymentVerificationFacts` (versions, surviving
+// digest, boundary, advancing confirmation counts and observation time
+// excluded); anything else keeps an explicit invalid marker — a changed or
+// garbled nested fact can never alias the approved fact it replaces.
+function chainVerificationFact (entry) {
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry) ||
+    !validatePaymentVerification(entry)) {
+    return { paymentVerificationInvalid: true }
+  }
+  return paymentVerificationFacts(entry)
+}
+
 export function chainFactsFingerprint (evidence) {
   const normalized = normalizeEvidence(evidence)
   const confirmed = entry => entry.isConfirmed && !entry.inTxPool
@@ -2297,7 +2610,8 @@ export function chainFactsFingerprint (evidence) {
           incoming: normalized.escrow.incoming.filter(confirmed).map(chainIncomingFact),
           outgoing: normalized.escrow.outgoing.filter(confirmed).map(chainOutgoingFact),
           pendingIncoming: normalized.escrow.bridge.pendingIncoming.map(chainPendingIncomingFact),
-          pendingOutgoing: normalized.escrow.bridge.pendingOutgoing.map(chainPendingOutgoingFact)
+          pendingOutgoing: normalized.escrow.bridge.pendingOutgoing.map(chainPendingOutgoingFact),
+          paymentVerificationFacts: normalized.escrow.paymentVerifications.map(chainVerificationFact)
         }
       : null
   })
@@ -2348,171 +2662,79 @@ export function journalRelayEvidenceMismatch ({ row, entry, scope, ownedAddresse
   return 'unknown journal kind'
 }
 
-// Safe field reader for the apply precondition comparison. Reads the same safe
-// projections the manifest builder consumes, scoped to the configured wallet,
-// with the registered platform_rewards identity proven first (a scope that
-// disagrees with the registered account refuses rather than comparing another
-// wallet's facts). Observable rows are the chain-addressable ledger: a receipt
-// whose txHash is not a 64-hex hash is metadata, not a chain fact, and is
-// excluded UNLESS it carries a positive amount (such a row must reach the
-// builder as a material issue, never disappear). Accepts a transaction client
-// so the whole comparison runs in the caller's Serializable snapshot.
-export async function readRepairLedger (models, scope) {
-  const scoped = normalizeScope(scope)
-  for (const [model, method] of [
-    ['moneroAccount', 'findFirst'],
-    ['feeObservation', 'findMany'],
-    ['observedDownvote', 'findMany'],
-    ['rewardPayout', 'findMany'],
-    ['rewardDistribution', 'findMany'],
-    ['rewardsWalletTransaction', 'findMany'],
-    ['bountyPayment', 'findMany'],
-    ['observedBounty', 'findMany'],
-    ['observedBountyReceipt', 'findMany'],
-    ['earn', 'findMany'],
-    ['platformFeeConfig', 'findUnique']
-  ]) {
-    if (typeof models?.[model]?.[method] !== 'function') {
-      throw new Error(`readRepairLedger: models.${model}.${method} is required`)
-    }
-  }
-
-  const account = await models.moneroAccount.findFirst({
-    where: { label: 'platform_rewards' },
-    select: { address: true, network: true }
+// Safe field reader for the build/apply precondition comparison. ONE delegated
+// read through the shared v2 audit snapshot (rewards reconciliation Task 1):
+// the exact same scoped selects, registered-identity proof and proof-inventory
+// reads the audit uses, so the repair path can never consume a different set
+// of facts than the audit fingerprinted. Returns the COMPLETE snapshot groups
+// (including the escrow journal, identity rows, subaddresses and proof
+// inventory), the fee config, the audited reserve inputs and the snapshot's
+// `accounting:v2:` fingerprint — the SAME full identity the audit and the
+// public ledger reader fingerprint (final-review I3: the snapshot is the
+// fingerprint/precondition authority and is never pre-filtered here). Any
+// monetary working-set reduction (the ONE shared receipt-visibility rule
+// `isObservableMonetaryReceipt`) is applied separately inside the builder's
+// analysis, never to the fingerprint input. Accepts a transaction client so
+// the whole comparison runs in the caller's Serializable snapshot.
+export async function readRepairLedger (models, scope, { reserve } = {}) {
+  const snapshot = await readRewardsAuditSnapshot(models, {
+    scope,
+    reserve: reserve ?? readRewardsAuditReserve()
   })
-  if (account && (account.address !== scoped.walletAddress || account.network !== scoped.network)) {
-    throw new Error('readRepairLedger: the configured scope is not the registered platform wallet')
+  return {
+    receipts: snapshot.ledger.receipts,
+    downvotes: snapshot.ledger.downvotes,
+    payouts: snapshot.ledger.payouts,
+    distributions: snapshot.ledger.distributions,
+    transactions: snapshot.ledger.transactions,
+    escrowTransactions: snapshot.ledger.escrowTransactions,
+    bountyPayments: snapshot.ledger.bountyPayments,
+    observedBounties: snapshot.ledger.observedBounties,
+    observedBountyReceipts: snapshot.ledger.observedBountyReceipts,
+    items: snapshot.ledger.items,
+    earns: snapshot.ledger.earns,
+    accounts: snapshot.ledger.accounts,
+    subaddresses: snapshot.ledger.subaddresses,
+    proofInventory: snapshot.ledger.proofInventory,
+    config: snapshot.config,
+    reserve: snapshot.reserve,
+    accountingFingerprint: snapshot.accountingFingerprint,
+    accountingFingerprintVersion: ACCOUNTING_FINGERPRINT_VERSION,
+    scope: snapshot.scope
   }
-
-  const [rawReceipts, downvotes, payouts, distributions, transactions, bountyPayments, observedBounties, observedBountyReceipts, earns, config] = await Promise.all([
-    models.feeObservation.findMany({
-      select: {
-        id: true,
-        txHash: true,
-        feeType: true,
-        walletReceipt: true,
-        state: true,
-        piconeros: true,
-        rewardsPiconeros: true,
-        donationRewardsPct: true,
-        recipientMajor: true,
-        recipientMinor: true,
-        height: true,
-        confirmedAt: true,
-        postId: true,
-        payInId: true
-      }
-    }),
-    models.observedDownvote.findMany({
-      select: { id: true, txHash: true, piconeros: true, state: true, height: true, confirmedAt: true }
-    }),
-    models.rewardPayout.findMany({
-      select: { id: true, distributionId: true, recipientAddress: true, piconeros: true, txHash: true, state: true }
-    }),
-    models.rewardDistribution.findMany({
-      select: {
-        id: true,
-        periodStart: true,
-        periodEnd: true,
-        poolPiconeros: true,
-        distributedPiconeros: true,
-        rolledOverPiconeros: true,
-        opsInflowPiconeros: true,
-        opsRolledOverPiconeros: true,
-        opsAvailablePiconeros: true,
-        opsSweptPiconeros: true,
-        opsSweepTxHash: true,
-        opsNetworkFeesAccountedPiconeros: true,
-        status: true
-      }
-    }),
-    models.rewardsWalletTransaction.findMany({
-      where: { network: scoped.network, walletAddress: scoped.walletAddress },
-      select: {
-        id: true,
-        network: true,
-        walletAddress: true,
-        txHash: true,
-        kind: true,
-        state: true,
-        accountIndex: true,
-        distributionId: true,
-        principalPiconeros: true,
-        networkFeePiconeros: true,
-        metadata: true,
-        relayAttemptedAt: true
-      }
-    }),
-    models.bountyPayment.findMany({
-      select: {
-        id: true,
-        itemId: true,
-        piconeros: true,
-        feePiconeros: true,
-        recipientAddress: true,
-        kind: true,
-        txHash: true,
-        feeTxHash: true,
-        state: true,
-        feeRecipientAddress: true,
-        networkFeePiconeros: true,
-        recipientReceivedPiconeros: true,
-        feeReceivedPiconeros: true,
-        feeSettlementNetworkFeePiconeros: true
-      }
-    }),
-    models.observedBounty.findMany({
-      select: { id: true, txHash: true, postId: true, paymentId: true }
-    }),
-    models.observedBountyReceipt.findMany({
-      select: { bountyId: true, txHash: true }
-    }),
-    models.earn.findMany({ select: { id: true, userId: true, distributionId: true, piconeros: true } }),
-    models.platformFeeConfig.findUnique({
-      where: { id: 1 },
-      select: {
-        downvoteRewardsPct: true,
-        postingFeeRewardsPct: true,
-        territoryFeeRewardsPct: true,
-        boostRewardsPct: true,
-        walletlessTipRewardsPct: true
-      }
-    })
-  ])
-
-  const receipts = rawReceipts.filter(row => {
-    if (normalizeHash(row.txHash) != null) return true
-    try {
-      return money(row.piconeros) > 0n
-    } catch {
-      return false
-    }
-  })
-  const itemIds = [...new Set(bountyPayments.map(row => row.itemId).filter(Number.isSafeInteger))]
-  const items = itemIds.length === 0
-    ? []
-    : await models.item.findMany({ where: { id: { in: itemIds } }, select: { id: true, bountyPiconeros: true, bountyFeePiconeros: true } })
-
-  return { receipts, downvotes, payouts, distributions, transactions, bountyPayments, observedBounties, observedBountyReceipts, items, earns, config }
 }
 
 // Pure apply precondition comparator. Every check is fail-closed and throws on
 // mismatch so the caller's transaction rolls back before any financial write:
-//   1. the approved evidence (scope, fixed boundary hash and full normalized
-//      digest) is exactly the evidence the manifest was built from;
-//   2. the scoped journal/payout/distribution fingerprint is unchanged;
-//   3. the protected reward contracts (recipients, distribution reward totals,
+//   1. the fresh precondition read IS the shared v2 accounting snapshot (a
+//      current-format `accounting:v2:` audit identity at version 2 — a
+//      legacy-shaped read can never be compared against an approved manifest);
+//   2. the approved evidence (scope, fixed boundary hash and full normalized
+//      digest, including its v2 payment verifications) is exactly the evidence
+//      the manifest was built from;
+//   3. no distribution is actively SENDING (writers are not paused — checked
+//      before any content comparison: writer state is not ledger content);
+//   4. the protected reward contracts (recipients, distribution reward totals,
 //      Earn rows) are unchanged;
-//   4. the complete precondition fingerprint (observations, transactions,
-//      bounty payments, items and fee config) is unchanged;
-//   5. no distribution is actively SENDING (writers are not paused).
+//   5. the complete precondition fingerprint (observations, transactions,
+//      bounty payments, items, fee config, escrow journal, declared proof
+//      inventory, wallet identities/subaddresses and the audited reserve) is
+//      unchanged — the fine-grained what-changed check;
+//   6. the shared `accounting:v2:` audit fingerprint over the same scoped
+//      snapshot input the builder consumed is unchanged — the v2 catch-all
+//      identity (it also covers distribution status/payoutCount/opsSweepState
+//      facts outside the precondition view; the union money digest is not an
+//      accounting authority).
 export function assertRepairPreconditions (manifest, ledger, evidence) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new Error('assertRepairPreconditions: an approved manifest is required')
   }
   if (!ledger || typeof ledger !== 'object' || Array.isArray(ledger)) {
     throw new Error('assertRepairPreconditions: a freshly read ledger is required')
+  }
+  if (ledger.accountingFingerprintVersion !== ACCOUNTING_FINGERPRINT_VERSION ||
+    !isCurrentAccountingFingerprint(ledger.accountingFingerprint, ledger.accountingFingerprint)) {
+    throw new Error('repair precondition: the fresh precondition read is not the current v2 accounting snapshot')
   }
   const scope = manifest.scope
   const normalizedEvidence = normalizeEvidence(evidence)
@@ -2530,26 +2752,25 @@ export function assertRepairPreconditions (manifest, ledger, evidence) {
     throw new Error('repair precondition: evidence does not match the approved evidence digest')
   }
 
-  const normalized = normalizeLedger(ledger)
-  const summary = summarizeRewardsLedger({
-    payouts: normalized.payouts,
-    distributions: normalized.distributions,
-    transactions: normalized.transactions,
-    scope
-  })
-  if (summary.fingerprint !== manifest.ledgerFingerprint) {
-    throw new Error('repair precondition: the scoped ledger changed since the manifest was approved')
+  const sending = arrayOf(ledger.distributions).filter(row => row?.status === 'SENDING')
+  if (sending.length > 0) {
+    throw new Error(`repair precondition: distribution ${sending.map(row => row.id).join(', ')} is actively SENDING; writers are not paused`)
   }
+
+  const normalized = normalizeLedger(ledger)
   if (protectedRewardsFingerprintOf(normalized) !== manifest.protectedRewardsFingerprint) {
     throw new Error('repair precondition: a protected reward contract changed since the manifest was approved')
   }
   if (ledgerPreconditionFingerprint(ledger, ledger.config) !== manifest.preconditionFingerprint) {
     throw new Error('repair precondition: the approved ledger, item terms or fee config changed since the manifest was approved')
   }
-
-  const sending = arrayOf(ledger.distributions).filter(row => row?.status === 'SENDING')
-  if (sending.length > 0) {
-    throw new Error(`repair precondition: distribution ${sending.map(row => row.id).join(', ')} is actively SENDING; writers are not paused`)
+  if (accountingAuditFingerprint({
+    scope: ledger.scope ?? scope,
+    ledger,
+    config: ledger.config,
+    reserve: ledger.reserve
+  }) !== manifest.ledgerFingerprint) {
+    throw new Error('repair precondition: the scoped ledger changed since the manifest was approved')
   }
   return true
 }

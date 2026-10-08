@@ -34,6 +34,13 @@ const ISOLATED_DB = (() => {
 const repoRoot = process.cwd()
 const prismaBin = path.join('node_modules', '.bin', 'prisma')
 const newMigrationName = '20261005000000_rewards_wallet_accounting'
+// The proof-era migration depends on tables the migration under test creates
+// (RewardsWalletTransaction columns), so it must never precede it in a scratch
+// pre-deploy: exclude both from the copied migration set.
+const excludedPreDeployMigrations = new Set([
+  newMigrationName,
+  '20261006120000_payment_transaction_proofs'
+])
 // Each scratch DB runs a 109-migration pre-deploy, then the migration under
 // test, plus seeds and assertions — well over Jest's 5s default.
 const migrationTimeoutMs = 10 * 60 * 1000
@@ -156,7 +163,7 @@ const seedFeeObservation = async (scratch, { txHash, postId, piconeros, feeType 
     cpSync(path.join(repoRoot, 'prisma', 'schema.prisma'), path.join(dir, 'schema.prisma'))
     cpSync(path.join(repoRoot, 'prisma', 'migrations'), path.join(dir, 'migrations'), {
       recursive: true,
-      filter: (src) => path.basename(src) !== newMigrationName
+      filter: (src) => !excludedPreDeployMigrations.has(path.basename(src))
     })
     return path.join(dir, 'schema.prisma')
   }
@@ -281,6 +288,9 @@ const seedFeeObservation = async (scratch, { txHash, postId, piconeros, feeType 
       // while its phantom ops contribution stays inside the stored snapshot.
       const applied = migrateDeploy(path.join(repoRoot, 'prisma', 'schema.prisma'), scratchUrl(scratchName))
       assertDeployOk(applied)
+      // The shared audit snapshot fails closed without the fee-config
+      // singleton; this scratch DB seeds schema defaults only.
+      await scratch.$executeRawUnsafe('INSERT INTO "PlatformFeeConfig" ("id") VALUES (1) ON CONFLICT DO NOTHING')
       expect((await scratch.feeObservation.findUnique({
         where: { txHash_recipientMajor_recipientMinor: { txHash: fundingTx, recipientMajor: 0, recipientMinor: 0 } }
       })).walletReceipt).toBe(false)
@@ -342,6 +352,17 @@ const seedFeeObservation = async (scratch, { txHash, postId, piconeros, feeType 
         backupReference: 'migration-handoff-fixture',
         writersPaused: true,
         evidence
+      }, {
+        // Task 5's guarded apply re-verifies with a fresh read-only
+        // collection; this migration-handoff scenario injects the same
+        // collection and the boundary daemon (no live scan here).
+        collectEvidence: async () => evidence,
+        daemon: {
+          getBlockHashByHeight: async height => {
+            if (height !== boundary.height) throw new Error('unknown block height')
+            return boundary.blockHash
+          }
+        }
       })).resolves.toMatchObject({ applied: true })
       expect((await scratch.rewardDistribution.findFirst()).opsInflowPiconeros).toBe(0n)
 

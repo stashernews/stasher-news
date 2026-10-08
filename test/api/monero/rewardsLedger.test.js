@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import { summarizeRewardsLedger, readRewardsWalletLedger } from '@/api/monero/rewardsLedger'
+import { auditLedgerFixture } from '@/test/fixtures/payment-proof'
 
 // The factual rewards-hot-wallet ledger (rewards accounting repair §5):
 // ONE read-side union of proved facts — recorded payouts/sweeps, journal-proven
@@ -508,7 +509,7 @@ test('represented sweep facts are reconciled against the recorded snapshot, not 
   expect(ledger.accountingUncertain).toBe(true)
 })
 
-test('sweep totals and the fingerprint are independent of journal row order', () => {
+test('sweep totals and the union fingerprint are independent of journal row order', () => {
   // Zero recorded total with one represented hash: the old single-pass code
   // compared a represented row against the already-mutated total, so reversing
   // the two rows produced 8 vs 5. The phased union must be order-independent.
@@ -544,7 +545,7 @@ test('sweep totals and the fingerprint are independent of journal row order', ()
   expect(a.sweptByDistribution.get(5)).toBe(b.sweptByDistribution.get(5))
   expect(a.sweepSentPiconeros).toBe(b.sweepSentPiconeros)
   expect(a.accountingUncertain).toBe(b.accountingUncertain)
-  expect(a.fingerprint).toBe(b.fingerprint)
+  expect(a.unionFingerprint).toBe(b.unionFingerprint)
 })
 
 test('a journal sweep declaring another distribution\'s hash is a contradiction counted once', () => {
@@ -573,7 +574,7 @@ test('duplicate recorded sweep-hash ownership is a conflict and stays order-inde
   // Two distributions record 5n and 10n under the SAME hash, and the journal
   // proves 20n for it. No distribution may be silently preferred and the
   // larger proven outflow may never be dropped: the per-hash floor is 20n in
-  // both orders, with uncertainty and an identical fingerprint.
+  // both orders, with uncertainty and an identical union fingerprint.
   const a = { id: 5, opsSweptPiconeros: 5n, opsSweepTxHash: H('c1'), opsAvailablePiconeros: 30n }
   const b = { id: 9, opsSweptPiconeros: 10n, opsSweepTxHash: H('c1'), opsAvailablePiconeros: 30n }
   const journal = {
@@ -598,7 +599,7 @@ test('duplicate recorded sweep-hash ownership is a conflict and stays order-inde
   expect(reversed.sweptByDistribution.get(5)).toBe(forward.sweptByDistribution.get(5))
   expect(reversed.sweptByDistribution.get(9)).toBe(forward.sweptByDistribution.get(9))
   expect(reversed.accountingUncertain).toBe(forward.accountingUncertain)
-  expect(reversed.fingerprint).toBe(forward.fingerprint)
+  expect(reversed.unionFingerprint).toBe(forward.unionFingerprint)
 })
 
 test('duplicate recorded claims under one hash collapse to the proven journal principal', () => {
@@ -660,7 +661,7 @@ test('a conservative floor never lets a shared-hash mask hide distinct proven jo
     expect(ledger.sweepSentPiconeros).toBe(120n)
     expect(ledger.accountingUncertain).toBe(true)
   }
-  expect(results.map(r => r.fingerprint).every(fp => fp === results[0].fingerprint)).toBe(true)
+  expect(results.map(r => r.unionFingerprint).every(fp => fp === results[0].unionFingerprint)).toBe(true)
 })
 
 test('a shared hash serves both recorded totals instead of summing them', () => {
@@ -675,7 +676,7 @@ test('a shared hash serves both recorded totals instead of summing them', () => 
   expect(forward.accountingUncertain).toBe(true)
   expect(reversed.sweepSentPiconeros).toBe(forward.sweepSentPiconeros)
   expect(reversed.accountingUncertain).toBe(forward.accountingUncertain)
-  expect(reversed.fingerprint).toBe(forward.fingerprint)
+  expect(reversed.unionFingerprint).toBe(forward.unionFingerprint)
 })
 
 test('three pairwise-overlapping recorded totals meet at the exact dual optimum, not the disjoint cover', () => {
@@ -694,7 +695,7 @@ test('three pairwise-overlapping recorded totals meet at the exact dual optimum,
   expect(forward.accountingUncertain).toBe(true)
   expect(reversed.sweepSentPiconeros).toBe(forward.sweepSentPiconeros)
   expect(reversed.accountingUncertain).toBe(forward.accountingUncertain)
-  expect(reversed.fingerprint).toBe(forward.fingerprint)
+  expect(reversed.unionFingerprint).toBe(forward.unionFingerprint)
 })
 
 test('a fractional exact optimum is reported as its ceiling and flagged uncertain', () => {
@@ -721,7 +722,7 @@ test('a hash-less recorded sweep keeps its total as a separate proven outflow', 
   expect(forward.sweepSentPiconeros).toBe(107n)
   expect(forward.sweptByDistribution.get(5)).toBe(7n)
   expect(reversed.sweepSentPiconeros).toBe(forward.sweepSentPiconeros)
-  expect(reversed.fingerprint).toBe(forward.fingerprint)
+  expect(reversed.unionFingerprint).toBe(forward.unionFingerprint)
 })
 
 test('a journal row outside the configured wallet scope is refused, never aggregated', () => {
@@ -739,7 +740,7 @@ test('a journal row outside the configured wallet scope is refused, never aggreg
     .toThrow(/scope/i)
 })
 
-test('the fingerprint is deterministic, safe-field-only, and changes with exact facts', () => {
+test('the union fingerprint is deterministic, safe-field-only, and changes with exact facts', () => {
   const hash = H('d7')
   const base = {
     payouts: [{ id: 1, distributionId: 1, state: 'SENT', txHash: hash, recipientAddress: '5A', piconeros: 60n }],
@@ -757,34 +758,95 @@ test('the fingerprint is deterministic, safe-field-only, and changes with exact 
     scope
   }
   const a = summarizeRewardsLedger(base)
-  expect(a.fingerprint).toMatch(/^[0-9a-f]{64}$/)
-  // Unsafe/irrelevant extra fields (keys, blobs) are not part of the fingerprint.
+  expect(a.unionFingerprint).toMatch(/^[0-9a-f]{64}$/)
+  // Unsafe/irrelevant extra fields (keys, blobs) are not part of the digest.
   const b = summarizeRewardsLedger({
     ...base,
     transactions: base.transactions.map(t => ({ ...t, privateSpendKey: 'secret', signedTxBlob: 'blob' }))
   })
-  expect(b.fingerprint).toBe(a.fingerprint)
+  expect(b.unionFingerprint).toBe(a.unionFingerprint)
   const c = summarizeRewardsLedger({ ...base, payouts: [{ ...base.payouts[0], piconeros: 61n }] })
-  expect(c.fingerprint).not.toBe(a.fingerprint)
+  expect(c.unionFingerprint).not.toBe(a.unionFingerprint)
 })
 
 // =============================================================================
 // readRewardsWalletLedger (mocked contracts): scoping, identity and the audit
-// drift carry-forward. The real-DB union lives in the isolated block below.
+// drift carry-forward. The reader runs through the shared v2 audit snapshot,
+// so the fake models provide every snapshot group (empty where irrelevant).
+// The real-DB union lives in the isolated block below.
 // =============================================================================
 
+// The five allocation percentages the audit snapshot's config read requires.
+const CONFIG_PCT = {
+  downvoteRewardsPct: 100,
+  postingFeeRewardsPct: 70,
+  territoryFeeRewardsPct: 30,
+  boostRewardsPct: 30,
+  walletlessTipRewardsPct: 70
+}
+
+const EMPTY_GROUPS = {
+  subaddresses: [],
+  receipts: [],
+  downvotes: [],
+  bountyPayments: [],
+  observedBounties: [],
+  observedBountyReceipts: [],
+  items: [],
+  earns: [],
+  escrowTransactions: []
+}
+
+// The audit snapshot projects every expected journal/payout column, so fake
+// rows default their nullable/omittable fields; tests specify only the facts.
+const JOURNAL_DEFAULTS = {
+  id: null,
+  accountIndex: 0,
+  preparedAt: null,
+  relayAttemptedAt: null,
+  relayedAt: null,
+  relayProvenance: null,
+  dispatchId: null,
+  captureContractVersion: null,
+  claimDigest: null,
+  paymentClaims: null,
+  proofId: null
+}
+
 function makeLedgerModels ({
-  account = { address: scope.walletAddress, network: scope.network },
+  account = { id: 1, label: 'platform_rewards', address: scope.walletAddress, network: scope.network },
   payouts = [],
   distributions = [],
   transactions = [],
-  audits = []
+  audits = [],
+  groups = {}
 } = {}) {
+  const g = { ...EMPTY_GROUPS, ...groups }
   const models = {
-    moneroAccount: { findFirst: jest.fn(async () => account) },
-    rewardPayout: { findMany: jest.fn(async () => payouts) },
+    moneroAccount: {
+      findFirst: jest.fn(async ({ where }) =>
+        where?.label === 'platform_rewards' ? account : null)
+    },
+    subaddressIndex: { findMany: jest.fn(async () => g.subaddresses) },
+    feeObservation: { findMany: jest.fn(async () => g.receipts) },
+    observedDownvote: { findMany: jest.fn(async () => g.downvotes) },
+    rewardPayout: { findMany: jest.fn(async () => payouts.map(p => ({ curatorId: null, ...p }))) },
     rewardDistribution: { findMany: jest.fn(async () => distributions) },
-    rewardsWalletTransaction: { findMany: jest.fn(async () => transactions) },
+    rewardsWalletTransaction: {
+      findMany: jest.fn(async () => transactions.map(t => ({ ...JOURNAL_DEFAULTS, ...t }))),
+      findUnique: jest.fn(async () => null)
+    },
+    escrowWalletTransaction: {
+      findMany: jest.fn(async () => g.escrowTransactions),
+      findUnique: jest.fn(async () => null)
+    },
+    bountyPayment: { findMany: jest.fn(async () => g.bountyPayments) },
+    observedBounty: { findMany: jest.fn(async () => g.observedBounties) },
+    observedBountyReceipt: { findMany: jest.fn(async () => g.observedBountyReceipts) },
+    item: { findMany: jest.fn(async () => g.items) },
+    earn: { findMany: jest.fn(async () => g.earns) },
+    platformFeeConfig: { findUnique: jest.fn(async () => ({ ...CONFIG_PCT })) },
+    paymentTransactionProof: { findUnique: jest.fn(async () => null) },
     rewardsWalletReconciliation: { findMany: jest.fn(async () => audits) }
   }
   return models
@@ -811,27 +873,40 @@ describe('readRewardsWalletLedger', () => {
     const select = models.rewardsWalletTransaction.findMany.mock.calls[0][0].select
     expect(Object.values(select)).not.toContain('viewKey')
     expect(Object.values(select)).not.toContain('privateViewKey')
+    // The registered platform_rewards identity is proven first, with the
+    // collector's resolution rule (label + network, pinned by id order).
     expect(models.moneroAccount.findFirst).toHaveBeenCalledWith({
-      where: { label: 'platform_rewards' },
-      select: { address: true, network: true }
+      where: { label: 'platform_rewards', network: scope.network },
+      orderBy: { id: 'asc' },
+      select: { id: true, label: true, network: true, address: true }
     })
   })
 
   test('refuses a configured identity that does not match the registered platform wallet', async () => {
-    const models = makeLedgerModels({ account: { address: '5DIFFERENT', network: scope.network } })
-    await expect(readRewardsWalletLedger(models, { scope })).rejects.toThrow(/identity|match/i)
+    const models = makeLedgerModels({ account: { id: 2, label: 'platform_rewards', address: '5DIFFERENT', network: scope.network } })
+    await expect(readRewardsWalletLedger(models, { scope })).rejects.toThrow(/registered platform_rewards/)
   })
 
   test('refuses a registered platform wallet on another network (unscoped ledger belongs to it)', async () => {
-    const byNetwork = makeLedgerModels({ account: { address: scope.walletAddress, network: 'MAINNET' } })
-    await expect(readRewardsWalletLedger(byNetwork, { scope })).rejects.toThrow(/identity|match/i)
+    const byNetwork = makeLedgerModels({ account: { id: 2, label: 'platform_rewards', address: scope.walletAddress, network: 'MAINNET' } })
+    await expect(readRewardsWalletLedger(byNetwork, { scope })).rejects.toThrow(/registered platform_rewards/)
+  })
+
+  test('refuses when no platform_rewards account is registered for the network', async () => {
+    const absent = makeLedgerModels({ account: null })
+    await expect(readRewardsWalletLedger(absent, { scope })).rejects.toThrow(/no platform_rewards account/)
   })
 
   test('a stored positive drift keeps warning until a CLEAN current-fingerprint check clears it', async () => {
-    const payouts = [{ id: 1, distributionId: 1, state: 'SENT', txHash: H('f1'), recipientAddress: '5A', piconeros: 60n }]
+    const payouts = [{ id: 1, distributionId: 1, curatorId: null, state: 'SENT', txHash: H('f1'), recipientAddress: '5A', piconeros: 60n }]
     const distributions = []
     const transactions = []
-    const current = summarizeRewardsLedger({ payouts, distributions, transactions, scope })
+    // The CURRENT facts fingerprint is the reader's shared v2 audit digest.
+    const current = await readRewardsWalletLedger(
+      makeLedgerModels({ payouts, distributions, transactions }),
+      { scope }
+    )
+    expect(current.fingerprint).toMatch(/^accounting:v2:[0-9a-f]{64}$/)
     const cleanReport = { manifest: { issues: [] } }
     const issueReport = { manifest: { issues: [{ code: 'UNKNOWN_INCOMING' }] } }
 
@@ -892,6 +967,293 @@ describe('readRewardsWalletLedger', () => {
 
     const none = makeLedgerModels({ payouts })
     expect((await readRewardsWalletLedger(none, { scope })).positiveDriftPiconeros).toBe(0n)
+  })
+})
+
+// =============================================================================
+// v2 audit freshness (rewards reconciliation Task 2): the reader's fingerprint
+// is the shared `accounting:v2:` snapshot digest, so EVERY audited input —
+// receipts, downvotes, config, escrow, proof inventory — moves freshness while
+// the money union stays a pure payout/sweep/journal fact. Fake model queries
+// are driven from the shared auditLedgerFixture; no wallet, no daemon, no DB.
+// =============================================================================
+
+// Throwaway synthetic proof-envelope bytes (never real key material) so the
+// REAL #1 proof-store inventory path computes real integrity digests.
+function freshProofRow (proofId, claimDigest) {
+  const seed = Buffer.from(proofId.slice(-2), 'hex')[0] ?? 0
+  return {
+    id: proofId,
+    revision: 1,
+    masterKeyVersion: 1,
+    bindingVersion: 1,
+    envelopeVersion: 1,
+    payloadVersion: 1,
+    claimDigest,
+    bindingDigest: '31'.repeat(32),
+    dataNonce: Buffer.from([seed, 1, 2, 3]),
+    dataTag: Buffer.from([seed, 4, 5, 6]),
+    ciphertext: Buffer.from([seed, 7, 8, 9]),
+    wrapNonce: Buffer.from([seed, 10, 11, 12]),
+    wrapTag: Buffer.from([seed, 13, 14, 15]),
+    wrappedDek: Buffer.from([seed, 16, 17, 18])
+  }
+}
+
+// Fake model queries over one shared fixture instance: every group is exposed
+// so a test can mutate exactly one audited input and re-read. An alternate
+// (e.g. Date-free ISO) fixture instance can be supplied by a test.
+function makeFreshAuditModels (fixture = auditLedgerFixture()) {
+  const f = fixture
+  const rewardsRow = f.ledger.transactions[0]
+  const escrowRow = f.ledger.escrowTransactions[0]
+  const proofByProofId = new Map([
+    [rewardsRow.proofId, freshProofRow(rewardsRow.proofId, rewardsRow.claimDigest)],
+    [escrowRow.proofId, freshProofRow(escrowRow.proofId, escrowRow.claimDigest)]
+  ])
+  const state = { audits: [] }
+  const models = {
+    moneroAccount: {
+      findFirst: jest.fn(async ({ where }) =>
+        f.ledger.accounts.find(a => a.label === where.label && a.network === where.network) ?? null)
+    },
+    subaddressIndex: {
+      findMany: jest.fn(async ({ where }) =>
+        f.ledger.subaddresses.filter(row => where.accountId.in.includes(row.accountId)))
+    },
+    feeObservation: { findMany: jest.fn(async () => f.ledger.receipts) },
+    observedDownvote: { findMany: jest.fn(async () => f.ledger.downvotes) },
+    rewardPayout: { findMany: jest.fn(async () => f.ledger.payouts) },
+    rewardDistribution: { findMany: jest.fn(async () => f.ledger.distributions) },
+    rewardsWalletTransaction: {
+      findMany: jest.fn(async ({ where } = {}) =>
+        f.ledger.transactions.filter(row =>
+          row.network === where?.network && row.walletAddress === where?.walletAddress)),
+      findUnique: jest.fn(async ({ where }) =>
+        f.ledger.transactions.find(row => row.id === where.id) ?? null)
+    },
+    escrowWalletTransaction: {
+      findMany: jest.fn(async () => f.ledger.escrowTransactions),
+      findUnique: jest.fn(async ({ where }) =>
+        f.ledger.escrowTransactions.find(row => row.id === where.id) ?? null)
+    },
+    bountyPayment: { findMany: jest.fn(async () => f.ledger.bountyPayments) },
+    observedBounty: { findMany: jest.fn(async () => f.ledger.observedBounties) },
+    observedBountyReceipt: { findMany: jest.fn(async () => f.ledger.observedBountyReceipts) },
+    item: {
+      findMany: jest.fn(async ({ where }) =>
+        f.ledger.items.filter(row => where.id.in.includes(row.id)))
+    },
+    earn: { findMany: jest.fn(async () => f.ledger.earns) },
+    platformFeeConfig: { findUnique: jest.fn(async () => f.config) },
+    paymentTransactionProof: {
+      findUnique: jest.fn(async ({ where }) => proofByProofId.get(where.id) ?? null)
+    },
+    rewardsWalletReconciliation: { findMany: jest.fn(async () => state.audits) }
+  }
+  return {
+    models,
+    scope: f.scope,
+    state,
+    proofByProofId,
+    receipts: f.ledger.receipts,
+    downvotes: f.ledger.downvotes,
+    payouts: f.ledger.payouts,
+    distributions: f.ledger.distributions,
+    transactions: f.ledger.transactions,
+    escrowTransactions: f.ledger.escrowTransactions,
+    bountyPayments: f.ledger.bountyPayments,
+    observedBounties: f.ledger.observedBounties,
+    items: f.ledger.items,
+    earns: f.ledger.earns,
+    subaddresses: f.ledger.subaddresses,
+    config: f.config
+  }
+}
+
+describe('v2 audit freshness of readRewardsWalletLedger', () => {
+  // A complete relayed consolidation fee fact (pure cost, never principal).
+  const feeFact = {
+    ...scope,
+    txHash: H('f2'),
+    kind: 'CONSOLIDATION',
+    state: 'RELAYED',
+    distributionId: null,
+    principalPiconeros: 0n,
+    networkFeePiconeros: 3n,
+    metadata: { destination: scope.walletAddress, selfTransfer: true }
+  }
+
+  test('receipt eligibility change invalidates audit without changing delivery', async () => {
+    const f = makeFreshAuditModels()
+    const before = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    f.receipts[0].walletReceipt = !f.receipts[0].walletReceipt
+    const after = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+    expect(after.totalSentPiconeros).toBe(before.totalSentPiconeros)
+    expect(after.totalNetworkFeesPiconeros).toBe(before.totalNetworkFeesPiconeros)
+  })
+
+  test.each([
+    ['receipt amount', f => { f.receipts[0].piconeros = 701n }],
+    ['receipt state', f => { f.receipts[2].state = 'CONFIRMED' }],
+    ['receipt confirmedAt', f => { f.receipts[0].confirmedAt = new Date(Date.UTC(2026, 8, 2)) }],
+    ['downvote state', f => { f.downvotes[0].state = 'DETECTED' }],
+    ['downvote amount', f => { f.downvotes[1].piconeros = 1001n }],
+    ['fee config percentage', f => { f.config.postingFeeRewardsPct = 71 }],
+    ['declared proof selector', f => { f.transactions[0].proofId = '00000000-0000-4000-8000-000000000099' }],
+    ['proof revision', f => { f.proofByProofId.get(f.transactions[0].proofId).revision = 2 }],
+    ['escrow journal state', f => { f.escrowTransactions[0].state = 'CONFIRMED' }],
+    ['escrow fee fact', f => { f.escrowTransactions[0].networkFeePiconeros = 9n }],
+    ['bounty settlement fact', f => { f.bountyPayments[0].recipientReceivedPiconeros = 5001n }],
+    ['in-flight funding fact', f => { f.observedBounties[1].piconeros = 3101n }],
+    ['in-flight item terms', f => { f.items[1].bountyPiconeros = 3001n }],
+    ['earn contract', f => { f.earns[0].piconeros = 251n }],
+    ['subaddress state', f => { f.subaddresses[0].state = 'ASSIGNED' }]
+  ])('a changed %s invalidates the audit fingerprint', async (_name, mutate) => {
+    const f = makeFreshAuditModels()
+    const before = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    mutate(f)
+    const after = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+  })
+
+  test('audit-only input changes never redefine the money union facts', async () => {
+    const f = makeFreshAuditModels()
+    const before = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    f.receipts[1].piconeros = 499n
+    f.downvotes[0].state = 'DETECTED'
+    f.config.downvoteRewardsPct = 99
+    f.escrowTransactions[0].state = 'PREPARED'
+    const after = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+    expect(after.totalSentPiconeros).toBe(before.totalSentPiconeros)
+    expect(after.totalNetworkFeesPiconeros).toBe(before.totalNetworkFeesPiconeros)
+    expect(after.payoutSentPiconeros).toBe(before.payoutSentPiconeros)
+    expect(after.sweepSentPiconeros).toBe(before.sweepSentPiconeros)
+    expect(after.outstandingRewardsPiconeros).toBe(before.outstandingRewardsPiconeros)
+  })
+
+  test('the fingerprint is the strict v2 audit digest with version 2', async () => {
+    const f = makeFreshAuditModels()
+    const ledger = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    expect(ledger.fingerprint).toMatch(/^accounting:v2:[0-9a-f]{64}$/)
+    expect(ledger.accountingFingerprintVersion).toBe(2)
+  })
+
+  test('Date rows and ISO-string rows produce the same fingerprint', async () => {
+    const iso = value => {
+      if (value instanceof Date) return value.toISOString()
+      if (Array.isArray(value)) return value.map(iso)
+      if (value !== null && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, iso(v)]))
+      }
+      return value
+    }
+    const f = makeFreshAuditModels()
+    const dates = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    const isoModels = makeFreshAuditModels(iso(auditLedgerFixture()))
+    const strings = await readRewardsWalletLedger(isoModels.models, { scope: isoModels.scope })
+    expect(strings.fingerprint).toBe(dates.fingerprint)
+  })
+
+  test('reordered DB query order produces the same fingerprint', async () => {
+    const f = makeFreshAuditModels()
+    const forward = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    for (const group of [
+      f.receipts, f.downvotes, f.payouts, f.distributions, f.transactions,
+      f.escrowTransactions, f.bountyPayments, f.observedBounties, f.items,
+      f.earns, f.subaddresses
+    ]) {
+      group.reverse()
+    }
+    const reversed = await readRewardsWalletLedger(f.models, { scope: f.scope })
+    expect(reversed.fingerprint).toBe(forward.fingerprint)
+  })
+
+  test('a clean CHECK of the old union projection is stale and can never clear drift', async () => {
+    // Clean minimal money union (certain, no audit rows): the legacy row below
+    // carries the exact old union-projection digest of THESE facts, while the
+    // reader's fingerprint is the shared v2 snapshot digest.
+    const payouts = [{ id: 1, distributionId: 1, curatorId: null, state: 'SENT', txHash: H('f1'), recipientAddress: '5A', piconeros: 60n }]
+    const distributions = []
+    const transactions = []
+    const base = { payouts, distributions, transactions }
+    const current = await readRewardsWalletLedger(makeLedgerModels(base), { scope })
+    const legacyUnion = summarizeRewardsLedger({ ...base, scope })
+    expect(legacyUnion.unionFingerprint).not.toBe(current.fingerprint)
+    expect(legacyUnion.unionFingerprint).toMatch(/^[0-9a-f]{64}$/)
+
+    const carried = await readRewardsWalletLedger(makeLedgerModels({
+      ...base,
+      audits: [
+        { positiveDriftPiconeros: 5n, ledgerFingerprint: 'ab'.repeat(32) },
+        { positiveDriftPiconeros: 0n, ledgerFingerprint: legacyUnion.unionFingerprint, report: { manifest: { issues: [] } } }
+      ]
+    }), { scope })
+    expect(carried.positiveDriftPiconeros).toBe(5n)
+    // A row-level legacy audit alone never adds accounting uncertainty.
+    expect(carried.accountingUncertain).toBe(false)
+
+    // Positive control: a clean CHECK of the CURRENT v2 facts clears it.
+    const cleared = await readRewardsWalletLedger(makeLedgerModels({
+      ...base,
+      audits: [
+        { positiveDriftPiconeros: 5n, ledgerFingerprint: 'ab'.repeat(32) },
+        { positiveDriftPiconeros: 0n, ledgerFingerprint: current.fingerprint, report: { manifest: { issues: [] } } }
+      ]
+    }), { scope })
+    expect(cleared.positiveDriftPiconeros).toBe(0n)
+    expect(cleared.accountingUncertain).toBe(false)
+  })
+
+  test('a later stale or issue-bearing CHECK cannot clear an earlier positive discrepancy', async () => {
+    const payouts = [{ id: 1, distributionId: 1, curatorId: null, state: 'SENT', txHash: H('f1'), recipientAddress: '5A', piconeros: 60n }]
+    const transactions = [feeFact]
+    const base = { payouts, distributions: [], transactions }
+    const clean = await readRewardsWalletLedger(makeLedgerModels(base), { scope })
+    const published = { positiveDriftPiconeros: 0n, ledgerFingerprint: clean.fingerprint, report: { manifest: { issues: [] } } }
+
+    // One audited input changes AFTER publication (a new relayed fee fact):
+    // the published CHECK is now stale while an earlier discrepancy warns on.
+    transactions.push({ ...feeFact, txHash: H('f9'), networkFeePiconeros: 4n })
+    const staleThenDrift = await readRewardsWalletLedger(makeLedgerModels({
+      ...base,
+      audits: [published, { positiveDriftPiconeros: 5n, ledgerFingerprint: 'cd'.repeat(32) }]
+    }), { scope })
+    expect(staleThenDrift.positiveDriftPiconeros).toBe(5n)
+    expect(staleThenDrift.accountingUncertain).toBe(false)
+
+    // An issue-bearing CHECK of exactly the current facts is not clean either:
+    // it cannot clear the earlier positive discrepancy.
+    const fresh = await readRewardsWalletLedger(makeLedgerModels(base), { scope })
+    const issueBearing = await readRewardsWalletLedger(makeLedgerModels({
+      ...base,
+      audits: [
+        { positiveDriftPiconeros: 5n, ledgerFingerprint: 'cd'.repeat(32) },
+        {
+          positiveDriftPiconeros: 0n,
+          ledgerFingerprint: fresh.fingerprint,
+          report: { manifest: { issues: [{ code: 'UNKNOWN_INCOMING' }] } }
+        }
+      ]
+    }), { scope })
+    expect(issueBearing.positiveDriftPiconeros).toBe(5n)
+    expect(issueBearing.accountingUncertain).toBe(false)
+  })
+
+  test('old audit rows and zero-drift row-level issues alone add no new public warning', async () => {
+    // A legacy bare-hash row with a material issue and zero drift: it stays
+    // visible as a carried fact but must not invent uncertainty or a warning.
+    const carried = await readRewardsWalletLedger(makeLedgerModels({
+      audits: [{
+        positiveDriftPiconeros: 0n,
+        ledgerFingerprint: 'ef'.repeat(32),
+        report: { manifest: { issues: [{ code: 'SOME_STALE_ISSUE' }] } }
+      }]
+    }), { scope })
+    expect(carried.accountingUncertain).toBe(false)
+    expect(carried.positiveDriftPiconeros).toBe(0n)
   })
 })
 
@@ -1003,6 +1365,12 @@ const prisma = new PrismaClient()
   }
 
   test('unions recorded facts with journal-proven relays, de-duplicated and wallet-scoped', async () => {
+    // The shared snapshot proves the registered platform_rewards identity
+    // before any read, so the union test registers the matching wallet first.
+    const platform = await prisma.moneroAccount.create({
+      data: { ownerUserId: null, address: WALLET, label: 'platform_rewards', network: 'STAGENET', status: 'ACTIVE' }
+    })
+    created.accounts.push(platform.id)
     const curatorId = await createUser()
     const dist = await createDistribution({ opsSweptPiconeros: 10n, opsSweepTxHash: H('aa') })
     const sent = await createPayout({ distributionId: dist.id, curatorId, state: 'SENT', txHash: H('ab'), piconeros: 60n, recipientAddress: '5A' })
@@ -1058,7 +1426,8 @@ const prisma = new PrismaClient()
     expect(ledger.totalSentPiconeros).toBe(85n)
     expect(ledger.outstandingRewardsPiconeros).toBe(0n)
     expect(ledger.accountingUncertain).toBe(false)
-    expect(ledger.fingerprint).toMatch(/^[0-9a-f]{64}$/)
+    expect(ledger.fingerprint).toMatch(/^accounting:v2:[0-9a-f]{64}$/)
+    expect(ledger.accountingFingerprintVersion).toBe(2)
   })
 
   test('refuses a configured identity that does not match the registered platform wallet', async () => {
@@ -1066,7 +1435,7 @@ const prisma = new PrismaClient()
       data: { ownerUserId: null, address: OTHER_WALLET, label: 'platform_rewards', network: 'STAGENET', status: 'ACTIVE' }
     })
     created.accounts.push(account.id)
-    await expect(readRewardsWalletLedger(prisma, { scope: ledgerScope })).rejects.toThrow(/identity|match/i)
+    await expect(readRewardsWalletLedger(prisma, { scope: ledgerScope })).rejects.toThrow(/registered platform_rewards/)
   })
 
   test('refuses a registered platform wallet on another network', async () => {
@@ -1074,7 +1443,7 @@ const prisma = new PrismaClient()
       data: { ownerUserId: null, address: WALLET, label: 'platform_rewards', network: 'MAINNET', status: 'ACTIVE' }
     })
     created.accounts.push(account.id)
-    await expect(readRewardsWalletLedger(prisma, { scope: ledgerScope })).rejects.toThrow(/identity|match/i)
+    await expect(readRewardsWalletLedger(prisma, { scope: ledgerScope })).rejects.toThrow(/platform_rewards/)
   })
 
   test('a matching registered platform wallet is accepted', async () => {
@@ -1083,6 +1452,6 @@ const prisma = new PrismaClient()
     })
     created.accounts.push(account.id)
     const ledger = await readRewardsWalletLedger(prisma, { scope: ledgerScope })
-    expect(ledger.fingerprint).toMatch(/^[0-9a-f]{64}$/)
+    expect(ledger.fingerprint).toMatch(/^accounting:v2:[0-9a-f]{64}$/)
   })
 })

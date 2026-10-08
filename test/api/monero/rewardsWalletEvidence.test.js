@@ -1,6 +1,7 @@
 /* eslint-env jest */
 import { collectRewardsWalletEvidence } from '@/api/monero/rewardsWalletEvidence'
 import { FI } from '../../fixtures/rewards-accounting-evidence'
+import { paymentChainFixture } from '../../fixtures/payment-proof'
 
 // Read-only evidence collection tests (rewards accounting repair §8, Task 12).
 // Every wallet is a fake; no DB, no daemon, no SDK. The fakes define
@@ -15,6 +16,82 @@ const ADDRESS_FOR = (primary, major, minor) =>
 // Every wallet constructed for a test is tracked so the zero-send guarantee is
 // asserted on EVERY path (happy, rejection and retry), not just the happy one.
 const createdWallets = []
+
+function validCollectionFixture () {
+  const chain = paymentChainFixture()
+  const scope = chain.collectOptions.scope
+  const derived = chain.collectOptions.derivation.derived
+  const tiers = derived.map(row => [row.address])
+  const wallet = makeAuditWallet({ primaryAddress: scope.walletAddress, height: chain.collectOptions.boundary.height + 1, subaddresses: tiers })
+  const escrowWallet = makeAuditWallet({ label: 'escrow', primaryAddress: scope.walletAddress, height: chain.collectOptions.boundary.height + 1 })
+  for (const audit of [wallet, escrowWallet]) {
+    audit.getOutputs = chain.wallet.getOutputs
+    audit.getPrivateViewKey = chain.wallet.getPrivateViewKey
+    audit.getAddress = chain.wallet.getAddress
+    audit.checkTxKey = chain.wallet.checkTxKey
+  }
+  const { models, rewardAccount, escrowAccount } = makeModels({
+    rewardSubRows: derived.map(row => ({ ...row, accountId: 616, state: 'AVAILABLE' })),
+    escrowSubRows: [],
+    escrowJournalRows: [{ id: 1, txHash: chain.txHash, network: scope.network, walletAddress: scope.walletAddress, dispatchId: '00000000-0000-4000-8000-000000000001', captureContractVersion: 1 }]
+  })
+  rewardAccount.address = scope.walletAddress
+  escrowAccount.address = scope.walletAddress
+  // Captured owner metadata deliberately lacks a proof pair: the verifier
+  // must reach that distinct refusal, not lose the valid escrow session.
+  models.escrowWalletTransaction.findUnique = async () => ({
+    id: 1,
+    txHash: chain.txHash,
+    network: scope.network,
+    walletAddress: scope.walletAddress,
+    dispatchId: '00000000-0000-4000-8000-000000000001',
+    captureContractVersion: 1,
+    claimDigest: 'ab'.repeat(32),
+    paymentClaims: {},
+    proofId: '00000000-0000-4000-8000-000000000002'
+  })
+  models.paymentTransactionProof = { findUnique: async () => null }
+  chain.daemon.getTransactions = async hashes => hashes.map(hash => ({ hash }))
+  return { chain, scope, wallet, escrowWallet, models, daemon: chain.daemon }
+}
+
+test('account-0-only escrow evidence collector retains its verification session', async () => {
+  const f = validCollectionFixture()
+  const evidence = await collectRewardsWalletEvidence({ ...f, wallet: f.wallet })
+  expect(evidence.escrow.derivation.derived).toHaveLength(1)
+  expect(evidence.escrow.paymentVerifications).toHaveLength(1)
+  expect(evidence.escrow.paymentVerifications[0].issues).not.toContain('CHAIN_EVIDENCE_UNAVAILABLE')
+})
+
+test.each(['REWARDS', 'ESCROW'])('one pending %s candidate preserves two confirmed verification sessions', async role => {
+  const f = validCollectionFixture()
+  const pending = 'b2'.repeat(32)
+  const second = 'b3'.repeat(32)
+  const journalName = role === 'REWARDS' ? 'rewardsWalletTransaction' : 'escrowWalletTransaction'
+  const audit = role === 'REWARDS' ? f.wallet : f.escrowWallet
+  const owner = await f.models.escrowWalletTransaction.findUnique()
+  const owners = [f.chain.txHash, second, pending].map((txHash, index) => ({ ...owner, id: index + 1, txHash }))
+  f.models[journalName].findMany.mockResolvedValue(owners)
+  f.models[journalName].findUnique = async ({ where }) => owners.find(row => BigInt(row.id) === where.id)
+  const raw = f.chain.session.rawByHash[f.chain.txHash]
+  f.chain.session.rawByHash[second] = { ...raw, txHash: second, voutKeys: [raw.voutKeys[0]], additionalPublicKeys: [raw.additionalPublicKeys[0]], outputIndices: [1001] }
+  audit.getOutgoingTransfers.mockResolvedValue([makeTransfer({ hash: pending, inTxPool: true, isConfirmed: false })])
+  const original = f.daemon.getPaymentTransactions.getMockImplementation()
+  f.daemon.getPaymentTransactions.mockImplementation(async hashes => {
+    if (hashes.includes(pending)) {
+      const err = new Error('synthetic pool refusal')
+      err.code = 'RAW_TX_IN_POOL'
+      throw err
+    }
+    return original(hashes)
+  })
+  const evidence = await collectRewardsWalletEvidence(f)
+  const results = role === 'REWARDS' ? evidence.paymentVerifications : evidence.escrow.paymentVerifications
+  for (const hash of [f.chain.txHash, second]) {
+    expect(results.find(result => result.txHash === hash).issues).not.toContain('CHAIN_EVIDENCE_UNAVAILABLE')
+  }
+  expect(results.find(result => result.txHash === pending)).toMatchObject({ status: 'unresolved', issues: ['CONFIRMATION_REQUIRED'] })
+})
 
 function expectNoSendCalls (wallet) {
   expect(wallet.createTx).not.toHaveBeenCalled()
@@ -125,7 +202,16 @@ const ESCROW_SUB_ROWS = [
   { accountId: 617, majorIndex: 1, minorIndex: 0, address: ADDRESS.ESCROW_SUB, state: 'ASSIGNED' }
 ]
 
-function makeModels ({ rewardSubRows = REWARDS_SUB_ROWS, escrowSubRows = ESCROW_SUB_ROWS, registerEscrow = true } = {}) {
+function makeModels ({
+  rewardSubRows = REWARDS_SUB_ROWS,
+  escrowSubRows = ESCROW_SUB_ROWS,
+  registerEscrow = true,
+  rewardJournalRows = [],
+  escrowJournalRows = [],
+  payoutRows = [],
+  distributionRows = [],
+  bountyRows = []
+} = {}) {
   const rewardAccount = { id: 616, label: 'platform_rewards', address: ADDRESS.WALLET, network: SCOPE.network }
   const escrowAccount = registerEscrow ? { id: 617, label: 'bounty_escrow', address: ADDRESS.ESCROW, network: SCOPE.network } : null
   return {
@@ -151,7 +237,24 @@ function makeModels ({ rewardSubRows = REWARDS_SUB_ROWS, escrowSubRows = ESCROW_
           byMajor.set(row.majorIndex, Math.max(byMajor.get(row.majorIndex) ?? 0, row.minorIndex))
         }
         return [...byMajor.entries()].map(([major, maxMinor]) => ({ major, maxMinor }))
-      })
+      }),
+      // Payment verification identity sources (Task 5): journal rows carry the
+      // capture identity; payouts/sweeps/bounties carry recorded hashes only.
+      rewardsWalletTransaction: {
+        findMany: jest.fn(async () => rewardJournalRows)
+      },
+      escrowWalletTransaction: {
+        findMany: jest.fn(async () => escrowJournalRows)
+      },
+      rewardPayout: {
+        findMany: jest.fn(async () => payoutRows)
+      },
+      rewardDistribution: {
+        findMany: jest.fn(async () => distributionRows)
+      },
+      bountyPayment: {
+        findMany: jest.fn(async () => bountyRows)
+      }
     }
   }
 }
@@ -625,5 +728,251 @@ describe('collectRewardsWalletEvidence', () => {
     walk(evidence)
     const serialized = JSON.stringify(evidence)
     expect(serialized).not.toMatch(/privateSpendKey|privateViewKey|mnemonic|seed/i)
+  })
+
+  // --- Task 5: evidence v2, verification union, readability, sentinels ------
+
+  const V2_HASHES = {
+    LEGACY_JOURNAL: 'd1'.repeat(32),
+    CAPTURED_JOURNAL: 'd5'.repeat(32),
+    PAYOUT: TX.PAYOUT,
+    SWEEP: 'd2'.repeat(32),
+    AWARD: TX.AWARD,
+    FEE: 'd3'.repeat(32),
+    OUTGOING_ONLY: 'd4'.repeat(32)
+  }
+
+  function v2Fixture (overrides = {}) {
+    const uuid = seed => `00000000-0000-4000-8000-${seed.padStart(12, '0')}`
+    return makeHappyFixture({
+      extraOutgoing: [makeTransfer({
+        hash: V2_HASHES.OUTGOING_ONLY,
+        fee: 1n,
+        destinations: [{ address: ADDRESS.CURATOR_ONE, amount: 3n }]
+      })],
+      models: {
+        rewardJournalRows: [
+          { id: 501, txHash: V2_HASHES.LEGACY_JOURNAL, dispatchId: null, captureContractVersion: null },
+          { id: 502, txHash: V2_HASHES.CAPTURED_JOURNAL, dispatchId: uuid('a'), captureContractVersion: 1 },
+          ...(overrides.rewardJournalRows ?? [])
+        ],
+        payoutRows: [{ txHash: V2_HASHES.PAYOUT }],
+        distributionRows: [{ opsSweepTxHash: V2_HASHES.SWEEP }],
+        bountyRows: [{ txHash: V2_HASHES.AWARD, feeTxHash: V2_HASHES.FEE }]
+      },
+      ...overrides.fixture
+    })
+  }
+
+  test('collects evidence v2 with payment verification results for the whole hash union', async () => {
+    const fixture = v2Fixture()
+    const evidence = await collectRewardsWalletEvidence({
+      models: fixture.models,
+      scope: SCOPE,
+      wallet: fixture.wallet,
+      escrowWallet: fixture.escrowWallet,
+      daemon: fixture.daemon
+    })
+    expect(evidence.evidenceVersion).toBe(2)
+    expect(typeof evidence.collectionStartedAt).toBe('string')
+    expect(typeof evidence.observedAt).toBe('string')
+
+    const rewardsByHash = Object.fromEntries(
+      evidence.paymentVerifications.map(result => [result.txHash, result]))
+    // The union: journal hashes + recorded payout/sweep hashes + wallet
+    // outgoing hashes — including hashes absent from the wallet history.
+    for (const hash of [V2_HASHES.LEGACY_JOURNAL, V2_HASHES.CAPTURED_JOURNAL, V2_HASHES.PAYOUT, V2_HASHES.SWEEP, V2_HASHES.OUTGOING_ONLY]) {
+      expect(rewardsByHash[hash]).toBeDefined()
+    }
+    // Legacy journal identity: unresolved, never a synthetic proof-era owner.
+    expect(rewardsByHash[V2_HASHES.LEGACY_JOURNAL]).toMatchObject({
+      status: 'unresolved',
+      captureMode: 'LEGACY_SURVIVING_PROOF',
+      journalRole: 'REWARDS',
+      journalId: '501',
+      dispatchId: null,
+      proofInventory: null
+    })
+    expect(rewardsByHash[V2_HASHES.LEGACY_JOURNAL].issues).toContain('LEGACY_PROOF_MISSING')
+    // A captured journal row the audit wallet cannot build a chain session
+    // for stays an explicit unresolved result — never a fabricated pass.
+    expect(rewardsByHash[V2_HASHES.CAPTURED_JOURNAL]).toMatchObject({
+      status: 'unresolved',
+      journalRole: 'REWARDS',
+      journalId: '502'
+    })
+    expect(rewardsByHash[V2_HASHES.CAPTURED_JOURNAL].issues).toContain('CHAIN_EVIDENCE_UNAVAILABLE')
+    // Recorded payout/sweep hashes and outgoing-only hashes with no journal
+    // identity get explicit unresolved results.
+    for (const hash of [V2_HASHES.PAYOUT, V2_HASHES.SWEEP, V2_HASHES.OUTGOING_ONLY]) {
+      expect(rewardsByHash[hash]).toMatchObject({
+        status: 'unresolved',
+        captureMode: null,
+        journalRole: null,
+        journalId: null,
+        dispatchId: null
+      })
+      expect(rewardsByHash[hash].issues).toContain('UNIDENTIFIED_HASH')
+    }
+
+    const escrowByHash = Object.fromEntries(
+      evidence.escrow.paymentVerifications.map(result => [result.txHash, result]))
+    for (const hash of [V2_HASHES.AWARD, V2_HASHES.FEE]) {
+      expect(escrowByHash[hash]).toMatchObject({ status: 'unresolved', journalId: null })
+      expect(escrowByHash[hash].issues).toContain('UNIDENTIFIED_HASH')
+    }
+
+    // Every per-verification observation sits inside the collection interval.
+    for (const result of [...evidence.paymentVerifications, ...evidence.escrow.paymentVerifications]) {
+      expect(result.observedAt >= evidence.collectionStartedAt).toBe(true)
+      expect(result.observedAt <= evidence.observedAt).toBe(true)
+    }
+    expect(evidence.paymentVerifications.map(result => result.txHash))
+      .toEqual([...evidence.paymentVerifications.map(result => result.txHash)].sort())
+  })
+
+  test('preserves unreadable outgoing sources and amounts instead of defaulting to zero', async () => {
+    const unreadable = 'ea'.repeat(32)
+    const fixture = makeHappyFixture({
+      extraOutgoing: [{
+        getTx: () => ({
+          getHash: () => unreadable,
+          getHeight: () => HEIGHT.SWEEP,
+          getFee: () => 2n,
+          getNumConfirmations: () => 10,
+          getInTxPool: () => false,
+          getIsConfirmed: () => true,
+          getIsRelayed: () => true
+        }),
+        getAccountIndex: () => 0,
+        getDestinations: () => [
+          { getAddress: () => { throw new Error('unreadable destination') }, getAmount: () => 5n },
+          { getAddress: () => ADDRESS.OPS, getAmount: () => { throw new Error('unreadable amount') } }
+        ]
+      }]
+    })
+    const evidence = await collectRewardsWalletEvidence({
+      models: fixture.models,
+      scope: SCOPE,
+      wallet: fixture.wallet,
+      escrowWallet: fixture.escrowWallet,
+      daemon: fixture.daemon
+    })
+    const row = evidence.outgoing.find(entry => entry.txHash === unreadable)
+    expect(row.destinationsReadable).toBe(false)
+    // Readable fields are preserved exactly; unreadable ones stay explicit
+    // null — never a defaulted zero.
+    expect(row.destinations).toEqual([
+      { address: null, amountPiconeros: '5' },
+      { address: ADDRESS.OPS, amountPiconeros: null }
+    ])
+    expect(row.feePiconeros).toBe('2')
+    // It also enters the verification union as an explicit unresolved hash.
+    const verification = evidence.paymentVerifications.find(result => result.txHash === unreadable)
+    expect(verification.issues).toContain('UNIDENTIFIED_HASH')
+  })
+
+  test('an unreadable outgoing source account is explicit null, never 0 (I3)', async () => {
+    const absentGetter = 'eb'.repeat(32)
+    const throwingGetter = 'ec'.repeat(32)
+    const txShape = hash => ({
+      getHash: () => hash,
+      getHeight: () => HEIGHT.SWEEP,
+      getFee: () => 2n,
+      getNumConfirmations: () => 10,
+      getInTxPool: () => false,
+      getIsConfirmed: () => true,
+      getIsRelayed: () => true
+    })
+    const fixture = makeHappyFixture({
+      extraOutgoing: [
+        {
+          // getAccountIndex is absent entirely.
+          getTx: () => txShape(absentGetter),
+          getDestinations: () => [{ getAddress: () => ADDRESS.OPS, getAmount: () => 5n }]
+        },
+        {
+          // getAccountIndex exists but throws.
+          getTx: () => txShape(throwingGetter),
+          getAccountIndex: () => { throw new Error('unreadable account') },
+          getDestinations: () => [{ getAddress: () => ADDRESS.OPS, getAmount: () => 6n }]
+        }
+      ]
+    })
+    const evidence = await collectRewardsWalletEvidence({
+      models: fixture.models,
+      scope: SCOPE,
+      wallet: fixture.wallet,
+      escrowWallet: fixture.escrowWallet,
+      daemon: fixture.daemon
+    })
+    const absent = evidence.outgoing.find(entry => entry.txHash === absentGetter)
+    const throwing = evidence.outgoing.find(entry => entry.txHash === throwingGetter)
+    for (const row of [absent, throwing]) {
+      expect(row.accountIndex).toBeNull()
+      expect(row.destinationsReadable).toBe(false)
+      expect(row.isSelfTransfer).toBe(false)
+      expect(row.feePiconeros).toBe('2')
+    }
+    // A readable control row keeps its real account index and readability.
+    expect(evidence.outgoing.find(entry => entry.txHash === TX.SWEEP)).toMatchObject({
+      accountIndex: 0,
+      destinationsReadable: true
+    })
+    // Both enter the verification union as explicit unresolved hashes.
+    for (const hash of [absentGetter, throwingGetter]) {
+      expect(evidence.paymentVerifications.find(result => result.txHash === hash).issues)
+        .toContain('UNIDENTIFIED_HASH')
+    }
+  })
+
+  test('collected evidence and verification results leak no key, nonce, ciphertext or key-image material', async () => {
+    const fixture = v2Fixture()
+    const evidence = await collectRewardsWalletEvidence({
+      models: fixture.models,
+      scope: SCOPE,
+      wallet: fixture.wallet,
+      escrowWallet: fixture.escrowWallet,
+      daemon: fixture.daemon
+    })
+    const serialized = JSON.stringify(evidence)
+    expect(serialized).not.toMatch(
+      /privateSpendKey|privateViewKey|mnemonic|seed|ciphertext|dataNonce|dataTag|wrapNonce|wrapTag|wrappedDek|keyBundleHex|keyImage|stealthPublicKey|paymentClaims|bindingDigest/i)
+    for (const result of [...evidence.paymentVerifications, ...evidence.escrow.paymentVerifications]) {
+      expect(Object.keys(result)).not.toContain('keyBundleHex')
+      expect(Object.keys(result)).not.toContain('envelope')
+      expect(Object.keys(result)).not.toContain('payload')
+    }
+  })
+
+  test('absorbs the SDK daemon-height cache with a bounded resync before refusing', async () => {
+    // First getHeight answers with the stale cached count; a resync later
+    // covers the boundary. The collection must tolerate it (bounded) instead
+    // of refusing, and never weaken count >= boundary + 1.
+    let heightCalls = 0
+    const stale = makeHappyFixture()
+    stale.wallet.getHeight = jest.fn(async () => {
+      heightCalls += 1
+      return heightCalls <= 2 ? BOUNDARY.height : BOUNDARY.height + 1
+    })
+    const evidence = await collectRewardsWalletEvidence({
+      models: stale.models,
+      scope: SCOPE,
+      wallet: stale.wallet,
+      escrowWallet: stale.escrowWallet,
+      daemon: stale.daemon
+    })
+    expect(evidence.walletHeight).toBe(BOUNDARY.height + 1)
+    expect(stale.wallet.sync.mock.calls.length).toBeGreaterThanOrEqual(2)
+
+    // A scan that never covers the boundary still refuses.
+    const never = makeHappyFixture({ wallet: { height: BOUNDARY.height, syncedHeight: BOUNDARY.height } })
+    await expect(collectRewardsWalletEvidence({
+      models: never.models,
+      scope: SCOPE,
+      wallet: never.wallet,
+      escrowWallet: never.escrowWallet,
+      daemon: never.daemon
+    })).rejects.toThrow(/sync|scan|boundary/i)
   })
 })

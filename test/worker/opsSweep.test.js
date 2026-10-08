@@ -105,16 +105,26 @@ function makeDistribution (overrides = {}) {
 
 // A RELAYED consolidation is a pure fee fact (principal zero, self transfer).
 const feeFact = (fee, txHash) => ({
+  id: null,
   network: NETWORK,
   walletAddress: HOT,
   txHash,
   kind: 'CONSOLIDATION',
+  accountIndex: 0,
   state: 'RELAYED',
   distributionId: null,
   principalPiconeros: 0n,
   networkFeePiconeros: fee,
   metadata: { destination: HOT, selfTransfer: true },
-  relayAttemptedAt: null
+  preparedAt: null,
+  relayAttemptedAt: null,
+  relayedAt: null,
+  relayProvenance: null,
+  dispatchId: null,
+  captureContractVersion: null,
+  claimDigest: null,
+  paymentClaims: null,
+  proofId: null
 })
 
 // In-memory RewardsWalletTransaction model for the Task 6 journal helpers
@@ -220,12 +230,28 @@ function makeFakeModels (distribution) {
   // A test may replace the fixture wholesale (the brief's verbatim test assigns
   // only the three core fields), so every query merges over the defaults.
   const fixture = () => ({ ...defaults, ...models.accountingFixture })
+  // The audit snapshot's empty side groups: the money union reads only the
+  // journal/payout/distribution facts below; the snapshot's other groups are
+  // empty here and the registered platform identity matches the sweep scope.
+  const snapshotGroups = {
+    subaddressIndex: { findMany: async () => [] },
+    feeObservation: { findMany: async () => [] },
+    observedDownvote: { findMany: async () => [] },
+    escrowWalletTransaction: { findMany: async () => [], findUnique: async () => null },
+    bountyPayment: { findMany: async () => [] },
+    observedBounty: { findMany: async () => [] },
+    observedBountyReceipt: { findMany: async () => [] },
+    item: { findMany: async () => [] },
+    earn: { findMany: async () => [] },
+    paymentTransactionProof: { findUnique: async () => null }
+  }
   const models = {
     store,
     journal,
     accountingFixture: { ...defaults },
     healthSnapshot: { upsert: jest.fn(async () => ({})) },
-    platformFeeConfig: { upsert: async () => CONFIG },
+    platformFeeConfig: { upsert: async () => CONFIG, findUnique: async () => CONFIG },
+    ...snapshotGroups,
     // The two readRewardsInflow windows are distinguished by the bound start
     // value, exactly as the real reader binds them.
     async $queryRaw (strings, ...values) {
@@ -246,11 +272,24 @@ function makeFakeModels (distribution) {
       },
       async findFirst () { return { ...store } },
       async findMany () {
+        // Full closed distribution shape: the audit snapshot projects every
+        // expected column; tests only vary the ops-sweep facts.
         return [{
           id: store.id,
+          status: 'COMPLETE',
+          periodStart: null,
+          periodEnd: store.periodEnd,
+          poolPiconeros: 0n,
+          distributedPiconeros: 0n,
+          rolledOverPiconeros: store.rolledOverPiconeros,
+          payoutCount: 0,
+          opsInflowPiconeros: 0n,
+          opsRolledOverPiconeros: 0n,
           opsAvailablePiconeros: store.opsAvailablePiconeros,
           opsSweptPiconeros: store.opsSweptPiconeros,
-          opsSweepTxHash: store.opsSweepTxHash ?? null
+          opsSweepState: store.opsSweepState ?? null,
+          opsSweepTxHash: store.opsSweepTxHash ?? null,
+          opsNetworkFeesAccountedPiconeros: store.opsNetworkFeesAccountedPiconeros
         }]
       }
     },
@@ -293,7 +332,12 @@ function makeFakeModels (distribution) {
         return [{ positiveDriftPiconeros: f.positiveDriftPiconeros, ledgerFingerprint: hex('ff') }]
       }
     },
-    moneroAccount: { async findFirst () { return { address: HOT, network: NETWORK } } }
+    moneroAccount: {
+      async findFirst ({ where }) {
+        if (where?.label !== 'platform_rewards') return null
+        return { id: 1, label: 'platform_rewards', address: HOT, network: NETWORK }
+      }
+    }
   }
   // Ruling: the production path must run its readers inside one transaction —
   // the mock provides $transaction rather than letting production weaken.
@@ -422,16 +466,26 @@ function makeFakeWallet ({
 }
 
 const committedPayout = ({ id = 1, principal = 60_000_000_000n, recipient = '5A' } = {}) => ({
+  id: null,
   network: NETWORK,
   walletAddress: HOT,
   txHash: hex('d1'),
   kind: 'PAYOUT',
+  accountIndex: 0,
   state: 'PREPARED',
   relayAttemptedAt: new Date('2026-10-05T00:00:00.000Z'),
   distributionId: 1,
   principalPiconeros: principal,
   networkFeePiconeros: 1_000_000_000n,
-  metadata: { payouts: [{ payoutId: id, recipientAddress: recipient, piconeros: principal.toString() }] }
+  metadata: { payouts: [{ payoutId: id, recipientAddress: recipient, piconeros: principal.toString() }] },
+  preparedAt: null,
+  relayedAt: null,
+  relayProvenance: null,
+  dispatchId: null,
+  captureContractVersion: null,
+  claimDigest: null,
+  paymentClaims: null,
+  proofId: null
 })
 
 test('skips (SKIPPED_LOCKED) when the ops earmark is at/below the dust floor and never calls createTx', async () => {

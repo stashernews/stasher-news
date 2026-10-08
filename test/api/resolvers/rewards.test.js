@@ -65,18 +65,38 @@ function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null, le
     ...inflow
   }])
   const models = {
-    platformFeeConfig: { upsert: jest.fn(async () => config) },
+    platformFeeConfig: {
+      findUnique: jest.fn(async () => config),
+      upsert: jest.fn(async () => config)
+    },
     rewardDistribution: {
       findFirst: jest.fn(async () => lastDistribution),
       // The ledger reader loads every recorded distribution (sweep facts).
       findMany: jest.fn(async () => ledger.distributions ?? [])
     },
     rewardPayout: { findMany: jest.fn(async () => ledger.payouts ?? []) },
-    rewardsWalletTransaction: { findMany: jest.fn(async () => ledger.transactions ?? []) },
+    rewardsWalletTransaction: {
+      findMany: jest.fn(async () => ledger.transactions ?? []),
+      findUnique: jest.fn(async () => null)
+    },
     rewardsWalletReconciliation: { findMany: jest.fn(async () => ledger.audits ?? []) },
     moneroAccount: {
-      findFirst: jest.fn(async () => ({ address: process.env.PLATFORM_REWARDS_ADDRESS, network: 'STAGENET' }))
+      findFirst: jest.fn(async ({ where }) =>
+        where?.label === 'platform_rewards'
+          ? { id: 1, label: 'platform_rewards', address: process.env.PLATFORM_REWARDS_ADDRESS, network: 'STAGENET' }
+          : null)
     },
+    // Audit-snapshot side groups (empty; no bounty/escrow facts in this DB).
+    subaddressIndex: { findMany: jest.fn(async () => []) },
+    feeObservation: { findMany: jest.fn(async () => []) },
+    observedDownvote: { findMany: jest.fn(async () => []) },
+    escrowWalletTransaction: { findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null) },
+    bountyPayment: { findMany: jest.fn(async () => []) },
+    observedBounty: { findMany: jest.fn(async () => []) },
+    observedBountyReceipt: { findMany: jest.fn(async () => []) },
+    item: { findMany: jest.fn(async () => []) },
+    earn: { findMany: jest.fn(async () => []) },
+    paymentTransactionProof: { findUnique: jest.fn(async () => null) },
     $queryRaw: calls
   }
   // The pool read runs inside one Serializable transaction; an omitted mock

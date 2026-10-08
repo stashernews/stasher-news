@@ -261,13 +261,8 @@ test('collectDBBackedMetrics maps the latest distribution status + opsPending pi
       }]
     }),
     platformFeeConfig: {
-      upsert: jest.fn().mockResolvedValue({
-        downvoteRewardsPct: 100,
-        postingFeeRewardsPct: 70,
-        territoryFeeRewardsPct: 30,
-        walletlessTipRewardsPct: 70,
-        boostRewardsPct: 30
-      })
+      upsert: jest.fn().mockResolvedValue(METRICS_CONFIG),
+      findUnique: jest.fn().mockResolvedValue(METRICS_CONFIG)
     },
     rewardDistribution: {
       findFirst: jest.fn().mockResolvedValue({
@@ -279,15 +274,45 @@ test('collectDBBackedMetrics maps the latest distribution status + opsPending pi
       }),
       findMany: jest.fn().mockResolvedValue([{
         id: 1,
+        status: 'SENDING',
+        periodStart: null,
+        periodEnd: new Date('2026-09-14T00:00:00.000Z'),
+        poolPiconeros: 0n,
+        distributedPiconeros: 0n,
+        rolledOverPiconeros: 0n,
+        payoutCount: 0,
+        opsInflowPiconeros: 0n,
+        opsRolledOverPiconeros: 0n,
         opsAvailablePiconeros: 1_000_000_000_000n,
         opsSweptPiconeros: 600_000_000_000n,
-        opsSweepTxHash: null
+        opsSweepState: null,
+        opsSweepTxHash: null,
+        opsNetworkFeesAccountedPiconeros: 0n
       }])
     },
     rewardPayout: { findMany: jest.fn().mockResolvedValue([]) },
-    rewardsWalletTransaction: { findMany: jest.fn().mockResolvedValue([]) },
+    rewardsWalletTransaction: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(null)
+    },
     rewardsWalletReconciliation: { findMany: jest.fn().mockResolvedValue([]) },
-    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ address: '5METRICSHOT', network: 'STAGENET' }) }
+    moneroAccount: {
+      findFirst: jest.fn(async ({ where }) =>
+        where?.label === 'platform_rewards'
+          ? { id: 1, label: 'platform_rewards', address: '5METRICSHOT', network: 'STAGENET' }
+          : null)
+    },
+    // Audit-snapshot side groups (empty; no bounty/escrow facts in this DB).
+    subaddressIndex: { findMany: jest.fn(async () => []) },
+    feeObservation: { findMany: jest.fn(async () => []) },
+    observedDownvote: { findMany: jest.fn(async () => []) },
+    escrowWalletTransaction: { findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null) },
+    bountyPayment: { findMany: jest.fn(async () => []) },
+    observedBounty: { findMany: jest.fn(async () => []) },
+    observedBountyReceipt: { findMany: jest.fn(async () => []) },
+    item: { findMany: jest.fn(async () => []) },
+    earn: { findMany: jest.fn(async () => []) },
+    paymentTransactionProof: { findUnique: jest.fn(async () => null) }
   }
   models.$transaction = async fn => fn(models)
   await collectDBBackedMetrics(models)
@@ -296,18 +321,38 @@ test('collectDBBackedMetrics maps the latest distribution status + opsPending pi
 })
 
 // A RELAYED consolidation is a pure hot-wallet fee fact (principal zero).
+// Journal rows carry the audit snapshot's FULL closed column shape.
 function feeFact (fee, txHash) {
   return {
+    id: null,
     network: 'STAGENET',
     walletAddress: '5METRICSHOT',
     txHash,
     kind: 'CONSOLIDATION',
+    accountIndex: 0,
     state: 'RELAYED',
     distributionId: null,
     principalPiconeros: 0n,
     networkFeePiconeros: fee,
-    metadata: { destination: '5METRICSHOT', selfTransfer: true }
+    metadata: { destination: '5METRICSHOT', selfTransfer: true },
+    preparedAt: null,
+    relayAttemptedAt: null,
+    relayedAt: null,
+    relayProvenance: null,
+    dispatchId: null,
+    captureContractVersion: null,
+    claimDigest: null,
+    paymentClaims: null,
+    proofId: null
   }
+}
+
+const METRICS_CONFIG = {
+  downvoteRewardsPct: 100,
+  postingFeeRewardsPct: 70,
+  territoryFeeRewardsPct: 30,
+  walletlessTipRewardsPct: 70,
+  boostRewardsPct: 30
 }
 
 // Models for the rewards-pool accounting gauges: recorded distributions, a
@@ -336,22 +381,47 @@ function accountingModels ({ allTime = {}, distributions = [], transactions = []
       return [row]
     }),
     platformFeeConfig: {
-      upsert: jest.fn().mockResolvedValue({
-        downvoteRewardsPct: 100,
-        postingFeeRewardsPct: 70,
-        territoryFeeRewardsPct: 30,
-        walletlessTipRewardsPct: 70,
-        boostRewardsPct: 30
-      })
+      upsert: jest.fn().mockResolvedValue(METRICS_CONFIG),
+      findUnique: jest.fn().mockResolvedValue(METRICS_CONFIG)
     },
     rewardDistribution: {
       findFirst: jest.fn().mockResolvedValue(distributions[distributions.length - 1] ?? null),
-      findMany: jest.fn().mockResolvedValue(distributions)
+      // Full closed distribution shape: the audit snapshot projects every
+      // expected column; tests only vary the accounting facts.
+      findMany: jest.fn().mockResolvedValue(distributions.map(d => ({
+        periodStart: null,
+        poolPiconeros: 0n,
+        distributedPiconeros: 0n,
+        payoutCount: 0,
+        opsInflowPiconeros: 0n,
+        opsRolledOverPiconeros: 0n,
+        opsSweepState: null,
+        ...d
+      })))
     },
     rewardPayout: { findMany: jest.fn().mockResolvedValue([]) },
-    rewardsWalletTransaction: { findMany: jest.fn().mockResolvedValue(transactions) },
+    rewardsWalletTransaction: {
+      findMany: jest.fn().mockResolvedValue(transactions),
+      findUnique: jest.fn().mockResolvedValue(null)
+    },
     rewardsWalletReconciliation: { findMany: jest.fn().mockResolvedValue([]) },
-    moneroAccount: { findFirst: jest.fn().mockResolvedValue({ address: '5METRICSHOT', network: 'STAGENET' }) }
+    moneroAccount: {
+      findFirst: jest.fn(async ({ where }) =>
+        where?.label === 'platform_rewards'
+          ? { id: 1, label: 'platform_rewards', address: '5METRICSHOT', network: 'STAGENET' }
+          : null)
+    },
+    // Audit-snapshot side groups (empty; no bounty/escrow facts in this DB).
+    subaddressIndex: { findMany: jest.fn(async () => []) },
+    feeObservation: { findMany: jest.fn(async () => []) },
+    observedDownvote: { findMany: jest.fn(async () => []) },
+    escrowWalletTransaction: { findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null) },
+    bountyPayment: { findMany: jest.fn(async () => []) },
+    observedBounty: { findMany: jest.fn(async () => []) },
+    observedBountyReceipt: { findMany: jest.fn(async () => []) },
+    item: { findMany: jest.fn(async () => []) },
+    earn: { findMany: jest.fn(async () => []) },
+    paymentTransactionProof: { findUnique: jest.fn(async () => null) }
   }
   models.$transaction = async fn => fn(models)
   return models

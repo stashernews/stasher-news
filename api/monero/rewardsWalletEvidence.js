@@ -2,6 +2,13 @@ import { daemonClient, MAX_TX_HASHES_PER_REQUEST } from '@/api/monero/daemonClie
 import { assertWalletScope } from '@/api/monero/rewardsTransactions'
 import { ensureFeeAccounts } from '@/api/monero/rewards'
 import { walletScope } from '@/lib/rewardsAccounting'
+import { collectPaymentChainEvidence } from '@/api/monero/paymentChainEvidence'
+import {
+  validatePaymentVerification,
+  verifyLegacyPaymentTransaction,
+  verifyPaymentTransaction
+} from '@/api/monero/paymentVerification'
+import { createPaymentProofKeyProvider } from '@/api/monero/paymentProofKeys'
 
 // Read-only scoped chain evidence for the rewards + escrow wallets (rewards
 // accounting repair §8, Task 12).
@@ -85,6 +92,13 @@ function requireModels (models) {
   }
   if (typeof models?.$queryRaw !== 'function') {
     throw new Error('collectRewardsWalletEvidence: models.$queryRaw is required for fee-account derivation')
+  }
+  // Payment verification identity sources (Task 5): journal rows carry the
+  // capture identity; payouts/sweeps/bounties carry recorded hashes only.
+  for (const model of ['rewardsWalletTransaction', 'escrowWalletTransaction', 'rewardPayout', 'rewardDistribution', 'bountyPayment']) {
+    if (typeof models?.[model]?.findMany !== 'function') {
+      throw new Error(`collectRewardsWalletEvidence: models.${model} is required for payment verification identity`)
+    }
   }
 }
 
@@ -257,21 +271,49 @@ async function readTxFacts (transfer) {
   return { hash, inTxPool, isConfirmed, height, confirmations, isRelayed }
 }
 
+// Guarded destination reads: an unreadable address/amount must surface as an
+// explicit null (readability preserved exactly), never a crash and never a
+// defaulted zero.
 function normalizeOutgoingTransfer (transfer, txFacts, ownedAddresses) {
-  const destinations = (typeof transfer?.getDestinations === 'function' ? transfer.getDestinations() : null) || []
+  let rawDestinations = null
+  try {
+    rawDestinations = typeof transfer?.getDestinations === 'function' ? transfer.getDestinations() : null
+  } catch {
+    rawDestinations = null
+  }
+  const destinations = Array.isArray(rawDestinations) ? rawDestinations : []
   const normalizedDestinations = []
   let destinationsReadable = true
   for (const destination of destinations) {
-    const address = typeof destination?.getAddress === 'function' ? destination.getAddress() : null
-    const amount = typeof destination?.getAmount === 'function' ? asAmount(destination.getAmount()) : null
+    let address = null
+    let amount = null
+    try {
+      address = typeof destination?.getAddress === 'function' ? destination.getAddress() : null
+    } catch {
+      address = null
+    }
+    try {
+      amount = typeof destination?.getAmount === 'function' ? asAmount(destination.getAmount()) : null
+    } catch {
+      amount = null
+    }
     if (typeof address !== 'string' || address === '' || amount == null) destinationsReadable = false
     normalizedDestinations.push({ address, amountPiconeros: amount })
   }
   const selfTransfer = destinationsReadable && normalizedDestinations.length > 0 &&
     normalizedDestinations.every(destination => ownedAddresses.has(destination.address))
+  // I3 fix: an unreadable source account is an explicit null — never a
+  // defaulted 0 and never a crash — and it marks the whole entry unreadable.
+  let accountIndex = null
+  try {
+    accountIndex = asInt(transfer?.getAccountIndex?.())
+  } catch {
+    accountIndex = null
+  }
+  if (accountIndex === null) destinationsReadable = false
   return {
     txHash: txFacts.hash,
-    accountIndex: asInt(transfer?.getAccountIndex?.()) ?? 0,
+    accountIndex,
     feePiconeros: null,
     destinations: normalizedDestinations.map(destination => ({
       address: destination.address,
@@ -290,10 +332,24 @@ function normalizeOutgoingTransfer (transfer, txFacts, ownedAddresses) {
 
 function normalizeIncomingTransfer (transfer, txFacts) {
   const amount = asAmount(transfer?.getAmount?.())
+  // I3 fix: guarded reads — absent or throwing getters surface as explicit
+  // null instead of a defaulted 0 or a thrown error.
+  let accountIndex = null
+  try {
+    accountIndex = asInt(transfer?.getAccountIndex?.())
+  } catch {
+    accountIndex = null
+  }
+  let subaddressIndex = null
+  try {
+    subaddressIndex = asInt(transfer?.getSubaddressIndex?.())
+  } catch {
+    subaddressIndex = null
+  }
   return {
     txHash: txFacts.hash,
-    accountIndex: asInt(transfer?.getAccountIndex?.()) ?? 0,
-    subaddressIndex: asInt(transfer?.getSubaddressIndex?.()) ?? 0,
+    accountIndex,
+    subaddressIndex,
     amountPiconeros: amount == null ? null : amount.toString(),
     height: txFacts.height,
     confirmations: txFacts.confirmations,
@@ -394,6 +450,219 @@ async function verifyDaemonPresence (daemon, hashes) {
   return { checkedHashes: unique.length, batches: Math.ceil(unique.length / MAX_TX_HASHES_PER_REQUEST) }
 }
 
+// monero-ts caches the daemon height for ~30 seconds, so a freshly synced
+// wallet can briefly report a scanned count below the live tip. Absorb that
+// cache with a bounded resync-and-reread before the strict
+// count >= boundary index + 1 check — which is never weakened.
+const SCAN_RESYNC_ATTEMPTS = 3
+
+async function scannedHeightWithResync (wallet, minCount) {
+  let scanned = asInt(await wallet.getHeight())
+  for (let attempt = 0; (scanned === null || scanned < minCount) && attempt < SCAN_RESYNC_ATTEMPTS; attempt++) {
+    await wallet.sync()
+    scanned = asInt(await wallet.getHeight())
+  }
+  return scanned
+}
+
+// --- payment verification union (Task 5) --------------------------------------
+
+const VERIFIER_CONSTANTS = Object.freeze({
+  verificationVersion: '1',
+  verifierVersion: '1',
+  sdkVersion: '0.11.12',
+  provenance: 'restored-owned-outputs/raw-chain/check-tx-key'
+})
+
+// Explicit unresolved result for a hash with no journal/payout identity —
+// never a synthetic proof-era owner. Validated before inclusion.
+function explicitUnresolved ({ scope, txHash, journalRole = null, journalId = null, captureMode = null, issues, observedAt }) {
+  return {
+    verificationVersion: VERIFIER_CONSTANTS.verificationVersion,
+    status: 'unresolved',
+    issues: [...issues].sort(),
+    scope: { network: scope.network, walletAddress: scope.walletAddress },
+    journalRole,
+    journalId: journalId === null ? null : String(journalId),
+    dispatchId: null,
+    captureMode,
+    txHash,
+    claimDigest: null,
+    proofInventory: null,
+    sourceAccounts: [],
+    members: [],
+    receivingAggregates: [],
+    ownedAccounting: { totalPiconeros: null, outputs: [] },
+    totals: { D: null, O: null, F: null, E: null, residual: null },
+    confirmation: { height: null, blockHash: null, confirmations: null },
+    observedAt,
+    boundary: { height: null, blockHash: null },
+    verifierVersion: VERIFIER_CONSTANTS.verifierVersion,
+    sdkVersion: VERIFIER_CONSTANTS.sdkVersion,
+    provenance: VERIFIER_CONSTANTS.provenance,
+    survivingEvidenceDigest: null
+  }
+}
+
+function assertSafeResult (result, hash) {
+  if (!validatePaymentVerification(result)) {
+    throw new Error(`collectRewardsWalletEvidence: the payment verifier produced an invalid result for ${hash}`)
+  }
+  return result
+}
+
+/**
+ * Build ONE verification session per audit wallet (reused across hashes): the
+ * real Task 4 chain collector over the unfiltered scan at the stable boundary,
+ * plus the captured wallet's checkTxKey as the receipt checker. `auditedHashes`
+ * are the audited candidate hashes (journal/payout/sweep/escrow union) fetched
+ * by the collector independent of owned-output presence (final-review I3). A
+ * wallet that cannot produce chain evidence (no getOutputs, scan disagreement,
+ * …) yields null — captured rows then get explicit unresolved results, never a
+ * fabricated pass. Only fixed error codes may surface; message text is dropped
+ * here.
+ */
+async function buildVerificationSession ({ wallet, daemon, scope, derivation, boundary, auditedHashes = [], pendingHashes = [], journalRole = 'REWARDS' }) {
+  try {
+    const session = await collectPaymentChainEvidence({
+      wallet,
+      daemon,
+      journalRole,
+      scope,
+      derivation: {
+        complete: derivation.complete === true,
+        primaryAddress: derivation.primaryAddress,
+        derived: derivation.derived,
+        mismatches: Array.isArray(derivation.mismatches) ? derivation.mismatches : []
+      },
+      boundary: { height: boundary.height, blockHash: boundary.blockHash },
+      auditedHashes,
+      pendingHashes
+    })
+    if (typeof wallet.checkTxKey === 'function') {
+      return { ...session, checkTxKey: (...args) => wallet.checkTxKey(...args) }
+    }
+    return { ...session }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Populate one role's paymentVerifications from the UNION of journal hashes,
+ * recorded payout/sweep (or escrow dispatch/settlement/fee) hashes and wallet
+ * outgoing hashes. Captured journal rows run the REAL verifier through a
+ * lazily built chain session (one per wallet, reused); legacy journal rows
+ * resolve LEGACY_PROOF_MISSING (the collector never carries a surviving-proof
+ * provider); every other hash gets an explicit unresolved result. Each entry
+ * is validated against the closed result contract before inclusion, and only
+ * fixed error codes — never error message text — can enter a result.
+ */
+async function collectPaymentVerifications ({
+  models,
+  scope,
+  journalRole,
+  journalRows,
+  extraHashes,
+  outgoingHashes,
+  pendingHashes = [],
+  sessionFor,
+  keyProvider,
+  now
+}) {
+  const identityByHash = new Map()
+  for (const row of journalRows) {
+    const hash = normalizeHash(row?.txHash)
+    if (hash === null || typeof row?.id === 'undefined') continue
+    identityByHash.set(hash, {
+      journalId: row.id,
+      network: row.network,
+      walletAddress: row.walletAddress,
+      captured: row.dispatchId != null && row.captureContractVersion != null
+    })
+  }
+
+  const union = []
+  const seen = new Set()
+  for (const hash of [...identityByHash.keys(), ...extraHashes, ...outgoingHashes]) {
+    if (!TX_HASH_RE.test(hash) || seen.has(hash)) continue
+    seen.add(hash)
+    union.push({ hash, identity: identityByHash.get(hash) ?? null })
+  }
+  union.sort((a, b) => (a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : 0))
+
+  const results = []
+  for (const { hash, identity } of union) {
+    const observedAt = now().toISOString()
+    if (pendingHashes.includes(hash)) {
+      results.push(assertSafeResult(explicitUnresolved({
+        scope,
+        txHash: hash,
+        journalRole: identity === null ? null : journalRole,
+        journalId: identity?.journalId ?? null,
+        issues: ['CONFIRMATION_REQUIRED'],
+        observedAt
+      }), hash))
+      continue
+    }
+    if (identity === null) {
+      results.push(assertSafeResult(explicitUnresolved({
+        scope,
+        txHash: hash,
+        issues: ['UNIDENTIFIED_HASH'],
+        observedAt
+      }), hash))
+      continue
+    }
+    if (!identity.captured) {
+      // Legacy journal row: ordinary deployed collection has no surviving-proof
+      // provider, so the recorded delivery stands and verification stays
+      // explicitly unresolved. No capture identity is ever synthesized.
+      const identityScope = {
+        network: identity.network ?? scope.network,
+        walletAddress: identity.walletAddress ?? scope.walletAddress
+      }
+      const result = await verifyLegacyPaymentTransaction({
+        contract: {
+          scope: identityScope,
+          txHash: hash,
+          journalRole,
+          journalId: identity.journalId,
+          owner: { kind: null, distributionId: null, bountyPaymentId: null, itemId: null },
+          members: [],
+          recordedFeePiconeros: null
+        },
+        session: null,
+        observedAt
+      })
+      results.push(assertSafeResult(result, hash))
+      continue
+    }
+    const session = await sessionFor()
+    if (session === null) {
+      results.push(assertSafeResult(explicitUnresolved({
+        scope,
+        txHash: hash,
+        journalRole,
+        journalId: identity.journalId,
+        issues: ['CHAIN_EVIDENCE_UNAVAILABLE'],
+        observedAt
+      }), hash))
+      continue
+    }
+    const result = await verifyPaymentTransaction({
+      models,
+      journalRole,
+      journalId: identity.journalId,
+      session,
+      keyProvider,
+      observedAt
+    })
+    results.push(assertSafeResult(result, hash))
+  }
+  return results
+}
+
 // Only broadcast history (confirmed or in the mempool) can be verified on the
 // daemon. A built-but-unrelayed cached transaction is wallet state, not chain
 // evidence, and must never fail presence verification.
@@ -429,11 +698,14 @@ export async function collectRewardsWalletEvidence (options = {}) {
     restoreHeight: requestedRestoreHeight = 0,
     firstActivityEvidence = null,
     requestedBoundary = null,
-    maxBoundaryAttempts = 3
+    maxBoundaryAttempts = 3,
+    keyProvider = null,
+    now = () => new Date()
   } = options
   const scope = normalizeScope(options.scope ?? walletScope())
   requireModels(models)
   const restore = resolveRestoreHeight({ restoreHeight: requestedRestoreHeight, firstActivityEvidence })
+  const collectionStartedAt = now().toISOString()
 
   let rewardsWallet = options.wallet ?? null
   let escrowWallet = options.escrowWallet ?? null
@@ -515,8 +787,9 @@ export async function collectRewardsWalletEvidence (options = {}) {
       await rewardsWallet.sync()
       // The wallet's height is a SCANNED BLOCK COUNT; the boundary is a block
       // INDEX. Proving the boundary block itself was scanned requires
-      // count >= boundary index + 1.
-      const rewardsScanned = asInt(await rewardsWallet.getHeight())
+      // count >= boundary index + 1. The SDK may serve a ~30 s cached daemon
+      // height, so a bounded resync precedes the unchanged strict check.
+      const rewardsScanned = await scannedHeightWithResync(rewardsWallet, tipBefore.height + 1)
       if (rewardsScanned == null || rewardsScanned < tipBefore.height + 1) {
         throw new Error('collectRewardsWalletEvidence: the rewards wallet scan does not cover the boundary block')
       }
@@ -526,7 +799,7 @@ export async function collectRewardsWalletEvidence (options = {}) {
       let escrow = null
       if (escrowWallet) {
         await escrowWallet.sync()
-        const escrowScanned = asInt(await escrowWallet.getHeight())
+        const escrowScanned = await scannedHeightWithResync(escrowWallet, tipBefore.height + 1)
         if (escrowScanned == null || escrowScanned < tipBefore.height + 1) {
           throw new Error('collectRewardsWalletEvidence: the escrow wallet scan does not cover the boundary block')
         }
@@ -555,6 +828,123 @@ export async function collectRewardsWalletEvidence (options = {}) {
       const presenceHashes = [...confirmedPresenceHashes(rewardsHistory), ...escrowPresence]
       await verifyDaemonPresence(daemon, presenceHashes)
 
+      // Verified payment results at the stable boundary: the union of journal
+      // hashes, recorded payout/sweep hashes, escrow dispatch/settlement/fee
+      // hashes and wallet outgoing hashes — never only hashes found in
+      // outgoing transfers.
+      const [
+        rewardJournalRows,
+        escrowJournalRows,
+        payoutRows,
+        distributionRows,
+        bountyRows
+      ] = await Promise.all([
+        models.rewardsWalletTransaction.findMany({
+          where: { network: scope.network, walletAddress: scope.walletAddress },
+          select: { id: true, txHash: true, network: true, walletAddress: true, dispatchId: true, captureContractVersion: true }
+        }),
+        escrowWallet
+          ? models.escrowWalletTransaction.findMany({
+            where: { network: scope.network, walletAddress: escrowAccount.address },
+            select: { id: true, txHash: true, network: true, walletAddress: true, dispatchId: true, captureContractVersion: true }
+          })
+          : Promise.resolve([]),
+        models.rewardPayout.findMany({ where: { txHash: { not: null } }, select: { txHash: true } }),
+        models.rewardDistribution.findMany({ where: { opsSweepTxHash: { not: null } }, select: { opsSweepTxHash: true } }),
+        models.bountyPayment.findMany({
+          where: { OR: [{ txHash: { not: null } }, { feeTxHash: { not: null } }] },
+          select: { txHash: true, feeTxHash: true }
+        })
+      ])
+
+      let verificationKeys = keyProvider
+      if (verificationKeys === null) {
+        // Lazy: importing/creating the provider never touches registry values,
+        // and collection without captured rows never needs one.
+        verificationKeys = createPaymentProofKeyProvider(process.env)
+      }
+
+      const rewardsOutgoingHashes = [...rewardsHistory.confirmedOutgoing, ...rewardsHistory.pendingOutgoing]
+        .map(entry => entry.txHash)
+      const rewardsPendingHashes = rewardsHistory.pendingOutgoing.map(entry => entry.txHash)
+      // Audited candidate hashes (final-review I3): the union of journal,
+      // recorded payout/sweep (or escrow dispatch/settlement/fee) hashes —
+      // fetched by the session independent of owned-output presence.
+      const rewardsAuditedHashes = [
+        ...rewardJournalRows.map(row => row?.txHash),
+        ...payoutRows.map(row => row?.txHash),
+        ...distributionRows.map(row => row?.opsSweepTxHash),
+        ...rewardsOutgoingHashes
+      ].filter(hash => typeof hash === 'string' && TX_HASH_RE.test(hash.toLowerCase()) && hash === hash.toLowerCase() && !rewardsPendingHashes.includes(hash))
+      let rewardsSessionPromise = null
+      const rewardsSessionFor = () => {
+        rewardsSessionPromise ??= buildVerificationSession({
+          wallet: rewardsWallet,
+          daemon,
+          scope,
+          derivation: rewardsDerivation,
+          boundary: tipBefore,
+          auditedHashes: rewardsAuditedHashes,
+          pendingHashes: rewardsPendingHashes
+        })
+        return rewardsSessionPromise
+      }
+      const paymentVerifications = await collectPaymentVerifications({
+        models,
+        scope,
+        journalRole: 'REWARDS',
+        journalRows: rewardJournalRows,
+        extraHashes: [
+          ...payoutRows.map(row => normalizeHash(row?.txHash)),
+          ...distributionRows.map(row => normalizeHash(row?.opsSweepTxHash))
+        ],
+        outgoingHashes: rewardsOutgoingHashes,
+        pendingHashes: rewardsPendingHashes,
+        sessionFor: rewardsSessionFor,
+        keyProvider: verificationKeys,
+        now
+      })
+
+      let escrowVerifications = []
+      if (escrow) {
+        const escrowOutgoingHashes = [...escrow.outgoing, ...escrow.bridge.pendingOutgoing]
+          .map(entry => entry.txHash)
+        const escrowPendingHashes = escrow.bridge.pendingOutgoing.map(entry => entry.txHash)
+        const escrowScope = { network: scope.network, walletAddress: escrowAccount.address }
+        const escrowAuditedHashes = [
+          ...escrowJournalRows.map(row => row?.txHash),
+          ...bountyRows.flatMap(row => [row?.txHash, row?.feeTxHash]),
+          ...escrowOutgoingHashes
+        ].filter(hash => typeof hash === 'string' && TX_HASH_RE.test(hash.toLowerCase()) && hash === hash.toLowerCase() && !escrowPendingHashes.includes(hash))
+        let escrowSessionPromise = null
+        const escrowSessionFor = () => {
+          escrowSessionPromise ??= buildVerificationSession({
+            wallet: escrowWallet,
+            daemon,
+            scope: escrowScope,
+            journalRole: 'ESCROW',
+            derivation: escrowDerivation,
+            boundary: tipBefore,
+            auditedHashes: escrowAuditedHashes,
+            pendingHashes: escrowPendingHashes
+          })
+          return escrowSessionPromise
+        }
+        escrowVerifications = await collectPaymentVerifications({
+          models,
+          scope: escrowScope,
+          journalRole: 'ESCROW',
+          journalRows: escrowJournalRows,
+          extraHashes: bountyRows.flatMap(row => [normalizeHash(row?.txHash), normalizeHash(row?.feeTxHash)]),
+          outgoingHashes: escrowOutgoingHashes,
+          pendingHashes: escrowPendingHashes,
+          sessionFor: escrowSessionFor,
+          keyProvider: verificationKeys,
+          now
+        })
+        escrow.paymentVerifications = escrowVerifications
+      }
+
       const tipAfter = await daemonTip(daemon)
       const stable = tipBefore.height === tipAfter.height && tipBefore.blockHash === tipAfter.blockHash
       if (!stable) {
@@ -565,10 +955,13 @@ export async function collectRewardsWalletEvidence (options = {}) {
       }
 
       return {
+        evidenceVersion: 2,
         scope: { network: scope.network, walletAddress: scope.walletAddress },
         boundary: { height: tipBefore.height, blockHash: tipBefore.blockHash },
         daemon: { tipBefore, tipAfter },
         ...restore,
+        collectionStartedAt,
+        observedAt: now().toISOString(),
         walletHeight: rewardsScanned,
         derivation: rewardsDerivation,
         balances,
@@ -578,6 +971,7 @@ export async function collectRewardsWalletEvidence (options = {}) {
           pendingIncoming: rewardsHistory.pendingIncoming,
           pendingOutgoing: rewardsHistory.pendingOutgoing
         },
+        paymentVerifications,
         escrow
       }
     }

@@ -26,25 +26,27 @@
 // them the manifest stays fail-closed on every unknown classification.
 //
 // Discipline: the dry-run and CHECK paths write nothing except the requested
-// report file and (for --publish-check) the audit row; APPLY rescans the chain
-// read-only, re-verifies the approved boundary block hash and stable chain
-// facts, then atomically applies the confirmed manifest. This script never
-// imports or calls a signer / payout / sweep / recovery operation, never opens
-// the signer singleton, never broadcasts, and never queues work. Wallet keys are
-// read from the environment only; printed errors are redacted.
+// report file and (for --publish-check) the audit row; APPLY delegates the
+// fresh chain re-verification to the guarded apply gate (one authoritative
+// recheck — never this script's own duplicate rescan), then atomically applies
+// the confirmed manifest. This script never imports or calls a signer / payout
+// / sweep / recovery operation, never opens the signer singleton, never
+// broadcasts, and never queues work. Wallet keys are read from the environment
+// only; printed errors are redacted.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { PrismaClient } from '@prisma/client'
+import { Prisma, PrismaClient } from '@prisma/client'
 import { daemonClient } from '@/api/monero/daemonClient'
 import { collectRewardsWalletEvidence } from '@/api/monero/rewardsWalletEvidence'
 import { applyRewardsReconciliation } from '@/api/monero/applyRewardsReconciliation'
+import { readRewardsAuditReserve } from '@/api/monero/rewardsAuditSnapshot'
 import {
   buildRewardsReconciliation,
-  chainFactsFingerprint,
   manifestDigest,
   normalizeEvidence,
   readRepairLedger
 } from '@/api/monero/rewardsReconciliation'
+import { isCurrentAccountingFingerprint } from '@/lib/rewardsAuditFingerprint'
 import { walletScope } from '@/lib/rewardsAccounting'
 
 const HEX64_RE = /^[0-9a-f]{64}$/
@@ -69,7 +71,8 @@ export const USAGE = [
   '',
   '--output writes the dry-run report (manifest + approved evidence, mode 0600, never overwrites).',
   '--publish-check persists a scoped CHECK audit row with the sanitized evidence and real measured drift.',
-  '--apply reads a previously written report, rescans the chain read-only and applies the confirmed manifest.',
+  '--apply reads a previously written report; the guarded apply re-verifies with one fresh read-only',
+  '  collection and applies the confirmed manifest.',
   'Unknown or repeated flags and extra positional arguments are rejected.'
 ].join('\n')
 
@@ -187,21 +190,22 @@ function writeReportFile (path, report) {
   return resolved
 }
 
-// The standing reserve inputs the manifest totals are computed with, read from
-// the same env vars (and defaults) api/monero/rewards.js uses.
-function reserveInputs () {
-  return {
-    feeHeadroomPiconeros: BigInt(process.env.REWARDS_TX_FEE_HEADROOM_PICONEROS || '1000000000'),
-    dustFloorPiconeros: BigInt(process.env.REWARDS_OPS_SWEEP_MIN_PICONEROS || '1000000000')
-  }
-}
-
-// Build the manifest from a fresh read-only evidence collection and scoped
-// ledger read. Shared by dry-run and publish-check.
+// Build the manifest from a fresh read-only evidence collection and the ONE
+// shared audit snapshot. Shared by dry-run and publish-check.
+//
+// Freshness coherence: the effective reserve is read ONCE through the shared
+// `readRewardsAuditReserve()` (never this script's own env parsing) and handed
+// to the same scoped snapshot reader the apply precondition recheck uses, so
+// the manifest's fingerprint, this report and APPLY's authoritative recheck
+// all consume exactly the same effective values — an env/config change
+// stale-dates the authorization instead of silently rebinding it. The
+// collector is the trusted #1 v2 collection (explicit observation window and
+// verifier versions); its result is never replaced by serialized report text.
 async function buildApprovedReport ({ models, scope, collectEvidence, decisionsFile }) {
   const { decisions, opsCarryProvenance } = loadDecisions(decisionsFile)
   const evidence = await collectEvidence({ models, scope })
-  const ledger = await readRepairLedger(models, scope)
+  const reserve = readRewardsAuditReserve()
+  const ledger = await readRepairLedger(models, scope, { reserve })
   const manifest = buildRewardsReconciliation({
     scope,
     boundary: evidence.boundary,
@@ -209,16 +213,18 @@ async function buildApprovedReport ({ models, scope, collectEvidence, decisionsF
     ledger,
     decisions,
     config: ledger.config,
-    reserve: reserveInputs(),
+    reserve: ledger.reserve,
     opsCarryProvenance
   })
-  return { manifest, evidence: normalizeEvidence(evidence) }
+  // The persisted report stays the closed {manifest, evidence} wrapper; the
+  // effective reserve travels only in-memory to the publication race check.
+  return { report: { manifest, evidence: normalizeEvidence(evidence) }, reserve }
 }
 
 async function executeDryRun (options, context) {
   const { models, log } = context
   const scope = context.scope()
-  const report = await buildApprovedReport({ models, scope, collectEvidence: context.collectEvidence, decisionsFile: options.decisions })
+  const { report } = await buildApprovedReport({ models, scope, collectEvidence: context.collectEvidence, decisionsFile: options.decisions })
   let output = null
   if (options.output != null) {
     output = writeReportFile(options.output, report)
@@ -231,7 +237,7 @@ async function executeDryRun (options, context) {
 async function executePublishCheck (options, context) {
   const { models, log } = context
   const scope = context.scope()
-  const report = await buildApprovedReport({ models, scope, collectEvidence: context.collectEvidence, decisionsFile: options.decisions })
+  const { report, reserve } = await buildApprovedReport({ models, scope, collectEvidence: context.collectEvidence, decisionsFile: options.decisions })
   const { manifest } = report
   // The CURRENT measured drift (`before`), never the hypothetical post-repair
   // drift: a CHECK records what the ledger shows NOW, so it can never clear a
@@ -253,13 +259,31 @@ async function executePublishCheck (options, context) {
   }
   let published = true
   try {
-    await models.rewardsWalletReconciliation.create({ data })
+    // Race guard: the CHECK is current only while the DB inputs that produced
+    // it are unchanged. One short consistent transaction re-reads the shared
+    // audit snapshot (DB reads only — no chain calls, no re-collection) and
+    // compares its own complete `accounting:v2:` identity BEFORE the insert
+    // (final-review I3: the snapshot identity, exactly what the builder bound
+    // and the public reader fingerprints — never a filtered recomputation); a
+    // moved ledger aborts with no row, so a stale collection is never labeled
+    // current.
+    await models.$transaction(async tx => {
+      const current = await readRepairLedger(tx, scope, { reserve })
+      if (!isCurrentAccountingFingerprint(manifest.ledgerFingerprint, current.accountingFingerprint)) {
+        throw new Error('publish-check: the ledger changed while the CHECK was collected; the collection is stale and was NOT published — collect and publish a new CHECK')
+      }
+      await tx.rewardsWalletReconciliation.create({ data })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 })
   } catch (err) {
     if (err?.code === 'P2002') published = false
     else throw err
   }
   if (!published) log(`CHECK for manifest ${manifest.digest} is already published — no-op`)
-  else log(`published CHECK ${manifest.digest} (${manifest.issues.length} issue(s), positive drift ${manifest.after.positiveDriftPiconeros} piconeros)`)
+  else {
+    // Safe facts only: digest, boundary, the explicit evidence observation and
+    // the CURRENT measured drift the row actually stores.
+    log(`published CHECK ${manifest.digest} (boundary ${manifest.boundary.height}, observed ${report.evidence.observedAt ?? 'unknown'}, ${manifest.issues.length} issue(s), measured positive drift ${manifest.before.positiveDriftPiconeros} piconeros)`)
+  }
   if (manifest.issues.length > 0) {
     log('CHECK NOT CLEAN: material accounting issue(s) remain — this publication does not authorize an apply or any send')
   }
@@ -272,7 +296,7 @@ async function executePublishCheck (options, context) {
 }
 
 async function executeApply (options, context) {
-  const { models, daemon, collectEvidence, apply, log } = context
+  const { models, apply, log } = context
   const file = loadJsonFile(options.apply, 'apply report')
   const manifest = file?.manifest
   const approvedEvidence = file?.evidence
@@ -286,36 +310,21 @@ async function executeApply (options, context) {
     throw new Error('apply report manifest does not match the confirmed SHA-256')
   }
 
-  // Read-only rescan. A failed rescan aborts the apply: the approved evidence
-  // is never reused as fresh permission to proceed.
-  const fresh = await collectEvidence({ models, scope: manifest.scope })
-  log(`rescan boundary ${fresh.boundary?.height ?? 'unknown'} (approved ${manifest.boundary.height})`)
-
-  // The approved fixed boundary must still be canonical: a reorg below it
-  // invalidates every fact the manifest was built from.
-  if (typeof daemon?.getBlockHashByHeight !== 'function') {
-    throw new Error('an injected daemon with getBlockHashByHeight is required')
-  }
-  const liveBoundaryHash = String(await daemon.getBlockHashByHeight(manifest.boundary.height)).toLowerCase()
-  if (!HEX64_RE.test(liveBoundaryHash) || liveBoundaryHash !== manifest.boundary.blockHash) {
-    throw new Error('the approved boundary block hash is no longer canonical; a new manifest and review are required')
-  }
-
-  // Stable confirmed chain facts must be unchanged. The tip may advance (and
-  // confirmations/unlocked balances may move) while the approved facts still
-  // hold; any changed accounting fact requires a new manifest.
-  if (chainFactsFingerprint(fresh) !== chainFactsFingerprint(approvedEvidence)) {
-    throw new Error('the rescan shows changed chain facts (the tip advanced incompatibly); a new manifest and review are required')
-  }
-
+  // Task 5 owns the authoritative fresh recheck: the guarded apply collects
+  // ONE fresh read-only collection through the SAME trusted seam this CLI
+  // resolved, re-verifies the approved boundary/chain facts/evidence and every
+  // proved payment, then applies. This script performs no duplicate
+  // independent pre-apply recheck and never hands the serialized report to the
+  // chain as fresh authority — the report's evidence travels only as the
+  // digest-bound approved generation the gate compares against.
   const result = await apply({
     models,
     manifest,
-    evidence: approvedEvidence,
     confirmedDigest: options.confirm,
     backupReference: options.backupReference,
-    writersPaused: options.writersPaused
-  })
+    writersPaused: options.writersPaused,
+    evidence: approvedEvidence
+  }, { collectEvidence: context.collectEvidence, daemon: context.daemon })
   log(result.applied
     ? `APPLIED repair ${result.digest}`
     : `repair ${result.digest} was already applied — replay no-op`)
