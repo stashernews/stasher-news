@@ -241,7 +241,7 @@ export default function Settings ({ ssrData }) {
             groupClassName='mb-0'
           />
           <Checkbox
-            label='email me the biweekly newsletter (community roundup)'
+            label='email me the biweekly newsletter (community recap)'
             name='newsletterOptIn'
             groupClassName={settings?.authMethods?.email ? 'mb-3' : 'mb-0'}
           />
