@@ -72,7 +72,7 @@ bare totals (no "left today" / banked split), and `docs/user/faq.md` reads
 
 ```bash
 export NODE_ENV=production
-DC="docker compose --env-file .env.development --env-file .env.local -f docker-compose.yml -f docker-compose.volumes.yml -f docker-compose.override.yml -f docker-compose.prodmode.yml"
+DC="docker compose --env-file .env.development --env-file .env.local -f docker-compose.yml -f docker-compose.volumes.yml -f docker-compose.prod.yml -f docker-compose.prodmode.yml"
 ```
 
 Snapshot according to `~/Stasher-local/ops-docs/runbooks/migrations.md` (verify the

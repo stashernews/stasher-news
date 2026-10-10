@@ -2,9 +2,15 @@
 #   export NODE_ENV=production   # selects .env.production via x-env_file_app interpolation
 #   NODE_ENV=production npm run build   # npm run start serves .next — build BEFORE up
 #   docker compose -f docker-compose.yml -f docker-compose.volumes.yml -f docker-compose.prod.yml up -d
+# On the mainnet VPS this file is layered with the VPS-local docker-compose.prodmode.yml
+# LAST (4-file chain: base + volumes + prod + prodmode). prodmode replaces `command`,
+# so this file's app `command` (scripts/deploy-migrate.sh: snapshot -> migrate ->
+# rollback hint) does NOT run there — the live boot chain is inline and the pre-deploy
+# snapshot is manual by policy. Ground truth for the live chain:
+#   docker inspect app --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'
+# (see AGENTS.md "The VPS runs stasher.news publicly in PRODUCTION mode").
 # Overrides dev-isms in the base file: dev watch commands -> prod commands,
-# explicit NODE_ENV for both processes. The app command runs the safe-migration
-# flow (scripts/deploy-migrate.sh: snapshot -> migrate -> rollback hint).
+# explicit NODE_ENV for both processes.
 # The volumes-wipe guard lives in docker-compose.volumes.yml and is shared with
 # dev-mode deploys — include it here (order above) and always include it.
 services:

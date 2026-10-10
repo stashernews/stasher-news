@@ -9,7 +9,7 @@
 //   runbook at docs/ops/rewards-wallet-accounting-repair.md):
 //     NODE_ENV=production docker compose --env-file .env.development \
 //       --env-file .env.local -f docker-compose.yml -f docker-compose.volumes.yml \
-//       -f docker-compose.override.yml -f docker-compose.prodmode.yml \
+//       -f docker-compose.prod.yml -f docker-compose.prodmode.yml \
 //       run --rm -T --no-deps \
 //       --entrypoint /etc/stashernews/scripts/load-secrets-local.sh \
 //       app npx tsx --tsconfig jsconfig.json scripts/reconcile-rewards-wallet.js <mode flags>

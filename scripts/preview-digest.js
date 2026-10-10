@@ -6,7 +6,7 @@
 //
 //   VPS prod mode (the SOPS loader supplies DATABASE_URL and the mail env):
 //     NODE_ENV=production docker compose --env-file .env.development --env-file .env.local \
-//       -f docker-compose.yml -f docker-compose.volumes.yml -f docker-compose.override.yml \
+//       -f docker-compose.yml -f docker-compose.volumes.yml -f docker-compose.prod.yml \
 //       -f docker-compose.prodmode.yml run --rm --no-deps \
 //       --entrypoint /etc/stashernews/scripts/load-secrets-local.sh app \
 //       sh -c 'npx tsx --tsconfig jsconfig.json scripts/preview-digest.js <nym> --to you@example.com'

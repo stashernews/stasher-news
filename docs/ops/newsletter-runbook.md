@@ -56,7 +56,7 @@ Dry-run first — counts only, never addresses:
 docker exec -w /app app npx tsx --tsconfig jsconfig.json scripts/newsletter-sync.js
 # VPS (loader-wrapped: bare docker exec does NOT inherit SOPS-exported secrets)
 NODE_ENV=production docker compose --env-file .env.development --env-file .env.local \
-  -f docker-compose.yml -f docker-compose.volumes.yml -f docker-compose.override.yml -f docker-compose.prodmode.yml \
+  -f docker-compose.yml -f docker-compose.volumes.yml -f docker-compose.prod.yml -f docker-compose.prodmode.yml \
   run --rm --entrypoint /etc/stashernews/scripts/load-secrets-local.sh app \
   npx tsx --tsconfig jsconfig.json scripts/newsletter-sync.js
 ```
