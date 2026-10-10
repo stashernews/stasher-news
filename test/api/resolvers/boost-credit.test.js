@@ -651,22 +651,49 @@ describe('redemption accounting invariants', () => {
     // Identical ledger fixtures, differing ONLY in the promo tables the readers
     // are free to ignore: if either reader ever consulted Item/StreakReward the
     // two variants would diverge. Keyed to what the caller passes ({ items,
-    // rewards }), so the promo rows actually reach the probes.
+    // rewards }), so the promo rows actually reach the probes. Journal/payout/
+    // distribution rows carry the audit snapshot's FULL closed column shape.
     const ledgerFixture = ({ items: promoItemRows = [], rewards: promoRewardRows = [] } = {}) => ({
-      account: { address: STAGENET_ADDR, network: 'STAGENET' },
-      payouts: [{ id: 1, distributionId: null, state: 'SENT', txHash: 'aa'.repeat(32), recipientAddress: '5Aledger', piconeros: 60n }],
-      distributions: [{ id: 1, opsAvailablePiconeros: 0n, opsSweptPiconeros: 0n, opsSweepTxHash: null }],
+      account: { id: 1, label: 'platform_rewards', address: STAGENET_ADDR, network: 'STAGENET' },
+      payouts: [{ id: 1, distributionId: null, curatorId: null, state: 'SENT', txHash: 'aa'.repeat(32), recipientAddress: '5Aledger', piconeros: 60n }],
+      distributions: [{
+        id: 1,
+        status: null,
+        periodStart: null,
+        periodEnd: null,
+        poolPiconeros: 0n,
+        distributedPiconeros: 0n,
+        rolledOverPiconeros: 0n,
+        payoutCount: 0,
+        opsInflowPiconeros: 0n,
+        opsRolledOverPiconeros: 0n,
+        opsAvailablePiconeros: 0n,
+        opsSweptPiconeros: 0n,
+        opsSweepState: null,
+        opsSweepTxHash: null,
+        opsNetworkFeesAccountedPiconeros: 0n
+      }],
       transactions: [{
+        id: null,
         network: 'STAGENET',
         walletAddress: STAGENET_ADDR,
         txHash: 'bb'.repeat(32),
         kind: 'CONSOLIDATION',
+        accountIndex: 0,
         state: 'RELAYED',
         distributionId: null,
         principalPiconeros: 0n,
         networkFeePiconeros: 7n,
         metadata: null,
-        relayAttemptedAt: null
+        preparedAt: null,
+        relayAttemptedAt: null,
+        relayedAt: null,
+        relayProvenance: null,
+        dispatchId: null,
+        captureContractVersion: null,
+        claimDigest: null,
+        paymentClaims: null,
+        proofId: null
       }],
       audits: [],
       item: { findMany: jest.fn(async () => promoItemRows) },
@@ -676,8 +703,22 @@ describe('redemption accounting invariants', () => {
       moneroAccount: { findFirst: jest.fn(async () => fixture.account) },
       rewardPayout: { findMany: jest.fn(async () => fixture.payouts) },
       rewardDistribution: { findMany: jest.fn(async () => fixture.distributions) },
-      rewardsWalletTransaction: { findMany: jest.fn(async () => fixture.transactions) },
+      rewardsWalletTransaction: {
+        findMany: jest.fn(async () => fixture.transactions),
+        findUnique: jest.fn(async () => null)
+      },
       rewardsWalletReconciliation: { findMany: jest.fn(async () => fixture.audits) },
+      platformFeeConfig: { findUnique: jest.fn(async () => CONFIG) },
+      // Audit-snapshot side groups (empty; no bounty/escrow facts in this DB).
+      subaddressIndex: { findMany: jest.fn(async () => []) },
+      feeObservation: { findMany: jest.fn(async () => []) },
+      observedDownvote: { findMany: jest.fn(async () => []) },
+      escrowWalletTransaction: { findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null) },
+      bountyPayment: { findMany: jest.fn(async () => []) },
+      observedBounty: { findMany: jest.fn(async () => []) },
+      observedBountyReceipt: { findMany: jest.fn(async () => []) },
+      earn: { findMany: jest.fn(async () => []) },
+      paymentTransactionProof: { findUnique: jest.fn(async () => null) },
       // visibility probes for the promotional tables
       item: fixture.item,
       streakReward: fixture.streakReward

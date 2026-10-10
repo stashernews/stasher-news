@@ -27,7 +27,8 @@ const DEFAULT_TIMEOUT_MS = 15000
 
 // monerod's restricted RPC rejects /get_transactions requests carrying more
 // than 100 hashes: HTTP 200, `status: "Too many transactions requested in
-// restricted mode"`, and NO `txs` array (verified v0.18.5.1). Batch at 50 —
+// restricted mode"`, and NO `txs` array (verified v0.18.5.1 and re-verified
+// v0.18.5.3). Batch at 50 —
 // comfortably under the cap, and decode_as_json responses stay smaller.
 export const MAX_TX_HASHES_PER_REQUEST = 50
 
@@ -227,7 +228,284 @@ export function createDaemonClient (options = {}) {
     return out
   }
 
-  return { getBlockHashByHeight, getHeight, getTransactions, rpc }
+  // ---- strict raw evidence (payment-proof chain adapter, Finding #1) --------
+  //
+  // Unlike getTransactions above, this is a STRICT evidence fetch for the
+  // rewards payment verification chain: every response shape it does not fully
+  // understand is a refusal with a fixed code (error.code), never a skipped
+  // entry. It returns validated raw records
+  //   { txHash, isCoinbase, inputKeyImages, voutKeys, outputIndices,
+  //     feePiconeros (bigint), blockHeight, inTxPool: false, extra (hex) }
+  // or throws. Coinbases (single `gen` vin) are accepted with zero key images
+  // and zero fee — they may serve as input SOURCES downstream but are never
+  // spending-payment key inputs.
+
+  class DaemonRawTxError extends Error {
+    constructor (code, detail) {
+      super(detail === undefined ? code : `${code}: ${detail}`)
+      this.name = 'DaemonRawTxError'
+      this.code = code
+    }
+  }
+
+  const assertStrictHash = (value, code) => {
+    if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) {
+      throw new DaemonRawTxError(code, String(value))
+    }
+    return value
+  }
+
+  const assertSafeNonNegativeInt = (value, code, label) => {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      // Integer-safety check happens BEFORE any BigInt conversion.
+      throw new DaemonRawTxError(code, `${label}=${String(value)}`)
+    }
+    return value
+  }
+
+  // Extract the decoded tx object: decode_as_json hands back a JSON string,
+  // while some builds/relays embed it pre-parsed — both tolerated explicitly.
+  function parseRawTxObject (entry) {
+    if (entry.pruned_as_json !== undefined || entry.prunable_as_json !== undefined) {
+      throw new DaemonRawTxError('RAW_PRUNED_JSON_UNSUPPORTED', entry.tx_hash)
+    }
+    let parsed
+    if (typeof entry.as_json === 'string' && entry.as_json !== '') {
+      try {
+        parsed = JSON.parse(entry.as_json)
+      } catch {
+        throw new DaemonRawTxError('RAW_TX_JSON_MALFORMED', entry.tx_hash)
+      }
+    } else if (entry.as_json !== null && typeof entry.as_json === 'object') {
+      parsed = entry.as_json
+    } else {
+      throw new DaemonRawTxError('RAW_TX_JSON_MISSING', entry.tx_hash)
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new DaemonRawTxError('RAW_TX_JSON_MISSING', entry.tx_hash)
+    }
+    return parsed
+  }
+
+  function extractRawPaymentTx (entry, requestedHashes) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new DaemonRawTxError('RAW_TX_JSON_MISSING', 'non-object tx entry')
+    }
+    const txHash = entry.tx_hash
+    if (typeof txHash !== 'string' || !/^[0-9a-f]{64}$/.test(txHash) || !requestedHashes.has(txHash)) {
+      throw new DaemonRawTxError('RAW_HASH_MISMATCH', String(txHash))
+    }
+    if (entry.in_pool !== false) {
+      throw new DaemonRawTxError('RAW_TX_IN_POOL', txHash)
+    }
+    const blockHeight = assertSafeNonNegativeInt(entry.block_height, 'RAW_INTEGER_UNSAFE', 'block_height')
+    const parsed = parseRawTxObject(entry)
+
+    // vin: either a single coinbase `gen` input or key inputs with unique
+    // 64-hex key images — never mixed, never empty.
+    if (!Array.isArray(parsed.vin) || parsed.vin.length === 0) {
+      throw new DaemonRawTxError('RAW_INPUTS_MISSING', txHash)
+    }
+    const isCoinbase = parsed.vin.every(v => v && typeof v === 'object' && v.gen !== undefined)
+    const inputKeyImages = []
+    if (isCoinbase) {
+      if (parsed.vin.length !== 1 ||
+        !Number.isSafeInteger(parsed.vin[0].gen.height) || parsed.vin[0].gen.height < 0) {
+        throw new DaemonRawTxError('RAW_COINBASE_INVALID', txHash)
+      }
+    } else {
+      for (const vin of parsed.vin) {
+        const kImage = vin && typeof vin === 'object' ? vin.key && vin.key.k_image : undefined
+        if (typeof kImage !== 'string' || !/^[0-9a-f]{64}$/.test(kImage)) {
+          throw new DaemonRawTxError('RAW_INPUT_UNSUPPORTED', txHash)
+        }
+        inputKeyImages.push(kImage)
+      }
+      if (new Set(inputKeyImages).size !== inputKeyImages.length) {
+        throw new DaemonRawTxError('DUPLICATE_INPUT_KEY_IMAGE', txHash)
+      }
+    }
+
+    // vout: every output must carry a usable one-time key (legacy `target.key`
+    // or v2 `target.tagged_key.key`); nulls are refused, unlike getTransactions.
+    if (!Array.isArray(parsed.vout) || parsed.vout.length === 0) {
+      throw new DaemonRawTxError('RAW_VOUT_MISSING', txHash)
+    }
+    const voutKeys = []
+    for (const vout of parsed.vout) {
+      const target = vout && typeof vout === 'object' ? vout.target : undefined
+      const key = target && typeof target === 'object'
+        ? (typeof target.key === 'string' ? target.key : target.tagged_key && target.tagged_key.key)
+        : undefined
+      if (typeof key !== 'string' || !/^[0-9a-f]{64}$/.test(key)) {
+        throw new DaemonRawTxError('RAW_VOUT_KEY_MALFORMED', txHash)
+      }
+      voutKeys.push(key)
+    }
+    if (new Set(voutKeys).size !== voutKeys.length) {
+      throw new DaemonRawTxError('DUPLICATE_OUTPUT_KEY', txHash)
+    }
+
+    // Global output indices, when the daemon returns them for confirmed txs.
+    let outputIndices = null
+    if (entry.output_indices !== undefined && entry.output_indices !== null) {
+      if (!Array.isArray(entry.output_indices) || entry.output_indices.length !== voutKeys.length) {
+        throw new DaemonRawTxError('RAW_OUTPUT_INDICES_LENGTH', txHash)
+      }
+      outputIndices = entry.output_indices.map(n => assertSafeNonNegativeInt(n, 'RAW_INTEGER_UNSAFE', 'output_indices'))
+    }
+
+    // Exact nonnegative fee (RingCT txnFee), safe-integer guarded before BigInt.
+    let feePiconeros
+    const txnFee = parsed.rct_signatures && typeof parsed.rct_signatures === 'object'
+      ? parsed.rct_signatures.txnFee
+      : undefined
+    if (isCoinbase) {
+      if (txnFee !== undefined && txnFee !== 0) {
+        throw new DaemonRawTxError('RAW_COINBASE_INVALID', `${txHash} carries a fee`)
+      }
+      feePiconeros = 0n
+    } else {
+      if (txnFee === undefined) {
+        throw new DaemonRawTxError('RAW_FEE_MISSING', txHash)
+      }
+      assertSafeNonNegativeInt(txnFee, 'RAW_INTEGER_UNSAFE', 'txnFee')
+      feePiconeros = BigInt(txnFee)
+    }
+
+    // extra: hex string (standard) or byte-number array (older builds).
+    let extra
+    const rawExtra = parsed.extra
+    if (typeof rawExtra === 'string') {
+      if (!/^(?:[0-9a-f]{2})*$/.test(rawExtra)) {
+        throw new DaemonRawTxError('RAW_EXTRA_MALFORMED', txHash)
+      }
+      extra = rawExtra
+    } else if (Array.isArray(rawExtra)) {
+      if (!rawExtra.every(b => Number.isSafeInteger(b) && b >= 0 && b <= 255)) {
+        throw new DaemonRawTxError('RAW_EXTRA_MALFORMED', txHash)
+      }
+      extra = Buffer.from(rawExtra).toString('hex')
+    } else if (isCoinbase && rawExtra === undefined) {
+      extra = ''
+    } else {
+      throw new DaemonRawTxError('RAW_EXTRA_MISSING', txHash)
+    }
+
+    return {
+      txHash,
+      isCoinbase,
+      inputKeyImages,
+      voutKeys,
+      outputIndices,
+      feePiconeros,
+      blockHeight,
+      inTxPool: false,
+      extra
+    }
+  }
+
+  /**
+   * I1 (payment-proof verifier, additive): resolve the block hash for each
+   * DISTINCT audited block_height through the same get_block_header_by_height
+   * RPC, transport and timeout discipline as getBlockHashByHeight — one call
+   * per distinct height, attached to every record at that height. A header
+   * response without a usable hash yields null (unresolvable — never a
+   * fabricated value); transport/HTTP/RPC failures keep the existing throw
+   * discipline. Lowercase 64-hex or null.
+   * @param {Array<object>} records validated raw records (mutated in place)
+   * @returns {Promise<void>}
+   */
+  async function attachBlockHashes (records) {
+    const blockHashByHeight = new Map()
+    for (const height of [...new Set(records.map(record => record.blockHeight))]) {
+      try {
+        const result = await rpc('get_block_header_by_height', { height })
+        const hash = result && result.block_header ? result.block_header.hash : null
+        blockHashByHeight.set(height,
+          typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash) ? hash : null)
+      } catch (err) {
+        if (err instanceof DaemonHttpError || err instanceof DaemonRpcError) throw err
+        // A well-formed response that carries no usable hash: unresolvable.
+        blockHashByHeight.set(height, null)
+      }
+    }
+    for (const record of records) {
+      record.blockHash = blockHashByHeight.get(record.blockHeight) ?? null
+    }
+  }
+
+  /**
+   * Fetch validated raw transaction evidence by hash via /get_transactions.
+   * Requests `{txs_hashes, decode_as_json: true, prune: false}` in
+   * ≤MAX_TX_HASHES_PER_REQUEST batches; any non-OK status (the restricted-mode
+   * cap included) throws DaemonHttpError/DaemonRpcError; missed hashes,
+   * pruned/partial forms, in-pool transactions, unknown/duplicate hashes,
+   * duplicate key images/output keys and unsafe integers all refuse with a
+   * fixed `error.code`. Refuses empty results for requested hashes
+   * (DAEMON_TX_NOT_RETURNED) — a silent [] would masquerade as "not on chain".
+   * Each record additionally carries `blockHash` (lowercase 64-hex resolved
+   * per distinct block_height via get_block_header_by_height, or null when
+   * the daemon supplies no usable hash — never fabricated).
+   * @param {string[]} hashes lowercase 64-hex transaction hashes (no duplicates)
+   * @returns {Promise<Array<object>>} validated raw records
+   */
+  async function getPaymentTransactions (hashes) {
+    if (!Array.isArray(hashes)) {
+      throw new DaemonRawTxError('RAW_HASH_LIST_INVALID', 'expected an array of 64-hex hashes')
+    }
+    if (hashes.length === 0) return []
+    const requested = new Set()
+    for (const hash of hashes) {
+      assertStrictHash(hash, 'RAW_HASH_INVALID')
+      if (requested.has(hash)) throw new DaemonRawTxError('RAW_HASH_DUPLICATE', hash)
+      requested.add(hash)
+    }
+    const base = requireUrl()
+    const out = []
+    const seen = new Set()
+    for (let i = 0; i < hashes.length; i += MAX_TX_HASHES_PER_REQUEST) {
+      const batch = hashes.slice(i, i + MAX_TX_HASHES_PER_REQUEST)
+      const body = JSON.stringify({ txs_hashes: batch, decode_as_json: true, prune: false })
+      const ac = new AbortController()
+      const timer = setTimeout(() => ac.abort(), timeoutMs)
+      let res
+      try {
+        res = await transport(`${base}/get_transactions`, { method: 'POST', body, signal: ac.signal })
+      } finally {
+        clearTimeout(timer)
+      }
+      if (!res.ok) throw new DaemonHttpError(res.status)
+      const json = parseJsonText(await res.text())
+      if (!json || json.status !== 'OK') {
+        throw new DaemonRpcError('get_transactions', {
+          message: `${json && json.status ? json.status : 'empty/unparseable response'} (requested ${batch.length} hashes)`
+        })
+      }
+      const missed = ['miss_hashes', 'missed_tx', 'missed_hashes', 'missed_hashes_txs']
+        .flatMap(field => (Array.isArray(json[field]) ? json[field] : []))
+      if (missed.length > 0) {
+        throw new DaemonRawTxError('DAEMON_MISSED_TX_HASH', `${missed.length} requested hash(es) missing: ${missed.join(',')}`)
+      }
+      const txs = json.txs
+      if (!Array.isArray(txs)) {
+        throw new DaemonRawTxError('RAW_RESPONSE_INVALID', 'txs is not an array')
+      }
+      for (const entry of txs) {
+        const record = extractRawPaymentTx(entry, requested)
+        if (seen.has(record.txHash)) throw new DaemonRawTxError('RAW_TX_DUPLICATE', record.txHash)
+        seen.add(record.txHash)
+        out.push(record)
+      }
+    }
+    for (const hash of hashes) {
+      if (!seen.has(hash)) throw new DaemonRawTxError('DAEMON_TX_NOT_RETURNED', hash)
+    }
+    await attachBlockHashes(out)
+    return out
+  }
+
+  return { getBlockHashByHeight, getHeight, getTransactions, getPaymentTransactions, rpc }
 }
 
 // Singleton: constructed once at module load from MONEROD_URL. The worker

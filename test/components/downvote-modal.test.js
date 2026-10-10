@@ -19,14 +19,14 @@ jest.mock('../../components/editor', () => ({
 // than forcing a snapshot harness. These mirror lib/validate.js lnAddrAmountError.
 
 describe('downvote amount floor enforcement', () => {
-  test('the floor is 1e8 piconeros (0.0001 XMR)', () => {
-    expect(DOWNVOTE_MIN_PICONEROS).toBe(100_000_000)
+  test('the floor is 5e8 piconeros (0.0005 XMR)', () => {
+    expect(DOWNVOTE_MIN_PICONEROS).toBe(500_000_000)
   })
 
-  test('rejects amounts below the 1e8 floor', () => {
+  test('rejects amounts below the 5e8 floor', () => {
     expect(downvoteAmountError(DOWNVOTE_MIN_PICONEROS - 1)).not.toBeNull()
     expect(downvoteAmountError(0)).not.toBeNull()
-    expect(downvoteAmountError(99_999_999)).toMatch(/at least/)
+    expect(downvoteAmountError(499_999_999)).toMatch(/at least/)
   })
 
   test('accepts the floor exactly', () => {

@@ -1,6 +1,9 @@
 import { lwsClient } from '@/api/monero/lwsClient'
+import { daemonClient } from '@/api/monero/daemonClient'
 import { applySubFeeReceipt } from '@/api/monero/subFeeObservation'
 import { isSelfSend } from '@/api/monero/selfTip'
+import { decryptViewKey } from '@/api/monero/viewkey'
+import { paymentIdCandidates } from '@/api/monero/pidDecrypt'
 import { alert } from '@/lib/alert'
 
 // Cron-owned backstop for owner-routed fee legs (the eighth money-observation
@@ -10,9 +13,109 @@ import { alert } from '@/lib/alert'
 //     flipping PENDING_FEE items before abandonFeeItems strikes at 1 day;
 //   - a missed N-conf callback: backfills the receipt + height (always at
 //     confirmations 0 — never fabricated; the confirmFinalizer ObservedSubFee
-//     pass matures height-bearing DETECTED rows with exact counts).
+//     pass matures height-bearing DETECTED rows with exact counts);
+//   - a WRONG-PID lws row (mainnet incident 2026-10-08): monero-lws decrypts
+//     an encrypted payment id ONCE per scan pass — with the first matching
+//     registered account's derivation — and stores those bytes on every
+//     matching account's row. When the payer is also lws-registered and scans
+//     first, the owner's row carries the payer-side decryption: the webhook
+//     never fires and the served-pid match finds nothing. The raw-decrypt
+//     fallback (mirroring reconcilePendingTips) fetches the raw txs from
+//     monerod and decrypts the encrypted pid with the OWNER's view key
+//     (api/monero/pidDecrypt.js) — cryptographic proof of addressing — then
+//     replays through the same self-send refusal + shared applier.
+// Fee legs differ from tips in one load-bearing way: a leg allows MULTIPLE
+// top-up txs under one payment id, so discovery must inspect EVERY remaining
+// transaction row — a served-pid hit for one receipt must not stop the search.
+// Raw discovery is attribution-only: the amount/height still come from the
+// owner account's lws row (a raw extra proves the pid, never the RingCT
+// amount), and every receipt keeps the applier's provisional-height discipline.
 // Never self-requeues — a failed run heals at the next hourly cron tick.
-export async function runReconcileOwnerFeeLegsOnce ({ models, monero = lwsClient }) {
+
+// The single receipt path shared by served-pid matches and raw-decrypt
+// matches. Extracted so both paths keep byte-identical money effects:
+// idempotent applier call, issued-pid binding, exact self-send refusal
+// (foreign-index spent_outputs stay legitimate). Returns the applier result,
+// or null when the self-send ban refused the receipt.
+async function replayOwnerReceipt ({ models, account, leg, tx }) {
+  const paymentId = leg.paymentId
+  // SELF-PAYMENT BAN (2026-09-19 incident): when the payer shares the owner
+  // account, lws's per-tx total_received folds in the sender's change
+  // (inputs - fee) and is NOT the leg amount — no amount from a self-send is
+  // credible here, so the tx is never replayed. Same EXACT (maj,min) sender
+  // match as the webhook's isSelfSend (review follow-up: the old coarse
+  // `spent_outputs.length > 0` test treated lws's documented misattributed
+  // foreign spends (observed 2026-08-10) as self-sends, stranding a genuine
+  // fee behind an unreclaimable EXCLUDED row; the exact match only refuses
+  // true own-subaddress senders). The cleanup targets the row by the ISSUED
+  // pid plus its tx hash — a raw-path row's served pid is the scrambled one,
+  // so matching on tx.payment_id could never reach the provisional receipt.
+  // The webhook's isSelfSend refusal is the primary and keeps such rows from
+  // ever gaining a height (the applier's CAS is state-gated to DETECTED).
+  if (isSelfSend(account, tx)) {
+    const excluded = await models.$executeRaw`
+      UPDATE "ObservedSubFee" SET state = 'EXCLUDED'::"ObservedState"
+      WHERE "tx_hash" = ${tx.hash} AND "payment_id" = ${paymentId} AND height IS NULL`
+    if (excluded > 0) {
+      alert('warn', 'owner-fee self-payment refused',
+        `fee leg ${paymentId} tx ${tx.hash}: payer shares the owner account (change-inflated); provisional receipt excluded by the backstop`,
+        { dedupeKey: `subfee-selfpay-${paymentId}-${tx.hash}` })
+    }
+    return null
+  }
+  // Replay through the shared applier — idempotent by construction (one
+  // ObservedSubFee row per (txHash, paymentId), ON CONFLICT DO NOTHING),
+  // so an hourly rescan of an already-replayed receipt is a no-op.
+  return await applySubFeeReceipt(models, {
+    feePayIn: leg.feePayIn,
+    paymentId,
+    txHash: tx.hash,
+    piconeros: tx.piconeros,
+    height: tx.height ?? null,
+    confirmations: 0 // never fabricated — confirmFinalizer matures height-bearing rows
+  })
+}
+
+// The wrong-pid discovery pass for ONE owner account. Produces replay
+// candidates only — no money effects here, so an acquisition/decryption
+// failure can defer the whole pass without a partial write. Raw txs are
+// joined back to the EXACT lws rows that requested them (hash-keyed), so a
+// response that omits or invents hashes can never stand in for the requested
+// transaction. A candidate hash yielding more than one distinct active pid is
+// refused outright (ambiguous attribution is not evidence for either leg).
+async function findRawFeeMatches ({ daemon, account, rowsByHash, legByPid }) {
+  const hashes = [...rowsByHash.keys()]
+  if (!hashes.length) return []
+  const raws = await daemon.getTransactions(hashes)
+  const viewKeyHex = decryptViewKey(account.viewKey)
+  const matches = []
+  const seen = new Set()
+  for (const raw of raws || []) {
+    const hash = String(raw.hash ?? '').toLowerCase()
+    const tx = rowsByHash.get(hash)
+    if (!tx || seen.has(hash)) continue
+    seen.add(hash)
+    const pids = [...new Set(paymentIdCandidates(raw.extra, viewKeyHex))].filter(pid => legByPid.has(pid))
+    if (pids.length === 1) matches.push({ tx, leg: legByPid.get(pids[0]) })
+    if (pids.length > 1) {
+      alert('warn', 'owner-fee ambiguous raw payment id refused',
+        `account ${account.id}, tx ${hash}: multiple active fee PIDs; no receipt replayed`,
+        { dedupeKey: `subfee-pid-ambiguous-${account.id}-${hash}` })
+    }
+  }
+  // Missing raw evidence is NOT proof of nonpayment: the applier was never
+  // consulted for those rows. Warn so a silently-shrunken response cannot
+  // strand a paid leg unnoticed; the next hourly run retries (lws history
+  // persists, and a pruned/never-scanned row simply stays unmatched).
+  if (seen.size < hashes.length) {
+    alert('warn', 'owner-fee raw transaction evidence incomplete',
+      `account ${account.id}: ${hashes.length - seen.size} of ${hashes.length} raw transactions unavailable; next hourly run retries`,
+      { dedupeKey: `subfee-pid-fallback-incomplete-${account.id}` })
+  }
+  return matches
+}
+
+export async function runReconcileOwnerFeeLegsOnce ({ models, monero = lwsClient, daemonClient: daemon = null }) {
   // Active legs = map rows still holding an lws webhook (unexpired) whose
   // PayIn still exists. NO payInState filter: fee payIns are created PAID by
   // design (piconeros=0 — the fee-gated Item/Sub lives on Item.feeStatus, not
@@ -24,14 +127,14 @@ export async function runReconcileOwnerFeeLegsOnce ({ models, monero = lwsClient
   const maps = await models.subFeePidMap.findMany({
     where: { webhookEventId: { not: null }, expiresAt: { gt: new Date() } }
   })
-  if (maps.length === 0) return { legs: 0, replayed: 0, flipped: 0 }
+  if (maps.length === 0) return { legs: 0, replayed: 0, flipped: 0, pidFallback: 0 }
 
   const payIns = await models.payIn.findMany({
     where: { moneroPaymentId: { in: maps.map(m => m.paymentId) } }
   })
   const byPid = new Map(payIns.map(p => [p.moneroPaymentId, p]))
   const legs = maps.filter(m => byPid.has(m.paymentId))
-  if (legs.length === 0) return { legs: 0, replayed: 0, flipped: 0 }
+  if (legs.length === 0) return { legs: 0, replayed: 0, flipped: 0, pidFallback: 0 }
 
   // Group by owner account; one full-history scan per owner per run (owner
   // accounts are low-history; the tip webhook cursor optimization does not
@@ -43,6 +146,7 @@ export async function runReconcileOwnerFeeLegsOnce ({ models, monero = lwsClient
   }
 
   let replayed = 0
+  let pidFallback = 0
   for (const [ownerUserId, ownerLegs] of byOwner) {
     const account = await models.moneroAccount.findFirst({
       where: { ownerUserId, status: 'ACTIVE' },
@@ -56,52 +160,82 @@ export async function runReconcileOwnerFeeLegsOnce ({ models, monero = lwsClient
       console.warn(`reconcileOwnerFeeLegs: lws scan failed for owner ${ownerUserId}: ${err?.message || err}`)
       continue
     }
-    const pidSet = new Set(ownerLegs.map(l => String(l.paymentId).toLowerCase()))
-    for (const tx of txs) {
-      if (!tx.payment_id || !pidSet.has(String(tx.payment_id).toLowerCase())) continue
-      // SELF-PAYMENT BAN (2026-09-19 incident): when the payer shares the owner
-      // account, lws's per-tx total_received folds in the sender's change
-      // (inputs - fee) and is NOT the leg amount — no amount from a self-send
-      // is credible here, so the tx is never replayed. Same EXACT (maj,min)
-      // sender match as the webhook's isSelfSend (review follow-up: the old
-      // coarse `spent_outputs.length > 0` test treated lws's documented
-      // misattributed foreign spends (observed 2026-08-10) as self-sends,
-      // stranding a genuine fee behind an unreclaimable EXCLUDED row; the
-      // exact match only refuses true own-subaddress senders). Any provisional
-      // row a 0-conf callback seeded is EXCLUDED so the display can never show
-      // the change as received; the webhook's isSelfSend refusal is the
-      // primary and keeps such rows from ever gaining a height (the applier's
-      // CAS is state-gated to DETECTED).
-      if (isSelfSend(account, tx)) {
-        const excluded = await models.$executeRaw`
-          UPDATE "ObservedSubFee" SET state = 'EXCLUDED'::"ObservedState"
-          WHERE "tx_hash" = ${tx.hash} AND "payment_id" = ${tx.payment_id} AND height IS NULL`
-        if (excluded > 0) {
-          alert('warn', 'owner-fee self-payment refused',
-            `fee leg ${tx.payment_id} tx ${tx.hash}: payer shares the owner account (change-inflated); provisional receipt excluded by the backstop`,
-            { dedupeKey: `subfee-selfpay-${tx.payment_id}-${String(tx.hash).toLowerCase()}` })
-        }
+
+    // Owner-local lookup keyed by NORMALIZED served pid; the value retains the
+    // ISSUED pid (the applier/cryptography key) and the exact PayIn row.
+    const legByPid = new Map(ownerLegs.map(leg => [String(leg.paymentId).toLowerCase(), {
+      paymentId: leg.paymentId,
+      feePayIn: byPid.get(leg.paymentId)
+    }]))
+
+    // Dedup by lowercase hash (lws can repeat rows across scan passes) and
+    // anchor each row to its hash for the raw join. Hashless rows cannot be
+    // anchored and are never replayed.
+    const rowsByHash = new Map()
+    for (const row of txs) {
+      if (!row.hash) continue
+      const hash = String(row.hash).toLowerCase()
+      if (!rowsByHash.has(hash)) rowsByHash.set(hash, { ...row, hash })
+    }
+
+    // Pass 1 — served-pid matches (the webhook-path case, byte-for-byte).
+    // Non-matches (including NULL pids) are collected for raw discovery; a hit
+    // never removes the other rows from that search (multi-tx top-ups).
+    const rawRows = new Map()
+    for (const [hash, tx] of rowsByHash) {
+      const leg = legByPid.get(String(tx.payment_id ?? '').toLowerCase())
+      if (!leg) {
+        rawRows.set(hash, tx)
         continue
       }
-      // Replay through the shared applier — idempotent by construction (one
-      // ObservedSubFee row per (txHash, paymentId), ON CONFLICT DO NOTHING),
-      // so an hourly rescan of an already-replayed receipt is a no-op.
-      await applySubFeeReceipt(models, {
-        feePayIn: byPid.get(tx.payment_id) ?? null,
-        paymentId: tx.payment_id,
-        txHash: tx.hash,
-        piconeros: tx.piconeros,
-        height: tx.height ?? null,
-        confirmations: 0 // never fabricated — confirmFinalizer matures height-bearing rows
-      })
-      replayed += 1
+      const result = await replayOwnerReceipt({ models, account, leg, tx })
+      if (result) replayed += 1
+    }
+
+    // Pass 2 — wrong-pid raw-decrypt discovery for the remaining rows. Catch
+    // ONLY the acquisition/decryption step: a paid leg must not be missed
+    // because monerod or the view-key envelope was down (retry next run), but
+    // an applier/DB write failure outside this catch must fail the cron run
+    // and retry rather than masquerade as a lookup miss.
+    let rawMatches = []
+    if (daemon && rawRows.size) {
+      try {
+        rawMatches = await findRawFeeMatches({ daemon, account, rowsByHash: rawRows, legByPid })
+      } catch {
+        // Fixed-category diagnostics only: transport/crypto error text can
+        // embed sensitive input (key material, raw payloads), so neither this
+        // log nor the alert below may echo exception content.
+        console.warn(`reconcileOwnerFeeLegs: raw-decrypt fallback failed for owner ${ownerUserId} (${rawRows.size} candidate(s)); next hourly run retries`)
+        alert('warn', 'owner-fee raw-decrypt fallback failed',
+          `account ${account.id}: raw acquisition or view-key decryption failed for ${rawRows.size} candidate(s); next hourly run retries`,
+          { dedupeKey: `subfee-pid-fallback-error-${account.id}` })
+      }
+    }
+    let ownerRecovered = 0
+    for (const { tx, leg } of rawMatches) {
+      const result = await replayOwnerReceipt({ models, account, leg, tx })
+      if (result) replayed += 1
+      // Only a NEW height transition is a recovery: provisional inserts,
+      // replays, EXCLUDED rows, and already-matured receipts do not re-alert.
+      if (result?.transitioned) ownerRecovered += 1
+    }
+    pidFallback += ownerRecovered
+    if (ownerRecovered > 0) {
+      alert('warn', 'owner-fee payment-id misattribution recovered',
+        `account ${account.id}: ${ownerRecovered} owner-fee receipt(s) newly height-bound by raw PID discovery`,
+        { dedupeKey: `subfee-pid-misattribution-${account.id}` })
     }
   }
-  return { legs: legs.length, replayed, flipped: replayed }
+  // `replayed` counts applier calls and `flipped` is its legacy alias — NOT an
+  // actual item-flip count. `pidFallback` counts only newly height-bound raw
+  // recoveries (raw path + transitioned).
+  return { legs: legs.length, replayed, flipped: replayed, pidFallback }
 }
 
 export async function reconcileOwnerFeeLegs ({ models }) {
-  const out = await runReconcileOwnerFeeLegsOnce({ models })
+  // The production wrapper MUST pass the daemon singleton: without it the raw
+  // fallback silently no-ops and wrong-pid legs strand again.
+  const out = await runReconcileOwnerFeeLegsOnce({ models, daemonClient })
   if (out.replayed > 0) {
     console.log(`reconcileOwnerFeeLegs: ${out.legs} active leg(s) scanned, ${out.replayed} receipt(s) replayed through the cumulative gate`)
   }

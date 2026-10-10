@@ -47,8 +47,11 @@ import { reconcileOwnerFeeLegs } from './reconcileOwnerFeeLegs'
 import { healthProbe } from './healthProbe'
 import { dbBackup } from './dbBackup'
 import { emailDigest } from './emailDigest'
+import { newsletterEnroll, newsletterSync } from './newsletter'
+import { newsletterCampaign } from './newsletterCampaign'
+import { isNewsletterEnabled, checkNewsletterConfig } from '@/lib/newsletter'
 import { writeWorkerHeartbeat } from './heartbeat'
-import { logInfo, logError } from '@/lib/logger'
+import { logInfo, logWarn, logError } from '@/lib/logger'
 import { moneroJobDurationSeconds } from '@/lib/metrics'
 import { buildGateCookieHeader } from '@/lib/invite-gate'
 import { BOSS_RETRY } from '@/lib/constants'
@@ -318,6 +321,27 @@ async function work () {
   // are owned by the pgboss.schedule row (cron 0 15 * * * UTC, migration
   // <timestamp>_email_digest) — NOT a self-requeue.
   await boss.work('emailDigest', { includeMetadata: true }, jobWrapper(emailDigest))
+
+  // newsletterEnroll: one-shot signup enrollment (adapter-enqueued via raw
+  // pgboss.job INSERT). newsletterSync: daily reconcile to Resend, cron-owned
+  // (0 16 * * * UTC, migration 20261008132506_newsletter) — NOT a self-requeue.
+  await boss.work('newsletterEnroll', { includeMetadata: true }, jobWrapper(newsletterEnroll))
+  await boss.work('newsletterSync', { includeMetadata: true }, jobWrapper(newsletterSync))
+
+  // newsletterCampaign: weekly tick, 14-day watermark = biweekly send. Draft +
+  // test by default; NEWSLETTER_AUTO_SEND or scripts/newsletter-send.js
+  // releases it. Cron-owned (0 16 * * 1 UTC, migration 20261008132506_newsletter).
+  await boss.work('newsletterCampaign', { includeMetadata: true }, jobWrapper(newsletterCampaign))
+
+  // Newsletter boot check (spec T3): an enabled-but-unconfigured newsletter
+  // must surface immediately, not silently no-op until the first cron tick.
+  if (isNewsletterEnabled()) {
+    const missing = checkNewsletterConfig()
+    if (missing.length) {
+      logWarn('newsletter enabled but unconfigured — enroll/sync/campaign will skip', { missing })
+      alert('warn', 'newsletter enabled but unconfigured', `missing ${missing.join(', ')}`, { dedupeKey: 'newsletter-env' })
+    }
+  }
 
   logInfo('working jobs')
 }

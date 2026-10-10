@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto'
 import { money } from '@/lib/rewardsAccounting'
+import {
+  readRewardsAuditReserve,
+  readRewardsAuditSnapshot
+} from '@/api/monero/rewardsAuditSnapshot'
+import {
+  ACCOUNTING_FINGERPRINT_VERSION,
+  isCurrentAccountingFingerprint
+} from '@/lib/rewardsAuditFingerprint'
 
 // The factual rewards-hot-wallet ledger (rewards accounting repair §5): ONE
 // read-side union of proved facts for:
@@ -195,13 +203,15 @@ function auditIsClean (audit) {
 }
 
 // The audit's positive drift warns continuously until a CLEAN check of exactly
-// the CURRENT ledger facts (same safe fingerprint) reports no discrepancy. A
-// clean check whose fingerprint no longer matches the ledger is stale, and a
-// matching check that was published with material issues is not clean either:
-// neither can clear the warning.
+// the CURRENT ledger facts reports no discrepancy. Currency is strict and
+// versioned: only a stored `accounting:v2:` fingerprint that equals the
+// current one is current — a stored legacy bare hash, a v1 string or a
+// malformed value is stale by definition (no old-projection fallback, no DB
+// backfill) — and a matching check that was published with material issues is
+// not clean either: neither can clear the warning.
 function positiveDriftFromAudits (audits, fingerprint) {
   const rows = audits ?? []
-  const current = rows.find(a => a?.ledgerFingerprint === fingerprint)
+  const current = rows.find(a => isCurrentAccountingFingerprint(a?.ledgerFingerprint, fingerprint))
   if (current && auditIsClean(current)) {
     const drift = amountOrZero(current.positiveDriftPiconeros)
     return drift > 0n ? drift : 0n
@@ -834,7 +844,11 @@ export function summarizeRewardsLedger ({
   const totalSentPiconeros = payoutSentPiconeros + sweepSentPiconeros
   const drift = amountOrZero(positiveDriftPiconeros)
 
-  // --- Fingerprint: explicit safe ledger fields only, deterministic order. ---
+  // --- Union digest: explicit safe ledger fields only, deterministic order.
+  // This digest covers ONLY the money-union facts (payouts, distributions,
+  // journal, derived totals). It is a stability digest for the union, NOT an
+  // accounting audit fingerprint: freshness and repair compare the shared
+  // versioned `accounting:v2:` snapshot fingerprint instead. ---
   const facts = {
     scope: { network: scoped.network, walletAddress: scoped.walletAddress },
     payouts: payouts
@@ -882,7 +896,7 @@ export function summarizeRewardsLedger ({
       positiveDriftPiconeros: drift.toString()
     }
   }
-  const fingerprint = createHash('sha256').update(JSON.stringify(canonicalJson(facts))).digest('hex')
+  const unionFingerprint = createHash('sha256').update(JSON.stringify(canonicalJson(facts))).digest('hex')
 
   return {
     totalNetworkFeesPiconeros,
@@ -893,79 +907,27 @@ export function summarizeRewardsLedger ({
     outstandingRewardsPiconeros,
     accountingUncertain,
     positiveDriftPiconeros: drift,
-    fingerprint
+    unionFingerprint
   }
 }
 
-// Scoped DB reader: selects only the explicit payout/distribution/journal
-// fields the union needs, scopes the journal by the configured wallet/network,
-// and refuses a configured identity that disagrees with the registered
-// platform_rewards account (the repository has ONE platform wallet per DB).
-// Accepts a transaction client so callers can read it in their own snapshot.
+// Scoped DB reader for every freshness consumer: the money totals come from
+// the unchanged de-duplicated PAYOUT/OPS_SWEEP/CONSOLIDATION union over the
+// shared snapshot's scoped journal/payout/distribution groups, and the audit
+// fingerprint is the shared `accounting:v2:` digest of ONE complete safe
+// snapshot (rewards reconciliation Task 1) read in the caller's Serializable
+// transaction — never a wallet, daemon or key provider. The configured scope
+// must be the registered platform_rewards identity (label + network, resolved
+// like the #1 collector; foreign or absent identity refuses). Accepts a
+// transaction client so callers can read it in their own snapshot.
 export async function readRewardsWalletLedger (models, { scope } = {}) {
   const scoped = normalizeScope(scope)
-  if (typeof models?.moneroAccount?.findFirst !== 'function') {
-    throw new Error('readRewardsWalletLedger: models.moneroAccount is required')
-  }
-  if (typeof models?.rewardPayout?.findMany !== 'function') {
-    throw new Error('readRewardsWalletLedger: models.rewardPayout is required')
-  }
-  if (typeof models?.rewardDistribution?.findMany !== 'function') {
-    throw new Error('readRewardsWalletLedger: models.rewardDistribution is required')
-  }
-  if (typeof models?.rewardsWalletTransaction?.findMany !== 'function') {
-    throw new Error('readRewardsWalletLedger: models.rewardsWalletTransaction is required')
-  }
   if (typeof models?.rewardsWalletReconciliation?.findMany !== 'function') {
     throw new Error('readRewardsWalletLedger: models.rewardsWalletReconciliation is required')
   }
 
-  const account = await models.moneroAccount.findFirst({
-    where: { label: 'platform_rewards' },
-    select: { address: true, network: true }
-  })
-  // The registered identity is independent of the requested scope: a platform
-  // wallet on another network still owns this DB's unscoped payout/
-  // distribution ledger, so either an address or a network mismatch refuses
-  // rather than aggregating that other wallet's facts.
-  if (account && (account.address !== scoped.walletAddress || account.network !== scoped.network)) {
-    throw new Error('rewards wallet identity mismatch: the configured scope is not the registered platform wallet')
-  }
-
-  const [payouts, distributions, transactions, audits] = await Promise.all([
-    models.rewardPayout.findMany({
-      select: {
-        id: true,
-        distributionId: true,
-        state: true,
-        txHash: true,
-        recipientAddress: true,
-        piconeros: true
-      }
-    }),
-    models.rewardDistribution.findMany({
-      select: {
-        id: true,
-        opsAvailablePiconeros: true,
-        opsSweptPiconeros: true,
-        opsSweepTxHash: true
-      }
-    }),
-    models.rewardsWalletTransaction.findMany({
-      where: { network: scoped.network, walletAddress: scoped.walletAddress },
-      select: {
-        network: true,
-        walletAddress: true,
-        txHash: true,
-        kind: true,
-        state: true,
-        distributionId: true,
-        principalPiconeros: true,
-        networkFeePiconeros: true,
-        metadata: true,
-        relayAttemptedAt: true
-      }
-    }),
+  const [snapshot, audits] = await Promise.all([
+    readRewardsAuditSnapshot(models, { scope: scoped, reserve: readRewardsAuditReserve() }),
     models.rewardsWalletReconciliation.findMany({
       where: { network: scoped.network, walletAddress: scoped.walletAddress },
       orderBy: { checkedAt: 'desc' },
@@ -973,9 +935,19 @@ export async function readRewardsWalletLedger (models, { scope } = {}) {
     })
   ])
 
-  const ledger = summarizeRewardsLedger({ payouts, distributions, transactions, scope: scoped })
+  // Money totals continue from the existing union — receipt eligibility,
+  // escrow, proof-inventory or config facts can never redefine them — while
+  // freshness is exactly the shared versioned snapshot fingerprint.
+  const union = summarizeRewardsLedger({
+    payouts: snapshot.ledger.payouts,
+    distributions: snapshot.ledger.distributions,
+    transactions: snapshot.ledger.transactions,
+    scope: scoped
+  })
   return {
-    ...ledger,
-    positiveDriftPiconeros: positiveDriftFromAudits(audits, ledger.fingerprint)
+    ...union,
+    fingerprint: snapshot.accountingFingerprint,
+    accountingFingerprintVersion: ACCOUNTING_FINGERPRINT_VERSION,
+    positiveDriftPiconeros: positiveDriftFromAudits(audits, snapshot.accountingFingerprint)
   }
 }

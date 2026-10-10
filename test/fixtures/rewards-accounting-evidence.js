@@ -22,8 +22,14 @@
 // `syntheticRewardsEvidence()` returns the DEFAULT input: no operator decision
 // for the unbooked incoming 5, so the manifest reports UNKNOWN_INCOMING and is
 // not applicable. Call `withApprovedIncomingClassification(input)` (or pass
-// `{ classifyIncoming: true }`) for the complete-evidence variant whose
-// corrections reconcile the ledger to zero drift.
+// `{ classifyIncoming: true }`) for the variant whose corrections reconcile
+// the ledger to zero drift. Even that variant is NOT a clean strict audit
+// (final-review I1): its recorded payout batch is covered only by a RELAYED
+// journal row and its escrow legs only by confirmed escrow history — relay
+// history is never complete-payment evidence, so the strict audit NAMES each
+// recorded outflow (RECORDED_PAYOUT_PROOF_UNSUPPORTED /
+// RECORDED_ESCROW_LEG_EVIDENCE_MISSING) and the manifest stays inapplicable
+// until explicitly supplied complete payment verifications cover them.
 
 export const FI = Object.freeze({
   SCOPE: Object.freeze({ network: 'STAGENET', walletAddress: '5RewardsHotWalletAuditAddressPrimary' }),
@@ -52,6 +58,7 @@ export const FI = Object.freeze({
     DIST_START: '2026-09-01T00:00:00.000Z',
     DIST_END: '2026-09-08T00:00:00.000Z',
     FUNDING: '2026-09-02T00:00:00.000Z',
+    PREPARED: '2026-09-04T00:00:00.000Z',
     ROLLOVER: '2026-09-05T00:00:00.000Z',
     INCOMING: '2026-09-12T00:00:00.000Z'
   }),
@@ -291,12 +298,26 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
       }
     },
     ledger: {
+      // Complete v2 audit-snapshot groups (rewards reconciliation Task 1):
+      // the shared `accounting:v2:` fingerprint projects every group and
+      // column below, so the fixture carries the same complete shape the
+      // snapshot reader returns. Registered wallet identities first.
+      accounts: [
+        { id: 1, label: 'platform_rewards', network: SCOPE.network, address: SCOPE.walletAddress },
+        { id: 2, label: 'bounty_escrow', network: SCOPE.network, address: ADDRESS.ESCROW }
+      ],
+      subaddresses: [
+        { id: 11, accountId: 1, majorIndex: 0, minorIndex: 0, address: SCOPE.walletAddress, state: 'AVAILABLE' },
+        { id: 12, accountId: 1, majorIndex: 1, minorIndex: 0, address: '5RewardsPostingFeeSubaddress', state: 'ASSIGNED' },
+        { id: 21, accountId: 2, majorIndex: 0, minorIndex: 0, address: ADDRESS.ESCROW, state: 'AVAILABLE' }
+      ],
       receipts: [
         {
           // Legacy funding-time BOUNTY_FEE accrual: nominal 20, never cash.
           id: 1,
           txHash: TX.FUNDING,
           feeType: 'BOUNTY_FEE',
+          subName: null,
           walletReceipt: true,
           state: 'CONFIRMED',
           piconeros: 20n,
@@ -314,6 +335,7 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
           id: 2,
           txHash: TX.ROLLOVER,
           feeType: 'BOUNTY_ROLLOVER',
+          subName: null,
           walletReceipt: true,
           state: 'CONFIRMED',
           piconeros: 140n,
@@ -372,12 +394,14 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
           opsRolledOverPiconeros: 0n,
           opsAvailablePiconeros: 20n,
           opsSweptPiconeros: 0n,
+          opsSweepState: 'NONE',
           opsSweepTxHash: null,
           opsNetworkFeesAccountedPiconeros: 0n
         }
       ],
       transactions: [
         {
+          id: 601,
           network: SCOPE.network,
           walletAddress: SCOPE.walletAddress,
           txHash: TX.PAYOUT,
@@ -394,10 +418,18 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
               { payoutId: 12, recipientAddress: ADDRESS.CURATOR_TWO, piconeros: '20' }
             ]
           },
+          preparedAt: new Date(DATE.PREPARED),
           relayAttemptedAt: new Date(DATE.ROLLOVER),
-          relayedAt: new Date(DATE.ROLLOVER)
+          relayedAt: new Date(DATE.ROLLOVER),
+          relayProvenance: 'direct-relay-observation',
+          dispatchId: null,
+          captureContractVersion: null,
+          claimDigest: null,
+          paymentClaims: null,
+          proofId: null
         },
         {
+          id: 602,
           network: SCOPE.network,
           walletAddress: SCOPE.walletAddress,
           txHash: TX.CONSOLIDATION,
@@ -408,10 +440,18 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
           principalPiconeros: 0n,
           networkFeePiconeros: 3n,
           metadata: { destination: ADDRESS.WALLET, selfTransfer: true },
+          preparedAt: new Date(DATE.PREPARED),
           relayAttemptedAt: new Date(DATE.ROLLOVER),
-          relayedAt: new Date(DATE.ROLLOVER)
+          relayedAt: new Date(DATE.ROLLOVER),
+          relayProvenance: 'direct-relay-observation',
+          dispatchId: null,
+          captureContractVersion: null,
+          claimDigest: null,
+          paymentClaims: null,
+          proofId: null
         },
         {
+          id: 603,
           network: SCOPE.network,
           walletAddress: SCOPE.walletAddress,
           txHash: TX.SWEEP,
@@ -422,11 +462,21 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
           principalPiconeros: 10n,
           networkFeePiconeros: 2n,
           metadata: { destination: ADDRESS.OPS },
+          preparedAt: new Date(DATE.PREPARED),
           relayAttemptedAt: new Date(DATE.ROLLOVER),
-          relayedAt: new Date(DATE.ROLLOVER)
+          relayedAt: new Date(DATE.ROLLOVER),
+          relayProvenance: 'direct-relay-observation',
+          dispatchId: null,
+          captureContractVersion: null,
+          claimDigest: null,
+          paymentClaims: null,
+          proofId: null
         },
         {
           // Pending relay attempt: PREPARED + attempted, mempool evidence.
+          // Pre-proof-era row: it stays unresolved unless independently
+          // verified evidence exists (rewards reconciliation Task 3).
+          id: 604,
           network: SCOPE.network,
           walletAddress: SCOPE.walletAddress,
           txHash: TX.PENDING_PAYOUT,
@@ -439,15 +489,24 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
           metadata: {
             payouts: [{ payoutId: 13, recipientAddress: ADDRESS.CURATOR_ONE, piconeros: '8' }]
           },
+          preparedAt: new Date(DATE.PREPARED),
           relayAttemptedAt: new Date(DATE.ROLLOVER),
-          relayedAt: null
+          relayedAt: null,
+          relayProvenance: null,
+          dispatchId: null,
+          captureContractVersion: null,
+          claimDigest: null,
+          paymentClaims: null,
+          proofId: null
         }
       ],
+      escrowTransactions: [],
       bountyPayments: [
         {
           // Award whose post-relay settlement metadata was never persisted.
           id: 21,
           itemId: 301,
+          winnerUserId: 7,
           piconeros: 100n,
           feePiconeros: 20n,
           recipientAddress: ADDRESS.CURATOR_ONE,
@@ -456,15 +515,20 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
           feeTxHash: null,
           state: 'CONFIRMED',
           feeRecipientAddress: null,
+          feePendingAt: null,
           networkFeePiconeros: null,
           recipientReceivedPiconeros: null,
           feeReceivedPiconeros: null,
-          feeSettlementNetworkFeePiconeros: null
+          feeSettlementNetworkFeePiconeros: null,
+          sentAt: new Date(DATE.ROLLOVER),
+          confirmedAt: null,
+          height: null
         },
         {
           // Rollover: net 139 arrived after the escrow miner fee 1.
           id: 22,
           itemId: 302,
+          winnerUserId: 8,
           piconeros: 140n,
           feePiconeros: 0n,
           recipientAddress: ADDRESS.WALLET,
@@ -473,24 +537,40 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
           feeTxHash: null,
           state: 'CONFIRMED',
           feeRecipientAddress: null,
+          feePendingAt: null,
           networkFeePiconeros: null,
           recipientReceivedPiconeros: null,
           feeReceivedPiconeros: null,
-          feeSettlementNetworkFeePiconeros: null
+          feeSettlementNetworkFeePiconeros: null,
+          sentAt: new Date(DATE.ROLLOVER),
+          confirmedAt: null,
+          height: null
         }
       ],
       items: [
         { id: 301, bountyPiconeros: 0n, bountyFeePiconeros: 20n },
-        { id: 302, bountyPiconeros: 100n }
+        { id: 302, bountyPiconeros: 100n, bountyFeePiconeros: null }
       ],
       // Funding evidence for the mandated identification predicate: the legacy
       // funding-time BOUNTY_FEE row (id 1) is tied to this ObservedBounty's
       // funding transaction. The migration itself carries no reference, so the
       // repair manifest re-derives the same relationship from these rows.
       observedBounties: [
-        { id: 401, txHash: TX.FUNDING, postId: 301, paymentId: 'fixture301' }
+        {
+          id: 401,
+          postId: 301,
+          payerId: 12,
+          recipientAccountId: 2,
+          txHash: TX.FUNDING,
+          paymentId: 'fixture301',
+          piconeros: 120n,
+          state: 'CONFIRMED',
+          height: HEIGHT.FUNDING,
+          confirmedAt: new Date(DATE.FUNDING)
+        }
       ],
       observedBountyReceipts: [],
+      proofInventory: [],
       earns: [
         { id: 501, userId: 7, distributionId: 1, piconeros: 40n },
         { id: 502, userId: 8, distributionId: 1, piconeros: 20n }

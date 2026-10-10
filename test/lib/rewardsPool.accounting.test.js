@@ -23,6 +23,20 @@ const TIME = new Date('2026-10-12T00:00:00.000Z')
 const PERIOD_END = new Date('2026-10-05T00:00:00.000Z')
 
 // A RELAYED consolidation is a pure fee fact (principal zero, self transfer).
+// Journal rows carry the audit snapshot's FULL closed column shape.
+const JOURNAL_DEFAULTS = {
+  id: null,
+  accountIndex: 0,
+  preparedAt: null,
+  relayAttemptedAt: null,
+  relayedAt: null,
+  relayProvenance: null,
+  dispatchId: null,
+  captureContractVersion: null,
+  claimDigest: null,
+  paymentClaims: null,
+  proofId: null
+}
 const feeFact = (fee, txHash) => ({
   network: 'STAGENET',
   walletAddress: HOT,
@@ -32,7 +46,8 @@ const feeFact = (fee, txHash) => ({
   distributionId: null,
   principalPiconeros: 0n,
   networkFeePiconeros: fee,
-  metadata: { destination: HOT, selfTransfer: true }
+  metadata: { destination: HOT, selfTransfer: true },
+  ...JOURNAL_DEFAULTS
 })
 
 const relayedSweep = ({ txHash, distributionId, principal, fee }) => ({
@@ -44,7 +59,8 @@ const relayedSweep = ({ txHash, distributionId, principal, fee }) => ({
   distributionId,
   principalPiconeros: principal,
   networkFeePiconeros: fee,
-  metadata: { destination: '5COLD' }
+  metadata: { destination: '5COLD' },
+  ...JOURNAL_DEFAULTS
 })
 
 function makeModels ({ lastDistribution = null, inflow = {}, ledger = {} } = {}) {
@@ -63,16 +79,56 @@ function makeModels ({ lastDistribution = null, inflow = {}, ledger = {} } = {})
     ...inflow
   }
   const models = {
-    platformFeeConfig: { upsert: jest.fn(async () => CONFIG) },
+    platformFeeConfig: {
+      upsert: jest.fn(async () => CONFIG),
+      findUnique: jest.fn(async () => CONFIG)
+    },
     $queryRaw: jest.fn(async () => [row]),
     rewardDistribution: {
       findFirst: jest.fn(async () => lastDistribution),
-      findMany: jest.fn(async () => ledger.distributions ?? [])
+      // Full closed distribution shape: the audit snapshot projects every
+      // expected column; tests only vary the accounting facts.
+      findMany: jest.fn(async () => (ledger.distributions ?? []).map(d => ({
+        status: null,
+        periodStart: null,
+        periodEnd: null,
+        poolPiconeros: 0n,
+        distributedPiconeros: 0n,
+        rolledOverPiconeros: 0n,
+        payoutCount: 0,
+        opsInflowPiconeros: 0n,
+        opsRolledOverPiconeros: 0n,
+        opsAvailablePiconeros: null,
+        opsSweptPiconeros: 0n,
+        opsSweepState: null,
+        opsSweepTxHash: null,
+        opsNetworkFeesAccountedPiconeros: 0n,
+        ...d
+      })))
     },
-    rewardPayout: { findMany: jest.fn(async () => ledger.payouts ?? []) },
-    rewardsWalletTransaction: { findMany: jest.fn(async () => ledger.transactions ?? []) },
+    rewardPayout: { findMany: jest.fn(async () => (ledger.payouts ?? []).map(p => ({ curatorId: null, ...p }))) },
+    rewardsWalletTransaction: {
+      findMany: jest.fn(async () => ledger.transactions ?? []),
+      findUnique: jest.fn(async () => null)
+    },
     rewardsWalletReconciliation: { findMany: jest.fn(async () => ledger.audits ?? []) },
-    moneroAccount: { findFirst: jest.fn(async () => ({ address: HOT, network: 'STAGENET' })) }
+    moneroAccount: {
+      findFirst: jest.fn(async ({ where }) =>
+        where?.label === 'platform_rewards'
+          ? { id: 1, label: 'platform_rewards', address: HOT, network: 'STAGENET' }
+          : null)
+    },
+    // Audit-snapshot side groups (empty; no bounty/escrow facts in this DB).
+    subaddressIndex: { findMany: jest.fn(async () => []) },
+    feeObservation: { findMany: jest.fn(async () => []) },
+    observedDownvote: { findMany: jest.fn(async () => []) },
+    escrowWalletTransaction: { findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null) },
+    bountyPayment: { findMany: jest.fn(async () => []) },
+    observedBounty: { findMany: jest.fn(async () => []) },
+    observedBountyReceipt: { findMany: jest.fn(async () => []) },
+    item: { findMany: jest.fn(async () => []) },
+    earn: { findMany: jest.fn(async () => []) },
+    paymentTransactionProof: { findUnique: jest.fn(async () => null) }
   }
   // Ruling: mocks must provide $transaction explicitly so the production
   // path (both readers inside one transaction) is what actually runs.
@@ -127,7 +183,8 @@ test('getNextRewardsPool keeps every existing key and adds the accounting fields
     'totalInflowPiconeros',
     'totalNetworkFeesPiconeros'
   ])
-  expect(pool.ledgerFingerprint).toMatch(/^[0-9a-f]{64}$/)
+  // The fingerprint is the shared versioned accounting audit digest.
+  expect(pool.ledgerFingerprint).toMatch(/^accounting:v2:[0-9a-f]{64}$/)
 })
 
 test('prior opsAvailable20, opsSwept10, cost checkpoint4, fees7 and open-cycle ops5 => pending12', async () => {
@@ -266,6 +323,7 @@ test('an attempted journal row surfaces accounting uncertainty without changing 
       transactions: [
         feeFact(7n, 'f0'.repeat(32)),
         {
+          ...JOURNAL_DEFAULTS,
           network: 'STAGENET',
           walletAddress: HOT,
           txHash: 'f1'.repeat(32),

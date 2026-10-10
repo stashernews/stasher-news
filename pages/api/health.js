@@ -1,6 +1,6 @@
 import models from '@/api/models'
 import { evaluateDeadman, deadmanAlerts } from '@/lib/deadman'
-import { HEALTH_STALE_MS } from '@/lib/metrics'
+import { HEALTH_STALE_MS, NEWSLETTER_STALE_MS } from '@/lib/metrics'
 
 async function checkDb () {
   try {
@@ -58,6 +58,27 @@ async function checkMoneroServices () {
   }
 }
 
+// Newsletter config/send state from the HealthSnapshot bridge row the
+// newsletterSync worker upserts. Freshness gates on newsletterSyncedAt (NOT
+// the shared updatedAt, which healthProbe bumps every minute). Additive and
+// non-gating (like lws/monerod): null when not-yet/stale — "not known", never
+// a healthcheck kill. lastSentAt is a recorded fact and survives staleness.
+async function checkNewsletter () {
+  try {
+    const row = await models.healthSnapshot.findUnique({ where: { id: 1 } })
+    const lastSentAt = row?.newsletterLastSentAt ? new Date(row.newsletterLastSentAt).toISOString() : null
+    const fresh = row?.newsletterSyncedAt && (Date.now() - new Date(row.newsletterSyncedAt).getTime()) < NEWSLETTER_STALE_MS
+    if (!row || !fresh) return { configured: null, contactsActive: null, lastSentAt }
+    return {
+      configured: row.newsletterConfigured ?? null,
+      contactsActive: row.newsletterContactsActive ?? null,
+      lastSentAt
+    }
+  } catch {
+    return { configured: null, contactsActive: null, lastSentAt: null }
+  }
+}
+
 async function checkDeadman (now = Date.now()) {
   if (now - lastDeadmanCheck < DEADMAN_MIN_INTERVAL_MS) return null
   lastDeadmanCheck = now
@@ -96,7 +117,8 @@ export default async function handler (req, res) {
   const queue = await checkQueue()
   const deadman = await checkDeadman()
   const { lws, monerod } = await checkMoneroServices()
+  const newsletter = await checkNewsletter()
 
   const ok = db
-  res.status(ok ? 200 : 503).json({ ok, db, lws, monerod, queue, deadman })
+  res.status(ok ? 200 : 503).json({ ok, db, lws, monerod, newsletter, queue, deadman })
 }

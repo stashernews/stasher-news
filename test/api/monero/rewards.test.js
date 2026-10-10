@@ -12,15 +12,46 @@
 //   docker exec -u apprunner app npx jest test/api/monero/rewards.test.js
 
 import { sendPayouts, resolveRewardsRestoreHeight, ensureFeeAccounts, planAccountSends } from '@/api/monero/rewards'
+import { alert } from '../../../lib/alert'
 import * as util from 'node:util'
+import { ed25519 } from '@noble/curves/ed25519'
+import { base58xmr } from '@scure/base'
+import { keccak256 } from 'js-sha3'
 import { logInfo, logError, logWarn } from '../../../lib/logger'
+import { secretBundleHex } from '@/test/fixtures/payment-proof'
 
-// The Task 6 journal helpers bind every send to the configured wallet scope:
-// the environment must name the same primary address the fake wallet reports,
-// or sendPayouts fails closed before any build. Set it once for the suite.
-process.env.PLATFORM_REWARDS_ADDRESS = process.env.PLATFORM_REWARDS_ADDRESS || '5PRIMARYTESTADDRESS'
+// The capture barrier (Task 6/Finding #1) authenticates every send against
+// the configured wallet scope and encodes every receiving address, so the
+// environment must name a REAL decodable primary address the fake wallet
+// reports, and every recipient label maps to a deterministic decodable
+// address. The TX-proof registry gets a synthetic throwaway master key (real
+// Task 2 crypto, never a real secret). Set once for the suite.
+const point = scalar => Buffer.from(ed25519.ExtendedPoint.BASE.multiply(BigInt(scalar)).toRawBytes()).toString('hex')
+function encodeStagenetPrimaryAddress ({ spendKey, viewKey }) {
+  const body = new Uint8Array(65)
+  body[0] = 24 // stagenet primary prefix
+  body.set(Buffer.from(spendKey, 'hex'), 1)
+  body.set(Buffer.from(viewKey, 'hex'), 33)
+  const checksum = Buffer.from(keccak256(body), 'hex').subarray(0, 4)
+  return base58xmr.encode(new Uint8Array([...body, ...checksum]))
+}
+const makeAddress = n => encodeStagenetPrimaryAddress({ spendKey: point(2n * BigInt(n)), viewKey: point(2n * BigInt(n) + 1n) })
+
+process.env.PLATFORM_REWARDS_ADDRESS = makeAddress(99)
 process.env.MONERO_NETWORK = process.env.MONERO_NETWORK || 'stagenet'
+process.env.TXPROOF_MASTER_KEYS = process.env.TXPROOF_MASTER_KEYS ||
+  JSON.stringify({ 1: Buffer.alloc(32, 11).toString('base64') })
+process.env.TXPROOF_MASTER_KEY_CURRENT_VERSION = process.env.TXPROOF_MASTER_KEY_CURRENT_VERSION || '1'
 const REWARDS_ADDRESS = process.env.PLATFORM_REWARDS_ADDRESS
+
+// Every payout recipient label maps to one deterministic decodable stagenet
+// address for the whole run, so test literals stay stable labels while the
+// journal claims always carry valid receiving identities.
+const payoutAddressMemo = new Map()
+const payoutAddress = label => {
+  if (!payoutAddressMemo.has(label)) payoutAddressMemo.set(label, makeAddress(200 + payoutAddressMemo.size))
+  return payoutAddressMemo.get(label)
+}
 // Installed monero-ts MoneroNetworkType: MAINNET=0, STAGENET=2.
 const REWARDS_NETWORK_TYPE = String(process.env.MONERO_NETWORK).toUpperCase() === 'MAINNET' ? 0 : 2
 
@@ -34,6 +65,13 @@ jest.mock('../../../lib/logger', () => ({
   logError: jest.fn(),
   logWarn: jest.fn()
 }))
+// Operator pages are assertable without a network side effect (same pattern as
+// test/worker/rewardsDistributor.test.js) — the capture barrier's reservation
+// alert is part of its contract.
+jest.mock('../../../lib/alert', () => ({
+  __esModule: true,
+  alert: jest.fn()
+}))
 
 // The build-failure state dump reads the daemon height; mock the client so
 // unit tests never touch the network (the dump guards every read, but a real
@@ -46,15 +84,18 @@ jest.mock('../../../api/monero/daemonClient', () => ({
 let idSeq = 1000
 function makePayout (overrides = {}) {
   idSeq += 1
+  const { recipientAddress, ...rest } = overrides
   return {
     id: idSeq,
     distributionId: 1,
     curatorId: 1,
-    recipientAddress: '5' + 'A'.repeat(94),
+    // Distinct decodable addresses by default: a capture pair's members must
+    // have distinct receiving addresses within one transaction.
+    recipientAddress: payoutAddress(recipientAddress ?? `payout-${idSeq}`),
     piconeros: 1_000_000_000n,
     txHash: null,
     state: 'QUEUED',
-    ...overrides
+    ...rest
   }
 }
 
@@ -80,7 +121,8 @@ function makeFakeJournalModel ({ failJournalCreate = 0, failRelayedPersist = 0, 
   let readFailures = failJournalRead
 
   const matches = (row, where = {}) => {
-    if (where.id !== undefined && row.id !== where.id) return false
+    // The store queries with BigInt ids; the in-memory rows hold Numbers.
+    if (where.id !== undefined && String(row.id) !== String(where.id)) return false
     if (where.network !== undefined && row.network !== where.network) return false
     if (where.walletAddress !== undefined && row.walletAddress !== where.walletAddress) return false
     if (where.kind !== undefined && row.kind !== where.kind) return false
@@ -88,12 +130,33 @@ function makeFakeJournalModel ({ failJournalCreate = 0, failRelayedPersist = 0, 
     if ('relayAttemptedAt' in where) {
       if (where.relayAttemptedAt === null ? row.relayAttemptedAt !== null : row.relayAttemptedAt === null) return false
     }
+    if (where.dispatchId !== undefined) {
+      // Prisma shape: an object means { not: null } (proof-era pairs only).
+      const wantsPresent = where.dispatchId !== null
+      if (wantsPresent ? row.dispatchId == null : row.dispatchId != null) return false
+    }
     return true
   }
   const copy = row => (row ? { ...row } : row)
 
+  // The encrypted-proof half of every captured pair, keyed by proof id (the
+  // atomic pair store writes and re-reads it through the same client).
+  const proofs = new Map()
+  const proofModel = {
+    async create ({ data }) {
+      const row = { ...data }
+      proofs.set(String(data.id), row)
+      return { ...row }
+    },
+    async findUnique ({ where }) {
+      const row = proofs.get(String(where?.id))
+      return row ? { ...row } : null
+    }
+  }
+
   return {
     rows,
+    proofs,
     async findUnique ({ where }) {
       const key = where?.network_walletAddress_txHash
       if (key) {
@@ -135,7 +198,24 @@ function makeFakeJournalModel ({ failJournalCreate = 0, failRelayedPersist = 0, 
         count += 1
       }
       return { count }
-    }
+    },
+    // The pair store's durability check + locked-claim SQL over the in-memory
+    // rows ($transaction passes this object as the transactional client).
+    async $executeRaw () { return 0 },
+    async $queryRaw () { return [{ synchronous_commit: 'on' }] },
+    async $queryRawUnsafe (sql, ...args) {
+      if (/FROM "RewardsWalletTransaction"/.test(sql)) {
+        const row = rows.get(Number(args[0]))
+        return row ? [copy(row)] : []
+      }
+      if (/FROM "PaymentTransactionProof"/.test(sql)) {
+        const proof = proofs.get(String(args[0]))
+        if (!proof) return []
+        return [{ ...(sql.includes('revision') ? { revision: proof.revision } : { id: proof.id }) }]
+      }
+      return []
+    },
+    paymentTransactionProof: proofModel
   }
 }
 
@@ -154,7 +234,17 @@ function makeFakeModels (rows, journalOptions = {}) {
     healthUpsert,
     journal,
     rewardsWalletTransaction: journal,
+    paymentTransactionProof: journal.paymentTransactionProof,
+    // The fake $transaction passes this object as the transactional client,
+    // so the pair store's durability/locked-claim SQL lives here too.
+    $executeRaw: journal.$executeRaw,
+    $queryRaw: journal.$queryRaw,
+    $queryRawUnsafe: (...args) => journal.$queryRawUnsafe(...args),
     rewardPayout: {
+      async findUnique ({ where }) {
+        const row = store.get(where?.id)
+        return row ? { ...row } : null
+      },
       async findMany ({ where } = {}) {
         return [...store.values()].filter(r =>
           (typeof where?.id !== 'number' || r.id === where.id) &&
@@ -222,7 +312,21 @@ function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedByAccount,
       fee: BigInt(networkFee),
       relayed: false
     })
-    return { getHash: () => hash, getFee: async () => BigInt(networkFee) }
+    // Capture-grade built tx: the pair store reads the real fee, the actual
+    // destinations, the change fields and the exact key bundle (synthetic
+    // 64-hex key material — never real keys).
+    const keySeed = BigInt('0x' + hash.slice(0, 12))
+    return {
+      getHash: () => hash,
+      getFee: async () => BigInt(networkFee),
+      getOutgoingTransfer: () => ({
+        getDestinations: () => (destinations || []).map(d => ({ getAddress: () => d.address, getAmount: () => BigInt(d.amount) }))
+      }),
+      getChangeAddress: () => null,
+      getChangeAmount: async () => null,
+      // The SDK captures the SECRET-bundle STRING (final-review C1).
+      getKey: () => secretBundleHex(keySeed, 2)
+    }
   }
 
   const relayTx = async (tx) => {
@@ -309,9 +413,9 @@ test('sends all QUEUED payouts in a single createTx with destinations', async ()
   expect(wallet.calls[0]).toEqual({
     accountIndex: 0,
     destinations: [
-      { address: '5AAA', amount: 1_000_000_000n },
-      { address: '5BBB', amount: 1_000_000_000n },
-      { address: '5CCC', amount: 1_000_000_000n }
+      { address: payoutAddress('5AAA'), amount: 1_000_000_000n },
+      { address: payoutAddress('5BBB'), amount: 1_000_000_000n },
+      { address: payoutAddress('5CCC'), amount: 1_000_000_000n }
     ],
     relay: false
   })
@@ -341,7 +445,7 @@ test('marks every payout FAILED when createTx throws a hard error', async () => 
   const p1 = makePayout({ id: 1, recipientAddress: '5BADADDR' })
   const p2 = makePayout({ id: 2, recipientAddress: '5GOOD' })
   const models = makeFakeModels([p1, p2])
-  const wallet = makeFakeWallet({ throwsOn: { '5BADADDR': new Error('invalid recipient address') } })
+  const wallet = makeFakeWallet({ throwsOn: { [payoutAddress('5BADADDR')]: new Error('invalid recipient address') } })
   const summary = await sendPayouts([p1, p2], { models, wallet })
   expect(summary).toEqual({ sent: 0, failed: 2, skipped: 0, unpersisted: 0, accountingUnpersisted: 0 })
   expect(models.store.get(p1.id).state).toBe('FAILED')
@@ -352,7 +456,7 @@ test('marks every payout FAILED when createTx throws a hard error', async () => 
 test('treats a not-enough-money createTx error as a SKIP for the whole batch', async () => {
   const p = makePayout({ id: 1, recipientAddress: '5LOCKED' })
   const models = makeFakeModels([p])
-  const wallet = makeFakeWallet({ throwsOn: { '5LOCKED': new Error('not enough unlocked money') } })
+  const wallet = makeFakeWallet({ throwsOn: { [payoutAddress('5LOCKED')]: new Error('not enough unlocked money') } })
   const summary = await sendPayouts([p], { models, wallet })
   expect(summary).toEqual({ sent: 0, failed: 0, skipped: 1, unpersisted: 0, accountingUnpersisted: 0 })
   expect(models.store.get(p.id).state).toBe('QUEUED')
@@ -573,7 +677,7 @@ test('drop-smallest: when the fee makes a bucket overflow, the smallest payout i
   expect(models.store.get(2).state).toBe('QUEUED') // smallest dropped, stays resumable
   // two createTx attempts: first the full bucket (fails), then the reduced one
   expect(wallet.calls).toHaveLength(2)
-  expect(wallet.calls[1].destinations).toEqual([{ address: '5AAA', amount: 3_000_000_000n }])
+  expect(wallet.calls[1].destinations).toEqual([{ address: payoutAddress('5AAA'), amount: 3_000_000_000n }])
   expect(wallet.relayCalls).toHaveLength(1)
 })
 
@@ -800,7 +904,7 @@ test('reconciles a relayed-but-unpersisted payout from wallet history instead of
   const models = makeFakeModels([p1])
   const wallet = makeFakeWallet({
     unlockedByAccount: { 0: 10_000_000_000n },
-    outgoing: [makeOutgoing('ef'.repeat(32), '5RECONCILE', 2_000_000_000n)]
+    outgoing: [makeOutgoing('ef'.repeat(32), p1.recipientAddress, 2_000_000_000n)]
   })
   const summary = await sendPayouts([p1], { models, wallet })
   expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0, unpersisted: 0, accountingUnpersisted: 0 })
@@ -815,7 +919,7 @@ test('reconciliation persist failure (both writes) counts the row unpersisted �
   const models = makeFakeModels([p1])
   const wallet = makeFakeWallet({
     unlockedByAccount: { 0: 10_000_000_000n },
-    outgoing: [makeOutgoing('ab'.repeat(32), '5RECONFAIL', 2_000_000_000n)]
+    outgoing: [makeOutgoing('ab'.repeat(32), p1.recipientAddress, 2_000_000_000n)]
   })
   // findMany stays healthy (it reads the store); only the persist fails — twice
   models.rewardPayout.update = jest.fn().mockRejectedValue(new Error('db down'))
@@ -833,7 +937,7 @@ test('findMany failure fails closed: the row is skipped and never re-sent this r
   const models = makeFakeModels([p1])
   const wallet = makeFakeWallet({
     unlockedByAccount: { 0: 10_000_000_000n },
-    outgoing: [makeOutgoing('cd'.repeat(32), '5UNPROVABLE', 2_000_000_000n)] // relayed last run
+    outgoing: [makeOutgoing('cd'.repeat(32), p1.recipientAddress, 2_000_000_000n)] // relayed last run
   })
   models.rewardPayout.findMany = jest.fn().mockRejectedValue(new Error('db down'))
   const summary = await sendPayouts([p1], { models, wallet })
@@ -845,11 +949,11 @@ test('findMany failure fails closed: the row is skipped and never re-sent this r
 
 test('mixed run: one row reconciles from wallet history, the unmatched one sends fresh', async () => {
   const p1 = makePayout({ id: 1, recipientAddress: '5MIX', piconeros: 2_000_000_000n })
-  const p2 = makePayout({ id: 2, recipientAddress: '5MIX', piconeros: 3_000_000_000n })
+  const p2 = makePayout({ id: 2, recipientAddress: '5MIXB', piconeros: 3_000_000_000n })
   const models = makeFakeModels([p1, p2])
   const wallet = makeFakeWallet({
     unlockedByAccount: { 0: 10_000_000_000n },
-    outgoing: [makeOutgoing('ef'.repeat(32), '5MIX', 2_000_000_000n)] // p1's lost relay only
+    outgoing: [makeOutgoing('ef'.repeat(32), p1.recipientAddress, 2_000_000_000n)] // p1's lost relay only
   })
   const summary = await sendPayouts([p1, p2], { models, wallet })
   expect(summary).toEqual({ sent: 2, failed: 0, skipped: 0, unpersisted: 0, accountingUnpersisted: 0 })
@@ -860,12 +964,12 @@ test('mixed run: one row reconciles from wallet history, the unmatched one sends
 
 test('reconciliation ignores outgoing txs already recorded on SENT payouts — no false SENT (audit #6)', async () => {
   // last week's payout to the same curator: same address, same amount, hash RECORDED
-  const prior = { id: 999, distributionId: 0, curatorId: 1, recipientAddress: '5RECONCILE', piconeros: 2_000_000_000n, txHash: 'ef'.repeat(32), state: 'SENT' }
   const p1 = makePayout({ id: 1, recipientAddress: '5RECONCILE', piconeros: 2_000_000_000n })
+  const prior = { id: 999, distributionId: 0, curatorId: 1, recipientAddress: p1.recipientAddress, piconeros: 2_000_000_000n, txHash: 'ef'.repeat(32), state: 'SENT' }
   const models = makeFakeModels([prior, p1])
   const wallet = makeFakeWallet({
     unlockedByAccount: { 0: 10_000_000_000n },
-    outgoing: [makeOutgoing('ef'.repeat(32), '5RECONCILE', 2_000_000_000n)]
+    outgoing: [makeOutgoing('ef'.repeat(32), p1.recipientAddress, 2_000_000_000n)]
   })
   const summary = await sendPayouts([p1], { models, wallet })
   expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0, unpersisted: 0, accountingUnpersisted: 0 }) // sent fresh
@@ -940,7 +1044,7 @@ test('a same-week re-drive sends only the QUEUED remainder and never re-sends th
   const second = await sendPayouts([models.store.get(a.id), models.store.get(b.id)], { models, wallet: secondWallet })
   expect(second).toMatchObject({ sent: 1, skipped: 0, failed: 0, accountingUnpersisted: 0 })
   expect(secondWallet.calls).toHaveLength(1)
-  expect(secondWallet.calls[0].destinations).toEqual([{ address: '5B', amount: 4_000_000_000n }])
+  expect(secondWallet.calls[0].destinations).toEqual([{ address: payoutAddress('5B'), amount: 4_000_000_000n }])
   expect(models.store.get(a.id).txHash).toBe(firstHash) // unchanged — no re-send
   expect(models.store.get(b.id).state).toBe('SENT')
 })
@@ -953,8 +1057,8 @@ test('equal rewards and equal account capacities assign deterministically by pay
   const summary = await sendPayouts([b, a], { models, wallet })
   expect(summary).toMatchObject({ sent: 2, skipped: 0, failed: 0, accountingUnpersisted: 0 })
   expect(wallet.calls.map(c => c.accountIndex)).toEqual([0, 2])
-  expect(wallet.calls[0].destinations).toEqual([{ address: '5A', amount: 1_000_000_000n }])
-  expect(wallet.calls[1].destinations).toEqual([{ address: '5B', amount: 1_000_000_000n }])
+  expect(wallet.calls[0].destinations).toEqual([{ address: payoutAddress('5A'), amount: 1_000_000_000n }])
+  expect(wallet.calls[1].destinations).toEqual([{ address: payoutAddress('5B'), amount: 1_000_000_000n }])
 })
 
 test('a real fee that overflows one account drops that bucket while the other account still delivers (multi-account)', async () => {
@@ -995,8 +1099,8 @@ test('an affordable smaller reward still sends after the largest bucket drains o
   expect(models.store.get(pBig.id).state).toBe('QUEUED') // 5e9 + 0.5e9 > 5e9
   expect(models.store.get(pSmall.id).state).toBe('SENT') // 4e9 + 0.5e9 <= 5e9
   expect(wallet.calls.map(c => c.destinations)).toEqual([
-    [{ address: '5A', amount: 5_000_000_000n }], // the planned bucket overflows its fee
-    [{ address: '5B', amount: 4_000_000_000n }] // largest-first validation of the unassigned row
+    [{ address: payoutAddress('5A'), amount: 5_000_000_000n }], // the planned bucket overflows its fee
+    [{ address: payoutAddress('5B'), amount: 4_000_000_000n }] // largest-first validation of the unassigned row
   ])
   expect(wallet.relayCalls).toHaveLength(1)
 })
@@ -1008,8 +1112,8 @@ test('a retryable failure while validating an unassigned payout counts it exactl
   const wallet = makeFakeWallet({
     unlockedByAccount: { 0: 5_000_000_000n },
     throwsOn: {
-      '5A': new Error('not enough unlocked money'), // the planned bucket drains
-      '5B': new Error('tx not possible') // then the unassigned build fails retryably
+      [payoutAddress('5A')]: new Error('not enough unlocked money'), // the planned bucket drains
+      [payoutAddress('5B')]: new Error('tx not possible') // then the unassigned build fails retryably
     }
   })
   const summary = await sendPayouts([pBig, pSmall], { models, wallet })
@@ -1044,7 +1148,7 @@ test('a fee overflow drops the highest payout ID among equal smallest rewards', 
   expect(summary).toMatchObject({ sent: 1, skipped: 1, failed: 0, accountingUnpersisted: 0 })
   expect(models.store.get(p1.id).state).toBe('SENT') // the lowest ID keeps the tie priority
   expect(models.store.get(p2.id).state).toBe('QUEUED')
-  expect(wallet.calls[1].destinations).toEqual([{ address: '5A', amount: 1_000_000_000n }])
+  expect(wallet.calls[1].destinations).toEqual([{ address: payoutAddress('5A'), amount: 1_000_000_000n }])
 })
 
 test('consolidation usefulness uses fresh post-payout balances — a stale snapshot never authorizes a useless sweep', async () => {
@@ -1079,7 +1183,7 @@ test('unprovable accounting exclusions are logged with IDs, amounts and the reas
   const models = makeFakeModels([p1])
   const wallet = makeFakeWallet({
     unlockedByAccount: { 0: 10_000_000_000n },
-    outgoing: [makeOutgoing('cd'.repeat(32), '5UNPROVABLE', 2_000_000_000n)] // relayed last run
+    outgoing: [makeOutgoing('cd'.repeat(32), p1.recipientAddress, 2_000_000_000n)] // relayed last run
   })
   models.rewardPayout.findMany = jest.fn().mockRejectedValue(new Error('db down'))
   logInfo.mockClear()
@@ -1098,7 +1202,7 @@ test('a fill candidate with a hard build error is FAILED while the base bucket s
   const wallet = makeFakeWallet({
     unlockedByAccount: { 0: 10_000_000_000n },
     fee: 2_000_000_000n,
-    throwsOn: { '5C': new Error('invalid recipient address') } // the fill rebuild fails hard
+    throwsOn: { [payoutAddress('5C')]: new Error('invalid recipient address') } // the fill rebuild fails hard
   })
   const summary = await sendPayouts([p1, p2, p3], { models, wallet })
   // p2 was dropped by fee fit (QUEUED, counted once); p3's hard fill error is
@@ -1111,17 +1215,31 @@ test('a fill candidate with a hard build error is FAILED while the base bucket s
   expect(wallet.relayCalls).toHaveLength(1)
 })
 
-test('a pre-relay journal preparation failure refuses to relay and leaves the payout QUEUED', async () => {
+test('a persistently failing pair preparation withholds the dispatch and leaves the payout QUEUED', async () => {
   const p = makePayout({ id: 1, recipientAddress: '5JOURNALFAIL', piconeros: 2_000_000_000n })
-  const models = makeFakeModels([p], { failJournalCreate: 1 })
+  const models = makeFakeModels([p], { failJournalCreate: 99 })
   const wallet = makeFakeWallet({ unlockedByAccount: { 0: 10_000_000_000n } })
   const summary = await sendPayouts([p], { models, wallet })
   expect(summary).toEqual({ sent: 0, failed: 0, skipped: 1, unpersisted: 0, accountingUnpersisted: 0 })
   expect(wallet.calls).toHaveLength(1) // the tx was built...
-  expect(wallet.relayCalls).toHaveLength(0) // ...but never relayed without a durable journal row
+  expect(wallet.relayCalls).toHaveLength(0) // ...but never relayed without a durable pair
   expect(models.journal.rows.size).toBe(0)
   expect(models.store.get(p.id).state).toBe('QUEUED')
   expect(models.store.get(p.id).txHash).toBeNull()
+})
+
+test('a transient journal-create blip resolves through the fresh pair read and relays exactly once', async () => {
+  // The FIRST preparation attempt fails before the pair lands; the caller's
+  // mandated fresh DB/pair read re-prepares idempotently and only an
+  // acknowledged authentic pair releases the relay.
+  const p = makePayout({ id: 1, recipientAddress: '5JOURNALBLIP', piconeros: 2_000_000_000n })
+  const models = makeFakeModels([p], { failJournalCreate: 1 })
+  const wallet = makeFakeWallet({ unlockedByAccount: { 0: 10_000_000_000n } })
+  const summary = await sendPayouts([p], { models, wallet })
+  expect(summary).toEqual({ sent: 1, failed: 0, skipped: 0, unpersisted: 0, accountingUnpersisted: 0 })
+  expect(wallet.relayCalls).toHaveLength(1)
+  expect(models.journal.rows.size).toBe(1)
+  expect(models.store.get(p.id)).toMatchObject({ state: 'SENT', txHash: models.store.get(p.id).txHash })
 })
 
 test('an unreadable journal is fail-closed: no fresh build and no relay', async () => {
@@ -1167,6 +1285,64 @@ test('an uncertain relay is excluded from a re-drive until exact-hash history re
   expect(relayAttempts).toBe(1) // still exactly one relay attempt — no blind re-relay
 })
 
+test('a durable-but-unattempted pair reserves its payout from rebuilding until operator teardown', async () => {
+  const p = makePayout({ id: 1, recipientAddress: '5RESERVED', piconeros: 2_000_000_000n })
+  const models = makeFakeModels([p])
+  // A captured pair from an interrupted prepare→claim window: complete, never
+  // attempted, its payout still QUEUED.
+  models.journal.rows.set(1, {
+    id: 1,
+    network: String(process.env.MONERO_NETWORK || 'stagenet').toUpperCase(),
+    walletAddress: REWARDS_ADDRESS,
+    txHash: 'd7'.repeat(32),
+    kind: 'PAYOUT',
+    state: 'PREPARED',
+    accountIndex: 0,
+    distributionId: p.distributionId,
+    principalPiconeros: p.piconeros,
+    networkFeePiconeros: 1_000_000n,
+    dispatchId: '00000000-0000-4000-8000-0000000000f1',
+    captureContractVersion: 1,
+    claimDigest: 'aa'.repeat(32),
+    paymentClaims: {},
+    proofId: '00000000-0000-4000-8000-0000000000f2',
+    metadata: { payouts: [{ payoutId: p.id, recipientAddress: p.recipientAddress, piconeros: p.piconeros.toString() }] },
+    relayAttemptedAt: null,
+    relayedAt: null
+  })
+  logError.mockClear()
+  const first = await sendPayouts([p], { models, wallet: makeFakeWallet({ unlockedByAccount: { 0: 100_000_000_000n } }) })
+  expect(first).toEqual({ sent: 0, failed: 0, skipped: 1, unpersisted: 0, accountingUnpersisted: 1 })
+  expect(models.store.get(p.id)).toMatchObject({ state: 'QUEUED', txHash: null })
+  expect([...models.journal.rows.values()]).toHaveLength(1) // no new journal row
+  expect(logError.mock.calls.some(args => String(args[1]).includes('durable-but-unattempted'))).toBe(true)
+  expect(alert).toHaveBeenCalledWith('critical', 'Rewards wallet pair reserved (durable but unattempted)',
+    expect.stringContaining('d7'.repeat(32)), expect.objectContaining({ dedupeKey: `rewards-pair-unattempted-${'d7'.repeat(32)}` }))
+
+  // Operator-style verified teardown of the stale pair: the reservation lifts.
+  models.journal.rows.delete(1)
+  alert.mockClear()
+  const second = await sendPayouts([models.store.get(p.id)], { models, wallet: makeFakeWallet({ unlockedByAccount: { 0: 100_000_000_000n } }) })
+  expect(second).toMatchObject({ sent: 1, skipped: 0, failed: 0 })
+  expect(models.store.get(p.id).state).toBe('SENT')
+  expect(models.store.get(p.id).txHash).not.toBe('d7'.repeat(32)) // rebuilt under a NEW hash
+  expect(models.journal.rows.size).toBe(1) // exactly the fresh pair
+  // No new reservation alert after the operator resolution.
+  expect(alert.mock.calls.some(call => String(call[3]?.dedupeKey ?? '').startsWith('rewards-pair-unattempted-'))).toBe(false)
+})
+
+test('a normal drive never trips the durable-but-unattempted reservation alert', async () => {
+  const p = makePayout({ id: 1, recipientAddress: '5NORMALDRIVE', piconeros: 2_000_000_000n })
+  const models = makeFakeModels([p])
+  const wallet = makeFakeWallet({ unlockedByAccount: { 0: 100_000_000_000n } })
+  const summary = await sendPayouts([p], { models, wallet })
+  expect(summary).toMatchObject({ sent: 1, failed: 0, skipped: 0, accountingUnpersisted: 0 })
+  const row = [...models.journal.rows.values()][0]
+  expect(row.state).toBe('RELAYED')
+  expect(row.relayProvenance).toBe('direct-relay-observation')
+  expect(alert.mock.calls.some(call => String(call[3]?.dedupeKey ?? '').startsWith('rewards-pair-unattempted-'))).toBe(false)
+})
+
 test('a journal-uncertain payout is never resolved by an address/amount history match (exact hash only)', async () => {
   const p = makePayout({ id: 1, recipientAddress: '5HASHONLY', piconeros: 2_000_000_000n })
   const models = makeFakeModels([p])
@@ -1180,7 +1356,7 @@ test('a journal-uncertain payout is never resolved by an address/amount history 
   // SENT, but only the journal's exact-hash rule may resolve an attempt.
   const otherWallet = makeFakeWallet({
     unlockedByAccount: { 0: 10_000_000_000n },
-    outgoing: [makeOutgoing('ee'.repeat(32), '5HASHONLY', 2_000_000_000n)]
+    outgoing: [makeOutgoing('ee'.repeat(32), payoutAddress('5SOMEOTHER'), 2_000_000_000n)]
   })
   const second = await sendPayouts([models.store.get(p.id)], { models, wallet: otherWallet })
   expect(second).toMatchObject({ sent: 0, skipped: 1, failed: 0, accountingUnpersisted: 1 })
@@ -1211,7 +1387,16 @@ test('consolidation refuses duplicate sweep hashes across accounts (one hash is 
   logError.mockClear()
   wallet.sweepUnlocked = async ({ accountIndex, address, relay }) => {
     wallet.sweepCalls.push({ accountIndex, address, relay })
-    return [{ getHash: () => hash, getFee: async () => 0n }]
+    return [{
+      getHash: () => hash,
+      getFee: async () => 0n,
+      getOutgoingTransfer: () => ({ getDestinations: () => [{ getAddress: () => address, getAmount: () => 2_000_000_000n }] }),
+      getChangeAddress: () => null,
+      // Unavailable change is explicit null and pairs with a null address (C1).
+      getChangeAmount: async () => null,
+      // The SDK captures the SECRET-bundle STRING (final-review C1).
+      getKey: () => secretBundleHex(300n, 1)
+    }]
   }
   const summary = await sendPayouts([p], { models, wallet })
   expect(summary).toMatchObject({ sent: 0, skipped: 1, failed: 0, accountingUnpersisted: 0 })
@@ -1270,32 +1455,35 @@ test('a durable RELAYED payout proof prevents a duplicate relay through a histor
   }
 })
 
-test.each(['throwing', 'empty'])('an in-pass PREPARED promotion prevents fresh sends through a subsequent %s history outage', async outage => {
+test.each(['throwing', 'empty'])('an attempted relay no fresh verification can resolve stays excluded through a %s history outage', async outage => {
+  // First drive: the relay times out after the claim — the journal row stays
+  // PREPARED+attempted and the recipient stays QUEUED (never FAILED).
   const p = makePayout({ id: 1, recipientAddress: '5PROMOTED', piconeros: 6_000_000_000n })
-  const journalHash = 'd1'.repeat(32)
-  const models = seedRelayedPayoutJournal(makeFakeModels([p]), p, { txHash: journalHash, state: 'PREPARED' })
-  const proof = {
-    getDestinations: () => [{ getAddress: () => p.recipientAddress, getAmount: () => p.piconeros }],
-    getTx: () => ({ getHash: () => journalHash, getIsRelayed: () => true, getFee: () => 1_000_000n })
-  }
-  const wallet = makeFakeWallet()
-  // Only the exact-hash journal read succeeds. The legacy read in this drive
-  // and every history read in the next drive are unavailable.
-  wallet.getOutgoingTransfers = jest.fn().mockResolvedValueOnce([proof]).mockImplementation(async () => {
-    if (outage === 'throwing') throw new Error('history unavailable')
-    return []
-  })
-  const updateMany = models.rewardPayout.updateMany.bind(models.rewardPayout)
-  models.rewardPayout.updateMany = jest.fn().mockRejectedValueOnce(new Error('recipient persist unavailable')).mockImplementation(updateMany)
+  const models = makeFakeModels([p])
+  const wallet = makeFakeWallet({ unlockedByAccount: { 0: 100_000_000_000n } })
+  const relay = wallet.relayTx
+  let relayAttempts = 0
+  wallet.relayTx = async () => { relayAttempts += 1; throw new Error('timeout after submission') }
   const first = await sendPayouts([p], { models, wallet })
-  expect(models.journal.rows.get(1).state).toBe('RELAYED')
   expect(first).toMatchObject({ sent: 0, skipped: 1, accountingUnpersisted: 1 })
   expect(models.store.get(p.id)).toMatchObject({ state: 'QUEUED', txHash: null })
+  const attempted = [...models.journal.rows.values()][0]
+  expect(attempted.state).toBe('PREPARED')
+  expect(attempted.relayAttemptedAt).not.toBeNull()
+
+  // Second drive: this unit suite has no audit session (fresh verification
+  // unavailable by construction), so the attempt stays unresolved — the
+  // member is excluded from every fresh send and nothing is re-relayed,
+  // whatever the wallet history reads (or fails to) return.
+  wallet.relayTx = relay
+  wallet.getOutgoingTransfers = outage === 'throwing'
+    ? async () => { throw new Error('history unavailable') }
+    : async () => []
   const next = await sendPayouts([models.store.get(p.id)], { models, wallet })
-  expect(next).toMatchObject({ sent: 1, skipped: 0, accountingUnpersisted: 0 })
-  expect(models.store.get(p.id)).toMatchObject({ state: 'SENT', txHash: journalHash })
-  expect(wallet.calls).toHaveLength(0)
-  expect(wallet.relayCalls).toHaveLength(0)
+  expect(next).toMatchObject({ sent: 0, skipped: 1, accountingUnpersisted: 1 })
+  expect(wallet.calls).toHaveLength(1) // no fresh build since the first drive
+  expect(relayAttempts).toBe(1) // still exactly one relay attempt — no blind re-relay
+  expect(models.store.get(p.id)).toMatchObject({ state: 'QUEUED', txHash: null })
 })
 
 test.each(['recipient', 'amount', 'hash'])('a recovery-time %s change stays uncertain and cannot reach a fresh send', async change => {
@@ -1380,7 +1568,7 @@ test('boundary 2: a credential-shaped build exception logs only the fixed label 
   // Hard error path: the wallet throws credential-shaped content from createTx.
   const p = makePayout({ id: 1, recipientAddress: '5SECRETBUILD', piconeros: 1_000_000_000n })
   const hardModels = makeFakeModels([p])
-  const hardWallet = makeFakeWallet({ throwsOn: { '5SECRETBUILD': credentialShapedError() } })
+  const hardWallet = makeFakeWallet({ throwsOn: { [payoutAddress('5SECRETBUILD')]: credentialShapedError() } })
   logError.mockClear()
   logWarn.mockClear()
   const hard = await sendPayouts([p], { models: hardModels, wallet: hardWallet })

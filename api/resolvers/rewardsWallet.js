@@ -2,6 +2,7 @@ import { publicViewKeyFromAddress } from '../monero/viewKeyCheck'
 import { piconerosToXmrDecimal } from '../monero/uri'
 import { readRewardsInflow } from '../monero/rewardsInflow'
 import { readRewardsWalletLedger } from '../monero/rewardsLedger'
+import { isCurrentAccountingFingerprint } from '@/lib/rewardsAuditFingerprint'
 import { readNextRewardsPool } from '@/lib/rewardsPool'
 import { opsCarry, walletScope } from '@/lib/rewardsAccounting'
 import { GqlInputError } from '@/lib/error'
@@ -31,8 +32,9 @@ import { GqlInputError } from '@/lib/error'
 // accountingUncertain reflects unresolved journal attempts or contradictory
 // ledger facts — never merely absent/stale audit evidence. The latest scoped
 // published reconciliation audit is reported separately: reconciliationCheckedAt
-// (nullable) and reconciliationEvidenceCurrent (the audit's safe fingerprint
-// still matches the current ledger). A stored positive discrepancy keeps
+// (nullable) and reconciliationEvidenceCurrent (the stored fingerprint is the
+// current `accounting:v2:` snapshot digest; legacy stored hashes are stale by
+// definition). A stored positive discrepancy keeps
 // warning until a newer complete check clears it; a stale clean audit cannot.
 //
 // IMPORTANT: all money comes from the DATABASE LEDGER, NOT from lws's
@@ -86,12 +88,15 @@ export default {
         // hot-wallet costs and sweeps exceed the ops earmark. It is debt owed
         // by ops — never free cash, never hidden, never clamped.
         const opsDeficitPiconeros = pool.pendingSweepPiconeros < 0n ? -pool.pendingSweepPiconeros : 0n
-        // Freshness is separate from uncertainty: a published check whose safe
-        // fingerprint no longer matches this ledger is stale and cannot clear a
-        // known discrepancy. Before any check, checkedAt is null and current is
-        // false — that absence is NOT itself accounting uncertainty.
+        // Freshness is separate from uncertainty: a published check is current
+        // evidence only when its stored fingerprint is EXACTLY the current
+        // `accounting:v2:` snapshot digest (strict versioned comparison). A
+        // legacy stored hash, a v1 string or a changed audited input is stale
+        // and cannot clear a known discrepancy. Before any check, checkedAt is
+        // null and current is false — that absence is NOT itself accounting
+        // uncertainty.
         const reconciliationEvidenceCurrent = latestAudit != null &&
-          latestAudit.ledgerFingerprint === ledger.fingerprint
+          isCurrentAccountingFingerprint(latestAudit.ledgerFingerprint, ledger.fingerprint)
 
         return {
           address: account.address,

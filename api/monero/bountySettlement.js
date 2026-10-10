@@ -41,8 +41,8 @@ export async function readTxSettlement (tx) {
 // Classify a relayed bounty payout tx against its frozen terms.
 //   - AWARD/RECLAIM with a fee: one exact-prize destination for the frozen
 //     recipient plus one destination for the frozen fee address carrying the
-//     network-fee-subtracted remainder. A single coalesced output must NOT be
-//     guessed into prize/fee parts -> ambiguous.
+//     network-fee-subtracted remainder. Shared addresses are checked once by
+//     aggregate; frozen prize/fee obligations retain their separate amounts.
 //   - ROLLOVER (feePiconeros frozen 0 on the payout) and fee-waived refunds:
 //     one combined net output; recipientReceived is its whole amount and
 //     feeReceived is 0n (receipt attribution splits a rollover from the
@@ -57,6 +57,17 @@ export async function readBountySettlement (tx, { payout, feeRecipientAddress } 
 
   if (requestedFee > 0n) {
     if (!feeRecipientAddress) throw new Error('escrow fee destination unavailable')
+    if (payout.recipientAddress === feeRecipientAddress) {
+      if (requestedFee < networkFeePiconeros || destinations.some(d => d.address !== feeRecipientAddress || d.amount < 0n) ||
+        sumPiconeros + networkFeePiconeros !== consumedEscrowPiconeros) {
+        throw new Error('escrow settlement mismatch: shared destinations do not match the frozen obligations')
+      }
+      return {
+        networkFeePiconeros,
+        recipientReceivedPiconeros: prize,
+        feeReceivedPiconeros: requestedFee - networkFeePiconeros
+      }
+    }
     const addresses = destinations.map(d => d.address)
     const attributable = destinations.length === 2 &&
       new Set(addresses).size === 2 &&

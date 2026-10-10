@@ -32,12 +32,12 @@ import UpArrow from '@/svgs/up-arrow.svg'
 export const initialTipAmount = (privates) =>
   piconerosToXmrDecimal(BigInt(defaultTipIncludingRandom(privates) || 1000000000))
 
-const PRESETS = ['0.001', '0.01', '0.025']
+const PRESETS = ['0.0005', '0.001', '0.005', '0.01']
 const MIN_XMR = '0.0001' // = 1e8 piconeros, the server's minTipPiconeros floor
-// quick-slider bounds (XMR): 0.001–0.025 in 0.001 steps, in piconeros
-const TIP_SLIDER_MIN = 1000000000n
+// quick-slider bounds (XMR): 0.0005–0.025 in 0.0005 steps, in piconeros
+const TIP_SLIDER_MIN = 500000000n
 const TIP_SLIDER_MAX = 25000000000n
-const TIP_SLIDER_STEP = 1000000000n
+const TIP_SLIDER_STEP = 500000000n
 
 // Unlock mode reuses the tip flow for monerowall unlocks: `fixedAmount`
 // (piconeros) locks the amount to the wall price and hides presets/random,

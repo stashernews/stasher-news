@@ -60,18 +60,30 @@ const CONFIG = {
 
 // A RELAYED consolidation is a pure fee fact (principal zero, self transfer):
 // it adds an actual network cost and proof of an on-chain relay, never cash.
+// The row carries the journal's FULL closed select shape (null where the
+// column is nullable) — the audit snapshot projects every expected column.
 function feeFact (fee, txHash) {
   return {
+    id: null,
     network: 'STAGENET',
     walletAddress: STAGENET_ADDR,
     txHash,
     kind: 'CONSOLIDATION',
+    accountIndex: 0,
     state: 'RELAYED',
     distributionId: null,
     principalPiconeros: 0n,
     networkFeePiconeros: fee,
     metadata: { destination: STAGENET_ADDR, selfTransfer: true },
-    relayAttemptedAt: null
+    preparedAt: null,
+    relayAttemptedAt: null,
+    relayedAt: null,
+    relayProvenance: null,
+    dispatchId: null,
+    captureContractVersion: null,
+    claimDigest: null,
+    paymentClaims: null,
+    proofId: null
   }
 }
 
@@ -109,6 +121,7 @@ function mainFixture () {
     payouts: [{
       id: 1,
       distributionId: 1,
+      curatorId: 42,
       state: 'SENT',
       txHash: 'aa'.repeat(32),
       recipientAddress: '5Arecipient',
@@ -125,6 +138,22 @@ function mainFixture () {
   }
 }
 
+// The audit snapshot projects every expected journal column, so fake journal
+// rows default their nullable/omittable fields; tests specify only the facts.
+const JOURNAL_DEFAULTS = {
+  id: null,
+  accountIndex: 0,
+  preparedAt: null,
+  relayAttemptedAt: null,
+  relayedAt: null,
+  relayProvenance: null,
+  dispatchId: null,
+  captureContractVersion: null,
+  claimDigest: null,
+  paymentClaims: null,
+  proofId: null
+}
+
 function makeModels ({
   account = makeAccount(),
   config = CONFIG,
@@ -134,7 +163,18 @@ function makeModels ({
   distributions = [],
   transactions = [],
   audits = [],
-  latestAudit = audits[0] ?? null
+  latestAudit = audits[0] ?? null,
+  // Audit-snapshot-only groups (the reader reads them; the money union never
+  // consumes them).
+  receipts = [],
+  downvotes = [],
+  bountyPayments = [],
+  observedBounties = [],
+  observedBountyReceipts = [],
+  items = [],
+  earns = [],
+  escrowTransactions = [],
+  subaddresses = []
 } = {}) {
   const inflowRow = overrides => ({
     downvote: 0n,
@@ -154,22 +194,41 @@ function makeModels ({
   const cycleRow = inflowRow(cycle)
   const lastDistribution = distributions.length > 0 ? distributions[distributions.length - 1] : null
   const models = {
-    moneroAccount: { findFirst: jest.fn(async () => account) },
+    moneroAccount: {
+      findFirst: jest.fn(async ({ where }) =>
+        where?.label === 'platform_rewards' ? account : null)
+    },
     platformFeeConfig: {
       findUnique: jest.fn(async () => config),
       // getNextRewardsPool's own read uses the singleton upsert.
       upsert: jest.fn(async () => config)
     },
-    rewardPayout: { findMany: jest.fn(async () => payouts) },
+    rewardPayout: { findMany: jest.fn(async () => payouts.map(p => ({ curatorId: null, ...p }))) },
     rewardDistribution: {
       findFirst: jest.fn(async () => lastDistribution),
       findMany: jest.fn(async () => distributions)
     },
-    rewardsWalletTransaction: { findMany: jest.fn(async () => transactions) },
+    rewardsWalletTransaction: {
+      findMany: jest.fn(async () => transactions.map(t => ({ ...JOURNAL_DEFAULTS, ...t }))),
+      findUnique: jest.fn(async () => null)
+    },
     rewardsWalletReconciliation: {
       findMany: jest.fn(async () => audits),
       findFirst: jest.fn(async () => latestAudit)
     },
+    subaddressIndex: { findMany: jest.fn(async () => subaddresses) },
+    feeObservation: { findMany: jest.fn(async () => receipts) },
+    observedDownvote: { findMany: jest.fn(async () => downvotes) },
+    escrowWalletTransaction: {
+      findMany: jest.fn(async () => escrowTransactions),
+      findUnique: jest.fn(async () => null)
+    },
+    bountyPayment: { findMany: jest.fn(async () => bountyPayments) },
+    observedBounty: { findMany: jest.fn(async () => observedBounties) },
+    observedBountyReceipt: { findMany: jest.fn(async () => observedBountyReceipts) },
+    item: { findMany: jest.fn(async () => items) },
+    earn: { findMany: jest.fn(async () => earns) },
+    paymentTransactionProof: { findUnique: jest.fn(async () => null) },
     observedTip: { count: jest.fn(async () => 0) },
     // The shared inflow reader's two calls are distinguishable by the bound
     // window start: epoch = the all-time transparency reader, anything else =
@@ -303,24 +362,42 @@ describe('Query.rewardsWalletInfo', () => {
       walletAddress: STAGENET_ADDR,
       txHash: 'a1'.repeat(32),
       kind: 'PAYOUT',
+      accountIndex: 0,
       state: 'RELAYED',
       distributionId: 1,
       principalPiconeros: 60n,
       networkFeePiconeros: 2n,
       metadata: { payouts: [{ payoutId: 9, recipientAddress: '5Arecipient', piconeros: '60' }] },
-      relayAttemptedAt: null
+      preparedAt: null,
+      relayAttemptedAt: null,
+      relayedAt: null,
+      relayProvenance: null,
+      dispatchId: null,
+      captureContractVersion: null,
+      claimDigest: null,
+      paymentClaims: null,
+      proofId: null
     }
     const sweep = {
       network: 'STAGENET',
       walletAddress: STAGENET_ADDR,
       txHash: 'a2'.repeat(32),
       kind: 'OPS_SWEEP',
+      accountIndex: 0,
       state: 'RELAYED',
       distributionId: 1,
       principalPiconeros: 10n,
       networkFeePiconeros: 1n,
       metadata: { destination: '5Acold' },
-      relayAttemptedAt: null
+      preparedAt: null,
+      relayAttemptedAt: null,
+      relayedAt: null,
+      relayProvenance: null,
+      dispatchId: null,
+      captureContractVersion: null,
+      claimDigest: null,
+      paymentClaims: null,
+      proofId: null
     }
     const models = makeModels({
       allTime: { downvote: 100n },
@@ -349,12 +426,21 @@ describe('Query.rewardsWalletInfo', () => {
       walletAddress: STAGENET_ADDR,
       txHash: 'c1'.repeat(32),
       kind: 'PAYOUT',
+      accountIndex: 0,
       state: 'PREPARED',
       distributionId: 1,
       relayAttemptedAt: new Date('2026-10-05T00:00:00.000Z'),
       principalPiconeros: 60n,
       networkFeePiconeros: 3n,
-      metadata: { payouts: [{ payoutId: 1, recipientAddress: '5Arecipient', piconeros: '60' }] }
+      metadata: { payouts: [{ payoutId: 1, recipientAddress: '5Arecipient', piconeros: '60' }] },
+      preparedAt: null,
+      relayedAt: null,
+      relayProvenance: null,
+      dispatchId: null,
+      captureContractVersion: null,
+      claimDigest: null,
+      paymentClaims: null,
+      proofId: null
     }
     const models = makeModels({ allTime: { downvote: 100n }, transactions: [attempt] })
 
@@ -375,6 +461,7 @@ describe('Query.rewardsWalletInfo', () => {
       payouts: [{
         id: 1,
         distributionId: 1,
+        curatorId: null,
         state: 'SENT',
         txHash: 'dd'.repeat(32),
         recipientAddress: '5Arecipient',
@@ -472,6 +559,67 @@ describe('Query.rewardsWalletInfo', () => {
 
     const cleared = await resolvers.Query.rewardsWalletInfo(null, null, { models })
     expect(cleared.balanceNeedsReconciliation).toBe(false)
+  })
+
+  test('mutating one audited receipt invalidates the published audit without changing delivery', async () => {
+    const receipts = [{
+      id: 1n,
+      txHash: 'aa'.repeat(32),
+      feeType: 'BOOST',
+      postId: 9,
+      subName: null,
+      payInId: null,
+      recipientMajor: 0,
+      recipientMinor: 0,
+      walletReceipt: true,
+      state: 'CONFIRMED',
+      piconeros: 700n,
+      rewardsPiconeros: null,
+      donationRewardsPct: null,
+      height: 2999001,
+      confirmedAt: new Date('2026-10-01T00:00:00.000Z')
+    }]
+    const models = makeModels({ ...mainFixture(), receipts })
+    const before = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const { fingerprint } = await readRewardsWalletLedger(models, { scope: SCOPE })
+    const published = audit({ ledgerFingerprint: fingerprint })
+    models.rewardsWalletReconciliation.findMany.mockResolvedValue([published])
+    models.rewardsWalletReconciliation.findFirst.mockResolvedValue(published)
+
+    const current = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    expect(current.reconciliationEvidenceCurrent).toBe(true)
+
+    // One audited receipt input changes: the published CHECK is stale even
+    // though no delivery fact (principal, fees, commitments) moved.
+    receipts[0].walletReceipt = !receipts[0].walletReceipt
+    const after = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    expect(after.reconciliationEvidenceCurrent).toBe(false)
+    expect(after.totalSentPiconeros).toBe(before.totalSentPiconeros)
+    expect(after.totalNetworkFeesPiconeros).toBe(before.totalNetworkFeesPiconeros)
+    expect(after.outstandingRewardsPiconeros).toBe(before.outstandingRewardsPiconeros)
+    expect(after.accountingUncertain).toBe(false)
+  })
+
+  test('an old stored audit row stays visible but stale and adds no new public warning', async () => {
+    const models = makeModels(mainFixture())
+    // A pre-migration audit row: bare legacy hash, zero drift, row-level
+    // issues. It remains visible (checkedAt) but is stale by definition and
+    // must not invent uncertainty or a fresh public warning.
+    const old = audit({
+      checkedAt: new Date('2026-09-01T00:00:00.000Z'),
+      ledgerFingerprint: 'cd'.repeat(32),
+      positiveDriftPiconeros: 0n,
+      report: { manifest: { issues: [{ code: 'SOME_STALE_ISSUE' }] } }
+    })
+    models.rewardsWalletReconciliation.findMany.mockResolvedValue([old])
+    models.rewardsWalletReconciliation.findFirst.mockResolvedValue(old)
+
+    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(info.reconciliationCheckedAt).toEqual(old.checkedAt)
+    expect(info.reconciliationEvidenceCurrent).toBe(false)
+    expect(info.accountingUncertain).toBe(false)
+    expect(info.balanceNeedsReconciliation).toBe(false)
   })
 
   test('throws when the platform rewards wallet is not registered', async () => {

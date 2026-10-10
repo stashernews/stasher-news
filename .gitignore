@@ -107,6 +107,9 @@ docs/future/
 docs/runbooks/
 docs/monero-lws-research.md
 
+# local presentation material (compiled decks are kept local, not part of the repo)
+docs/presentation/
+
 # local review screenshots / mockups (never commit)
 /*.png
 /.playwright-mcp/

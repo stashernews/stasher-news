@@ -1,7 +1,18 @@
 /* eslint-env jest */
-import { buildRewardsReconciliation, manifestDigest, rebuildOpsSnapshots } from '@/api/monero/rewardsReconciliation'
+import {
+  assertRepairPreconditions,
+  buildRewardsReconciliation,
+  ledgerPreconditionFingerprint,
+  manifestDigest,
+  readRepairLedger,
+  rebuildOpsSnapshots
+} from '@/api/monero/rewardsReconciliation'
 import { summarizeRewardsLedger } from '@/api/monero/rewardsLedger'
+import { accountingAuditFingerprint } from '@/lib/rewardsAuditFingerprint'
+import { auditLedgerFixture, paymentChainFixture, paymentFixture } from '@/test/fixtures/payment-proof'
 import { opsCarry } from '@/lib/rewardsAccounting'
+import { decodeReceivingIdentity, normalizePaymentClaims, paymentClaimDigest } from '@/api/monero/paymentClaims'
+import { validatePaymentVerification, verifyLegacyPaymentTransaction } from '@/api/monero/paymentVerification'
 import {
   FI,
   approvedIncomingClassification,
@@ -9,6 +20,14 @@ import {
   withApprovedIncomingClassification,
   withMigrationClassifiedFunding
 } from '../../fixtures/rewards-accounting-evidence'
+import {
+  RELAY_PROOF_FIELDS,
+  VERIFIED_OBSERVED_AT,
+  closeVerifiedRepairFixtures,
+  legacyRepairFixture,
+  verifiedFixtureIds,
+  verifiedRepairFixture
+} from '@/test/fixtures/rewards-payment-verification'
 
 // Synthetic manifest tests (rewards accounting repair §8, Task 12). Pure: no
 // DB, no wallet, no daemon. The fixture's exact money story is documented in
@@ -17,6 +36,19 @@ import {
 const clone = value => structuredClone(value)
 const codesOf = manifest => manifest.issues.map(issue => issue.code)
 const approve = () => withApprovedIncomingClassification(syntheticRewardsEvidence())
+
+// The pre-proof-era synthetic story under strict recorded-outflow coverage
+// (final-review I1): its SENT/CONFIRMED payout batch is covered only by a
+// RELAYED journal row and its escrow legs only by confirmed escrow history —
+// operational relay history, never complete-payment proofs — so the strict
+// audit names each recorded fact instead of silently passing. Totals,
+// operations and reward contracts are unchanged by the naming.
+const STORY_CODES = [
+  'RECORDED_ESCROW_LEG_EVIDENCE_MISSING',
+  'RECORDED_ESCROW_LEG_EVIDENCE_MISSING',
+  'RECORDED_PAYOUT_PROOF_UNSUPPORTED',
+  'RECORDED_PAYOUT_PROOF_UNSUPPORTED'
+]
 
 const operationFor = (manifest, table, idOrHash) =>
   manifest.operations.find(op => op.table === table && (op.id === idOrHash || op.txHash === idOrHash))
@@ -39,12 +71,16 @@ describe('synthetic fixture money story', () => {
   test('hot receipts 144, external principal 70, costs 12, wallet total 62 vs unlocked 52', () => {
     const input = approve()
     const manifest = buildRewardsReconciliation(input)
-    expect(codesOf(manifest)).toEqual([])
-    expect(manifest.version).toBe(1)
+    expect(codesOf(manifest)).toEqual(STORY_CODES)
+    expect(manifest.version).toBe(2)
+    expect(manifest.accountingFingerprintVersion).toBe(2)
     expect(manifest.scope).toEqual(FI.SCOPE)
     expect(manifest.boundary).toEqual(FI.BOUNDARY)
     expect(manifest.evidenceDigest).toMatch(/^[0-9a-f]{64}$/)
-    expect(manifest.ledgerFingerprint).toMatch(/^[0-9a-f]{64}$/)
+    // The manifest binds the SHARED v2 audit identity over its snapshot input.
+    expect(manifest.ledgerFingerprint).toBe(accountingAuditFingerprint({
+      scope: input.scope, ledger: input.ledger, config: input.config, reserve: input.reserve
+    }))
     expect(manifest.protectedRewardsFingerprint).toMatch(/^[0-9a-f]{64}$/)
     expect(manifest.before).toMatchObject({
       receiptsPiconeros: '160',
@@ -126,7 +162,7 @@ describe('synthetic fixture money story', () => {
       withMigrationClassifiedFunding(syntheticRewardsEvidence())
     )
     const manifest = buildRewardsReconciliation(migrated)
-    expect(codesOf(manifest)).toEqual([])
+    expect(codesOf(manifest)).toEqual(STORY_CODES)
     const op = operationFor(manifest, 'RewardDistribution', 1)
     expect(op).toMatchObject({
       before: { opsInflowPiconeros: '20', opsRolledOverPiconeros: '0', opsAvailablePiconeros: '20' },
@@ -149,6 +185,7 @@ describe('synthetic fixture money story', () => {
       id: 99,
       txHash: 'ee'.repeat(32),
       feeType: 'BOUNTY_FEE',
+      subName: null,
       walletReceipt: false,
       state: 'CONFIRMED',
       piconeros: 7n,
@@ -172,7 +209,7 @@ describe('synthetic fixture money story', () => {
     appliedInput.ledger.distributions[0].opsInflowPiconeros = 39n
     appliedInput.ledger.distributions[0].opsAvailablePiconeros = 39n
     const regenerated = buildRewardsReconciliation(appliedInput)
-    expect(codesOf(regenerated)).toEqual([])
+    expect(codesOf(regenerated)).toEqual(STORY_CODES)
     expect(regenerated.operations.filter(operation => operation.table === 'RewardDistribution')).toEqual([])
   })
 
@@ -328,7 +365,7 @@ describe('explicit operator decisions', () => {
 
   test('an approved classification binds source, split, index and confirmedAt from evidence', () => {
     const manifest = buildRewardsReconciliation(approve())
-    expect(codesOf(manifest)).toEqual([])
+    expect(codesOf(manifest)).toEqual(STORY_CODES)
     const insert = manifest.operations.find(op => op.kind === 'insert' && op.table === 'FeeObservation')
     expect(insert.before).toBeNull()
     expect(insert.key).toEqual({ txHash: FI.TX.INCOMING, recipientMajor: 0, recipientMinor: 0 })
@@ -385,7 +422,7 @@ describe('evidence integrity issues', () => {
     proven.evidence.restoreHeight = 5000
     proven.evidence.restoreProvenance = 'verified-first-activity'
     proven.evidence.firstActivityHeight = 6000
-    expect(codesOf(buildRewardsReconciliation(proven))).toEqual([])
+    expect(codesOf(buildRewardsReconciliation(proven))).toEqual(STORY_CODES)
   })
 
   test('incomplete derivation, unsynced height and a moved boundary block the manifest', () => {
@@ -409,7 +446,8 @@ describe('evidence integrity issues', () => {
     input.ledgerFingerprint = 'f'.repeat(64)
     const manifest = buildRewardsReconciliation(input)
     expect(manifest.ledgerFingerprint).not.toBe(input.ledgerFingerprint)
-    expect(manifest.ledgerFingerprint).toMatch(/^[0-9a-f]{64}$/)
+    // v2 identity: the shared `accounting:v2:` audit fingerprint.
+    expect(manifest.ledgerFingerprint).toMatch(/^accounting:v2:[0-9a-f]{64}$/)
   })
 })
 
@@ -420,6 +458,7 @@ describe('inbound/receipt anomalies', () => {
       id: 4,
       txHash: 'e8'.repeat(32),
       feeType: 'POSTING',
+      subName: null,
       walletReceipt: true,
       state: 'CONFIRMED',
       piconeros: 11n,
@@ -471,6 +510,7 @@ describe('inbound/receipt anomalies', () => {
         id: 6,
         txHash: 'e7'.repeat(32),
         feeType: 'POSTING',
+        subName: null,
         walletReceipt: true,
         state: 'CONFIRMED',
         piconeros: 100n,
@@ -564,7 +604,7 @@ describe('outgoing classification and pending bridge', () => {
 
   test('a pending relay attempt with mempool evidence is an explicit bridge item', () => {
     const manifest = buildRewardsReconciliation(approve())
-    expect(codesOf(manifest)).toEqual([])
+    expect(codesOf(manifest)).toEqual(STORY_CODES)
     expect(manifest.after.outstandingRewardsPiconeros).toBe('8')
     expect(manifest.after.totalNetworkFeesPiconeros).toBe('12') // pending fee 1 is never an expense
   })
@@ -760,7 +800,7 @@ describe('ledger attribution conflicts', () => {
     input.ledger.distributions[0].opsSweepTxHash = ''
     const manifest = buildRewardsReconciliation(input)
     expect(codesOf(manifest)).not.toContain('SWEEP_HASH_MALFORMED')
-    expect(codesOf(manifest)).toEqual([])
+    expect(codesOf(manifest)).toEqual(STORY_CODES)
     expect(manifest.after.positiveDriftPiconeros).toBe('0')
   })
 
@@ -799,7 +839,7 @@ describe('rollover split repair independent of the amount', () => {
     const op = operationFor(manifest, 'FeeObservation', 2)
     expect(op).toMatchObject({ before: { rewardsPiconeros: null }, after: { rewardsPiconeros: '100' } })
     expect(op.before).not.toHaveProperty('piconeros')
-    expect(codesOf(manifest)).toEqual([])
+    expect(codesOf(manifest)).toEqual(STORY_CODES)
     expect(manifest.after.receiptsPiconeros).toBe('144')
     expect(manifest.after.positiveDriftPiconeros).toBe('0')
     expect(manifest.after.fundingDeficitPiconeros).toBe('39') // 139 booked as rewards vs the frozen 100
@@ -825,7 +865,7 @@ describe('classification semantics', () => {
       donationRewardsPct: 100
     }
     const manifest = buildRewardsReconciliation(input)
-    expect(codesOf(manifest)).toEqual([])
+    expect(codesOf(manifest)).toEqual(STORY_CODES)
     expect(manifest.after.nextPoolPiconeros).toBe('5') // was double-counted as 10
     expect(manifest.after.receiptsPiconeros).toBe('144')
     expect(manifest.after.rewardsPiconeros).toBe('105')
@@ -901,6 +941,7 @@ describe('historical period allocation rounding', () => {
         id: 8,
         txHash: hashA,
         feeType: 'POSTING',
+        subName: null,
         walletReceipt: true,
         state: 'CONFIRMED',
         piconeros: 1n,
@@ -917,6 +958,7 @@ describe('historical period allocation rounding', () => {
         id: 9,
         txHash: hashB,
         feeType: 'POSTING',
+        subName: null,
         walletReceipt: true,
         state: 'CONFIRMED',
         piconeros: 1n,
@@ -984,6 +1026,9 @@ describe('downvote pairing', () => {
     input.ledger.downvotes.push({
       id: 7,
       txHash: hash,
+      paymentId: null,
+      postId: null,
+      downvoterId: null,
       piconeros: 7n,
       state: 'CONFIRMED',
       height: 1,
@@ -1009,8 +1054,8 @@ describe('downvote pairing', () => {
     const input = approve()
     const hash = 'e0'.repeat(32)
     input.ledger.downvotes.push(
-      { id: 7, txHash: hash, piconeros: 7n, state: 'CONFIRMED', height: 2999900, confirmedAt: new Date(FI.DATE.INCOMING) },
-      { id: 8, txHash: hash, piconeros: 7n, state: 'CONFIRMED', height: 2999900, confirmedAt: new Date(FI.DATE.INCOMING) }
+      { id: 7, txHash: hash, paymentId: null, postId: null, downvoterId: null, piconeros: 7n, state: 'CONFIRMED', height: 2999900, confirmedAt: new Date(FI.DATE.INCOMING) },
+      { id: 8, txHash: hash, paymentId: null, postId: null, downvoterId: null, piconeros: 7n, state: 'CONFIRMED', height: 2999900, confirmedAt: new Date(FI.DATE.INCOMING) }
     )
     input.evidence.incoming.push({
       txHash: hash,
@@ -1054,17 +1099,26 @@ describe('decision provenance and shared fingerprint', () => {
       .not.toBe(buildRewardsReconciliation(make(50)).digest)
   })
 
-  test('the manifest ledger fingerprint matches the shared ledger contract', () => {
+  test('the manifest ledger fingerprint is the shared v2 audit identity, not the union digest', () => {
     const input = withApprovedIncomingClassification(syntheticRewardsEvidence())
     const manifest = buildRewardsReconciliation(input)
-    const raw = syntheticRewardsEvidence()
-    const expected = summarizeRewardsLedger({
-      payouts: raw.ledger.payouts,
-      distributions: raw.ledger.distributions,
-      transactions: raw.ledger.transactions,
-      scope: raw.scope
+    // v2 manifests bind the Task 1 audit fingerprint over the snapshot input;
+    // the money-union digest is no longer an accounting authority.
+    expect(manifest.ledgerFingerprint).toBe(accountingAuditFingerprint({
+      scope: input.scope, ledger: input.ledger, config: input.config, reserve: input.reserve
+    }))
+    const union = summarizeRewardsLedger({
+      payouts: input.ledger.payouts,
+      distributions: input.ledger.distributions,
+      transactions: input.ledger.transactions,
+      scope: input.scope
     })
-    expect(manifest.ledgerFingerprint).toBe(expected.fingerprint)
+    expect(manifest.ledgerFingerprint).not.toBe(union.unionFingerprint)
+    // Any snapshot input mutation moves the bound identity.
+    const changed = structuredClone(input)
+    changed.ledger.distributions[0].opsSweepState = 'SWEPT'
+    expect(buildRewardsReconciliation(changed).ledgerFingerprint)
+      .not.toBe(manifest.ledgerFingerprint)
   })
 })
 
@@ -1117,5 +1171,1114 @@ describe('canonical manifest digest', () => {
       }
     }
     expect(() => JSON.stringify(manifest)).not.toThrow()
+  })
+})
+
+// =============================================================================
+// v2 repair preconditions (rewards reconciliation Task 2): readRepairLedger
+// delegates to the ONE shared audit snapshot (same selects, scope proof and
+// receipt visibility as the audit), and the apply preconditions verify the
+// fresh read IS a current v2 snapshot read while the protected reward
+// contracts and the money-union digest keep their existing roles.
+// =============================================================================
+
+function freshRepairFixture (mutate) {
+  const f = auditLedgerFixture()
+  if (mutate) mutate(f)
+  const models = {
+    moneroAccount: {
+      findFirst: jest.fn(async ({ where }) =>
+        f.ledger.accounts.find(a => a.label === where.label && a.network === where.network) ?? null)
+    },
+    subaddressIndex: {
+      findMany: jest.fn(async ({ where }) =>
+        f.ledger.subaddresses.filter(row => where.accountId.in.includes(row.accountId)))
+    },
+    feeObservation: { findMany: jest.fn(async () => f.ledger.receipts) },
+    observedDownvote: { findMany: jest.fn(async () => f.ledger.downvotes) },
+    rewardPayout: { findMany: jest.fn(async () => f.ledger.payouts) },
+    rewardDistribution: { findMany: jest.fn(async () => f.ledger.distributions) },
+    rewardsWalletTransaction: {
+      findMany: jest.fn(async ({ where } = {}) =>
+        f.ledger.transactions.filter(row =>
+          row.network === where?.network && row.walletAddress === where?.walletAddress)),
+      findUnique: jest.fn(async () => null)
+    },
+    escrowWalletTransaction: {
+      findMany: jest.fn(async () => f.ledger.escrowTransactions),
+      findUnique: jest.fn(async () => null)
+    },
+    bountyPayment: { findMany: jest.fn(async () => f.ledger.bountyPayments) },
+    observedBounty: { findMany: jest.fn(async () => f.ledger.observedBounties) },
+    observedBountyReceipt: { findMany: jest.fn(async () => f.ledger.observedBountyReceipts) },
+    item: {
+      findMany: jest.fn(async ({ where }) =>
+        f.ledger.items.filter(row => where.id.in.includes(row.id)))
+    },
+    earn: { findMany: jest.fn(async () => f.ledger.earns) },
+    platformFeeConfig: { findUnique: jest.fn(async () => f.config) },
+    paymentTransactionProof: { findUnique: jest.fn(async () => null) }
+  }
+  return { f, models }
+}
+
+const preconditionLedger = f => ({
+  receipts: f.ledger.receipts,
+  downvotes: f.ledger.downvotes,
+  payouts: f.ledger.payouts,
+  distributions: f.ledger.distributions,
+  transactions: f.ledger.transactions,
+  bountyPayments: f.ledger.bountyPayments,
+  observedBounties: f.ledger.observedBounties,
+  observedBountyReceipts: f.ledger.observedBountyReceipts,
+  items: f.ledger.items,
+  earns: f.ledger.earns,
+  escrowTransactions: f.ledger.escrowTransactions,
+  proofInventory: f.ledger.proofInventory,
+  accounts: f.ledger.accounts,
+  subaddresses: f.ledger.subaddresses,
+  reserve: f.reserve
+})
+
+describe('v2 repair preconditions', () => {
+  test('readRepairLedger delegates to the shared snapshot: full groups, config, reserve and v2 identity', async () => {
+    const { f, models } = freshRepairFixture()
+    const ledger = await readRepairLedger(models, f.scope)
+
+    expect(ledger.accountingFingerprint).toMatch(/^accounting:v2:[0-9a-f]{64}$/)
+    expect(ledger.accountingFingerprintVersion).toBe(2)
+    expect(ledger.config).toEqual(f.config)
+    expect(ledger.reserve).toEqual(f.reserve)
+    expect(ledger.scope).toEqual(f.scope)
+    for (const group of [
+      'receipts', 'downvotes', 'payouts', 'distributions', 'transactions',
+      'bountyPayments', 'observedBounties', 'observedBountyReceipts', 'items',
+      'earns', 'escrowTransactions', 'proofInventory', 'accounts', 'subaddresses'
+    ]) {
+      expect(Array.isArray(ledger[group])).toBe(true)
+    }
+    expect(ledger.receipts).toHaveLength(f.ledger.receipts.length)
+    expect(ledger.proofInventory).toHaveLength(2)
+    expect(ledger.escrowTransactions).toHaveLength(1)
+    expect(ledger.earns).toEqual(f.ledger.earns)
+  })
+
+  test('the repair read keeps the COMPLETE audited receipt group (final-review I3)', async () => {
+    // A metadata-only row (no chain hash, no positive material amount) is not
+    // an observable monetary row: it is excluded from the builder's monetary
+    // working set but RETAINED in the repair read — the shared snapshot is the
+    // fingerprint/precondition authority and is never pre-filtered on the way
+    // out.
+    const { f, models } = freshRepairFixture(f => {
+      f.ledger.receipts.push({
+        id: 109n,
+        txHash: null,
+        feeType: 'BOOST',
+        postId: null,
+        subName: null,
+        payInId: null,
+        recipientMajor: 0,
+        recipientMinor: 0,
+        walletReceipt: false,
+        state: 'DETECTED',
+        piconeros: 0n,
+        rewardsPiconeros: null,
+        donationRewardsPct: null,
+        height: null,
+        confirmedAt: null
+      })
+    })
+    const ledger = await readRepairLedger(models, f.scope)
+    expect(ledger.receipts.map(row => row.id)).toEqual(f.ledger.receipts.map(row => row.id))
+    expect(ledger.receipts.some(row => row.id === 109n)).toBe(true)
+    expect(ledger.receipts.map(row => row.id)).toContain(104n)
+    // ONE shared identity: the repair read's fingerprint IS the audit
+    // snapshot's own identity over the same complete groups — the same value
+    // the CHECK race guard, APPLY and the public ledger reader compare.
+    expect(ledger.accountingFingerprint).toBe(accountingAuditFingerprint({
+      scope: ledger.scope, ledger, config: ledger.config, reserve: ledger.reserve
+    }))
+  })
+
+  const metadataRowLedger = mutateRow => {
+    const fresh = freshRepairFixture(f => {
+      f.ledger.receipts.push({
+        id: 109n,
+        txHash: null,
+        feeType: 'BOOST',
+        postId: null,
+        subName: null,
+        payInId: null,
+        recipientMajor: 0,
+        recipientMinor: 0,
+        walletReceipt: false,
+        state: 'DETECTED',
+        piconeros: 0n,
+        rewardsPiconeros: null,
+        donationRewardsPct: null,
+        height: null,
+        confirmedAt: null
+      })
+      if (mutateRow) mutateRow(f)
+    })
+    return fresh
+  }
+
+  const metadataRowEvidence = scope => ({
+    scope,
+    boundary: { height: 1, blockHash: 'aa'.repeat(32) },
+    outgoing: [],
+    incoming: [],
+    bridge: { pendingIncoming: [], pendingOutgoing: [] }
+  })
+
+  test('builder, CHECK and APPLY fingerprint the FULL snapshot identity (final-review I3)', async () => {
+    const { f, models } = metadataRowLedger()
+    const ledger = await readRepairLedger(models, f.scope)
+    const manifest = buildRewardsReconciliation({
+      scope: f.scope,
+      boundary: { height: 1, blockHash: 'aa'.repeat(32) },
+      evidence: metadataRowEvidence(f.scope),
+      ledger,
+      decisions: {},
+      config: ledger.config,
+      reserve: ledger.reserve,
+      opsCarryProvenance: {}
+    })
+    // The manifest binds exactly the shared snapshot identity (the public
+    // reader identity) even though a zero/hashless receipt row exists.
+    expect(manifest.ledgerFingerprint).toBe(ledger.accountingFingerprint)
+    // The metadata-only row is excluded from the monetary working set: it is
+    // neither named as an unmatched booking nor moved any money total.
+    expect(manifest.issues.some(issue =>
+      issue.code === 'UNMATCHED_BOOKED_RECEIPT' && String(issue.id) === '109')).toBe(false)
+    const withoutMetadataRow = await (async () => {
+      const fresh = freshRepairFixture()
+      const ledger = await readRepairLedger(fresh.models, fresh.f.scope)
+      return buildRewardsReconciliation({
+        scope: fresh.f.scope,
+        boundary: { height: 1, blockHash: 'aa'.repeat(32) },
+        evidence: metadataRowEvidence(fresh.f.scope),
+        ledger,
+        decisions: {},
+        config: ledger.config,
+        reserve: ledger.reserve,
+        opsCarryProvenance: {}
+      })
+    })()
+    expect(manifest.after.receiptsPiconeros)
+      .toBe(withoutMetadataRow.after.receiptsPiconeros)
+  })
+
+  test.each([
+    ['update', f => {
+      const row = f.ledger.receipts.find(candidate => candidate.id === 109n)
+      row.feeType = 'DONATE'
+    }],
+    ['insert', f => {
+      f.ledger.receipts.push({
+        id: 110n,
+        txHash: null,
+        feeType: 'BOOST',
+        postId: null,
+        subName: null,
+        payInId: null,
+        recipientMajor: 0,
+        recipientMinor: 0,
+        walletReceipt: false,
+        state: 'DETECTED',
+        piconeros: 0n,
+        rewardsPiconeros: null,
+        donationRewardsPct: null,
+        height: null,
+        confirmedAt: null
+      })
+    }],
+    ['delete', f => {
+      f.ledger.receipts = f.ledger.receipts.filter(candidate => candidate.id !== 109n)
+    }]
+  ])('a %s of a zero/hashless receipt row moves the shared identity and refuses the apply (final-review I3)',
+    async (_label, mutate) => {
+      const approved = metadataRowLedger()
+      const approvedLedger = await readRepairLedger(approved.models, approved.f.scope)
+      const evidence = metadataRowEvidence(approved.f.scope)
+      const manifest = buildRewardsReconciliation({
+        scope: approved.f.scope,
+        boundary: { height: 1, blockHash: 'aa'.repeat(32) },
+        evidence,
+        ledger: approvedLedger,
+        decisions: {},
+        config: approvedLedger.config,
+        reserve: approvedLedger.reserve,
+        opsCarryProvenance: {}
+      })
+      expect(manifest.ledgerFingerprint).toBe(approvedLedger.accountingFingerprint)
+
+      const changed = metadataRowLedger(mutate)
+      const changedLedger = await readRepairLedger(changed.models, changed.f.scope)
+      expect(changedLedger.accountingFingerprint).not.toBe(manifest.ledgerFingerprint)
+      // APPLY's authoritative comparator refuses: the fine-grained
+      // precondition view and the shared audit catch-all both cover the
+      // excluded row (fail closed — a discrepancy can never be cleared by a
+      // stale CHECK against a moved identity).
+      expect(() => assertRepairPreconditions(manifest, changedLedger, evidence))
+        .toThrow(/changed since the manifest was approved/)
+    })
+
+  test('raw-formed malformed amounts keep the RAW visibility rule (final-review B2)', async () => {
+    // A raw `7`, `'07'` or `'+7'` is NOT an observable monetary row under the
+    // shared raw rule — even though the normalizer can read every form. The
+    // monetary working set follows the RAW classification; the FULL snapshot
+    // still fingerprints the row.
+    const base = freshRepairFixture()
+    const baseLedger = await readRepairLedger(base.models, base.f.scope)
+    const baseManifest = buildRewardsReconciliation({
+      scope: base.f.scope,
+      boundary: { height: 1, blockHash: 'aa'.repeat(32) },
+      evidence: metadataRowEvidence(base.f.scope),
+      ledger: baseLedger,
+      decisions: {},
+      config: baseLedger.config,
+      reserve: baseLedger.reserve,
+      opsCarryProvenance: {}
+    })
+    for (const raw of [7, '07', '+7']) {
+      const fresh = freshRepairFixture(f => {
+        f.ledger.receipts.push({
+          id: 108n,
+          txHash: null,
+          feeType: 'BOOST',
+          postId: null,
+          subName: null,
+          payInId: null,
+          recipientMajor: 0,
+          recipientMinor: 0,
+          walletReceipt: true,
+          state: 'CONFIRMED',
+          piconeros: raw,
+          rewardsPiconeros: null,
+          donationRewardsPct: null,
+          height: null,
+          confirmedAt: null
+        })
+      })
+      const ledger = await readRepairLedger(fresh.models, fresh.f.scope)
+      const manifest = buildRewardsReconciliation({
+        scope: fresh.f.scope,
+        boundary: { height: 1, blockHash: 'aa'.repeat(32) },
+        evidence: metadataRowEvidence(fresh.f.scope),
+        ledger,
+        decisions: {},
+        config: ledger.config,
+        reserve: ledger.reserve,
+        opsCarryProvenance: {}
+      })
+      // Raw rule: excluded from the monetary working set — no money moved and
+      // the row is never named as an unmatched booking.
+      expect(manifest.after.receiptsPiconeros).toBe(baseManifest.after.receiptsPiconeros)
+      expect(manifest.issues.some(issue => String(issue.id) === '108')).toBe(false)
+      // ...while the complete snapshot retains and fingerprints the row.
+      expect(ledger.receipts.some(row => row.id === 108n)).toBe(true)
+      expect(ledger.accountingFingerprint).not.toBe(baseLedger.accountingFingerprint)
+    }
+  })
+
+  test('a scope that is not the registered platform_rewards wallet is refused', async () => {
+    const { f, models } = freshRepairFixture()
+    await expect(readRepairLedger(models, {
+      network: f.scope.network,
+      walletAddress: f.scope.walletAddress + 'x'
+    })).rejects.toThrow(/registered platform_rewards/)
+  })
+
+  test('the precondition fingerprint covers the v2 snapshot groups and the reserve', () => {
+    const base = () => {
+      const f = auditLedgerFixture()
+      return { ledger: preconditionLedger(f), config: f.config }
+    }
+    const baseFingerprint = () => {
+      const { ledger, config } = base()
+      return ledgerPreconditionFingerprint(ledger, config)
+    }
+    const fingerprint = fn => {
+      const { ledger, config } = base()
+      fn(ledger)
+      return ledgerPreconditionFingerprint(ledger, config)
+    }
+    const reference = baseFingerprint()
+    expect(reference).toMatch(/^[0-9a-f]{64}$/)
+
+    // Reordering every input list cannot change the fingerprint.
+    const { ledger: reordered, config } = base()
+    for (const group of Object.keys(reordered)) {
+      if (Array.isArray(reordered[group])) reordered[group] = [...reordered[group]].reverse()
+    }
+    expect(ledgerPreconditionFingerprint(reordered, config)).toBe(reference)
+
+    // Each v2-only group is covered: escrow facts, proof inventory, identity
+    // rows, subaddress states and the audited reserve inputs.
+    expect(fingerprint(l => { l.escrowTransactions[0].state = 'CONFIRMED' })).not.toBe(reference)
+    expect(fingerprint(l => { l.proofInventory[0].proof.revision = 2 })).not.toBe(reference)
+    expect(fingerprint(l => { l.proofInventory[1].proof = null })).not.toBe(reference)
+    expect(fingerprint(l => { l.accounts[0].address = '5DIFFERENT' })).not.toBe(reference)
+    expect(fingerprint(l => { l.subaddresses[0].state = 'ASSIGNED' })).not.toBe(reference)
+    expect(fingerprint(l => { l.reserve.feeHeadroomPiconeros = '1000000001' })).not.toBe(reference)
+    // ...and the previously covered groups stay covered.
+    expect(fingerprint(l => { l.receipts[0].piconeros = 701n })).not.toBe(reference)
+    expect(fingerprint(l => { l.earns[0].piconeros = 251n })).not.toBe(reference)
+  })
+
+  test('a fresh precondition read without a current v2 identity is refused', () => {
+    const f = auditLedgerFixture()
+    const legacy = {
+      ...preconditionLedger(f),
+      config: f.config
+      // no accountingFingerprint / accountingFingerprintVersion: a legacy-shaped
+      // read that did not go through the shared v2 snapshot.
+    }
+    const approved = {
+      scope: f.scope,
+      boundary: { height: 1, blockHash: 'aa'.repeat(32) },
+      evidenceDigest: 'bb'.repeat(32),
+      ledgerFingerprint: 'cc'.repeat(32),
+      protectedRewardsFingerprint: 'dd'.repeat(32),
+      preconditionFingerprint: 'ee'.repeat(32),
+      issues: [],
+      operations: []
+    }
+    const evidence = {
+      scope: f.scope,
+      boundary: { height: 1, blockHash: 'aa'.repeat(32) }
+    }
+    expect(() => assertRepairPreconditions(approved, legacy, evidence))
+      .toThrow(/current v2 accounting snapshot/)
+  })
+})
+
+describe('v2 evidence authorization (pure)', () => {
+  test('payment verifications authorize repair only under the v2 evidence contract', () => {
+    const input = approve()
+    input.evidence.paymentVerifications = [{ fabricated: true, status: 'complete' }]
+    const manifest = buildRewardsReconciliation(input)
+    expect(codesOf(manifest)).toContain('EVIDENCE_VERSION_UNSUPPORTED')
+    expect(manifest.operations.filter(op => op.after?.state === 'RELAYED')).toEqual([])
+  })
+
+  test('a v2 evidence collection indexes its verifications; garbage is named, never honored', () => {
+    const input = approve()
+    input.evidence.evidenceVersion = 2
+    input.evidence.collectionStartedAt = FI.DATE.INCOMING
+    input.evidence.observedAt = FI.DATE.INCOMING
+    input.evidence.paymentVerifications = [{ fabricated: true, status: 'complete' }]
+    const manifest = buildRewardsReconciliation(input)
+    expect(codesOf(manifest)).toContain('PAYMENT_VERIFICATION_INVALID')
+    expect(codesOf(manifest)).not.toContain('EVIDENCE_VERSION_UNSUPPORTED')
+    expect(manifest.operations.filter(op => op.after?.state === 'RELAYED')).toEqual([])
+  })
+
+  test('the pre-proof-era synthetic story never promotes a relay on its own', () => {
+    const manifest = buildRewardsReconciliation(approve())
+    // Strict recorded-outflow coverage names the story's journal-only payout
+    // batch and history-only escrow legs (final-review I1); it never
+    // fabricates a promotion or a complete proof for them.
+    expect(codesOf(manifest)).toEqual(STORY_CODES)
+    expect(manifest.operations.some(op => op.relayProof !== undefined)).toBe(false)
+    expect(manifest.operations.filter(op => op.after?.state === 'RELAYED')).toEqual([])
+  })
+
+  test('without the mempool bridge evidence the synthetic attempt stays unresolved', () => {
+    const input = approve()
+    input.evidence.bridge.pendingOutgoing = []
+    const manifest = buildRewardsReconciliation(input)
+    expect(codesOf(manifest)).toContain('PENDING_ATTEMPT_UNRESOLVED')
+    expect(manifest.operations.filter(op => op.after?.state === 'RELAYED')).toEqual([])
+  })
+})
+
+// =============================================================================
+// Reverse recorded-outflow coverage (rewards reconciliation Task 4): every
+// recorded payout/sweep/escrow leg is proved row-first against journal +
+// chain evidence or a complete verification — independent of any drift
+// computation (no aggregate-drift guard). Journal-less historical inserts are
+// the legacy complete-surviving-evidence backfill only; destination-only or
+// tx-hash-only inputs insert nothing.
+// =============================================================================
+
+const OUTFLOW_HASH = 'dd'.repeat(32)
+const OUTFLOW_INCOMING_HASH = 'de'.repeat(32)
+
+// A journal-less legacy payout candidate: the recorded payout row carries the
+// hash, no journal row and no verification exist.
+function withMissingHistoryPayout (input, { withOutgoing = false } = {}) {
+  const out = structuredClone(input)
+  out.ledger.payouts.push({
+    id: 77,
+    distributionId: 1,
+    curatorId: 77,
+    recipientAddress: FI.ADDRESS.CURATOR_ONE,
+    piconeros: 7n,
+    txHash: OUTFLOW_HASH,
+    state: 'CONFIRMED'
+  })
+  if (withOutgoing) {
+    out.evidence.outgoing.push({
+      txHash: OUTFLOW_HASH,
+      accountIndex: 0,
+      feePiconeros: '1',
+      destinations: [{ address: FI.ADDRESS.CURATOR_ONE, amountPiconeros: '7' }],
+      height: FI.HEIGHT.PAYOUT,
+      inTxPool: false,
+      isConfirmed: true,
+      isRelayed: true,
+      isSelfTransfer: false,
+      relayState: 'confirmed'
+    })
+  }
+  return out
+}
+
+// Equal-and-opposite errors at net zero: an unbooked +7 wallet inflow against
+// an unrecorded -7 payout whose delivery AND fee are entirely unprovable.
+const withMissingHistoryStory = input => {
+  const out = withMissingHistoryPayout(input)
+  out.evidence.incoming.push({
+    txHash: OUTFLOW_INCOMING_HASH,
+    accountIndex: 0,
+    subaddressIndex: 0,
+    amountPiconeros: '7',
+    height: 2999950,
+    inTxPool: false,
+    isConfirmed: true,
+    fromOwnTransaction: false,
+    isSelfTransfer: false
+  })
+  return out
+}
+
+const withNetDrift = (drift, mutate = input => input) => {
+  const input = mutate(withApprovedIncomingClassification(syntheticRewardsEvidence()))
+  const probe = buildRewardsReconciliation(input)
+  const current = BigInt(probe.after.differencePiconeros)
+  // difference = ledgerBalance - walletTotal: realize `drift` exactly.
+  const total = (BigInt(input.evidence.balances.totalPiconeros) + current - BigInt(drift)).toString()
+  input.evidence.balances.totalPiconeros = total
+  input.evidence.balances.accounts = { 0: total }
+  return input
+}
+
+describe('reverse recorded-outflow coverage through the manifest (Task 4)', () => {
+  // Final-review I1: the synthetic story's journal-only payout batch and
+  // history-only escrow legs are individually named through the manifest —
+  // never silently covered by relay history.
+  test('the synthetic story names every journal-only payout and history-only escrow leg', () => {
+    const manifest = buildRewardsReconciliation(approve())
+    expect(manifest.issues).toEqual([
+      expect.objectContaining({
+        code: 'RECORDED_ESCROW_LEG_EVIDENCE_MISSING',
+        table: 'BountyPayment',
+        id: '21',
+        leg: 'PRINCIPAL',
+        txHash: FI.TX.AWARD
+      }),
+      expect.objectContaining({
+        code: 'RECORDED_ESCROW_LEG_EVIDENCE_MISSING',
+        table: 'BountyPayment',
+        id: '22',
+        leg: 'PRINCIPAL',
+        txHash: FI.TX.ROLLOVER
+      }),
+      expect.objectContaining({
+        code: 'RECORDED_PAYOUT_PROOF_UNSUPPORTED',
+        table: 'RewardPayout',
+        id: '11',
+        txHash: FI.TX.PAYOUT
+      }),
+      expect.objectContaining({
+        code: 'RECORDED_PAYOUT_PROOF_UNSUPPORTED',
+        table: 'RewardPayout',
+        id: '12',
+        txHash: FI.TX.PAYOUT
+      })
+    ])
+    // The recorded debits and reward contracts survive the naming untouched.
+    expect(manifest.before.totalSentPiconeros).toBe(manifest.after.totalSentPiconeros)
+    expect(manifest.operations.some(op => op.table === 'RewardPayout' || op.table === 'Earn')).toBe(false)
+  })
+
+  // All three drift cases through ACTUAL manifest issues: the reverse checks
+  // never gate on drift.
+  test.each(['0', '-7', '7'])('recorded missing history stays an issue at net drift %s', drift => {
+    const input = withNetDrift(drift, withMissingHistoryStory)
+    const manifest = buildRewardsReconciliation(input)
+    expect(manifest.after.differencePiconeros).toBe(drift)
+    expect(manifest.issues).toContainEqual(expect.objectContaining({
+      code: 'RECORDED_PAYOUT_EVIDENCE_MISSING',
+      table: 'RewardPayout',
+      id: '77',
+      txHash: OUTFLOW_HASH
+    }))
+    expect(codesOf(manifest)).toContain('UNKNOWN_INCOMING')
+    // The recorded delivery survives: the paid ledger debit is unchanged.
+    expect(manifest.before.totalSentPiconeros).toBe(manifest.after.totalSentPiconeros)
+    // Reward contracts are never touched by the coverage pass.
+    expect(manifest.operations.some(op => op.table === 'RewardPayout' || op.table === 'Earn')).toBe(false)
+  })
+
+  test('a destination-only recorded payout proof inserts nothing', () => {
+    const input = withMissingHistoryPayout(approve(), { withOutgoing: true })
+    const manifest = buildRewardsReconciliation(input)
+    expect(manifest.issues).toContainEqual(expect.objectContaining({
+      code: 'RECORDED_PAYOUT_EVIDENCE_MISSING',
+      id: '77'
+    }))
+    expect(manifest.operations.filter(op => op.txHash === OUTFLOW_HASH)).toEqual([])
+  })
+
+  // Plan Task 4 Step 4: a MISSING fee is a named issue even while the net
+  // drift is zero — the balance offset never absorbs a fee-specific gap.
+  test('a missing fee stays named while the net drift is zero', () => {
+    const input = withNetDrift('0', base => {
+      const out = structuredClone(base)
+      // The payout journal's relayed fee and the wallet-history fee are both
+      // unreadable: the fee is unprovable from any evidence.
+      const journal = out.ledger.transactions.find(entry => entry.txHash === FI.TX.PAYOUT)
+      journal.networkFeePiconeros = null
+      const outgoing = out.evidence.outgoing.find(entry => entry.txHash === FI.TX.PAYOUT)
+      outgoing.feePiconeros = null
+      return out
+    })
+    const manifest = buildRewardsReconciliation(input)
+    expect(manifest.after.differencePiconeros).toBe('0')
+    expect(codesOf(manifest)).toContain('MISSING_OUTGOING_FEE')
+  })
+
+  test('an unresolved legacy verification keeps the recorded debit and inserts nothing', async () => {
+    const base = await legacyRepairFixture()
+    const unresolved = await (async () => {
+      const chain = paymentChainFixture()
+      const hash = verifiedFixtureIds.LEGACY_HASH
+      return verifyLegacyPaymentTransaction({
+        contract: {
+          scope: verifiedFixtureIds.SCOPE,
+          txHash: hash,
+          journalRole: 'REWARDS',
+          journalId: null,
+          owner: { kind: 'PAYOUT', distributionId: '1', bountyPaymentId: null, itemId: null },
+          members: [
+            { id: '11', leg: 'PRINCIPAL', address: verifiedFixtureIds.ADDRESS_A, type: 'PRIMARY', paymentId: null, grossPiconeros: '40', actualPiconeros: '40' },
+            { id: '12', leg: 'PRINCIPAL', address: verifiedFixtureIds.ADDRESS_B, type: 'SUBADDRESS', paymentId: null, grossPiconeros: '20', actualPiconeros: '20' }
+          ],
+          recordedFeePiconeros: null
+        },
+        session: {
+          ...chain.session,
+          rawByHash: { ...chain.session.rawByHash, [hash]: { ...chain.session.rawByHash[chain.txHash], txHash: hash } },
+          ownershipFor: candidate => (candidate === hash
+            ? { owned: chain.session.ownedOutputs, inputSources: chain.session.ownershipFor(chain.txHash).inputSources }
+            : { owned: [], inputSources: [] })
+        },
+        observedAt: VERIFIED_OBSERVED_AT,
+        survivingProofProvider: null
+      })
+    })()
+    expect(unresolved.status).toBe('unresolved')
+    const input = base.input
+    input.evidence.paymentVerifications = [unresolved]
+    input.ledger.transactions = []
+    input.ledger.payouts = [
+      { id: 11, distributionId: 1, curatorId: 11, recipientAddress: verifiedFixtureIds.ADDRESS_A, piconeros: 40n, txHash: verifiedFixtureIds.LEGACY_HASH, state: 'SENT' },
+      { id: 12, distributionId: 1, curatorId: 12, recipientAddress: verifiedFixtureIds.ADDRESS_B, piconeros: 20n, txHash: verifiedFixtureIds.LEGACY_HASH, state: 'CONFIRMED' }
+    ]
+    const manifest = buildRewardsReconciliation(input)
+    expect(codesOf(manifest)).toContain('RECORDED_PAYOUT_PROOF_UNSUPPORTED')
+    expect(manifest.operations.filter(op => op.kind === 'insert' && op.table === 'RewardsWalletTransaction')).toEqual([])
+    // Missing proof key: the paid ledger debit is unchanged.
+    expect(manifest.before.totalSentPiconeros).toBe(manifest.after.totalSentPiconeros)
+  })
+})
+
+// A complete LEGACY_SURVIVING_PROOF verification whose proved membership is
+// authoritatively frozen (single sweep leg to COLD). Safe result shape only.
+function completeSweepVerification ({ hash, scope, amount = '500', fee = '7', owned = '15' } = {}) {
+  const decoded = decodeReceivingIdentity(verifiedFixtureIds.COLD, scope.network)
+  return {
+    verificationVersion: '1',
+    status: 'complete',
+    issues: [],
+    scope: { ...scope },
+    journalRole: 'REWARDS',
+    journalId: null,
+    dispatchId: null,
+    captureMode: 'LEGACY_SURVIVING_PROOF',
+    txHash: hash,
+    claimDigest: null,
+    proofInventory: null,
+    sourceAccounts: ['0'],
+    members: [{
+      id: '1',
+      leg: 'PRINCIPAL',
+      address: verifiedFixtureIds.COLD,
+      type: decoded.type,
+      paymentId: null,
+      receivingIdentity: decoded.identity,
+      grossPiconeros: amount,
+      actualPiconeros: amount
+    }],
+    receivingAggregates: [{ receivingIdentity: decoded.identity, amountPiconeros: amount, confirmations: 10 }],
+    ownedAccounting: {
+      totalPiconeros: owned,
+      outputs: [{ outputIndex: 0, accountIndex: 0, subaddressIndex: 0, amountPiconeros: owned, isSpent: false }]
+    },
+    totals: {
+      D: (BigInt(owned) + BigInt(fee) + BigInt(amount)).toString(),
+      O: owned,
+      F: fee,
+      E: amount,
+      residual: '0'
+    },
+    confirmation: { height: 2999990, blockHash: 'cd'.repeat(32), confirmations: 10 },
+    observedAt: VERIFIED_OBSERVED_AT,
+    boundary: { height: 2999999, blockHash: 'cd'.repeat(32) },
+    verifierVersion: '1',
+    sdkVersion: '0.11.12',
+    provenance: 'restored-owned-outputs/raw-chain/check-tx-key',
+    survivingEvidenceDigest: 'ce'.repeat(32)
+  }
+}
+
+// A complete LEGACY_SURVIVING_PROOF ESCROW verification (collected by #1 from
+// the escrow wallet, keyed on the bounty settlement leg hash). Safe result
+// shape only; the fixture addresses are opaque strings, never decoded here.
+// `id` is the canonical escrow member id — the bounty payment id.
+function completeEscrowVerification ({ hash, scope, address, amount = '139', fee = '1', owned = '1', id = '1' } = {}) {
+  const total = (BigInt(owned) + BigInt(fee) + BigInt(amount)).toString()
+  return {
+    verificationVersion: '1',
+    status: 'complete',
+    issues: [],
+    scope: { ...scope },
+    journalRole: 'ESCROW',
+    journalId: null,
+    dispatchId: null,
+    captureMode: 'LEGACY_SURVIVING_PROOF',
+    txHash: hash,
+    claimDigest: null,
+    proofInventory: null,
+    sourceAccounts: ['0'],
+    members: [{
+      id,
+      leg: 'PRINCIPAL',
+      address,
+      type: 'PRIMARY',
+      paymentId: null,
+      receivingIdentity: 'escrow-recipient-identity',
+      grossPiconeros: amount,
+      actualPiconeros: amount
+    }],
+    receivingAggregates: [{ receivingIdentity: 'escrow-recipient-identity', amountPiconeros: amount, confirmations: 10 }],
+    ownedAccounting: {
+      totalPiconeros: owned,
+      outputs: [{ outputIndex: 0, accountIndex: 0, subaddressIndex: 0, amountPiconeros: owned, isSpent: false }]
+    },
+    totals: { D: total, O: owned, F: fee, E: amount, residual: '0' },
+    confirmation: { height: 2999990, blockHash: 'cd'.repeat(32), confirmations: 10 },
+    observedAt: VERIFIED_OBSERVED_AT,
+    boundary: { height: 2999999, blockHash: 'cd'.repeat(32) },
+    verifierVersion: '1',
+    sdkVersion: '0.11.12',
+    provenance: 'restored-owned-outputs/raw-chain/check-tx-key',
+    survivingEvidenceDigest: 'cf'.repeat(32)
+  }
+}
+
+describe('escrow recorded-source coherence through the builder (fix round 4)', () => {
+  // Safe complete-result doubles pin attribution, not real proof availability.
+  // Claims use the real codec/digest and synthetic checksum-valid addresses.
+  const fixture = ({ combined = false, owner = '701' } = {}) => {
+    const input = approve()
+    const base = paymentFixture()
+    const members = combined
+      ? base.members.map((member, index) => ({ ...member, id: owner, leg: index === 0 ? 'PRINCIPAL' : 'FEE', actualPiconeros: index === 0 ? '40' : '13' }))
+      : [{ ...base.members[0], id: owner, leg: 'PRINCIPAL', grossPiconeros: '47', actualPiconeros: '40' }]
+    const claims = normalizePaymentClaims(paymentFixture({
+      journalRole: 'ESCROW',
+      kind: 'AWARD',
+      distributionId: null,
+      bountyPaymentId: owner,
+      itemId: '301',
+      members,
+      principalPiconeros: combined ? '60' : '47',
+      feeSubtractedFromLast: true,
+      frozenTerms: {
+        recipientAddress: members[0].address,
+        prizePiconeros: combined ? '40' : '47',
+        feePiconeros: combined ? '20' : '0',
+        feeRecipientAddress: combined ? base.members[1].address : null
+      }
+    }))
+    const payment = {
+      ...auditLedgerFixture().ledger.bountyPayments[0],
+      id: 701,
+      itemId: 301,
+      kind: 'AWARD',
+      state: 'CONFIRMED',
+      txHash: claims.txHash,
+      feeTxHash: null,
+      recipientAddress: claims.frozenTerms.recipientAddress,
+      feeRecipientAddress: base.members[1].address,
+      piconeros: combined ? 40n : 47n,
+      feePiconeros: combined ? 20n : 0n,
+      recipientReceivedPiconeros: 40n,
+      feeReceivedPiconeros: combined ? 13n : null,
+      networkFeePiconeros: 7n
+    }
+    const journal = {
+      ...auditLedgerFixture().ledger.escrowTransactions[0],
+      id: 601,
+      bountyPaymentId: 701,
+      itemId: 301,
+      kind: 'AWARD',
+      leg: 'DISPOSITION',
+      network: claims.scope.network,
+      walletAddress: claims.scope.walletAddress,
+      txHash: claims.txHash,
+      state: 'RELAYED',
+      paymentClaims: claims,
+      claimDigest: paymentClaimDigest(claims)
+    }
+    const verification = completeEscrowVerification({
+      hash: claims.txHash,
+      scope: claims.scope,
+      address: payment.recipientAddress,
+      amount: '40',
+      fee: '7',
+      id: owner
+    })
+    verification.journalId = '601'
+    verification.members = claims.members.map(member => ({ ...member }))
+    verification.receivingAggregates = claims.receivingAggregates.map(aggregate => ({ ...aggregate, confirmations: 10 }))
+    verification.totals.E = claims.members.reduce((sum, member) => sum + BigInt(member.actualPiconeros), 0n).toString()
+    verification.totals.D = (BigInt(verification.totals.E) + 8n).toString()
+    expect(validatePaymentVerification(verification)).toBe(true)
+    input.ledger.bountyPayments = [payment]
+    input.ledger.escrowTransactions = [journal]
+    input.evidence.evidenceVersion = 2
+    input.evidence.escrow = { walletAddress: claims.scope.walletAddress, outgoing: [], paymentVerifications: [verification] }
+    return { input, payment, journal, verification }
+  }
+  const issues = input => buildRewardsReconciliation(input).issues.filter(issue => issue.table === 'BountyPayment' && String(issue.id) === '701')
+
+  test.each(['601', '999999'])('C1: a contradictory recorded journal owner cannot become journal-less (proof journal %s)', journalId => {
+    const { input, journal, verification } = fixture()
+    journal.bountyPaymentId = 999
+    verification.journalId = journalId
+    expect(issues(input)).toEqual(expect.arrayContaining([expect.objectContaining({
+      code: 'RECORDED_ESCROW_LEG_MEMBER_MISMATCH',
+      leg: 'PRINCIPAL',
+      reason: 'the verification does not bind the recorded escrow journal owner'
+    })]))
+  })
+
+  test('C2: digest-valid claims must belong to the recorded journal/payment', () => {
+    const { input } = fixture({ owner: '999' })
+    expect(issues(input)).toEqual(expect.arrayContaining([expect.objectContaining({
+      code: 'RECORDED_ESCROW_LEG_MEMBER_MISMATCH',
+      leg: 'PRINCIPAL',
+      reason: 'the recorded escrow claims do not bind the recorded journal and payment owner'
+    })]))
+  })
+
+  test('C3: captured zero-fee terms never hide a recorded fee receipt', () => {
+    const { input, payment } = fixture()
+    payment.feeReceivedPiconeros = 100n
+    expect(issues(input)).toEqual(expect.arrayContaining([expect.objectContaining({
+      code: 'RECORDED_ESCROW_LEG_MEMBER_MISMATCH',
+      leg: 'PRINCIPAL',
+      entry: `FEE:${payment.feeRecipientAddress}:100`
+    })]))
+  })
+
+  test.each([null, 'not-a-hash'])('B4: the recorded principal with hash %p remains named after normalization', txHash => {
+    const { input, payment } = fixture()
+    payment.txHash = txHash
+    expect(issues(input)).toEqual(expect.arrayContaining([expect.objectContaining({
+      code: 'RECORDED_ESCROW_LEG_EVIDENCE_MISSING', leg: 'PRINCIPAL'
+    })]))
+  })
+
+  test('B5: captured receipt 40 cannot replace recorded settlement 100', () => {
+    const { input, payment } = fixture()
+    payment.recipientReceivedPiconeros = 100n
+    expect(issues(input)).toEqual(expect.arrayContaining([expect.objectContaining({
+      code: 'RECORDED_ESCROW_LEG_MEMBER_MISMATCH',
+      leg: 'PRINCIPAL',
+      entry: `PRINCIPAL:${payment.recipientAddress}:100`
+    })]))
+  })
+
+  test('honest combined disposition satisfies both claims and recorded receipts', () => {
+    const { input } = fixture({ combined: true })
+    expect(issues(input)).toEqual([])
+  })
+
+  test('captured combined membership still covers genuinely unrecovered receipts', () => {
+    const { input, payment } = fixture({ combined: true })
+    payment.recipientReceivedPiconeros = null
+    payment.feeReceivedPiconeros = null
+    expect(issues(input)).toEqual([])
+  })
+
+  test('only an absent journal uses journal-less recorded settlement attribution', () => {
+    const { input, verification } = fixture()
+    input.ledger.escrowTransactions = []
+    verification.journalId = null
+    expect(issues(input)).toEqual([])
+  })
+})
+
+describe('legacy complete-payment backfill (Task 4)', () => {
+  // The journal-less legacy payout candidate from the Task 3 fixture: real
+  // verifier over the fake chain with an in-memory surviving key provider —
+  // no proof-store row exists or is created anywhere.
+  const legacyBackfillInput = async () => {
+    const base = await legacyRepairFixture()
+    const verification = base.verification
+    expect(verification.status).toBe('complete')
+    expect(verification.captureMode).toBe('LEGACY_SURVIVING_PROOF')
+    const input = base.input
+    input.ledger.transactions = []
+    input.ledger.payouts = [
+      { id: 11, distributionId: 1, curatorId: 11, recipientAddress: verifiedFixtureIds.ADDRESS_A, piconeros: 40n, txHash: verifiedFixtureIds.LEGACY_HASH, state: 'SENT' },
+      { id: 12, distributionId: 1, curatorId: 12, recipientAddress: verifiedFixtureIds.ADDRESS_B, piconeros: 20n, txHash: verifiedFixtureIds.LEGACY_HASH, state: 'CONFIRMED' }
+    ]
+    return { input, verification }
+  }
+
+  test('a proved journal-less legacy payout backfills one closed legacy journal row', async () => {
+    const { input, verification } = await legacyBackfillInput()
+    const manifest = buildRewardsReconciliation(input)
+    expect(codesOf(manifest)).toEqual([])
+    const inserts = manifest.operations.filter(op => op.kind === 'insert' && op.table === 'RewardsWalletTransaction')
+    expect(inserts).toHaveLength(1)
+    const insert = inserts[0]
+    expect(insert.reason).toBe('legacy-complete-payment-backfill')
+    expect(insert.before).toBeNull()
+    expect(insert.key).toEqual({
+      network: input.scope.network,
+      walletAddress: input.scope.walletAddress,
+      txHash: verifiedFixtureIds.LEGACY_HASH
+    })
+    expect(insert.after).toMatchObject({
+      network: input.scope.network,
+      walletAddress: input.scope.walletAddress,
+      txHash: verifiedFixtureIds.LEGACY_HASH,
+      kind: 'PAYOUT',
+      state: 'RELAYED',
+      accountIndex: 0,
+      distributionId: 1,
+      principalPiconeros: '60',
+      networkFeePiconeros: String(verification.totals.F),
+      relayAttemptedAt: null,
+      relayedAt: VERIFIED_OBSERVED_AT,
+      relayProvenance: 'legacy-complete-payment-backfill',
+      dispatchId: null,
+      captureContractVersion: null,
+      claimDigest: null,
+      paymentClaims: null,
+      proofId: null
+    })
+    expect(insert.after.metadata).toEqual({
+      payouts: [
+        { payoutId: 11, recipientAddress: verifiedFixtureIds.ADDRESS_A, piconeros: '40' },
+        { payoutId: 12, recipientAddress: verifiedFixtureIds.ADDRESS_B, piconeros: '20' }
+      ]
+    })
+    // The insert carries the same closed v2 relayProof: legacy surviving
+    // capture, null journal/dispatch/claim/proof inventory, exact surviving
+    // evidence digest — and no proof-store row reference anywhere.
+    expect(Object.keys(insert.relayProof).sort()).toEqual(RELAY_PROOF_FIELDS)
+    expect(insert.relayProof).toMatchObject({
+      version: 2,
+      evidenceDigest: manifest.evidenceDigest,
+      journalRole: 'REWARDS',
+      journalId: null,
+      dispatchId: null,
+      captureMode: 'LEGACY_SURVIVING_PROOF',
+      txHash: verifiedFixtureIds.LEGACY_HASH,
+      claimDigest: null,
+      proofInventory: null,
+      survivingEvidenceDigest: verification.survivingEvidenceDigest,
+      observedAt: VERIFIED_OBSERVED_AT
+    })
+    expect(insert.relayProof.totals).toEqual(verification.totals)
+    // The backfilled fact resolves the recorded payouts in the after-ledger.
+    expect(manifest.after.totalNetworkFeesPiconeros).toBe(String(verification.totals.F))
+  })
+
+  test('a proved journal-less recorded sweep backfills its journal row without naming a coverage gap', () => {
+    const hash = 'df'.repeat(32)
+    const cold = verifiedFixtureIds.COLD
+    const input = approve()
+    input.ledger.distributions[0].opsSweepTxHash = hash
+    input.ledger.distributions[0].opsSweptPiconeros = 500n
+    input.evidence.outgoing.push({
+      txHash: hash,
+      accountIndex: 0,
+      feePiconeros: '7',
+      destinations: [{ address: cold, amountPiconeros: '500' }],
+      height: FI.HEIGHT.SWEEP,
+      inTxPool: false,
+      isConfirmed: true,
+      isRelayed: true,
+      isSelfTransfer: false,
+      relayState: 'confirmed'
+    })
+    input.evidence.paymentVerifications = [completeSweepVerification({ hash, scope: input.scope })]
+    input.evidence.evidenceVersion = 2
+    input.evidence.collectionStartedAt = FI.DATE.INCOMING
+    input.evidence.observedAt = FI.DATE.INCOMING
+    const manifest = buildRewardsReconciliation(input)
+    expect(codesOf(manifest)).not.toContain('RECORDED_SWEEP_EVIDENCE_MISSING')
+    expect(codesOf(manifest)).not.toContain('RECORDED_SWEEP_PRINCIPAL_UNPROVEN')
+    const inserts = manifest.operations.filter(op => op.kind === 'insert' && op.table === 'RewardsWalletTransaction')
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].after).toMatchObject({
+      kind: 'OPS_SWEEP',
+      state: 'RELAYED',
+      distributionId: 1,
+      principalPiconeros: '500',
+      networkFeePiconeros: '7',
+      metadata: { destination: cold },
+      relayedAt: VERIFIED_OBSERVED_AT,
+      relayProvenance: 'legacy-complete-payment-backfill',
+      dispatchId: null,
+      proofId: null
+    })
+    expect(inserts[0].relayProof.captureMode).toBe('LEGACY_SURVIVING_PROOF')
+    expect(Object.keys(inserts[0].relayProof).sort()).toEqual(RELAY_PROOF_FIELDS)
+  })
+
+  test('an unsupported owned internal target is named and never inserted', async () => {
+    const { input } = await legacyBackfillInput()
+    const verification = {
+      ...input.evidence.paymentVerifications[0],
+      status: 'unsupported',
+      issues: ['OWNED_CHANGE_SPLIT_UNSUPPORTED'],
+      survivingEvidenceDigest: null
+    }
+    input.evidence.paymentVerifications = [verification]
+    const manifest = buildRewardsReconciliation(input)
+    expect(codesOf(manifest)).toContain('RECORDED_PAYOUT_PROOF_UNSUPPORTED')
+    expect(manifest.operations.filter(op => op.kind === 'insert' && op.table === 'RewardsWalletTransaction')).toEqual([])
+  })
+
+  test('collected ESCROW verifications cover a settlement leg missing from escrow history', () => {
+    const input = approve()
+    const escrowScope = { network: input.scope.network, walletAddress: FI.ADDRESS.ESCROW }
+    // The rollover payment's prize leg is absent from the escrow history.
+    input.evidence.escrow.outgoing = input.evidence.escrow.outgoing.filter(entry => entry.txHash !== FI.TX.ROLLOVER)
+    const missing = buildRewardsReconciliation(input)
+    expect(codesOf(missing)).toContain('RECORDED_ESCROW_LEG_EVIDENCE_MISSING')
+
+    // The collector's own ESCROW verifications cover EVERY leg through the
+    // manifest flow: normalization projects them, and the reverse check binds
+    // them instead of naming the legs (final-review I1: complete verifications
+    // are the only escrow-leg coverage).
+    input.evidence.evidenceVersion = 2
+    input.evidence.escrow.paymentVerifications = [
+      completeEscrowVerification({
+        hash: FI.TX.ROLLOVER,
+        scope: escrowScope,
+        address: FI.ADDRESS.WALLET,
+        id: '22'
+      }),
+      completeEscrowVerification({
+        hash: FI.TX.AWARD,
+        scope: escrowScope,
+        address: FI.ADDRESS.CURATOR_ONE,
+        amount: '100',
+        id: '21'
+      })
+    ]
+    const covered = buildRewardsReconciliation(input)
+    expect(codesOf(covered)).not.toContain('RECORDED_ESCROW_LEG_EVIDENCE_MISSING')
+    // Final-review I1 rounds 2-3: a validator-valid complete verification
+    // paying a DIFFERENT recipient (whatever its member id) does not carry the
+    // recorded leg member — the leg stays named through the manifest flow.
+    const wrongRecipient = structuredClone(input)
+    wrongRecipient.evidence.escrow.paymentVerifications = [
+      completeEscrowVerification({
+        hash: FI.TX.AWARD,
+        scope: escrowScope,
+        address: FI.ADDRESS.CURATOR_TWO,
+        amount: '1',
+        id: '21'
+      }),
+      completeEscrowVerification({
+        hash: FI.TX.ROLLOVER,
+        scope: escrowScope,
+        address: FI.ADDRESS.WALLET,
+        id: '22'
+      })
+    ]
+    const wrongCodes = codesOf(buildRewardsReconciliation(wrongRecipient))
+    expect(wrongCodes).toContain('RECORDED_ESCROW_LEG_MEMBER_MISMATCH')
+    expect(wrongCodes).not.toContain('RECORDED_ESCROW_LEG_EVIDENCE_MISSING')
+    // The v1-shaped same evidence (no version marker) keeps building as a
+    // historical artifact: collected verifications never authorize repair.
+    const historical = structuredClone(input)
+    historical.evidence.evidenceVersion = 1
+    expect(codesOf(buildRewardsReconciliation(historical))).toContain('RECORDED_ESCROW_LEG_EVIDENCE_MISSING')
+  })
+})
+
+const ISOLATED_DB = (() => {
+  try { return new URL(process.env.DATABASE_URL).pathname === '/stasher_rewards_repair_test' } catch { return false }
+})()
+
+;(ISOLATED_DB ? describe : describe.skip)('v2 evidence-bound promotion (isolated DB only)', () => {
+  afterAll(async () => {
+    await closeVerifiedRepairFixtures()
+  })
+
+  test('the verified collection promotes the attempted PREPARED row exactly once', async () => {
+    const f = await verifiedRepairFixture({ kind: 'PAYOUT' })
+    const manifest = buildRewardsReconciliation(f.input)
+    const promotions = manifest.operations.filter(op => op.after?.state === 'RELAYED')
+    expect(promotions).toHaveLength(1)
+    expect(codesOf(manifest)).toEqual([])
+    expect(promotions[0].after.relayedAt).toBe('2026-10-06T12:00:00.000Z')
+    expect(promotions[0].after.relayProvenance).toBe('chain-proof-observation')
+    expect(promotions[0].relayProof.version).toBe(2)
+    expect(f.input.ledger.transactions[0].state).toBe('PREPARED')
+  })
+
+  test('the v2 precondition comparator accepts the approved snapshot and refuses any change', async () => {
+    const f = await verifiedRepairFixture({ kind: 'PAYOUT' })
+    const manifest = buildRewardsReconciliation(f.input)
+    const ledger = {
+      ...f.input.ledger,
+      accountingFingerprint: manifest.ledgerFingerprint,
+      accountingFingerprintVersion: 2
+    }
+    expect(assertRepairPreconditions(manifest, ledger, f.approvedEvidence)).toBe(true)
+
+    // Any post-approval ledger change refuses the apply: the fine-grained
+    // precondition view names ledger/term/config changes...
+    const changed = { ...ledger, transactions: [...ledger.transactions] }
+    changed.transactions[0] = { ...changed.transactions[0], networkFeePiconeros: 9n }
+    expect(() => assertRepairPreconditions(manifest, changed, f.approvedEvidence))
+      .toThrow(/approved ledger, item terms or fee config changed/)
+
+    // ...and the shared v2 audit identity is the catch-all for snapshot facts
+    // outside that view (distribution status/payoutCount/opsSweepState).
+    const sweepState = { ...ledger, distributions: [{ ...ledger.distributions[0], opsSweepState: 'SWEPT' }] }
+    expect(() => assertRepairPreconditions(manifest, sweepState, f.approvedEvidence))
+      .toThrow(/scoped ledger changed/)
+
+    // The approved evidence digest binds the collection (observation included).
+    const tamperedEvidence = { ...f.approvedEvidence, observedAt: '2026-10-06T12:00:01.000Z' }
+    expect(() => assertRepairPreconditions(manifest, ledger, tamperedEvidence))
+      .toThrow(/approved evidence digest/)
   })
 })

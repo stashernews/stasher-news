@@ -371,7 +371,7 @@ export const getAuthOptions = (req, res) => ({
   providers: getProviders(req, res),
   adapter: {
     ...PrismaAdapter(prisma),
-    createUser: data => {
+    createUser: async data => {
       if (req.cookies.signin) return null
       // replace email with email hash in new user payload
       if (data.email) {
@@ -382,11 +382,20 @@ export const getAuthOptions = (req, res) => ({
         delete data.email
         // data.email used to be used for name of new accounts. since it's missing, let's generate a new name
         data.name = data.emailHash.substring(0, 10)
-        // sign them up for the newsletter
-        // don't await it, let it run async
-        enrollInNewsletter({ email })
       }
-      return prisma.user.create({ data })
+      const user = await prisma.user.create({ data })
+      if (user?.emailHash) {
+        // newsletter enrollment via the worker: a local DB INSERT, wrapped so
+        // a queue hiccup can never fail signup; the daily newsletterSync
+        // reconcile backstops any lost job
+        try {
+          await prisma.$executeRaw`INSERT INTO pgboss.job (id, name, data)
+            VALUES (gen_random_uuid(), 'newsletterEnroll', jsonb_build_object('userId', ${user.id}::INTEGER))`
+        } catch (err) {
+          console.error('newsletter enrollment enqueue failed', err?.code ?? err?.message)
+        }
+      }
+      return user
     },
     getUserByEmail: async email => {
       const hashedEmail = hashEmail({ email })
@@ -508,34 +517,6 @@ export const getAuthOptions = (req, res) => ({
   },
   events: getEventCallbacks()
 })
-
-async function enrollInNewsletter ({ email }) {
-  if (process.env.LIST_MONK_URL && process.env.LIST_MONK_AUTH) {
-    try {
-      const response = await fetch(process.env.LIST_MONK_URL + '/api/subscribers', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Basic ' + Buffer.from(process.env.LIST_MONK_AUTH).toString('base64')
-        },
-        body: JSON.stringify({
-          email,
-          name: 'blank',
-          lists: [2],
-          status: 'enabled',
-          preconfirm_subscriptions: true
-        })
-      })
-      const jsonResponse = await response.json()
-      console.log(jsonResponse)
-    } catch (err) {
-      console.log('error signing user up for newsletter')
-      console.log(err)
-    }
-  } else {
-    console.log('LIST MONK env vars not set, skipping newsletter enrollment')
-  }
-}
 
 export default async (req, res) => {
   await NextAuth(req, res, getAuthOptions(req, res))

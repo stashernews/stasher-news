@@ -23,10 +23,13 @@
 //   - rewardsWalletObserver (worker/rewardsWalletObserver.js:325 lastTxId
 //     cursor + ON CONFLICT DO NOTHING ... RETURNING idempotency on every
 //     insert): verified -> retries ON.
-//   - bounties (worker/bounties.js -> api/monero/bounties.js
-//     sendBountyPayments): payout dispatch is relay-before-persist with NO
-//     claim/CAS (createTx relay:true at api/monero/bounties.js:95 precedes the
-//     SENT persist at :166) -> KEEPS retryLimit: 0 (+ TODO in worker/bounties.js).
+//   - bounties (worker/bounties.js -> api/monero/escrowTransactions.js
+//     sendBountyPayments): payout dispatch is now capture-barrier protected —
+//     durable journal+proof pair, DB-only attempt CAS, relay never inside a
+//     retried transaction; a mid-dispatch interruption leaves the leg
+//     withheld for reconciliation (retryLimit stays 0: an immediate job retry
+//     would only re-scan the same sweep, the next cron tick re-runs it with
+//     fresh state).
 //   - dbBackup / rewardsDistributor: cron-owned (pgboss.schedule migrations
 //     20260808160000_schedule_db_backup / 20260807160000_schedule_rewards_distributor)
 //     — left as-is this pass; handler-side alerts + nightly/weekly cadence cover

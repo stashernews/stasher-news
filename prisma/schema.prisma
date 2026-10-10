@@ -24,6 +24,9 @@ model User {
   emailCiphertext         String?
   emailNotifications      Boolean              @default(true)
   emailDigestSentAt       DateTime?
+  newsletterOptIn         Boolean              @default(true)
+  newsletterSuppressed    Boolean              @default(false)
+  resendContactId         String?
   checkedNotesAt          DateTime?
   foundNotesAt            DateTime?
   apiKeyHash              String?              @unique(map: "users.apikeyhash_unique") @db.Char(64)
@@ -1502,6 +1505,23 @@ enum RewardsWalletTxKind {
   CONSOLIDATION
 }
 
+// Bounty escrow dispatch kinds (Finding #1). LEGACY_SEPARATE_FEE records the
+// separately-settled fee tx of the pre-2026-09-18 deferred-fee shape; its
+// member legs and journal leg are LEGACY_SEPARATE_FEE (CHECK-enforced).
+enum EscrowWalletTxKind {
+  AWARD
+  RECLAIM
+  ROLLOVER
+  LEGACY_SEPARATE_FEE
+}
+
+// Which escrow obligation one tx settles: the disposition (prize [+ fee in
+// one tx]) or the legacy separately-relayed fee.
+enum EscrowPaymentLeg {
+  DISPOSITION
+  LEGACY_SEPARATE_FEE
+}
+
 enum RewardsWalletTxState {
   PREPARED
   RELAYED
@@ -1815,6 +1835,8 @@ model BountyPayment {
   item   Item @relation(fields: [itemId], references: [id])
   winner User @relation(fields: [winnerUserId], references: [id])
 
+  escrowTransactions EscrowWalletTransaction[]
+
   @@index([itemId])
   @@index([state])
 }
@@ -1955,12 +1977,99 @@ model RewardsWalletTransaction {
   preparedAt          DateTime             @default(now())
   relayAttemptedAt    DateTime?
   relayedAt           DateTime?
+  // Proof-era capture (Finding #1): all five columns are written together in
+  // one INSERT or all stay null (legacy rows) — migration SQL enforces the
+  // all-or-nothing v1 tuple, the deferred pair triggers bind proofId to the
+  // PaymentTransactionProof row, and an immutability trigger forbids changing
+  // any captured fact after creation. relayProvenance is mutable relay
+  // bookkeeping, not captured payment identity.
+  dispatchId             String?  @unique @db.Uuid
+  captureContractVersion Int?
+  claimDigest            String?
+  paymentClaims          Json?
+  proofId                String?  @unique @db.Uuid
+  relayProvenance        String?
 
   distribution RewardDistribution? @relation(fields: [distributionId], references: [id])
+  paymentProof PaymentTransactionProof? @relation("RewardsPaymentProof")
 
   @@unique([network, walletAddress, txHash])
   @@index([network, walletAddress, state])
   @@index([distributionId])
+}
+
+// Bounty escrow dispatch journal (Finding #1): one row per escrow send, always
+// a complete proof-era capture (no legacy rows — legacy escrow history is
+// recovered read-only, never synthesized). Unique by scope triple and by
+// (network, walletAddress, bountyPaymentId, leg): one tx per escrow leg, so an
+// attempted leg can never gain a competing hash. itemId is frozen attribution
+// checked against its BountyPayment inside preparation; there is deliberately
+// no second Item relation. Immutable captured facts (identity, claims, kind,
+// leg, attribution, principal, fee, metadata) are protected by the migration's
+// trigger; state/timestamps/relayProvenance follow the existing journal rules.
+model EscrowWalletTransaction {
+  id                     BigInt               @id @default(autoincrement())
+  network                Network
+  walletAddress          String
+  txHash                 String
+  dispatchId             String               @unique @db.Uuid
+  proofId                String               @unique @db.Uuid
+  captureContractVersion Int
+  claimDigest            String
+  paymentClaims          Json
+  kind                   EscrowWalletTxKind
+  leg                    EscrowPaymentLeg
+  bountyPaymentId        Int
+  itemId                 Int
+  accountIndex           Int
+  principalPiconeros     BigInt
+  networkFeePiconeros    BigInt
+  metadata               Json
+  state                  RewardsWalletTxState @default(PREPARED)
+  preparedAt             DateTime             @default(now())
+  relayAttemptedAt       DateTime?
+  relayedAt              DateTime?
+  relayProvenance        String?
+
+  bountyPayment BountyPayment            @relation(fields: [bountyPaymentId], references: [id], onDelete: Restrict)
+  paymentProof  PaymentTransactionProof? @relation("EscrowPaymentProof")
+
+  @@unique([network, walletAddress, txHash])
+  @@unique([network, walletAddress, bountyPaymentId, leg])
+  @@index([network, walletAddress, state])
+}
+
+// The encrypted payment-proof envelope (Finding #1): exactly one owner — the
+// hot rewards journal OR the escrow dispatch journal (CHECK + deferred pair
+// triggers). Rows are self-authenticating EnvelopeV1 material bound to the
+// canonical claims (claimDigest/bindingDigest); byte fields are the GCM
+// nonces/tags/ciphertext/wrapped DEK. Owner linkage and claimDigest are
+// immutable; rotation may replace envelope bytes/headers only with an
+// increasing revision. Full-envelope reads are confined to the proof store
+// (and the separately authorized rotation task) — public surfaces read
+// inventory metadata only.
+model PaymentTransactionProof {
+  id               String   @id @db.Uuid
+  rewardsJournalId BigInt?  @unique
+  escrowJournalId  BigInt?  @unique
+  revision         Int      @default(1)
+  masterKeyVersion Int
+  bindingVersion   Int
+  envelopeVersion  Int
+  payloadVersion   Int
+  claimDigest      String
+  bindingDigest    String
+  dataNonce        Bytes
+  dataTag          Bytes
+  ciphertext       Bytes
+  wrapNonce        Bytes
+  wrapTag          Bytes
+  wrappedDek       Bytes
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  rewardsJournal RewardsWalletTransaction? @relation("RewardsPaymentProof", fields: [rewardsJournalId], references: [id], onDelete: Restrict)
+  escrowJournal  EscrowWalletTransaction?  @relation("EscrowPaymentProof", fields: [escrowJournalId], references: [id], onDelete: Restrict)
 }
 
 // Idempotent reconciliation application audit (rewards accounting repair §8):
@@ -2009,7 +2118,31 @@ model HealthSnapshot {
   // max(UserSubTrust.updated_at), which territory create/unarchive also
   // refresh with incidental rows.
   trustCompletedAt  DateTime?
-  updatedAt        DateTime  @updatedAt
+  // Newsletter bridge (worker/newsletter.js writes on each sync; /api/health
+  // and /metrics read). nullable = "not known yet" before the first sync.
+  newsletterConfigured     Boolean?
+  newsletterContactsActive Int?
+  newsletterLastSentAt     DateTime?
+  // Freshness for the newsletter bridge ONLY. The shared updatedAt is bumped by
+  // healthProbe every 60s, so it cannot tell whether the newsletter last synced;
+  // readers gate on THIS (stale → newsletter state reads "not known").
+  newsletterSyncedAt       DateTime?
+  updatedAt                DateTime  @updatedAt
+}
+
+// One row per newsletter issue. periodKey (ISO week, e.g. "2026-W41") is the
+// idempotency key for the biweekly send: the weekly cron tick only builds an
+// issue when no campaign has sentAt within the last 14 days, and a re-run
+// updates the existing row instead of double-sending.
+model NewsletterCampaign {
+  id                Int       @id @default(autoincrement())
+  createdAt         DateTime  @default(now())
+  periodKey         String    @unique
+  resendBroadcastId String?
+  subject           String
+  status            String
+  sentAt            DateTime?
+  stats             Json?
 }
 
 // Downvote payment_id reverse map (created at URI-generation time).

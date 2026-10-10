@@ -88,6 +88,7 @@ export const SETTINGS_FIELDS = gql`
       noteBadges
       noteQuests
       emailNotifications
+      newsletterOptIn
       hideFromTopUsers
       hideStashAmount
       hideBadges
