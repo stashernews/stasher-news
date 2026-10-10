@@ -11,10 +11,16 @@ RUN useradd -om -u "$UID" -g "$GID" apprunner
 
 WORKDIR /app
 
-# pg_dump/psql for scripts/deploy-migrate.sh (pre-migration snapshot + rollback)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
+# pg_dump/psql for scripts/deploy-migrate.sh (pre-migration snapshot + rollback).
+# Bullseye's default client is v13. That security deb 404s, and v13 mismatches
+# postgres 16. Pull v16 from the PGDG archive. The live apt repo dropped bullseye.
+RUN curl -sL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      | gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg \
+ && echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] https://apt-archive.postgresql.org/pub/repos/apt bullseye-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-client-16 \
+ && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 3000
 

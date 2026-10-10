@@ -12,10 +12,11 @@ RUN useradd -om -u "$UID" -g "$GID" apprunner
 # pg_dump for the nightly encrypted-backup job (worker/dbBackup.js). Must match
 # the db major version (postgres:16) — bullseye's default postgresql-client is
 # v13, which aborts against a v16 server with "server version mismatch", so pull
-# v16 from the official PGDG apt repo. curl/wget ship in the base image.
+# v16 from the PGDG archive. The live apt repo no longer publishes bullseye.
+# curl/wget ship in the base image.
 RUN curl -sL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
       | gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg \
- && echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] http://apt.postgresql.org/pub/repos/apt bullseye-pgdg main" \
+ && echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] https://apt-archive.postgresql.org/pub/repos/apt bullseye-pgdg main" \
       > /etc/apt/sources.list.d/pgdg.list \
  && apt-get update \
  && apt-get install -y --no-install-recommends postgresql-client-16 \
