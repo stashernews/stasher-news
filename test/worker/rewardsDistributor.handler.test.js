@@ -82,8 +82,33 @@ function freshDistribution (overrides = {}) {
 
 function fakeModels ({ distribution, fresh, latest } = {}) {
   return {
-    moneroAccount: { findFirst: jest.fn().mockResolvedValue(null) },
-    rewardsWalletTransaction: { findMany: jest.fn().mockResolvedValue([]) },
+    // The ledger now reads the complete audit snapshot. Empty groups are
+    // explicit; a missing model or unregistered wallet must still fail closed.
+    moneroAccount: {
+      findFirst: jest.fn(async ({ where }) => where.label === 'platform_rewards'
+        ? { id: 1, label: where.label, network: 'STAGENET', address: process.env.PLATFORM_REWARDS_ADDRESS }
+        : null)
+    },
+    subaddressIndex: { findMany: jest.fn().mockResolvedValue([]) },
+    feeObservation: { findMany: jest.fn().mockResolvedValue([]) },
+    observedDownvote: { findMany: jest.fn().mockResolvedValue([]) },
+    escrowWalletTransaction: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn().mockResolvedValue(null) },
+    bountyPayment: { findMany: jest.fn().mockResolvedValue([]) },
+    observedBounty: { findMany: jest.fn().mockResolvedValue([]) },
+    observedBountyReceipt: { findMany: jest.fn().mockResolvedValue([]) },
+    item: { findMany: jest.fn().mockResolvedValue([]) },
+    earn: { findMany: jest.fn().mockResolvedValue([]) },
+    paymentTransactionProof: { findUnique: jest.fn().mockResolvedValue(null) },
+    platformFeeConfig: {
+      findUnique: jest.fn().mockResolvedValue({
+        downvoteRewardsPct: 100,
+        postingFeeRewardsPct: 70,
+        territoryFeeRewardsPct: 30,
+        boostRewardsPct: 30,
+        walletlessTipRewardsPct: 70
+      })
+    },
+    rewardsWalletTransaction: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn().mockResolvedValue(null) },
     rewardsWalletReconciliation: { findMany: jest.fn().mockResolvedValue([]) },
     rewardPayout: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
     rewardDistribution: {

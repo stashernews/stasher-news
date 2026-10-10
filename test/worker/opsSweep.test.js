@@ -22,6 +22,8 @@
 import { sweepOpsEarmark } from '@/api/monero/rewards'
 import { logInfo, logWarn, logError } from '../../lib/logger'
 import { alert } from '../../lib/alert'
+import { paymentFixture, secretBundleHex } from '@/test/fixtures/payment-proof'
+import { prepareWalletTransaction, relayWalletTransaction } from '@/api/monero/rewardsTransactions'
 
 // D1 migrated rewards.js from console.* to the pino logger (lib/logger.js), so
 // CRITICAL/relayed logs no longer hit console.error/console.log. Mock the logger
@@ -38,13 +40,19 @@ jest.mock('../../lib/alert', () => ({ __esModule: true, alert: jest.fn() }))
 // The Task 6/7 accounting helpers bind every read and send to the configured
 // rewards wallet scope: the environment must name the same primary address and
 // network the fake wallet/DB rows report, or the sweep fails closed.
-process.env.PLATFORM_REWARDS_ADDRESS = process.env.PLATFORM_REWARDS_ADDRESS || '5HOTTESTADDRESS'
-process.env.MONERO_NETWORK = process.env.MONERO_NETWORK || 'stagenet'
+const savedProofEnv = Object.fromEntries([
+  'PLATFORM_REWARDS_ADDRESS', 'MONERO_NETWORK', 'TXPROOF_MASTER_KEYS', 'TXPROOF_MASTER_KEY_CURRENT_VERSION'
+].map(key => [key, process.env[key]]))
+const payment = paymentFixture({ network: 'STAGENET' })
+process.env.PLATFORM_REWARDS_ADDRESS = payment.scope.walletAddress
+process.env.MONERO_NETWORK = 'stagenet'
+process.env.TXPROOF_MASTER_KEYS = JSON.stringify({ 1: Buffer.alloc(32, 11).toString('base64') })
+process.env.TXPROOF_MASTER_KEY_CURRENT_VERSION = '1'
 const HOT = process.env.PLATFORM_REWARDS_ADDRESS
 const NETWORK = String(process.env.MONERO_NETWORK).toUpperCase()
 const NETWORK_TYPE = NETWORK === 'MAINNET' ? 0 : 2
 
-const COLD_ADDRESS = '5COLD' + 'A'.repeat(90)
+const COLD_ADDRESS = payment.members[0].address
 const MIN_FLOOR = 1_000_000_000n // default REWARDS_OPS_SWEEP_MIN_PICONEROS (0.001 XMR)
 const TIME = new Date('2026-10-12T00:00:00.000Z')
 const XMR = 1_000_000_000_000n
@@ -83,6 +91,10 @@ beforeAll(() => {
   process.env.REWARDS_OPS_SWEEP_ENABLED = 'true'
 })
 afterAll(() => {
+  for (const [key, value] of Object.entries(savedProofEnv)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
   if (savedCold === undefined) delete process.env.REWARDS_COLD_STORAGE_ADDRESS
   else process.env.REWARDS_COLD_STORAGE_ADDRESS = savedCold
   if (savedEnabled === undefined) delete process.env.REWARDS_OPS_SWEEP_ENABLED
@@ -136,15 +148,20 @@ const feeFact = (fee, txHash) => ({
 // preparation failure.
 function makeFakeJournal () {
   const rows = new Map()
+  const proofs = new Map()
   let idSeq = 0
   let createFailures = 0
   let relayedPersistFailures = 0
 
   const matches = (row, where = {}) => {
-    if (where.id !== undefined && row.id !== where.id) return false
+    if (where.id !== undefined && String(row.id) !== String(where.id)) return false
     if (where.network !== undefined && row.network !== where.network) return false
     if (where.walletAddress !== undefined && row.walletAddress !== where.walletAddress) return false
     if (where.state !== undefined && row.state !== where.state) return false
+    if (where.kind !== undefined && row.kind !== where.kind) return false
+    if (where.dispatchId !== undefined) {
+      if (where.dispatchId === null ? row.dispatchId != null : row.dispatchId == null) return false
+    }
     if (where.relayAttemptedAt !== undefined) {
       const filter = where.relayAttemptedAt
       if (filter === null) {
@@ -159,6 +176,29 @@ function makeFakeJournal () {
 
   return {
     rows,
+    proofs,
+    paymentTransactionProof: {
+      async create ({ data }) {
+        proofs.set(String(data.id), { ...data })
+        return { ...data }
+      },
+      async findUnique ({ where }) {
+        return copy(proofs.get(String(where.id))) ?? null
+      }
+    },
+    async $executeRaw () { return 0 },
+    async $queryRawUnsafe (sql, ...args) {
+      if (/FROM "RewardsWalletTransaction"/.test(sql)) {
+        const row = rows.get(Number(args[0]))
+        return row ? [copy(row)] : []
+      }
+      if (/FROM "PaymentTransactionProof"/.test(sql)) {
+        const proof = proofs.get(String(args[0]))
+        if (!proof) return []
+        return [sql.includes('revision') ? { revision: proof.revision } : { id: proof.id }]
+      }
+      throw new Error('unexpected proof-store query')
+    },
     failCreates (n) { createFailures = n },
     failRelayedPersist (n) { relayedPersistFailures = n },
     matches,
@@ -179,7 +219,7 @@ function makeFakeJournal () {
         throw new Error('journal create down')
       }
       const id = ++idSeq
-      const row = { id, state: 'PREPARED', relayAttemptedAt: null, relayedAt: null, ...data }
+      const row = { id, state: 'PREPARED', preparedAt: new Date(), relayAttemptedAt: null, relayedAt: null, relayProvenance: null, ...data }
       rows.set(id, row)
       return copy(row)
     },
@@ -243,7 +283,7 @@ function makeFakeModels (distribution) {
     observedBountyReceipt: { findMany: async () => [] },
     item: { findMany: async () => [] },
     earn: { findMany: async () => [] },
-    paymentTransactionProof: { findUnique: async () => null }
+    paymentTransactionProof: journal.paymentTransactionProof
   }
   const models = {
     store,
@@ -251,10 +291,13 @@ function makeFakeModels (distribution) {
     accountingFixture: { ...defaults },
     healthSnapshot: { upsert: jest.fn(async () => ({})) },
     platformFeeConfig: { upsert: async () => CONFIG, findUnique: async () => CONFIG },
+    $executeRaw: journal.$executeRaw,
+    $queryRawUnsafe: journal.$queryRawUnsafe,
     ...snapshotGroups,
     // The two readRewardsInflow windows are distinguished by the bound start
     // value, exactly as the real reader binds them.
     async $queryRaw (strings, ...values) {
+      if (strings.join('').includes('synchronous_commit')) return [{ synchronous_commit: 'on' }]
       const f = fixture()
       const start = values[0]
       const row = { ...ZERO_ROW, time: TIME }
@@ -300,6 +343,7 @@ function makeFakeModels (distribution) {
         return [{
           id: 9001,
           distributionId: store.id,
+          curatorId: 1,
           state: 'QUEUED',
           txHash: null,
           recipientAddress: '5REWARDED',
@@ -445,7 +489,16 @@ function makeFakeWallet ({
         fee: networkFee,
         relayed: false
       })
-      return { getHash: () => txHash, getFee: async () => networkFee }
+      return {
+        getHash: () => txHash,
+        getFee: async () => networkFee,
+        getOutgoingTransfer: () => ({
+          getDestinations: () => [{ getAddress: () => req.address, getAmount: () => BigInt(req.amount) }]
+        }),
+        getChangeAddress: () => null,
+        getChangeAmount: async () => null,
+        getKey: () => secretBundleHex(BigInt('0x' + txHash.slice(0, 12)), 2)
+      }
     },
     async relayTx (tx) {
       order.push('relayTx')
@@ -856,6 +909,7 @@ test('a journal-proven prior sweep (unpersisted distribution fact) cannot be swe
   const dist = makeDistribution({ opsAvailablePiconeros: 70_000_000_000n, opsNetworkFeesAccountedPiconeros: 0n })
   const models = makeFakeModels(dist)
   models.accountingFixture.transactions = [{
+    ...feeFact(2_000_000_000n, hex('c1')),
     network: NETWORK,
     walletAddress: HOT,
     txHash: hex('c1'),
@@ -876,36 +930,48 @@ test('a journal-proven prior sweep (unpersisted distribution fact) cannot be swe
   expect(models.store.opsSweptPiconeros).toBe(res.swept)
 })
 
-test('a proven relay its journal could not persist blocks the sweep until recovered', async () => {
+test('a directly proven payout whose journal could not persist blocks the sweep', async () => {
   const dist = makeDistribution({ opsAvailablePiconeros: 50_000_000_000n, opsNetworkFeesAccountedPiconeros: 0n })
   const models = makeFakeModels(dist)
-  models.accountingFixture.transactions = [{
-    network: NETWORK,
-    walletAddress: HOT,
-    txHash: hex('e1'),
-    kind: 'PAYOUT',
-    state: 'PREPARED',
-    relayAttemptedAt: new Date('2026-10-05T00:00:00.000Z'),
+  const principal = 60_000_000_000n
+  const payout = {
+    id: 7,
     distributionId: dist.id,
-    principalPiconeros: 60_000_000_000n,
-    networkFeePiconeros: 1_000_000_000n,
-    metadata: { payouts: [{ payoutId: 7, recipientAddress: '5A', piconeros: '60000000000' }] }
-  }]
-  const wallet = makeFakeWallet({ unlocked: 100_000_000_000n, fee: 0n })
-  // The wallet's own history proves the exact relay...
-  wallet.records.set(hex('e1'), {
-    hash: hex('e1'),
+    curatorId: 1,
+    state: 'QUEUED',
+    txHash: null,
+    piconeros: principal,
+    recipientAddress: COLD_ADDRESS
+  }
+  models.rewardPayout.findMany = async () => [{ ...payout }]
+  models.rewardPayout.findUnique = async ({ where }) => where.id === payout.id ? { ...payout } : null
+  const wallet = makeFakeWallet({ unlocked: 100_000_000_000n, fee: 1_000_000_000n })
+  const tx = await wallet.createTx({ accountIndex: 0, address: COLD_ADDRESS, amount: principal, relay: false })
+  const journal = await prepareWalletTransaction({
+    models,
+    wallet,
+    scope: { network: NETWORK, walletAddress: HOT },
+    tx,
+    kind: 'PAYOUT',
     accountIndex: 0,
-    destinations: [{ address: '5A', amount: 60_000_000_000n }],
-    fee: 1_000_000_000n,
-    relayed: true
+    distributionId: dist.id,
+    principalPiconeros: principal,
+    metadata: { payouts: [{ payoutId: 7, recipientAddress: COLD_ADDRESS, piconeros: principal.toString() }] }
   })
-  // ...but the journal RELAYED state cannot be persisted (both attempts fail).
+  const updateMany = jest.spyOn(models.rewardsWalletTransaction, 'updateMany')
   models.journal.failRelayedPersist(2)
+  const relay = await relayWalletTransaction({ models, wallet, journal, tx })
+  expect(relay).toMatchObject({ relayed: true, uncertain: false, accountingUnpersisted: 1 })
+  expect(updateMany.mock.calls.filter(([{ data }]) => data.state === 'RELAYED')).toHaveLength(2)
+  expect(models.journal.rows.get(journal.id).state).toBe('PREPARED')
+  expect(models.journal.proofs.size).toBe(1)
+
+  // The direct broadcast is known, but its unpersisted accounting stays
+  // unresolved without fresh confirmed verification. No further spend is safe.
   const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
   expect(res).toEqual({ state: 'FAILED' })
-  expect(wallet.calls).toHaveLength(0)
-  expect(wallet.relayCalls).toHaveLength(0)
+  expect(wallet.calls).toHaveLength(1) // only the prior payout was built
+  expect(wallet.relayCalls).toHaveLength(1) // only the prior payout was relayed
   expect(models.store.opsSweepState).toBe('NOT_SWEEPED')
   expect(alert).toHaveBeenCalledWith('critical', expect.stringContaining('accounting'), expect.any(String), expect.any(Object))
 })
@@ -954,6 +1020,7 @@ test('an unresolved journal attempt refuses the sweep with a specific alert and 
   const dist = makeDistribution({ opsAvailablePiconeros: 50_000_000_000n, opsNetworkFeesAccountedPiconeros: 0n })
   const models = makeFakeModels(dist)
   models.accountingFixture.transactions = [{
+    ...feeFact(1_000_000_000n, hex('d2')),
     network: NETWORK,
     walletAddress: HOT,
     txHash: hex('d2'),
@@ -1090,7 +1157,8 @@ test('exhausting the bounded build loop is a deferral, never an over-budget send
 test('a journal preparation failure never relays and leaves the distribution state untouched', async () => {
   const dist = makeDistribution({ opsAvailablePiconeros: 5_000_000_000n, opsNetworkFeesAccountedPiconeros: 0n })
   const models = makeFakeModels(dist)
-  models.journal.failCreates(1)
+  // Both the initial prepare and its fresh pair-resolution attempt fail.
+  models.journal.failCreates(2)
   const wallet = makeFakeWallet({ unlocked: 10_000_000_000n, fee: 0n })
   const res = await sweepOpsEarmark({ distribution: dist, models, wallet })
   expect(res).toEqual({ state: 'FAILED' })

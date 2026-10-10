@@ -734,8 +734,8 @@ if (!ISOLATED_DB) {
     expect(RELAY_PROOF_FIELDS).toEqual([
       'captureMode', 'claimDigest', 'confirmation', 'dispatchId', 'evidenceDigest',
       'journalId', 'journalRole', 'members', 'observedAt', 'ownedAccounting',
-      'proofInventory', 'provenance', 'receivingAggregates', 'sdkVersion',
-      'scope', 'sourceAccounts', 'survivingEvidenceDigest', 'totals', 'txHash',
+      'proofInventory', 'provenance', 'receivingAggregates', 'scope',
+      'sdkVersion', 'sourceAccounts', 'survivingEvidenceDigest', 'totals', 'txHash',
       'verificationVersion', 'verifierVersion', 'version'
     ])
   })
