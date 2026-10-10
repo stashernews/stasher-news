@@ -1,8 +1,5 @@
 /* eslint-env jest */
-import { randomUUID } from 'node:crypto'
-import { PrismaClient } from '@prisma/client'
-import resolvers, { updateItem } from '@/api/resolvers/item'
-import { createMoneroWallLoader } from '@/lib/monero-wall/loader'
+import resolvers from '@/api/resolvers/item'
 
 // api/resolvers/item.js drags in heavy ESM-only transitive deps; the mocks
 // below break that chain — same pattern as test/api/resolvers/item-*.test.js.
