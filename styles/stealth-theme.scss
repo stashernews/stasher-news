@@ -423,6 +423,11 @@
         object-fit: cover;
         border-radius: 8px;
       }
+
+      // a thumbnail shows the first upload only; no gallery controls
+      .card-media-nav {
+        display: none;
+      }
     }
   }
 
@@ -487,6 +492,11 @@
         max-height: 100%;
         object-fit: cover;
         border-radius: 8px;
+      }
+
+      // a thumbnail shows the first upload only; no gallery controls
+      .card-media-nav {
+        display: none;
       }
     }
   }
