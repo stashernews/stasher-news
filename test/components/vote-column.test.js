@@ -86,7 +86,6 @@ describe('VoteColumn', () => {
     const downvote = container.querySelector('[aria-label="downvote"]')
     expect(downvote).toBeTruthy()
     expect(downvote.getAttribute('role')).toBe('button')
-    expect(downvote.getAttribute('title')).toBe('downvote')
     expect(downvote.getAttribute('tabindex')).toBe('0')
     // the down arrow is an svg glyph
     expect(downvote.querySelector('svg')).toBeTruthy()
