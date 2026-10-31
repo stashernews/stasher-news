@@ -188,11 +188,11 @@ export default function ItemInfo ({
       <PendingFeeBadge item={item} />
       {Number(item.bountyPiconeros) > 0 &&
         <span>
-          {' '}<Badge className={styles.newComment} bg={null}>bounty {piconerosToMXmr(bountyPiconerosOf(item.bountyPiconeros))} · {bountyStatusText}</Badge>
+          {' '}<Badge className={`${styles.newComment} bountyBadge`} bg={null}>bounty {piconerosToMXmr(bountyPiconerosOf(item.bountyPiconeros))} · {bountyStatusText}</Badge>
         </span>}
       {item.bountyAwardedAt &&
         <span>
-          {' '}<Badge className={styles.newComment} bg={null}>bounty winner{root?.bountyPiconeros ? ` · ${piconerosToMXmr(bountyPiconerosOf(root.bountyPiconeros))}` : ''}</Badge>
+          {' '}<Badge className={`${styles.newComment} bountyBadge`} bg={null}>bounty winner{root?.bountyPiconeros ? ` · ${piconerosToMXmr(bountyPiconerosOf(root.bountyPiconeros))}` : ''}</Badge>
         </span>}
       {sub?.nsfw &&
         <Badge className={styles.newComment} bg={null}>nsfw</Badge>}

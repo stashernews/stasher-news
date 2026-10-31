@@ -3,6 +3,7 @@ import DownArrow from '@/svgs/triangle-down.svg'
 import { useShowModal } from './modal'
 import DownvoteModal from './downvote-modal'
 import classNames from 'classnames'
+import ActionTooltip from './action-tooltip'
 import styles from './upvote.module.css'
 
 // Up arrow + visible downvote arrow (rebrand layout). The downvote opens the
@@ -26,9 +27,10 @@ export default function VoteColumn ({ item, className, collapsed }) {
           downvoted ? 'downvoteArrowActive' : 'text-muted',
           collapsed && styles.downvoteCollapsed)}
         style={{ cursor: 'pointer', lineHeight: 1 }}
-        title='downvote'
       >
-        <DownArrow width={26} height={26} className={className} />
+        <ActionTooltip notForm disable={collapsed} overlayText='downtip'>
+          <DownArrow width={26} height={26} className={className} />
+        </ActionTooltip>
       </span>
     </div>
   )

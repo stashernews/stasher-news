@@ -36,6 +36,8 @@
   --rt-ember-hover: #ffd2ae;
   --rt-amber: #ffb000;
   --rt-accent: #ff6600;
+  --rt-accent-muted: #a8501a;
+  --rt-badge-tint: #3d2412;
   --rt-on-primary: #0d0a08;
   --rt-select: rgba(255, 255, 255, 0.07);
   --rt-glow: 0 0 8px rgba(255, 102, 0, 0.55);
@@ -105,6 +107,8 @@
   --rt-ember-hover: #7d3200;
   --rt-amber: #8a5a00;
   --rt-accent: #c24e00;
+  --rt-accent-muted: #d08a58;
+  --rt-badge-tint: #f6e2cf;
   --rt-on-primary: #1a0f06;
   --rt-select: rgba(26, 15, 6, 0.06);
   --rt-glow: none;
@@ -334,14 +338,24 @@
   [class*='item_link'] { font-family: var(--rt-mono); color: var(--rt-ember) !important; }
   [class*='item_rank'] { font-family: var(--rt-mono); color: var(--rt-dim); font-weight: 400; }
 
+  // post/comment badges: ember tint by default; OP and bounty badges amber,
+  // monerowalled Monero orange. The two bright fills carry near-black text in
+  // both themes (amber 10.8:1, orange 6.9:1); the tint is mode-aware.
   [class*='item_newComment'] {
     font-family: var(--rt-mono);
-    background: transparent !important;
-    border: 1px solid var(--rt-line);
+    background: var(--rt-badge-tint) !important;
+    border: 0;
     color: var(--rt-ember) !important;
   }
 
-  [class*='item_moneroWallChip'] { color: var(--rt-accent) !important; border-color: var(--bs-primary) !important; }
+  [class*='item_newComment'].bountyBadge,
+  .badge.opBadge {
+    background: #ffb000 !important;
+    color: #0d0a08 !important;
+    font-family: var(--rt-mono);
+  }
+
+  [class*='item_moneroWallChip'] { background: #ff6600 !important; color: #0d0a08 !important; }
 
   // vote arrows: inactive dim, active orange
   .downvoteArrow { color: var(--rt-faint); opacity: 1; }
@@ -355,11 +369,13 @@
   .item-card:has(.card-media) .card-media img { border-radius: 0; border: 1px solid var(--rt-line); }
 }
 
-// Panel: boxed cards in a responsive grid
+// Panel: boxed cards in a single centered column, capped so a card with
+// media reads roughly square instead of a wide strip
 .stealth-rebrand.panel-feed {
   [class*='item_grid'] {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 600px);
+    justify-content: center;
     gap: 16px;
   }
 
@@ -433,7 +449,7 @@
     text-overflow: ellipsis;
   }
 
-  .turf-trigger[aria-expanded='true'] { border-color: var(--bs-primary); }
+  .turf-trigger[aria-expanded='true'] { border-color: var(--rt-accent-muted); }
   .turf-trigger .turf-caret { color: var(--rt-dim); }
 
   .turf-popover {
@@ -444,7 +460,7 @@
     width: 460px;
     max-width: calc(100vw - 24px);
     background: var(--rt-popover);
-    border: 1px solid var(--bs-primary);
+    border: 1px solid var(--rt-accent-muted);
     box-shadow: 0 0 24px rgba(255, 102, 0, 0.15), 0 24px 60px rgba(0, 0, 0, 0.5);
     text-align: left;
   }
@@ -453,8 +469,8 @@
     display: flex;
     justify-content: space-between;
     padding: 4px 10px;
-    background: var(--bs-primary);
-    color: var(--rt-on-primary);
+    background: var(--rt-accent-muted);
+    color: var(--rt-title);
     font-size: 0.75rem;
     font-weight: 700;
   }
@@ -470,7 +486,7 @@
     font-size: 0.95rem;
   }
 
-  .turf-search:focus-within { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
+  .turf-search:focus-within { outline: 2px solid var(--rt-accent-muted); outline-offset: -2px; }
   .turf-row:focus-visible, .turf-trigger:focus-visible, .turf-titlebar button:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
   .turf-search .turf-prompt { color: var(--rt-accent); }
   .turf-search input {
@@ -636,7 +652,6 @@
 // ---- frontpage heading block ----
 .stealth-rebrand {
   .fp-head { margin: 8px 0 12px; font-family: var(--rt-mono); }
-  .fp-prompt { font-size: 0.8rem; color: var(--rt-dim); margin-bottom: 4px; }
   .fp-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; padding-bottom: 12px; border-bottom: 1px solid var(--rt-line); }
   .fp-title { margin: 0; font-family: var(--rt-display); font-weight: 700; font-size: 2rem; line-height: 1.1; color: var(--rt-accent); }
   .fp-tag { flex: 1 1 auto; font-size: 0.85rem; color: var(--rt-sec); }

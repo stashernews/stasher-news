@@ -43,7 +43,7 @@ export default function UpVote ({ item, className, collapsed }) {
     if (me) {
       overlayTextContent = me.privates?.tipRandom ? 'random' : piconerosToMXmr(BigInt(sats))
     } else {
-      overlayTextContent = 'tip it'
+      overlayTextContent = 'uptip'
     }
 
     return [

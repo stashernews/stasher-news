@@ -266,7 +266,7 @@ export default function Comment ({
                   commentsText='replies'
                   commentTextSingular='reply'
                   className={`${itemStyles.other} ${styles.other}`}
-                  embellishUser={op && <><span> </span><Badge bg='boost' className={`${styles.op} bg-opacity-75`}>{op}</Badge></>}
+                  embellishUser={op && <><span> </span><Badge bg='boost' className={`${styles.op} bg-opacity-75 opBadge`}>{op}</Badge></>}
                   onQuoteReply={quoteReply}
                   nested={!includeParent}
                   {...props}
