@@ -166,10 +166,11 @@ export const createImgproxyUrls = async (id, text, { models, forceFetch }) => {
     // permanent 422s. The Upload row already knows the MIME type, so flag video
     // uploads directly and skip both doomed calls — MediaNode then renders
     // <video> from the original URL deterministically, with no media-check.
+    let upload = null
     if (isInternalUploadUrl(url) && models?.upload) {
       const uploadId = Number(new URL(url).pathname.match(/(\d+)\/?$/)?.[1])
-      const upload = Number.isInteger(uploadId)
-        ? await models.upload.findUnique({ where: { id: uploadId }, select: { type: true } })
+      upload = Number.isInteger(uploadId)
+        ? await models.upload.findUnique({ where: { id: uploadId }, select: { type: true, width: true, height: true } })
         : null
       if (upload?.type?.startsWith('video/')) {
         imgproxyUrls[url] = { video: true }
@@ -180,11 +181,22 @@ export const createImgproxyUrls = async (id, text, { models, forceFetch }) => {
       continue
     }
     imgproxyUrls[url] = {}
-    try {
-      imgproxyUrls[url] = await getMetadata(fetchUrl)
-      logInfo({ itemId: id }, 'imgproxy: dimensions fetched')
-    } catch (err) {
-      logWarn({ itemId: id, error: err?.message }, 'imgproxy: error getting dimensions')
+    if (upload) {
+      // imgproxy's /info endpoint is Pro-only (OSS parses "info" as the URL
+      // signature and answers 403), so internal uploads take their metadata
+      // from the Upload row, recorded at upload time. Without `video: false`
+      // the reader doesn't trust the upload as an image and renders a link.
+      imgproxyUrls[url] = {
+        video: false,
+        ...(upload.width && upload.height ? { dimensions: { width: upload.width, height: upload.height } } : {})
+      }
+    } else {
+      try {
+        imgproxyUrls[url] = await getMetadata(fetchUrl)
+        logInfo({ itemId: id }, 'imgproxy: dimensions fetched')
+      } catch (err) {
+        logWarn({ itemId: id, error: err?.message }, 'imgproxy: error getting dimensions')
+      }
     }
     for (const res of resolutions) {
       const [w, h] = res.split('x')
