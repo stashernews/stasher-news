@@ -661,3 +661,36 @@
   > * { align-self: center; }
   [class*='item_item'] { align-items: center; }
 }
+
+// native <select> option lists: explicit colors so they never fall back to dark-on-dark
+.stealth-rebrand {
+  select, .form-select { color-scheme: dark; }
+  option, optgroup, select option, .form-select option { background-color: var(--rt-popover) !important; color: var(--rt-title) !important; }
+  option:checked, option:hover, select option:checked { background-color: var(--bs-primary) !important; color: var(--rt-on-primary) !important; }
+  option:disabled { color: var(--rt-dim) !important; }
+}
+.stealth-rebrand[data-bs-theme='light'] {
+  select, .form-select { color-scheme: light; }
+}
+
+// dropdown menus: explicit text colors. Items marked .text-reset (item action
+// menu, etc.) inherit from the menu, and Bootstrap's compiled --bs-dropdown-color
+// is the light theme's dark grey, so set it (and the link colors) here.
+.stealth-rebrand .dropdown-menu {
+  --bs-dropdown-color: var(--rt-body);
+  --bs-dropdown-link-color: var(--rt-body);
+  --bs-dropdown-link-hover-color: var(--rt-title);
+  --bs-dropdown-link-active-color: var(--rt-title);
+  --bs-dropdown-link-hover-bg: var(--rt-select);
+  --bs-dropdown-link-active-bg: var(--rt-select);
+  --bs-dropdown-header-color: var(--rt-dim);
+  color: var(--rt-body);
+}
+
+.stealth-rebrand .dropdown-item,
+.stealth-rebrand .dropdown-item.text-reset,
+.stealth-rebrand .dropdown-menu .text-reset { color: var(--rt-body) !important; }
+
+.stealth-rebrand .dropdown-item:hover,
+.stealth-rebrand .dropdown-item:focus,
+.stealth-rebrand .dropdown-item.text-reset:hover { color: var(--rt-title) !important; background: var(--rt-select); }
