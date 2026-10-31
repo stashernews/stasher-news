@@ -5,7 +5,7 @@ import { useRouter } from 'next/router'
 import BackArrow from '../../svgs/arrow-left-line.svg'
 import { useCallback, useEffect, useState } from 'react'
 import Price from '../price'
-import SubSelect from '../sub-select'
+import TurfSwitcher from '../turf-switcher'
 import { PUBLIC_MEDIA_URL } from '../../lib/constants'
 import NoteIcon from '../../svgs/notification-4-fill.svg'
 import { useMe } from '../me'
@@ -115,18 +115,10 @@ export function NavPrice ({ className }) {
   )
 }
 
-const PREPEND_SUBS = ['frontpage']
-const APPEND_SUBS = [{ label: '--------', items: ['create'] }]
-export function NavSelect ({ sub: subName, className, size }) {
-  const sub = subName || 'frontpage'
-
+export function NavSelect ({ sub: subName, className }) {
   return (
     <Nav.Item className={className}>
-      <SubSelect
-        sub={sub} prependSubs={PREPEND_SUBS} appendSubs={APPEND_SUBS} noForm
-        groupClassName='mb-0' size={size} className='navTopSelect'
-        aria-label={`location: ${sub}`}
-      />
+      <TurfSwitcher sub={subName} />
     </Nav.Item>
   )
 }
@@ -382,7 +374,6 @@ export function MeCorner ({ dropNavKey, me, className }) {
     <div className={className}>
       <NavNotifications />
       <MeDropdown me={me} dropNavKey={dropNavKey} />
-      <NavWalletSummary className='d-inline-block ms-1' />
     </div>
   )
 }

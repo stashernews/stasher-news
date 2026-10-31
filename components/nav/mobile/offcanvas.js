@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Dropdown, Image, Nav, Navbar, Offcanvas } from 'react-bootstrap'
 import { PUBLIC_MEDIA_URL } from '@/lib/constants'
 import Link from 'next/link'
-import { Indicator, LoginButtons, LogoutDropdownItem, NavWalletSummary } from '../common'
+import { Indicator, LoginButtons, LogoutDropdownItem } from '../common'
 import AnonIcon from '@/svgs/spy-fill.svg'
 import styles from './footer.module.css'
 import canvasStyles from './offcanvas.module.css'
@@ -51,7 +51,7 @@ export default function OffCanvas ({ me, dropNavKey }) {
       </Indicator>
       <Offcanvas className={canvasStyles.offcanvas} show={show} onHide={handleClose} placement='end'>
         <Offcanvas.Header closeButton>
-          <Offcanvas.Title><NavWalletSummary /></Offcanvas.Title>
+          <Offcanvas.Title className='visually-hidden'>account</Offcanvas.Title>
         </Offcanvas.Header>
         <Offcanvas.Body className='pb-0'>
           <div style={{

@@ -60,6 +60,7 @@ class MyDocument extends Document {
           <link rel='manifest' href={manifestHref} />
           <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-500.woff2`} as='font' type='font/woff2' crossOrigin='' />
           <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-600.woff2`} as='font' type='font/woff2' crossOrigin='' />
+          <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/jetbrains-mono-500.woff2`} as='font' type='font/woff2' crossOrigin='' />
           <style
             nonce={nonce}
             dangerouslySetInnerHTML={{
@@ -79,6 +80,30 @@ class MyDocument extends Document {
                     font-display: swap;
                     src:
                       url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-600.woff2) format('woff2');
+                  }
+                  @font-face {
+                    font-family: 'JetBrains Mono';
+                    font-style: normal;
+                    font-weight: 400;
+                    font-display: swap;
+                    src:
+                      url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/jetbrains-mono-400.woff2) format('woff2');
+                  }
+                  @font-face {
+                    font-family: 'JetBrains Mono';
+                    font-style: normal;
+                    font-weight: 500;
+                    font-display: swap;
+                    src:
+                      url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/jetbrains-mono-500.woff2) format('woff2');
+                  }
+                  @font-face {
+                    font-family: 'JetBrains Mono';
+                    font-style: normal;
+                    font-weight: 700;
+                    font-display: swap;
+                    src:
+                      url(${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/jetbrains-mono-700.woff2) format('woff2');
                   }`
             }}
           />
@@ -133,8 +158,11 @@ class MyDocument extends Document {
           </Script>
           <Script id='compact-view-js' strategy='beforeInteractive'>
             {`try {
-                if (window.localStorage.getItem('compactView') === 'true') {
+                const view = window.localStorage.getItem('compactView')
+                if (view === 'true') {
                   window.document.documentElement.classList.add('compact-feed')
+                } else if (view === 'panel') {
+                  window.document.documentElement.classList.add('panel-feed')
                 }
               } catch (e) {}`}
           </Script>
