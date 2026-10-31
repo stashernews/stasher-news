@@ -73,7 +73,7 @@
 
 // ---- merged single-row desktop header (rebrand) ----
 // One row holds back arrow, brand, turf selector, sorts, search, centered
-// rewards/price cluster, comment navigator, post button and the user corner.
+// price ticker, comment navigator, post button and the user corner.
 // The row wraps (instead of clipping or dropping elements) at narrow desktop
 // widths; every element of the previous two-bar header is retained. The wrap
 // and height live on the inner flex row (stable .navMergedRow class, set in
@@ -89,15 +89,29 @@
     position: relative;
   }
 
-  // centered cluster: the price ticker, absolutely centered on
-  // the merged row (left:50% of the relative .navMergedRow). The in-flow left
-  // and right content fits well under the md+ breakpoint, so the cluster never
-  // overlaps the wrapped row. The Chakra Petch font lives on the cluster so the
-  // price ticker inherits it. The rewards pool readout lives in the footer.
+  // three in-flow groups: left (back, brand, turf, sorts, search), the price
+  // cluster, right (comments, post, user corner). The side groups share the
+  // leftover space equally (flex-basis 0) but never shrink below their content
+  // (min-width:auto), so the price sits dead-center while both sides fit and
+  // otherwise slides toward the shorter side — it never overlaps either group
+  // and stays on the main row. Only when the row can't hold all three does the
+  // right group wrap to a second line (same pattern as .navMobileRow below).
+  .navMergedRow .navMergedLeft,
+  .navMergedRow .navMergedRight {
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .navMergedRow .navMergedRight {
+    justify-content: flex-end;
+  }
+
+  // centered cluster: price ticker. The Chakra Petch font lives on the
+  // cluster so the price ticker inherits it.
   .navCenterCluster {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+    flex: 0 0 auto;
+    padding: 0 16px;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -118,27 +132,6 @@
 
   .navCenterCluster .nav-link:hover {
     color: var(--bs-body-color) !important;
-  }
-
-  // below xl the row is too narrow for the absolutely-centered cluster to
-  // clear the in-flow content, so the cluster drops to its own centered line
-  // (header height then matches the pre-rebrand two-bar height). At xl+ the
-  // single-row dead-centering fits.
-  @media (max-width: 1199.98px) {
-    .navMergedRow .navCenterCluster {
-      position: static;
-      left: auto;
-      transform: none;
-      flex: 1 1 100%;
-      order: 1;
-      justify-content: center;
-    }
-
-    // neutralize the price ticker's flex-grow:1 (header.module.css .price) so
-    // the cluster's justify-content:center centers both items on the line
-    .navMergedRow .navCenterCluster .nav-item {
-      flex-grow: 0;
-    }
   }
 
   // header nym in the display font (approved: Chakra Petch in the top bar)

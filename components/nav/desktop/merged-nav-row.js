@@ -22,19 +22,21 @@ export default function MergedNavRow (props) {
       className={`${styles.navbarNav} navMergedRow`}
       activeKey={topNavKey}
     >
-      <Back />
-      <Brand className='me-1' />
-      {showSubNav && !branding && <NavSelect sub={sub} size='medium' className='me-1' />}
-      {showSubNav && (
-        <div className='d-flex'>
-          <Sorts {...props} className='ms-1' />
-        </div>
-      )}
-      <SearchItem prefix={prefix} className='me-0 ms-2 d-none d-md-flex' />
+      <div className='navMergedLeft'>
+        <Back />
+        <Brand className='me-1' />
+        {showSubNav && !branding && <NavSelect sub={sub} size='medium' className='me-1' />}
+        {showSubNav && (
+          <div className='d-flex'>
+            <Sorts {...props} className='ms-1' />
+          </div>
+        )}
+        <SearchItem prefix={prefix} className='me-0 ms-2 d-none d-md-flex' />
+      </div>
       <div className='navCenterCluster'>
         <NavPrice className='d-none d-md-flex' />
       </div>
-      <div className='ms-auto d-flex align-items-center gap-2'>
+      <div className='navMergedRight ms-auto d-flex align-items-center gap-2'>
         <CommentsNavigator navigator={navigator} commentCount={commentCount} />
         {showSubNav && <PostItem className='d-none d-md-flex' prefix={prefix} />}
         <RightCorner dropNavKey={dropNavKey} className='d-none d-md-flex' />
