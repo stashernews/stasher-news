@@ -1,4 +1,4 @@
-import UpArrow from '@/svgs/up-arrow.svg'
+import UpArrow from '@/svgs/triangle-up.svg'
 import styles from './upvote.module.css'
 import ActionTooltip from './action-tooltip'
 import TipModal from './tip-modal'
@@ -48,7 +48,7 @@ export default function UpVote ({ item, className, collapsed }) {
 
     return [
       meSats, overlayTextContent,
-      meSats ? 'var(--bs-success)' : '#a5a5a5']
+      meSats ? 'var(--rt-amber, var(--bs-success))' : '#a5a5a5']
   }, [
     me, item?.mePiconeros, item?.meAnonPiconeros, me?.privates?.tipDefault,
     me?.privates?.tipRandom, me?.privates?.tipRandomMin, me?.privates?.tipRandomMax])
@@ -59,8 +59,8 @@ export default function UpVote ({ item, className, collapsed }) {
   }
 
   const style = useMemo(() => ({
-    '--hover-fill': 'var(--bs-success)',
-    '--hover-filter': 'drop-shadow(0 0 6px var(--bs-success)90)',
+    '--hover-fill': 'var(--rt-amber, var(--bs-success))',
+    '--hover-filter': 'drop-shadow(0 0 6px var(--rt-amber, var(--bs-success)))',
     '--fill': color,
     '--filter': `drop-shadow(0 0 6px ${color}90)`
   }), [color])

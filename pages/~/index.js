@@ -4,6 +4,7 @@ import Items from '@/components/items'
 import Layout from '@/components/layout'
 import { SUB_FULL, SUB_ITEMS } from '@/fragments/subs'
 import Snl from '@/components/snl'
+import FrontpageHeader from '@/components/frontpage-header'
 import { useQuery } from '@apollo/client/react'
 import PageLoading from '@/components/page-loading'
 import TerritoryHeader from '@/components/territory-header'
@@ -29,7 +30,8 @@ export default function Sub ({ ssrData }) {
           <>
             <Snl />
           </>)}
-      <Items ssrData={ssrData} variables={variables} />
+      {!sub && !variables.sub && <FrontpageHeader />}
+      <Items ssrData={ssrData} variables={variables} rank />
     </Layout>
   )
 }

@@ -16,7 +16,7 @@ import useDarkMode from './dark-mode'
 import ActionTooltip from './action-tooltip'
 import { useAnimationEnabled } from '@/components/animation'
 import { useLiveCommentsToggle } from './use-live-comments'
-import useFeedView, { FEED_VIEWS } from './use-compact-view'
+import FeedViewControl from './feed-view-control'
 import { META_SUB } from '@/lib/constants'
 
 const RssPopover = (
@@ -107,7 +107,6 @@ export default function Footer ({ links = true }) {
 
   const [disableLiveComments, toggleLiveComments] = useLiveCommentsToggle()
 
-  const [feedView, chooseFeedView] = useFeedView()
 
   const DarkModeIcon = darkMode ? Sun : Moon
   const GlitchIcon = animationEnabled ? No : Prism
@@ -124,14 +123,7 @@ export default function Footer ({ links = true }) {
               <ToggleAction on={darkMode} label='dark mode' Icon={DarkModeIcon} onClick={darkModeToggle} />
               <ToggleAction on={animationEnabled} label='glitch animations' Icon={GlitchIcon} onClick={toggleAnimation} className='ms-2' />
               <ToggleAction on={!disableLiveComments} label='live comments' Icon={LiveIcon} onClick={toggleLiveComments} className='ms-2' />
-              <span role='group' aria-label='feed view' className='feed-view-group'>
-                <span className='me-1'>view:</span>
-                {FEED_VIEWS.map(v => (
-                  <button key={v} type='button' aria-pressed={feedView === v} onClick={() => chooseFeedView(v)}>
-                    {feedView === v && <span aria-hidden='true'>[</span>}{v}{feedView === v && <span aria-hidden='true'>]</span>}
-                  </button>
-                ))}
-              </span>
+              <FeedViewControl className='ms-2' />
             </div>
             <div className='mb-0' style={{ fontWeight: 500 }}>
               <Rewards />

@@ -1,5 +1,5 @@
 import UpVote from './upvote'
-import DownArrow from '@/svgs/down-arrow.svg'
+import DownArrow from '@/svgs/triangle-down.svg'
 import { useShowModal } from './modal'
 import DownvoteModal from './downvote-modal'
 import classNames from 'classnames'

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 const STORAGE_KEY = 'compactView'
+const LOCAL_EVENT = 'sn-feed-view'
 
 // feed view -> class on <html>. 'list' (listing) is the default and carries
 // no class; 'log' is the original compact view and keeps its storage value
@@ -45,8 +46,13 @@ export default function useFeedView () {
     // storage events fire only in OTHER tabs: apply the incoming preference
     // to this tab's class (its inline script only ran at its own load)
     const onStorage = (e) => { if (e.key === STORAGE_KEY) sync(fromStored(e.newValue)) }
+    const onLocal = () => setView(read())
     window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+    window.addEventListener(LOCAL_EVENT, onLocal)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener(LOCAL_EVENT, onLocal)
+    }
   }, [])
 
   const choose = useCallback((next) => {
@@ -55,6 +61,8 @@ export default function useFeedView () {
     } catch (err) {}
     apply(next)
     setView(next)
+    // keep other mounted controls (header + footer) in step
+    window.dispatchEvent(new Event(LOCAL_EVENT))
   }, [])
 
   return [view, choose]
