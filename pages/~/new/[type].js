@@ -54,6 +54,7 @@ export default function Index ({ ssrData }) {
         ssrData={ssrData}
         query={SUB_ITEMS}
         variables={variables}
+        rank={variables.type !== 'comments'}
         emptyText={desperadosEmpty ? COPY.desperadosEmpty : undefined}
       />
     </Layout>

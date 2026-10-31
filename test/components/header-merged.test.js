@@ -9,7 +9,7 @@
 // merged row. A StickyBar parity check at the bottom pins the merged-row
 // elements that were once missing from the sticky bar. Only environment-level
 // leaves are mocked (next router/link, the GraphQL-feeding hooks, the form-leaf
-// SubSelect, and svgs — which resolve to string stubs under next/jest and
+// TurfSwitcher, and svgs — which resolve to string stubs under next/jest and
 // cannot render as components).
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
@@ -48,7 +48,7 @@ jest.mock('next/link', () => {
   }
 })
 jest.mock(`${process.cwd()}/components/me`, () => ({ useMe: () => ({ me: mockMe }) }))
-jest.mock(`${process.cwd()}/components/sub-select`, () => () => <span data-testid='turf-select' />)
+jest.mock(`${process.cwd()}/components/turf-switcher`, () => () => <span data-testid='turf-select' />)
 jest.mock(`${process.cwd()}/components/badge`, () => () => null)
 // account.js -> user-list -> user-header -> form -> lexical editor graph pulls
 // github-slugger (ESM-only under jest CJS require); UserListRow is only used by
@@ -196,12 +196,12 @@ describe('HeaderMerged zero-removal', () => {
     expect(buttonTexts).toEqual(expect.arrayContaining(['sign up', 'login']))
   })
 
-  it('renders the wallet balance rounded to 2 mXMR decimals without float artifacts', async () => {
+  it('does not show the wallet balance in the top bar (it lives on the wallet and statistics pages)', async () => {
     mockMe = { name: 'u1', bioId: 'x', privates: { piconeros: '8700000000001' } }
     await renderHeader(TURF_PROPS)
 
-    const wallet = container.querySelector('span[title*="piconero"]')
-    expect(wallet.textContent).toBe('8700 mXMR')
+    expect(container.querySelector('span[title*="piconero"]')).toBeNull()
+    expect(container.textContent).not.toMatch(/mXMR/)
   })
 })
 

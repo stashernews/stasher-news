@@ -49,7 +49,8 @@ afterAll(() => {
 // fake models.upload for the Upload-row video/image lookup (B1 fix)
 const uploadModels = rows => ({
   upload: {
-    findUnique: async ({ where: { id } }) => (rows[id] ? { type: rows[id] } : null)
+    // a row is a MIME type string, or { type, width, height }
+    findUnique: async ({ where: { id } }) => (rows[id] ? (typeof rows[id] === 'string' ? { type: rows[id] } : rows[id]) : null)
   }
 })
 
@@ -176,18 +177,32 @@ it.each([
 
 it('still builds the full derivative ladder for image uploads', async () => {
   const { createImgproxyUrls } = await import('@/worker/imgproxy')
-  jest.spyOn(global, 'fetch').mockResolvedValue({
-    json: async () => ({ width: 640, height: 360, format: 'jpeg', video_streams: [] })
-  })
+  const fetchMock = jest.spyOn(global, 'fetch')
+  fetchMock.mockClear()
 
   const result = await createImgproxyUrls(8, '![img](https://stasher.news/uploads/123)', {
-    models: uploadModels({ 123: 'image/jpeg' })
+    models: uploadModels({ 123: { type: 'image/jpeg', width: 640, height: 360 } })
   })
 
+  // metadata comes from the Upload row: imgproxy OSS has no /info endpoint
   expect(result['https://stasher.news/uploads/123'].dimensions).toEqual({ width: 640, height: 360 })
+  expect(result['https://stasher.news/uploads/123'].video).toBe(false)
+  expect(fetchMock).not.toHaveBeenCalled()
   for (const res of ['640w', '960w', '1280w', '1600w', '1920w', '2560w']) {
     expect(result['https://stasher.news/uploads/123'][res]).toMatch(/^\//)
   }
+})
+
+it('keeps the image flag when an upload row has no dimensions', async () => {
+  const { createImgproxyUrls } = await import('@/worker/imgproxy')
+
+  const result = await createImgproxyUrls(8, '![img](https://stasher.news/uploads/124)', {
+    models: uploadModels({ 124: 'image/png' })
+  })
+
+  expect(result['https://stasher.news/uploads/124'].video).toBe(false)
+  expect(result['https://stasher.news/uploads/124'].dimensions).toBeUndefined()
+  expect(result['https://stasher.news/uploads/124']['640w']).toMatch(/^\//)
 })
 
 it('falls through to the probe pipeline when the upload row is missing', async () => {

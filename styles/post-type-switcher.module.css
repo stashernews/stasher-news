@@ -1,0 +1,72 @@
+/* Post type switcher — the segmented control above the /post form.
+   Colors come from the stealth theme tokens (styles/stealth-theme.scss), so it
+   follows the dark and light themes without its own overrides. */
+
+.switcher {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+  padding: 4px;
+  margin-bottom: 1rem;
+  background: var(--stealth-surface, var(--bs-body-bg));
+  border: 1px solid var(--stealth-border, var(--bs-border-color));
+  border-radius: 12px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--stealth-muted, var(--bs-secondary-color));
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.option:hover {
+  color: var(--bs-body-color);
+  background: var(--stealth-surface-2, var(--bs-tertiary-bg));
+}
+
+.option:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 1px;
+}
+
+.icon {
+  flex: none;
+  fill: currentColor;
+}
+
+.active,
+.active:hover {
+  color: #fff;
+  background: var(--bs-primary);
+}
+
+/* the current turf doesn't take this type: picking it switches turf */
+.elsewhere {
+  opacity: 0.55;
+}
+
+.elsewhere:hover {
+  opacity: 1;
+}
+
+@media (max-width: 575.98px) {
+  .option {
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 2px;
+    font-size: 0.75rem;
+  }
+}

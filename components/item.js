@@ -118,7 +118,7 @@ export default function Item ({
       {rank
         ? (
           <div className={styles.rank}>
-            {rank}
+            {typeof rank === 'number' ? String(rank).padStart(2, '0') : rank}
           </div>)
         : <div />}
       <div className={classNames(styles.item, itemClassName)}>
@@ -227,7 +227,7 @@ export function ItemSkeleton ({ rank, children, showUpvote = true }) {
       {rank
         ? (
           <div className={styles.rank}>
-            {rank}
+            {typeof rank === 'number' ? String(rank).padStart(2, '0') : rank}
           </div>)
         : <div />}
       <div className={`${styles.item} ${styles.skeleton}`}>

@@ -60,8 +60,66 @@ export function useSubs ({ prependSubs = DEFAULT_PREPEND_SUBS, sub, filterSubs =
   return subs
 }
 
-export default function SubSelect ({ prependSubs, sub, onChange, size, appendSubs, filterSubs, className, ...props }) {
+// navigate to a turf (or home) from wherever we are, keeping sub-aware routes
+export function useGoToSub () {
   const router = useRouter()
+  return (value) => {
+    const sub = ['frontpage', 'pick territory'].includes(value) ? undefined : value
+    if (sub === 'create') {
+      router.push('/territory')
+      return
+    }
+
+    let asPath
+    // are we currently in a sub (ie not home)
+    if (router.query.sub) {
+      // are we going to a sub or home?
+      const subReplace = sub ? `/~${sub}` : ''
+
+      // if we are going to a sub, replace the current sub with the new one
+      asPath = router.asPath.replace(`/~${router.query.sub}`, subReplace)
+      // if we're going to home, just go there directly
+      if (asPath === '') {
+        router.push('/')
+        return
+      }
+    } else {
+      // we're currently on the home sub
+      // if in /top/cowboys, /top/territories, or /top/stashers
+      // and a territory is selected, go to /~sub/top/posts/day
+      if (router.pathname.startsWith('/~/top/cowboys')) {
+        router.push(sub ? `/~${sub}/top/posts/day` : '/top/cowboys')
+        return
+      } else if (router.pathname.startsWith('/~/top/stashers')) {
+        router.push(sub ? `/~${sub}/top/posts/day` : 'top/stashers/day')
+        return
+      } else if (router.pathname.startsWith('/~/top/territories')) {
+        router.push(sub ? `/~${sub}/top/posts/day` : '/top/territories/day')
+        return
+      } else if (router.pathname.startsWith('/~')) {
+        // are we in a sub aware route?
+        // if we are, go to the same path but in the sub
+        asPath = `/~${sub}` + router.asPath
+      } else {
+        // otherwise, just go to the sub
+        router.push(sub ? `/~${sub}` : '/')
+        return
+      }
+    }
+    const query = {
+      ...router.query,
+      sub
+    }
+    delete query.nodata
+    router.push({
+      pathname: router.pathname,
+      query
+    }, asPath)
+  }
+}
+
+export default function SubSelect ({ prependSubs, sub, onChange, size, appendSubs, filterSubs, className, ...props }) {
+  const goToSub = useGoToSub()
   const subs = useSubs({ prependSubs, sub, filterSubs, appendSubs })
   const valueProps = props.noForm
     ? {
@@ -78,57 +136,7 @@ export default function SubSelect ({ prependSubs, sub, onChange, size, appendSub
   return (
     <Select
       onChange={onChange || ((_, e) => {
-        const sub = ['frontpage', 'pick territory'].includes(e.target.value) ? undefined : e.target.value
-        if (sub === 'create') {
-          router.push('/territory')
-          return
-        }
-
-        let asPath
-        // are we currently in a sub (ie not home)
-        if (router.query.sub) {
-          // are we going to a sub or home?
-          const subReplace = sub ? `/~${sub}` : ''
-
-          // if we are going to a sub, replace the current sub with the new one
-          asPath = router.asPath.replace(`/~${router.query.sub}`, subReplace)
-          // if we're going to home, just go there directly
-          if (asPath === '') {
-            router.push('/')
-            return
-          }
-        } else {
-          // we're currently on the home sub
-          // if in /top/cowboys, /top/territories, or /top/stashers
-          // and a territory is selected, go to /~sub/top/posts/day
-          if (router.pathname.startsWith('/~/top/cowboys')) {
-            router.push(sub ? `/~${sub}/top/posts/day` : '/top/cowboys')
-            return
-          } else if (router.pathname.startsWith('/~/top/stashers')) {
-            router.push(sub ? `/~${sub}/top/posts/day` : 'top/stashers/day')
-            return
-          } else if (router.pathname.startsWith('/~/top/territories')) {
-            router.push(sub ? `/~${sub}/top/posts/day` : '/top/territories/day')
-            return
-          } else if (router.pathname.startsWith('/~')) {
-            // are we in a sub aware route?
-            // if we are, go to the same path but in the sub
-            asPath = `/~${sub}` + router.asPath
-          } else {
-            // otherwise, just go to the sub
-            router.push(sub ? `/~${sub}` : '/')
-            return
-          }
-        }
-        const query = {
-          ...router.query,
-          sub
-        }
-        delete query.nodata
-        router.push({
-          pathname: router.pathname,
-          query
-        }, asPath)
+        goToSub(e.target.value)
       })}
       name='sub'
       size='sm'

@@ -5,7 +5,7 @@ import { useRouter } from 'next/router'
 import BackArrow from '../../svgs/arrow-left-line.svg'
 import { useCallback, useEffect, useState } from 'react'
 import Price from '../price'
-import SubSelect from '../sub-select'
+import TurfSwitcher from '../turf-switcher'
 import { PUBLIC_MEDIA_URL } from '../../lib/constants'
 import NoteIcon from '../../svgs/notification-4-fill.svg'
 import { useMe } from '../me'
@@ -24,6 +24,7 @@ import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
 import { piconerosToMXmr } from '@/lib/format'
 import { useBranding } from '@/components/territory-branding'
+import { rememberFeedSort } from '@/lib/feed-sort'
 
 export function Brand ({ className, compact }) {
   const branding = useBranding()
@@ -115,18 +116,10 @@ export function NavPrice ({ className }) {
   )
 }
 
-const PREPEND_SUBS = ['frontpage']
-const APPEND_SUBS = [{ label: '--------', items: ['create'] }]
-export function NavSelect ({ sub: subName, className, size }) {
-  const sub = subName || 'frontpage'
-
+export function NavSelect ({ sub: subName, className }) {
   return (
     <Nav.Item className={className}>
-      <SubSelect
-        sub={sub} prependSubs={PREPEND_SUBS} appendSubs={APPEND_SUBS} noForm
-        groupClassName='mb-0' size={size} className='navTopSelect'
-        aria-label={`location: ${sub}`}
-      />
+      <TurfSwitcher sub={subName} />
     </Nav.Item>
   )
 }
@@ -337,17 +330,18 @@ export function LoginButtons () {
   )
 }
 
+// the sort tabs remember the pick (lib/feed-sort.js) so the user stays on it
 export function Sorts ({ prefix, className }) {
   return (
     <>
       <Nav.Item className={className}>
-        <Nav.Link as={Link} href={prefix + '/'} eventKey='' className={`${styles.navLink} ${styles.navSort} navSortLink`}>lit</Nav.Link>
+        <Nav.Link as={Link} href={prefix + '/'} eventKey='' onClick={() => rememberFeedSort('lit')} className={`${styles.navLink} ${styles.navSort} navSortLink`}>lit</Nav.Link>
       </Nav.Item>
       <Nav.Item className={className}>
-        <Nav.Link as={Link} href={prefix + '/new'} eventKey='new' className={`${styles.navLink} ${styles.navSort} navSortLink`}>new</Nav.Link>
+        <Nav.Link as={Link} href={prefix + '/new'} eventKey='new' onClick={() => rememberFeedSort('new')} className={`${styles.navLink} ${styles.navSort} navSortLink`}>new</Nav.Link>
       </Nav.Item>
       <Nav.Item className={className}>
-        <Nav.Link as={Link} href={prefix + '/top/posts/day'} eventKey='top' className={`${styles.navLink} ${styles.navSort} navSortLink`}>top</Nav.Link>
+        <Nav.Link as={Link} href={prefix + '/top/posts/day'} eventKey='top' onClick={() => rememberFeedSort('top')} className={`${styles.navLink} ${styles.navSort} navSortLink`}>top</Nav.Link>
       </Nav.Item>
     </>
   )
@@ -382,7 +376,6 @@ export function MeCorner ({ dropNavKey, me, className }) {
     <div className={className}>
       <NavNotifications />
       <MeDropdown me={me} dropNavKey={dropNavKey} />
-      <NavWalletSummary className='d-inline-block ms-1' />
     </div>
   )
 }

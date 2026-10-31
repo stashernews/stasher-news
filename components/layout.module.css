@@ -27,6 +27,15 @@
     padding-bottom: 2rem;
 }
 
+.pageTop {
+    margin-top: 0;
+}
+
+.contentTop {
+    justify-content: flex-start;
+    margin-top: 2rem;
+}
+
 .content form {
     width: 100%;
 }

@@ -1,6 +1,6 @@
 import { Nav, Navbar } from 'react-bootstrap'
 import styles from '../../header.module.css'
-import { Back, NavPrice, NavSelect, NavWalletSummary, SignUpButton, hasNavSelect } from '../common'
+import { Back, NavPrice, NavSelect, SignUpButton, hasNavSelect } from '../common'
 import { useMe } from '@/components/me'
 import { useCommentsNavigatorContext, CommentsNavigator } from '@/components/use-comments-navigator'
 import { useBranding } from '@/components/territory-branding'
@@ -41,7 +41,7 @@ export default function TopBar ({ prefix, sub, path, pathname, topNavKey, dropNa
               </div>
               <div className='navMobileRight'>
                 <CommentsNavigator navigator={navigator} commentCount={commentCount} className='px-2' />
-                {me ? <NavWalletSummary /> : <SignUpButton width='fit-content' />}
+                {!me && <SignUpButton width='fit-content' />}
               </div>
             </>
             )}

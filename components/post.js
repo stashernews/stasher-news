@@ -1,8 +1,5 @@
 import JobForm from './job-form'
-import Link from 'next/link'
 import Button from 'react-bootstrap/Button'
-import Alert from 'react-bootstrap/Alert'
-import AccordianItem from './accordian-item'
 import { useMe } from './me'
 import { useRouter } from 'next/router'
 import { DiscussionForm } from './discussion-form'
@@ -10,15 +7,16 @@ import { LinkForm } from './link-form'
 import { PollForm } from './poll-form'
 import { BountyForm } from './bounty-form'
 import { SubMultiSelect } from './sub-select'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFormikContext } from 'formik'
 import { useQuery } from '@apollo/client/react'
 import { ACTIVE_SUBS } from '@/fragments/subs'
 import FeeButton, { FeeButtonProvider, postCommentBaseLineItems, postCommentUseRemoteLineItems } from './fee-button'
-import DraftsMenu from './drafts-menu'
 import Delete from './delete'
 import CancelButton from './cancel-button'
-import { subNames, subsPostPrefix, subsAllSupport, postFormType, defaultPostType } from '@/lib/subs'
+import { subNames, subsPostPrefix, postFormType, defaultPostType } from '@/lib/subs'
+import PostTypeSwitcher, { POST_TYPES, turfAllowsType } from './post-type-switcher'
+import { PostCarryContext } from './use-post-form-shared'
 
 const POST_TYPE_FORMS = {
   link: LinkForm,
@@ -30,17 +28,8 @@ const POST_TYPE_FORMS = {
 export function PostForm ({ type, subs, children }) {
   const { me } = useMe()
   const router = useRouter()
-  const [errorMessage, setErrorMessage] = useState()
 
-  const prefix = subsPostPrefix(subs)
-  const formType = postFormType(type, subs)
-
-  const checkSession = useCallback((e) => {
-    if (!me) {
-      e.preventDefault()
-      setErrorMessage('you must be logged in')
-    }
-  }, [me, setErrorMessage])
+  const formType = postFormType(type, subs) ?? fallbackPostType(subs)
 
   // The fee estimate must follow the form's SELECTED turfs, not the page's
   // turf scope: a draft prefill (or an edit) sets the selection without a
@@ -49,9 +38,6 @@ export function PostForm ({ type, subs, children }) {
   // charges nothing — see postCommentBaseLineItems' postOwnerFree branch).
   // The selection is reported from inside the Formik tree; names resolve to
   // sub objects through ACTIVE_SUBS, which the turf selector already polls.
-  // NOTE: these hooks must stay ABOVE the picker early-return below —
-  // PostForm renders both branches, and hook order must not change between
-  // them ("Rendered more hooks than during the previous render").
   const [selectedSubNames, setSelectedSubNames] = useState(null)
   const { data: activeSubsData } = useQuery(ACTIVE_SUBS)
   const estimateSubs = useMemo(() => {
@@ -60,137 +46,91 @@ export function PostForm ({ type, subs, children }) {
     return selectedSubNames.map(name => byName.get(name)).filter(Boolean)
   }, [selectedSubNames, activeSubsData, subs])
 
-  if (!formType) {
-    let postButtons = []
-    let morePostButtons = []
+  const draftId = router.query.draft
 
-    if (subs.length) {
-      if (subsAllSupport(subs, 'LINK')) {
-        postButtons.push(
-          <Link key='LINK' href={prefix + '/post?type=link'}>
-            <Button variant='secondary'>link</Button>
-          </Link>
-        )
-      }
+  // Type switching keeps what the author typed: the live form's values are
+  // reported into valuesRef, and a switch hands title/text (and url, for the
+  // types that have one) to the next form through PostCarryContext. The url
+  // is remembered across a detour through a url-less type.
+  const valuesRef = useRef(null)
+  const urlRef = useRef(undefined)
+  const [carry, setCarry] = useState(null)
 
-      if (subsAllSupport(subs, 'DISCUSSION')) {
-        postButtons.push(
-          <Link key='DISCUSSION' href={prefix + '/post?type=discussion'}>
-            <Button variant='secondary'>discussion</Button>
-          </Link>
-        )
-      }
-
-      if (subsAllSupport(subs, 'POLL')) {
-        const array = postButtons.length < 2 ? postButtons : morePostButtons
-        array.push(
-          <Link key='POLL' href={prefix + '/post?type=poll'}>
-            <Button variant={postButtons.length < 2 ? 'secondary' : 'info'}>poll</Button>
-          </Link>
-        )
-      }
-
-      if (subsAllSupport(subs, 'BOUNTY')) {
-        const array = postButtons.length < 2 ? postButtons : morePostButtons
-        array.push(
-          <Link key='BOUNTY' href={prefix + '/post?type=bounty'}>
-            <Button onClick={checkSession} variant={postButtons.length < 2 ? 'secondary' : 'info'}>bounty</Button>
-          </Link>
-        )
-      }
-    } else {
-      postButtons = [
-        <Link key='LINK' href={prefix + '/post?type=link'}>
-          <Button variant='secondary'>link</Button>
-        </Link>,
-        <Link key='DISCUSSION' href={prefix + '/post?type=discussion'}>
-          <Button variant='secondary'>discussion</Button>
-        </Link>
-      ]
-      morePostButtons = [
-        <Link key='POLL' href={prefix + '/post?type=poll'}>
-          <Button variant='info'>poll</Button>
-        </Link>,
-        <Link key='BOUNTY' href={prefix + '/post?type=bounty'}>
-          <Button onClick={checkSession} variant='info'>bounty</Button>
-        </Link>
-      ]
+  const switchType = useCallback((next) => {
+    const values = valuesRef.current
+    if (values) {
+      if (values.url !== undefined) urlRef.current = values.url
+      const carried = { title: values.title ?? '', text: values.text ?? '' }
+      if (TYPES_WITH_URL.includes(next)) carried.url = urlRef.current ?? ''
+      // no server draft open -> the forms autosave to localStorage, and the
+      // next form's Inputs restore from their own keys on mount (overwriting
+      // initial values), so move the carried fields to the next type's keys
+      if (!draftId) moveLocalFields(formType, next, carried)
+      setCarry({ type: next, draftId: next === 'job' ? undefined : draftId, values: carried })
     }
 
-    postButtons = postButtons.reduce((acc, cur) => {
-      if (acc.length) acc.push(<span key='OR-post-buttons' className='mx-3 fw-bold text-muted'>or</span>)
-      acc.push(cur)
-      return acc
-    }, [])
-
-    morePostButtons = morePostButtons.reduce((acc, cur) => {
-      if (acc.length) acc.push(<span key='OR-more-post-buttons' className='mx-3 fw-bold text-muted'>or</span>)
-      acc.push(cur)
-      return acc
-    }, [])
-
-    return (
-      <div className='position-relative d-flex flex-column align-items-start'>
-        {errorMessage &&
-          <Alert className='position-absolute' style={{ top: '-6rem' }} variant='danger' onClose={() => setErrorMessage(undefined)} dismissible>
-            {errorMessage}
-          </Alert>}
-        {subs.length > 0 && (
-          <SubMultiSelect
-            placeholder='pick turfs'
-            className='d-flex'
-            noForm
-            size='medium'
-            single
-            subs={subNames(subs)}
-          />
-        )}
-        {/* list-only drafts menu: no Form ancestor -> no formik -> no save half */}
-        <div className='align-self-end mb-3'>
-          <DraftsMenu />
-        </div>
-        <div>
-          {postButtons}
-        </div>
-        <div className='d-flex mt-4'>
-          <AccordianItem
-            headerColor='#6c757d'
-            header={<div className='fw-bold text-muted'>more types</div>}
-            body={
-              <div className='align-items-center'>
-                {morePostButtons}
-                <div className='mt-3 d-flex justify-content-center'>
-                  <Link href='/~jobs/post?type=job'>
-                    <Button onClick={checkSession} variant='info'>job</Button>
-                  </Link>
-                </div>
-              </div>
-              }
-          />
-        </div>
-      </div>
-    )
-  }
+    // jobs live only in ~jobs; any other type stays in the current turf when
+    // it takes that type, else leaves for the unscoped /post
+    if (next === 'job') {
+      router.push('/~jobs/post?type=job')
+      return
+    }
+    const prefix = turfAllowsType(next, subs) ? subsPostPrefix(subs) : ''
+    const query = new URLSearchParams({ type: next })
+    if (draftId) query.set('draft', draftId)
+    router.push(`${prefix}/post?${query}`, undefined, { shallow: true })
+  }, [formType, draftId, subs, router])
 
   const FormType = formType === 'job' ? JobForm : POST_TYPE_FORMS[formType]
-
-  const draftId = router.query.draft
+  const carried = carry?.type === formType && carry?.draftId === draftId ? carry.values : null
 
   return (
     <FeeButtonProvider
       baseLineItems={postCommentBaseLineItems({ me, subs: estimateSubs })}
       useRemoteLineItems={postCommentUseRemoteLineItems({ subs: estimateSubs })}
     >
-      {/* remount when the loaded draft changes: cross-type clicks already
-          remount (POST_TYPE_FORMS swaps the component); SAME-type clicks need
-          this key or Formik's one-shot initialValues silently ignore the
-          newly opened draft */}
-      <FormType key={`${formType}:${draftId ?? ''}`} subs={subs}>
-        {children}
-        <SelectedSubNamesReporter onChange={setSelectedSubNames} />
-      </FormType>
+      <PostTypeSwitcher value={formType} subs={subs} onSelect={switchType} />
+      <PostCarryContext.Provider value={carried}>
+        {/* remount when the type or the loaded draft changes: Formik's
+            one-shot initialValues would silently ignore a newly opened draft */}
+        <FormType key={`${formType}:${draftId ?? ''}`} subs={subs}>
+          {children}
+          <SelectedSubNamesReporter onChange={setSelectedSubNames} />
+          <FormValuesReporter valuesRef={valuesRef} />
+        </FormType>
+      </PostCarryContext.Provider>
     </FeeButtonProvider>
   )
+}
+
+const TYPES_WITH_URL = ['link', 'job']
+const CARRIED_FIELDS = ['title', 'text', 'url']
+
+// The type /post opens on when the URL names none: discussion where the turf
+// takes it, else the first type it does take.
+function fallbackPostType (subs) {
+  if (turfAllowsType('discussion', subs)) return 'discussion'
+  return POST_TYPES.map(t => t.type).find(t => turfAllowsType(t, subs)) ?? 'discussion'
+}
+
+// localStorage keys are `${type}-${field}` (components/form.js Input)
+function moveLocalFields (from, to, values) {
+  try {
+    for (const field of CARRIED_FIELDS) {
+      window.localStorage.removeItem(`${from}-${field}`)
+      const value = values[field]
+      if (value) window.localStorage.setItem(`${to}-${field}`, value)
+      else window.localStorage.removeItem(`${to}-${field}`)
+    }
+  } catch {}
+}
+
+// Keeps PostForm's valuesRef pointing at the live form's values.
+function FormValuesReporter ({ valuesRef }) {
+  const formik = useFormikContext()
+  valuesRef.current = formik?.values ?? null
+  useEffect(() => () => { valuesRef.current = null }, [valuesRef])
+  return null
 }
 
 // Lifts the form's selected turf names up to PostForm (see estimateSubs above).
@@ -215,10 +155,7 @@ function SelectedSubNamesReporter ({ onChange }) {
 
 export default function Post ({ subs }) {
   const router = useRouter()
-  let type = router.query.type
-
-  const singleType = defaultPostType(subs)
-  if (singleType) type = singleType
+  const type = defaultPostType(subs) ?? postFormType(router.query.type, subs) ?? fallbackPostType(subs)
 
   // Turf repost (2026-09-24): posts are created in one turf; more turfs are
   // added with the paid repost action. The bounties feed is type-based

@@ -66,60 +66,75 @@
 .rowEnd { display: flex; justify-content: flex-end; }
 
 /* ---- split button (save | caret) ---- */
-.split { display: inline-flex; align-items: stretch; }
+/* the split control and the list-only toggle mirror the /post type switcher
+   (styles/post-type-switcher.module.css): a bordered bar of segments, muted
+   until hovered, orange while open */
+.split,
+.pickerToggle {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px;
+  background: var(--stealth-surface, var(--bs-body-bg));
+  border: 1px solid var(--stealth-border, var(--bs-border-color));
+  border-radius: 12px;
+}
 
 .save,
 .caret,
 .pickerToggle {
-  font-family: inherit;
-  font-size: 0.8rem;
-  line-height: 1.4;
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
   cursor: pointer;
   white-space: nowrap;
 }
 
-.save {
-  background: var(--dm-accent-fill);
-  border: 1px solid var(--dm-accent-border);
-  border-right: 0;
-  border-radius: 8px 0 0 8px;
-  color: var(--dm-accent);
-  padding: 5px 12px;
-}
-
-.save:hover { background: var(--dm-accent-fill-hover); }
-
+.save,
 .caret {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
-  border: 1px solid var(--dm-accent-border);
-  border-radius: 0 8px 8px 0;
-  color: var(--dm-accent);
-  font-size: 0.66rem;
-  padding: 5px 9px;
+  color: var(--stealth-muted, var(--bs-secondary-color));
 }
 
-.caret:hover,
-.caret[aria-expanded='true'] { background: var(--dm-accent-fill); }
+.caret { padding: 5px 10px; }
 
-.caretGlyph { font-size: 0.66rem; }
+.save:hover,
+.caret:hover,
+.pickerToggle:hover {
+  color: var(--bs-body-color);
+  background: var(--stealth-surface-2, var(--bs-tertiary-bg));
+}
+
+.save:focus-visible,
+.caret:focus-visible,
+.pickerToggle:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 1px;
+}
+
+.caret[aria-expanded='true'],
+.pickerToggle[aria-expanded='true'] {
+  color: #fff;
+  background: var(--bs-primary);
+}
+
+.caretGlyph { font-size: 0.7rem; }
 
 .count { font-variant-numeric: tabular-nums; }
 
 .pickerToggle {
-  display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: transparent;
-  border: 1px solid var(--dm-accent-border);
-  border-radius: 8px;
-  color: var(--dm-title);
   padding: 5px 11px;
+  color: var(--stealth-muted, var(--bs-secondary-color));
 }
-
-.pickerToggle:hover { background: var(--dm-accent-fill); }
 
 /* ---- panel ---- */
 :global(.dropdown-menu).menu {
@@ -290,38 +305,56 @@
 }
 
 /* ---- editing-draft banner ---- */
+/* the same bar as the type switcher and the split control: the orange dot is
+   its one accent, and "discard draft" is a segment */
 .banner {
   display: flex;
   align-items: center;
-  gap: 9px;
-  background: var(--dm-accent-fill);
-  border: 1px solid var(--dm-accent-border);
-  border-radius: 9px;
-  padding: 9px 12px;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
   margin-bottom: 14px;
-  font-size: 0.8rem;
-  color: var(--dm-accent);
+  background: var(--stealth-surface, var(--bs-body-bg));
+  border: 1px solid var(--stealth-border, var(--bs-border-color));
+  border-radius: 12px;
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--stealth-muted, var(--bs-secondary-color));
 }
 
 .dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #ff8c33;
+  background: var(--bs-primary);
   flex: none;
 }
 
-.bannerText { min-width: 0; }
+.bannerText {
+  min-width: 0;
+  padding: 5px 0;
+}
 
 .discard {
   margin-left: auto;
   flex: none;
-  background: none;
+  padding: 5px 12px;
   border: 0;
-  padding: 0;
-  font-family: inherit;
-  font-size: 0.8rem;
-  color: var(--dm-accent);
-  text-decoration: underline;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  color: var(--stealth-muted, var(--bs-secondary-color));
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.discard:hover {
+  color: var(--dm-x-hover);
+  background: var(--dm-x-hover-bg);
+}
+
+.discard:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 1px;
 }

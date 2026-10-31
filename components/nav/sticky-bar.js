@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import styles from '@/components/header.module.css'
 import { Container, Nav, Navbar } from 'react-bootstrap'
-import { Back, NavPrice, NavWalletSummary, SignUpButton } from './common'
+import { Back, NavPrice, SignUpButton } from './common'
 import { useMe } from '@/components/me'
 import classNames from 'classnames'
 import { CommentsNavigator, useCommentsNavigatorContext } from '../use-comments-navigator'
@@ -57,7 +57,7 @@ export default function StickyBar (props) {
               </div>
               <div className='navMobileRight'>
                 <CommentsNavigator navigator={navigator} commentCount={commentCount} className='d-flex' />
-                {me ? <NavWalletSummary className='px-2' /> : <SignUpButton width='fit-content' />}
+                {!me && <SignUpButton width='fit-content' />}
               </div>
             </Nav>
           </Navbar>

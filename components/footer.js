@@ -11,14 +11,12 @@ import Prism from '@/svgs/prism.svg'
 import MoneroMark from '@/svgs/monero.svg'
 import Live from '@/svgs/chat-unread-fill.svg'
 import NoLive from '@/svgs/chat-off-fill.svg'
-import List from '@/svgs/list-unordered.svg'
-import ListOff from '@/svgs/list-unordered-off.svg'
 import Rewards from './footer-rewards'
 import useDarkMode from './dark-mode'
 import ActionTooltip from './action-tooltip'
 import { useAnimationEnabled } from '@/components/animation'
 import { useLiveCommentsToggle } from './use-live-comments'
-import useCompactView from './use-compact-view'
+import FeedViewControl from './feed-view-control'
 import { META_SUB } from '@/lib/constants'
 
 const RssPopover = (
@@ -109,12 +107,10 @@ export default function Footer ({ links = true }) {
 
   const [disableLiveComments, toggleLiveComments] = useLiveCommentsToggle()
 
-  const [compactView, toggleCompactView] = useCompactView()
 
   const DarkModeIcon = darkMode ? Sun : Moon
   const GlitchIcon = animationEnabled ? No : Prism
   const LiveIcon = disableLiveComments ? Live : NoLive
-  const CompactIcon = compactView ? ListOff : List
 
   const version = process.env.NEXT_PUBLIC_COMMIT_HASH
 
@@ -127,7 +123,7 @@ export default function Footer ({ links = true }) {
               <ToggleAction on={darkMode} label='dark mode' Icon={DarkModeIcon} onClick={darkModeToggle} />
               <ToggleAction on={animationEnabled} label='glitch animations' Icon={GlitchIcon} onClick={toggleAnimation} className='ms-2' />
               <ToggleAction on={!disableLiveComments} label='live comments' Icon={LiveIcon} onClick={toggleLiveComments} className='ms-2' />
-              <ToggleAction on={compactView} label='compact view' Icon={CompactIcon} onClick={toggleCompactView} className='ms-2' />
+              <FeedViewControl className='ms-2' />
             </div>
             <div className='mb-0' style={{ fontWeight: 500 }}>
               <Rewards />
