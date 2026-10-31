@@ -7,7 +7,7 @@ import styles from '../../header.module.css'
 // Shared single-row desktop nav content, used by both the merged top header
 // (HeaderMerged) and the scroll sticky bar (StickyBar) so the two are
 // pixel-identical: same elements (back, brand, turf selector, sorts, search,
-// centered rewards/price cluster, comment navigator, post button, right
+// centered price, comment navigator, post button, right
 // corner) and the same navMergedRow classes. The second-bar elements keep
 // their hasNavSelect / branding gating so non-turf pages look exactly as
 // before.

@@ -9,7 +9,7 @@
 // merged row. A StickyBar parity check at the bottom pins the merged-row
 // elements that were once missing from the sticky bar. Only environment-level
 // leaves are mocked (next router/link, the GraphQL-feeding hooks, the form-leaf
-// SubSelect, and svgs — which resolve to string stubs under next/jest and
+// TurfSwitcher, and svgs — which resolve to string stubs under next/jest and
 // cannot render as components).
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
@@ -48,7 +48,7 @@ jest.mock('next/link', () => {
   }
 })
 jest.mock(`${process.cwd()}/components/me`, () => ({ useMe: () => ({ me: mockMe }) }))
-jest.mock(`${process.cwd()}/components/sub-select`, () => () => <span data-testid='turf-select' />)
+jest.mock(`${process.cwd()}/components/turf-switcher`, () => () => <span data-testid='turf-select' />)
 jest.mock(`${process.cwd()}/components/badge`, () => () => null)
 // account.js -> user-list -> user-header -> form -> lexical editor graph pulls
 // github-slugger (ESM-only under jest CJS require); UserListRow is only used by
@@ -86,21 +86,16 @@ jest.mock('@apollo/client', () => {
   const { gql } = require('graphql-tag')
   return { __esModule: true, gql }
 })
-// The rewards pool readout moved to the footer. useQuery still returns a
-// stubbed rewards pool for the whole file, so the header test below proves the
-// top bar ignores it even when the data is available.
+// Price/BlockHeight call useQuery in the header graph; @apollo/client/react is
+// ESM-only under jest CJS require, so the whole module is stubbed with no data.
 jest.mock('@apollo/client/react', () => ({
-  useQuery: () => ({
-    data: { rewards: [{ total: mockRewardsTotal, time: mockRewardsTime }] }
-  })
+  useQuery: () => ({ data: undefined })
 }))
 
 // let, not const: reassigned per-test; jest.mock factories reference these
 // lazily (mock*-prefixed per babel-plugin-jest-hoist), so TDZ never applies.
 let mockRouter = { asPath: '/~bitcoin' }
 let mockMe = null
-let mockRewardsTotal = '1200000000000'
-let mockRewardsTime = null
 
 // props shape mirrors what components/nav/index.js builds for DesktopHeader
 const TURF_PROPS = {
@@ -154,8 +149,6 @@ afterAll(() => {
 beforeEach(() => {
   mockRouter = { asPath: '/~bitcoin' }
   mockMe = null
-  mockRewardsTotal = '1200000000000'
-  mockRewardsTime = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString()
 })
 
 afterEach(async () => {
@@ -203,24 +196,34 @@ describe('HeaderMerged zero-removal', () => {
     expect(buttonTexts).toEqual(expect.arrayContaining(['sign up', 'login']))
   })
 
-  it('renders the wallet balance rounded to 2 mXMR decimals without float artifacts', async () => {
+  it('does not show the wallet balance in the top bar (it lives on the wallet and statistics pages)', async () => {
     mockMe = { name: 'u1', bioId: 'x', privates: { piconeros: '8700000000001' } }
     await renderHeader(TURF_PROPS)
 
-    const wallet = container.querySelector('span[title*="piconero"]')
-    expect(wallet.textContent).toBe('8700 mXMR')
+    expect(container.querySelector('span[title*="piconero"]')).toBeNull()
+    expect(container.textContent).not.toMatch(/mXMR/)
   })
 })
 
-describe('centered cluster', () => {
-  it('shows only the price ticker, no rewards pool readout', async () => {
+describe('NavCenterCluster', () => {
+  it('renders the price alone — no rewards readout, countdown, or divider', async () => {
     await renderHeader(TURF_PROPS)
 
     const cluster = container.querySelector('.navCenterCluster')
     expect(cluster).toBeTruthy()
-    expect(cluster.querySelectorAll('.nav-item').length).toBe(1)
+
+    // the reward-pool readout (amount + days/hours countdown) lives only in
+    // the footer now; the top bar's centered cluster is price-only
+    expect(cluster.querySelector('a[href="/rewards"]')).toBeNull()
+    expect(cluster.querySelector('.navRewards')).toBeNull()
+    expect(cluster.querySelector('.navRewardsTimer')).toBeNull()
     expect(container.querySelector('a[href="/rewards"]')).toBeNull()
-    expect(container.querySelector('.navRewards')).toBeNull()
+    expect(cluster.querySelector('.navCenterDivider')).toBeNull()
+
+    // the price ticker's Nav.Item is the cluster's only occupant
+    const items = cluster.querySelectorAll('.nav-item')
+    expect(items.length).toBe(1)
+    expect(items[0].className).toMatch(/price/)
   })
 })
 

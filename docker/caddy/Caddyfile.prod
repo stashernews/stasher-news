@@ -15,6 +15,23 @@
 stasher.news {
 	encode zstd gzip
 
+	# Maintenance switch: while the flag file exists, the site serves the static
+	# maintenance page (503 + Retry-After) for every path — even when the app and
+	# db are down. Toggling is instant; no caddy reload or restart is needed:
+	#   ON:  touch docker/caddy/maintenance/enabled
+	#   OFF: rm docker/caddy/maintenance/enabled
+	# Try-paths resolve against Caddy's working directory (/srv in the official
+	# image), where docker-compose.yml mounts ./docker/caddy/maintenance.
+	@maintenance file maintenance/enabled
+	handle @maintenance {
+		root * /srv/maintenance
+		rewrite * /index.html
+		file_server {
+			status 503
+		}
+		header Retry-After 3600
+	}
+
 	# Media uploads: same-origin /uploads is reverse-proxied to the media S3
 	# service (SeaweedFS behind an HTTP-only proxy) so browsers can POST
 	# presigned uploads and GET objects over TLS without a second host (no
@@ -23,10 +40,13 @@ stasher.news {
 	# fields, not the URL — so the matcher must include bare /uploads as well
 	# as /uploads/<key>; otherwise the POST falls through to the app and the
 	# invite gate. The bucket name `uploads` is the s3 path-style prefix, so
-	# /uploads/<key> maps 1:1 to media:9000/uploads/<key>.
+	# /uploads/<key> maps 1:1 to minio:9000/uploads/<key>. `minio` is the
+	# legacy name: the old minio container answers it until a host migrates,
+	# then the media proxy carries it as a network alias — so this upstream is
+	# correct on both sides of the cutover.
 	@uploads path /uploads /uploads/*
 	handle @uploads {
-		reverse_proxy media:9000
+		reverse_proxy minio:9000
 	}
 
 	# lws confirmation webhook: internal-only. lws delivers container-to-container
@@ -56,7 +76,12 @@ stasher.news {
 # onto this host. Cert is issued via the global Let's Encrypt automation above.
 media.stasher.news {
 	encode zstd gzip
-	reverse_proxy imgproxy:8080
+	reverse_proxy imgproxy:8080 {
+		# imgproxy trusts these headers for client_ip logging; keep visitor IPs out.
+		header_up -X-Forwarded-For
+		header_up -CF-Connecting-IP
+		header_up -X-Real-IP
+	}
 }
 
 # Capture service host. Serves the 1200x630 og:image screenshots wired in
