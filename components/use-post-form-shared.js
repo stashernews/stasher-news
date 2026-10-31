@@ -6,6 +6,12 @@ import { useRouter } from 'next/router'
 import { MY_DRAFT, DELETE_DRAFT } from '@/fragments/draft'
 import { recordDraftPublication, clearDraftPublication } from '@/lib/draft-publication-ledger'
 import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
+import { createContext, useContext } from 'react'
+
+// Values carried into a create form when the author switches post type on
+// /post (components/post.js): the new form mounts with them instead of
+// starting blank. Provided only to the form the switch targeted.
+export const PostCarryContext = createContext(null)
 
 /**
  * Shared hook for post form initialization
@@ -32,6 +38,7 @@ export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyP
   const shareText = router.query.text ? decodeURI(router.query.text) : undefined
   const { me } = useMe()
   const client = useApolloClient()
+  const carry = useContext(PostCarryContext)
 
   // server draft prefill (?draft=<id>): MY_DRAFT is in flight at mount, and
   // Formik initialValues are one-shot (no enableReinitialize here, deliberately:
@@ -58,7 +65,10 @@ export function usePostFormShared ({ item, subs, mutation, schemaFn, storageKeyP
     // draft turf wins over URL/turf defaults (incl. the bounty 'bounties'
     // preselect). the formik field is `subNames` (SubSelectInitial), NOT subName
     ...(draft?.subName ? { subNames: [draft.subName] } : {}),
-    ...extras
+    ...extras,
+    // a type switch's carried title/text/url win over the draft and share
+    // prefill: they are what the author typed a moment ago
+    ...(item ? {} : carry)
   }
 
   // kill the localStorage draft machinery while a server draft is open (or

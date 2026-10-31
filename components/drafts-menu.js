@@ -1,7 +1,7 @@
 // components/drafts-menu.js
 // Server-side drafts: a split control (save draft | list) mounted top-right of
-// each create form, plus a list-only instance on the /post type-picker page
-// (no Form ancestor -> no formik -> no save half). The list is cross-type;
+// each create form; an instance with no Form ancestor renders list-only
+// (no formik -> no save half). The list is cross-type;
 // opening a draft navigates to the draft's OWN form route on the ROOT /post
 // path with ?draft=<id> (see the cross-type contract in the drafts plan).
 // Explicit save only — no autosave in v1.

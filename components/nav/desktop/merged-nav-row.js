@@ -1,5 +1,5 @@
 import { Nav } from 'react-bootstrap'
-import { Back, Brand, NavPrice, NavRewards, NavSelect, PostItem, RightCorner, SearchItem, Sorts, hasNavSelect } from '../common'
+import { Back, Brand, NavPrice, NavSelect, PostItem, RightCorner, SearchItem, Sorts, hasNavSelect } from '../common'
 import { CommentsNavigator, useCommentsNavigatorContext } from '@/components/use-comments-navigator'
 import { useBranding } from '../../territory-branding'
 import styles from '../../header.module.css'
@@ -32,8 +32,6 @@ export default function MergedNavRow (props) {
       )}
       <SearchItem prefix={prefix} className='me-0 ms-2 d-none d-md-flex' />
       <div className='navCenterCluster'>
-        <NavRewards />
-        <span className='navCenterDivider' />
         <NavPrice className='d-none d-md-flex' />
       </div>
       <div className='ms-auto d-flex align-items-center gap-2'>

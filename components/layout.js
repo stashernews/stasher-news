@@ -56,11 +56,13 @@ export function StaticLayout ({ children, footer = true, footerLinks = false, ..
   )
 }
 
-export function CenterLayout ({ children, ...props }) {
+// anchorTop: start content at the top instead of centering it vertically, for
+// pages whose height changes in place (the /post type switcher)
+export function CenterLayout ({ children, anchorTop, ...props }) {
   return (
     <Layout contain={false} footer={false} {...props}>
-      <div className={styles.page}>
-        <main className={styles.content}>
+      <div className={`${styles.page} ${anchorTop ? styles.pageTop : ''}`}>
+        <main className={`${styles.content} ${anchorTop ? styles.contentTop : ''}`}>
           {children}
         </main>
       </div>

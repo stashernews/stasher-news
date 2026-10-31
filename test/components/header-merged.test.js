@@ -86,9 +86,9 @@ jest.mock('@apollo/client', () => {
   const { gql } = require('graphql-tag')
   return { __esModule: true, gql }
 })
-// NavRewards polls the public rewards pool via useQuery; nothing else in the
-// header graph calls useQuery (HasNewNotesProvider is not rendered here), so
-// the mock returns a stubbed result for the whole file.
+// The rewards pool readout moved to the footer. useQuery still returns a
+// stubbed rewards pool for the whole file, so the header test below proves the
+// top bar ignores it even when the data is available.
 jest.mock('@apollo/client/react', () => ({
   useQuery: () => ({
     data: { rewards: [{ total: mockRewardsTotal, time: mockRewardsTime }] }
@@ -212,34 +212,15 @@ describe('HeaderMerged zero-removal', () => {
   })
 })
 
-describe('NavRewards', () => {
-  it('renders the rewards amount link and a days/hours countdown in the centered cluster', async () => {
+describe('centered cluster', () => {
+  it('shows only the price ticker, no rewards pool readout', async () => {
     await renderHeader(TURF_PROPS)
 
     const cluster = container.querySelector('.navCenterCluster')
     expect(cluster).toBeTruthy()
-
-    const amount = cluster.querySelector('a[href="/rewards"]')
-    expect(amount).toBeTruthy()
-    expect(amount.textContent).toMatch(/^1\.2 XMR in \d+d \d{1,2}h$/)
-
-    const timer = cluster.querySelector('.navRewards .navRewardsTimer')
-    expect(timer).toBeTruthy()
-    expect(timer.textContent).toMatch(/^\d+d \d{1,2}h$/)
-
-    // divider separates the rewards readout from the price ticker
-    expect(cluster.querySelector('.navCenterDivider')).toBeTruthy()
-
-    // the price ticker Nav.Item also lives in the centered cluster
-    expect(cluster.querySelectorAll('.nav-item').length).toBeGreaterThanOrEqual(2)
-  })
-
-  it('caps the rewards amount at 3 decimal places (truncated, trailing zeros trimmed)', async () => {
-    mockRewardsTotal = '4163900000' // 0.004163 XMR
-    await renderHeader(TURF_PROPS)
-
-    const amount = container.querySelector('a[href="/rewards"]')
-    expect(amount.textContent).toMatch(/^0\.004 XMR in \d+d \d{1,2}h$/)
+    expect(cluster.querySelectorAll('.nav-item').length).toBe(1)
+    expect(container.querySelector('a[href="/rewards"]')).toBeNull()
+    expect(container.querySelector('.navRewards')).toBeNull()
   })
 })
 
