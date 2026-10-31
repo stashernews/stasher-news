@@ -24,6 +24,7 @@ import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
 import { piconerosToMXmr } from '@/lib/format'
 import { useBranding } from '@/components/territory-branding'
+import { rememberFeedSort } from '@/lib/feed-sort'
 
 export function Brand ({ className, compact }) {
   const branding = useBranding()
@@ -329,17 +330,18 @@ export function LoginButtons () {
   )
 }
 
+// the sort tabs remember the pick (lib/feed-sort.js) so the user stays on it
 export function Sorts ({ prefix, className }) {
   return (
     <>
       <Nav.Item className={className}>
-        <Nav.Link as={Link} href={prefix + '/'} eventKey='' className={`${styles.navLink} ${styles.navSort} navSortLink`}>lit</Nav.Link>
+        <Nav.Link as={Link} href={prefix + '/'} eventKey='' onClick={() => rememberFeedSort('lit')} className={`${styles.navLink} ${styles.navSort} navSortLink`}>lit</Nav.Link>
       </Nav.Item>
       <Nav.Item className={className}>
-        <Nav.Link as={Link} href={prefix + '/new'} eventKey='new' className={`${styles.navLink} ${styles.navSort} navSortLink`}>new</Nav.Link>
+        <Nav.Link as={Link} href={prefix + '/new'} eventKey='new' onClick={() => rememberFeedSort('new')} className={`${styles.navLink} ${styles.navSort} navSortLink`}>new</Nav.Link>
       </Nav.Item>
       <Nav.Item className={className}>
-        <Nav.Link as={Link} href={prefix + '/top/posts/day'} eventKey='top' className={`${styles.navLink} ${styles.navSort} navSortLink`}>top</Nav.Link>
+        <Nav.Link as={Link} href={prefix + '/top/posts/day'} eventKey='top' onClick={() => rememberFeedSort('top')} className={`${styles.navLink} ${styles.navSort} navSortLink`}>top</Nav.Link>
       </Nav.Item>
     </>
   )
