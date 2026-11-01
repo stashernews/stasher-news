@@ -158,7 +158,7 @@ function TopLevelItem ({ item, noReply, ...props }) {
               />
               )}
           {
-          // Don't show related items for Saloon items (position is set but no subName)
+          // Don't show related items for global pins like the Daily Dead Drop (position is set but no subNames)
           (!item.position && item.subNames?.length > 0) &&
           // Don't show related items for jobs
           !item.isJob &&

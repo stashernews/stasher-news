@@ -4,6 +4,7 @@ import { validateEnv, assertExplicitNodeEnv } from '@/lib/env'
 import PgBoss from 'pg-boss'
 import createPrisma from '@/lib/create-prisma'
 import { repin } from './repin'
+import { dailyDeadDrop } from './dailyDeadDrop'
 import { trust } from './trust'
 import { ApolloClient, HttpLink, InMemoryCache } from '@apollo/client'
 import { indexItem, indexAllItems } from './search'
@@ -55,7 +56,7 @@ import { writeWorkerHeartbeat } from './heartbeat'
 import { logInfo, logWarn, logError } from '@/lib/logger'
 import { moneroJobDurationSeconds } from '@/lib/metrics'
 import { buildGateCookieHeader } from '@/lib/invite-gate'
-import { BOSS_RETRY } from '@/lib/constants'
+import { BOSS_RETRY, USER_ID } from '@/lib/constants'
 import { alert } from '@/lib/alert'
 
 // WebSocket polyfill
@@ -161,6 +162,13 @@ async function work () {
   await boss.work('weeklyPost-*', { includeMetadata: true }, jobWrapper(weeklyPost))
   await boss.work('payWeeklyPostBounty', { includeMetadata: true }, jobWrapper(payWeeklyPostBounty))
   await boss.work('repin-*', { includeMetadata: true }, jobWrapper(repin))
+  await boss.work('dailyDeadDrop', { includeMetadata: true }, jobWrapper(dailyDeadDrop))
+  // the daily thread posts from the pgboss.schedule row (0 0 * * * UTC); on an
+  // install with no drop yet, seed day 1 now instead of waiting for midnight
+  // (the job's once-per-UTC-day guard makes a duplicate run a no-op)
+  if (!await models.item.findFirst({ where: { userId: USER_ID.deadDrop, pinId: { not: null } }, select: { id: true } })) {
+    await boss.send('dailyDeadDrop', {}, { ...BOSS_RETRY, startAfter: 60, singletonKey: 'dailyDeadDrop-seed' })
+  }
   await boss.work('trust', { includeMetadata: true }, jobWrapper(trust))
   // trust recomputes nightly via the pgboss.schedule row (0 2 * * * UTC).
   // Self-seed on fresh installs (deferred 24h) so a brand-new stack lands a first run

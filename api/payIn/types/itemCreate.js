@@ -135,6 +135,12 @@ export async function getInitial (models, args, { me }) {
     return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
   }
 
+  // The deaddrop bot's daily thread (worker/dailyDeadDrop.js) is a system post:
+  // no posting fee, so it never lands PENDING_FEE once a free quota runs out.
+  if (me.id === USER_ID.deadDrop && !args.parentId) {
+    return { payInType: 'ITEM_CREATE', userId: me.id, piconeros: 0n }
+  }
+
   // StasherNews per-turf-scaled POST fee: the posting fee is the flat floor
   // × the number of target turfs the author does NOT own. Owned turfs are free.
   // COMMENT fees are FLAT: a replier's cost never scales with how many turfs

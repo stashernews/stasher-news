@@ -39,7 +39,7 @@ export async function getInitial (models, payInArgs, { me, sendProtocolId }) {
   const zapMtokens = piconeros * 70n / 100n
 
   // forward recipients were removed; the full receiver share goes to the post author
-  const eligible = ![USER_ID.anon, USER_ID.rewards, USER_ID.saloon].includes(userId)
+  const eligible = ![USER_ID.anon, USER_ID.rewards, USER_ID.deadDrop].includes(userId)
   const payOutCustodialTokensProspects = eligible
     ? [{ payOutType: 'TIP', userId, mtokens: zapMtokens, custodialTokenType: 'CREDITS' }]
     : []
