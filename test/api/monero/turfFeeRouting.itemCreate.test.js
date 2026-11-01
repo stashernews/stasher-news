@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// ITEM_CREATE owner-direct fee routing (Task 6, turf-owner-revenue):
+// ITEM_CREATE owner-direct fee routing:
 // mock-based unit tests of getInitial's fee branches against the routing
 // decision — single non-owned turf + owner wallet + no uploads + env gate
 // routes the fee owner-direct via a fee: payment-ID leg; everything else

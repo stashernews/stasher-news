@@ -1,4 +1,4 @@
-// Operator-initiated view-key master-key rotation (Phase 6 Task C2).
+// Operator-initiated view-key master-key rotation.
 //
 //   sndev monero rotate-master-key
 //

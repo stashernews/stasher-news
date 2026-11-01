@@ -4,7 +4,7 @@ import { PrismaClient } from '@prisma/client'
 import { summarizeRewardsLedger, readRewardsWalletLedger } from '@/api/monero/rewardsLedger'
 import { auditLedgerFixture } from '@/test/fixtures/payment-proof'
 
-// The factual rewards-hot-wallet ledger (rewards accounting repair §5):
+// The factual rewards-hot-wallet ledger:
 // ONE read-side union of proved facts — recorded payouts/sweeps, journal-proven
 // relays and unique RELAYED network fees — de-duplicated so no amount is
 // counted twice and no proven outflow is silently dropped. It is NOT a send
@@ -971,7 +971,7 @@ describe('readRewardsWalletLedger', () => {
 })
 
 // =============================================================================
-// v2 audit freshness (rewards reconciliation Task 2): the reader's fingerprint
+// v2 audit freshness: the reader's fingerprint
 // is the shared `accounting:v2:` snapshot digest, so EVERY audited input —
 // receipts, downvotes, config, escrow, proof inventory — moves freshness while
 // the money union stays a pure payout/sweep/journal fact. Fake model queries

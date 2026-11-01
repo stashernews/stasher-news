@@ -1,7 +1,7 @@
 /* eslint-env jest */
 
-// Integration tests for computeEligibleTipVolume (dynamic curator budget spec
-// §4). The volume T is computed from real Item/ObservedTip/UserSubTrust rows, so
+// Integration tests for computeEligibleTipVolume (dynamic curator budget spec).
+// The volume T is computed from real Item/ObservedTip/UserSubTrust rows, so
 // this mirrors test/worker/curatorShares.test.js: live migrated DB, per-test
 // seeding, FK-safe teardown, and a residue purge keyed on this suite's own
 // prefixes.

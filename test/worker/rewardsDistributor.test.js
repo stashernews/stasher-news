@@ -1,16 +1,16 @@
 /* eslint-env jest */
 
-// Integration test for the weekly rewardsDistributor (Phase 4 Task 8 / spec §5).
+// Integration test for the weekly rewardsDistributor.
 //
 // runDistributionOnce is the testable core: it tallies a week of CONFIRMED
 // platform inflow (downvotes + posting/territory fees) by source, applies
 // the PlatformFeeConfig allocation split, adds the prior period's rollover to
-// form the pool, calls computeCuratorShares (Task 7) to apportion it to the
+// form the pool, calls computeCuratorShares to apportion it to the
 // curators of top content, and writes one RewardDistribution row + QUEUED
 // RewardPayout rows (one per curator WITH a registered receiving address).
 // Curators with no registered address are excluded — their share rolls over.
 //
-// Task 9 wires the hot-wallet signer: runDistributionOnce now calls sendPayouts
+// Hot-wallet signer wiring: runDistributionOnce now calls sendPayouts
 // (injected here as a stub so no real stagenet keys/wallet are needed) and flips
 // the distribution PENDING -> SENDING -> COMPLETE, with payouts QUEUED -> SENT.
 //
@@ -56,7 +56,7 @@ jest.setTimeout(30000)
 
 const prisma = new PrismaClient()
 
-// The Task 7 checkpoint fixtures + their tests run only against the dedicated
+// The checkpoint fixtures + their tests run only against the dedicated
 // isolated database (same conditional-skip convention as the other repair
 // suites). On a shared dev DB nothing journal-related is seeded with the live
 // wallet identity, and the inherited tests keep their original fixture shape.
@@ -64,13 +64,13 @@ const ISOLATED_DB = (() => {
   try { return new URL(process.env.DATABASE_URL).pathname === '/stasher_rewards_repair_test' } catch { return false }
 })()
 
-// Task 7 fee-journal fixtures. Every fixture hash carries the 'deadbead'
+// Fee-journal fixtures. Every fixture hash carries the 'deadbead'
 // prefix (8 hex chars — a real 64-hex hash collides ~2e-10) so an interrupted
 // run's residue is purgeable without touching a real journal row.
 const JOURNAL_TX_PREFIX = 'deadbead'
 const testHash = suffix => (JOURNAL_TX_PREFIX + suffix).padEnd(64, '0')
 
-// The exact checkpoint arithmetic (spec §5): prior opsAvailable20, opsSwept10,
+// The exact checkpoint arithmetic: prior opsAvailable20, opsSwept10,
 // cost checkpoint4, cumulative fees7 (sweep 4 + consolidation 3) => carry 7.
 const PRIOR_OPS_AVAILABLE_PICONEROS = 20n
 const PRIOR_OPS_SWEPT_PICONEROS = 10n
@@ -183,7 +183,7 @@ let priorDistributionTopN = null
 let priorRewardsAddress
 let priorNetworkEnv
 
-// Task 9 stub signer: records that it was invoked and marks each QUEUED payout
+// Stub signer: records that it was invoked and marks each QUEUED payout
 // SENT with a stable fake tx hash. Injected into runDistributionOnce so the
 // wiring (SENDING -> COMPLETE, payouts -> SENT) is verified without real XMR.
 let signerInvocations = 0
@@ -330,9 +330,9 @@ async function seedFee (payInId, feeType, major, piconeros, confirmedAt, { donat
   return fee
 }
 
-// A hot-wallet journal fact (Task 7): scoped to the suite's configured
+// A hot-wallet journal fact: scoped to the suite's configured
 // wallet, torn down by id and by the hash prefix. `relayAttemptedAt` marks an
-// attempted-but-unproven PREPARED row (Task 10 completion-readiness fixtures).
+// attempted-but-unproven PREPARED row (completion-readiness fixtures).
 async function seedJournalTransaction ({ txHash, kind, state = 'RELAYED', distributionId = null, principalPiconeros = 0n, networkFeePiconeros = 0n, metadata, relayAttemptedAt = null }) {
   const row = await prisma.rewardsWalletTransaction.create({
     data: {
@@ -497,7 +497,7 @@ beforeAll(async () => {
   }
 
   // Prior period's distribution carrying a rollover into this week's pool.
-  // On the isolated DB it also carries the Task 7 ops snapshot: opsAvailable20,
+  // On the isolated DB it also carries the ops snapshot: opsAvailable20,
   // opsSwept10 (the sweep hash is represented in the journal), checkpoint4. The
   // fixture journal fees total 7 (sweep 4 + consolidation 3), so the
   // fee-adjusted carry is 7. On a shared DB the inherited shape (no ops
@@ -524,7 +524,7 @@ beforeAll(async () => {
   const prior = await prisma.rewardDistribution.create({ data: priorData })
   created.distributions.push(prior.id)
   if (ISOLATED_DB) {
-    // Task 7 journal facts inside the configured wallet scope: a proven sweep
+    // Journal facts inside the configured wallet scope: a proven sweep
     // already represented by the recorded opsSweepTxHash (counted once), and a
     // consolidation fee (fee-only). Total RELAYED cost 7.
     await seedJournalTransaction({
@@ -606,7 +606,7 @@ beforeAll(async () => {
   await createPayoutAccount(c2)
   // c3: intentionally no MoneroAccount(ownerUserId: c3) -> excluded from payouts.
 
-  // Real path (merged rewards plan Task 2): give c1 territory trust in 'stasher'
+  // Real path: give c1 territory trust in 'stasher'
   // and apply a detected tip so Item.weightedVotes is bumped via
   // zapTrust × LOG(tipPiconeros) — exactly what the webhook receiver does on a
   // live tip. This is what makes the post qualify for curator rewards.
@@ -620,11 +620,11 @@ beforeAll(async () => {
   await seedTip({ postId, tipperId: c2, piconeros: 2_000_000_000_000n, confirmedAt: new Date(inPeriod.getTime() + 60000), recipientAccountId: recipientAccount.id })
   await seedTip({ postId, tipperId: c3, piconeros: 2_000_000_000_000n, confirmedAt: new Date(inPeriod.getTime() + 120000), recipientAccountId: recipientAccount.id })
 
-  // --- Run the distribution (Task 9 signer stub injected) ---
+  // --- Run the distribution (signer stub injected) ---
   result = await runDistributionOnce({ models: prisma, sendPayouts: fakeSigner, scheduleOpsSweep: false })
   created.distributions.push(result.id)
 
-  // Task 7 drift-robust checkpoint expectations: the cumulative RELAYED fees in
+  // Drift-robust checkpoint expectations: the cumulative RELAYED fees in
   // the configured scope at the moment of the run (the 7 fixture piconeros on
   // the isolated DB, plus any real journal rows on a shared dev DB) and the
   // fee-adjusted carry they price into opsAvailable. On a shared DB the
@@ -824,7 +824,7 @@ test('opsInflowPiconeros is the exact complement of the rewards earmark (totalIn
 test('opsAvailablePiconeros equals opsInflow + opsRolledOver (prior had no ops, so rollover is 0)', async () => {
   // Shared DB: the prior carries no ops snapshot (the inherited fixture shape),
   // so the rollover is the negative of any real journal fees. Isolated DB: the
-  // Task 7 fixture snapshot (20/10/checkpoint 4) applies.
+  // Fixture snapshot (20/10/checkpoint 4) applies.
   expect(result.opsRolledOverPiconeros).toBe(ISOLATED_DB ? expectedOpsRolledOver : -expectedCumulativeFees)
   expect(result.opsAvailablePiconeros).toBe(result.opsInflowPiconeros + result.opsRolledOverPiconeros)
 })
@@ -870,7 +870,7 @@ test('the distributor pays out (>0) when weightedVotes is populated through the 
   expect(result.payoutCount).toBeGreaterThan(0)
 })
 
-test('the distribution is finalized COMPLETE (Task 9 signer wired) with completedAt set', async () => {
+test('the distribution is finalized COMPLETE (signer wired) with completedAt set', async () => {
   expect(result.status).toBe('COMPLETE')
   expect(result.payoutCount).toBeGreaterThan(0)
   expect(result.completedAt).toBeTruthy()
@@ -1131,12 +1131,12 @@ test('an unpersisted relay (sent>0, unpersisted>0) marks the distribution FAILED
   expect(payoutAfter.state).toBe('QUEUED')
 })
 
-// The Task 8 accounting-failure completion guard seeds users/distributions/
+// The accounting-failure completion guard seeds users/distributions/
 // payouts directly, so it is gated to the dedicated isolated DB (same
 // conditional-skip convention as the other repair suites) and skipped on a
 // shared dev DB.
 ;(ISOLATED_DB ? describe : describe.skip)('accounting-failure completion guard (isolated DB only)', () => {
-  test('an unresolved accounting item (accountingUnpersisted>0) marks the distribution FAILED — never COMPLETE (Task 8)', async () => {
+  test('an unresolved accounting item (accountingUnpersisted>0) marks the distribution FAILED — never COMPLETE', async () => {
     const curatorId = await createUser()
     const dist = await prisma.rewardDistribution.create({
       data: {
@@ -1202,7 +1202,7 @@ test('a FAILED distribution with all payouts SENT reconciles to COMPLETE on the 
   expect(signerCalled).toBe(false) // !hasQueued branch skips the signer
 })
 
-test('R03: a FAILED distribution with FAILED payouts + no QUEUED is completed WITH a critical stranded-funds alert', async () => {
+test('a FAILED distribution with FAILED payouts + no QUEUED is completed WITH a critical stranded-funds alert', async () => {
   const curatorId = await createUser()
   const dist = await prisma.rewardDistribution.create({
     data: {
@@ -1238,7 +1238,7 @@ test('R03: a FAILED distribution with FAILED payouts + no QUEUED is completed WI
     expect.objectContaining({ dedupeKey: `dist-${dist.id}-complete-with-failures` }))
 })
 
-test('R03: a distribution with a pre-existing FAILED payout that sends its remaining QUEUED payout still alerts at COMPLETE', async () => {
+test('a distribution with a pre-existing FAILED payout that sends its remaining QUEUED payout still alerts at COMPLETE', async () => {
   // The !hasQueued branch is not the only COMPLETE path: a FAILED payout can
   // coexist with a QUEUED one that a later run delivers successfully. The
   // terminal flip must still page — otherwise the stranded funds read clean.
@@ -1282,7 +1282,7 @@ test('R03: a distribution with a pre-existing FAILED payout that sends its remai
     expect.objectContaining({ dedupeKey: `dist-${dist.id}-complete-with-failures` }))
 })
 
-test('R02 hardening: terminal writes are CAS-guarded — a stale finalizer cannot clobber a newer owner', async () => {
+test('Hardening: terminal writes are CAS-guarded — a stale finalizer cannot clobber a newer owner', async () => {
   // A distribution currently SENDING (a live/newer owner) as seen by a STALE
   // process whose in-memory copy still says PENDING with nothing queued. The
   // !hasQueued terminal write must no-op instead of flipping it COMPLETE.
@@ -1313,7 +1313,7 @@ test('R02 hardening: terminal writes are CAS-guarded — a stale finalizer canno
   await prisma.rewardDistribution.delete({ where: { id: dist.id } })
 })
 
-test('R02: a stale SENDING distribution is watchdog-flipped FAILED, alerted, and re-driven to COMPLETE', async () => {
+test('a stale SENDING distribution is watchdog-flipped FAILED, alerted, and re-driven to COMPLETE', async () => {
   const curatorId = await createUser()
   const dist = await prisma.rewardDistribution.create({
     data: {
@@ -1344,7 +1344,7 @@ test('R02: a stale SENDING distribution is watchdog-flipped FAILED, alerted, and
     expect.objectContaining({ dedupeKey: `dist-${dist.id}-stale-sending` }))
 })
 
-test('R02: a FRESH SENDING distribution is untouched by the watchdog', async () => {
+test('a FRESH SENDING distribution is untouched by the watchdog', async () => {
   const curatorId = await createUser()
   const dist = await prisma.rewardDistribution.create({
     data: {
@@ -1373,7 +1373,7 @@ test('R02: a FRESH SENDING distribution is untouched by the watchdog', async () 
   await prisma.rewardDistribution.delete({ where: { id: dist.id } })
 })
 
-test('R02: runDistributionOnce wires the watchdog — a stale row is recovered by a normal run', async () => {
+test('runDistributionOnce wires the watchdog — a stale row is recovered by a normal run', async () => {
   jest.useFakeTimers({ now: resultWeekNoon(), doNotFake: REAL_TIMER_APIS })
   try {
     const curatorId = await createUser()
@@ -1549,7 +1549,7 @@ test('a referrer who is ALSO a paid curator gets exactly one FOREVER_REFERRAL Ea
   expect(total).toBe(dist.distributedPiconeros)
 })
 
-test('R04: referral payouts are computed from PAID curators only (a wallet-less curator\'s share earns their referrer nothing)', async () => {
+test('referral payouts are computed from PAID curators only (a wallet-less curator\'s share earns their referrer nothing)', async () => {
   // Same clearing pattern as the referral tests above: the week's window is
   // occupied by the previous test's distribution, so remove it (Earn ->
   // payout -> distribution, FK-safe) for a fresh run.
@@ -1567,7 +1567,7 @@ test('R04: referral payouts are computed from PAID curators only (a wallet-less 
   await prisma.user.update({ where: { id: curatorPaid }, data: { referrerId: referrer } })
   await createPayoutAccount(curatorPaid)
   // Wallet-less curator with the SAME referrer: their share rolls over and
-  // must NOT generate referral income for the referrer (the R04 bug).
+  // must NOT generate referral income for the referrer (regression guard).
   const curatorWalletless = await createUser()
   await prisma.user.update({ where: { id: curatorWalletless }, data: { referrerId: referrer } })
 
@@ -2092,7 +2092,7 @@ describe('warnUndeliveredDistributions (stranding visibility net)', () => {
   })
 })
 
-// Task 10: shared completion enqueue + the all-SENT accounting readiness gate.
+// Shared completion enqueue + the all-SENT accounting readiness gate.
 // Every case runs the production orchestration (runDistributionOnce /
 // recoverStaleDistributions / requeueFailedPayouts) with a fake boss and
 // injected signer/wallet against the dedicated isolated DB; the shared dev DB
@@ -2395,7 +2395,7 @@ describe('warnUndeliveredDistributions (stranding visibility net)', () => {
     expect(signer).toHaveBeenCalledTimes(1)
   })
 
-  // The routed Task 8 finding: a proven payout relay persists the recipients
+  // A proven payout relay persists the recipients
   // but the journal fee persist fails (drive 1 -> accountingUnpersisted). The
   // no-QUEUED path must not flip COMPLETE (or schedule a sweep) until the
   // attempted journal row is resolved from the wallet's exact-hash history.
@@ -2452,7 +2452,7 @@ describe('warnUndeliveredDistributions (stranding visibility net)', () => {
       expect.stringContaining(String(dist.id)), expect.anything())
     expect((await prisma.rewardsWalletTransaction.findUnique({ where: journalKey })).state).toBe('PREPARED')
 
-    // Drive 3 (capture-era contract, Finding #1): an attempted PREPARED row is
+    // Drive 3 (capture-era contract): an attempted PREPARED row is
     // promoted ONLY by a fresh confirmed complete-payment verification — the
     // wallet's own outgoing history (exact hash, fee and destinations) NEVER
     // proves a relay by itself. No verifier session is available here, so the
@@ -2510,7 +2510,7 @@ describe('warnUndeliveredDistributions (stranding visibility net)', () => {
       expect.stringContaining(String(dist.id)), expect.objectContaining({ dedupeKey: `dist-${dist.id}-enqueue-failed` }))
   })
 
-  // Final-review Important regression: readiness failures are wallet/RPC/SDK
+  // Regression: readiness failures are wallet/RPC/SDK
   // exceptions that can carry credentials; only fixed diagnostics may reach
   // logs or alert transport — never the raw exception or its message.
   test('a credential-shaped wallet failure in readiness reaches neither logs nor alerts', async () => {

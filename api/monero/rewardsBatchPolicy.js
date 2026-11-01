@@ -1,5 +1,4 @@
-// Deterministic batching policy for the rewards hot wallet (rewards payout
-// size recovery, Task 1). Pure helpers: no Prisma client and no wallet is
+// Deterministic batching policy for the rewards hot wallet. Pure helpers: no Prisma client and no wallet is
 // created here, so importing this module is inert and the policy is testable
 // in isolation. Every payout row stays whole; this module only orders and
 // splits rows, and recognizes the signer's exact transaction-size rejection.

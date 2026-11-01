@@ -2,7 +2,6 @@
 
 Date: 2026-10-12
 Branch: `worker-reconciliation-repairs` — tip `d5dd5862`, base `7562cd4e`
-Source plan: `docs/superpowers/plans/2026-10-12-worker-reconciliation-production-repairs.md`
 
 Housekeeping: `docs/ops/` is gitignored (`.gitignore:35`); this handoff is
 force-added there like its neighbours (`quest-boost-credit-rollout.md`,

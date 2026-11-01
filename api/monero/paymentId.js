@@ -20,14 +20,14 @@ function resolveRewardsPidKey () {
   return key
 }
 
-// Deterministic payment-ID generator for tip attribution (spec §4.1).
+// Deterministic payment-ID generator for tip attribution.
 //
 // Each tip gets a unique 8-byte (16 hex char) payment ID derived from
 // HMAC-SHA256(REWARDS_PID_KEY, "tip:<postId>:<nonce>"), truncated to 8 bytes.
 // The nonce is a random 8-byte hex value minted by the caller and is NOT
 // persisted — the derived paymentId is what's stored on the ObservedTip —
 // so the ID is deterministic for a given (postId, nonce) yet unique across tips.
-// Mirrors the downvote payment-ID scheme (spec §2.5) for consistency.
+// Mirrors the downvote payment-ID scheme for consistency.
 
 export function generateTipPaymentId (postId, nonce) {
   const key = resolveRewardsPidKey()
@@ -37,7 +37,7 @@ export function generateTipPaymentId (postId, nonce) {
 }
 
 // Deterministic payment-ID generator for downvote attribution
-// (spec §3.3). Each downvote pays the platform rewards wallet tagged with a
+// Each downvote pays the platform rewards wallet tagged with a
 // unique 8-byte (16 hex char) payment ID derived from
 // HMAC-SHA256(REWARDS_PID_KEY, "dv:<postId>:<nonce>"), truncated to 8 bytes.
 // The "dv:" prefix keeps downvote IDs disjoint from tip IDs ("tip:") so the
@@ -50,7 +50,7 @@ export function generateDownvotePaymentId (postId, nonce) {
   return hmac.digest('hex').slice(0, 16)
 }
 
-// Deterministic payment-ID generator for bounty funding attribution (A-13).
+// Deterministic payment-ID generator for bounty funding attribution.
 // Each funding gets a unique 8-byte (16 hex char) payment ID derived from
 // HMAC-SHA256(REWARDS_PID_KEY, "bn:<postId>:<nonce>"), truncated to 8 bytes.
 // The nonce is a random 63-bit integer (int8-safe) stored on the

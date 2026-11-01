@@ -1,4 +1,4 @@
-// Authenticated payment-proof envelope (Finding #1, Task 2).
+// Authenticated payment-proof envelope.
 //
 // Seals a ProofPayloadV1 (the pre-relay built-transaction facts captured by
 // the sending wallet) into a self-authenticating EnvelopeV1 that is bound to
@@ -18,10 +18,10 @@
 // so an envelope sealed for one payment can never be opened against another:
 // swapped claims fail authentication BEFORE any key is touched, and every
 // authenticated byte is covered by a GCM tag. Envelope masterKeyVersion is the
-// actual key-generation number (a positive safe integer, matching Task 3's
+// actual key-generation number (a positive safe integer, matching the
 // Int column); every version inside the binding/AAD/salt is the canonical
 // decimal string form. Claim/payload correspondence with the raw chain is
-// deliberately NOT asserted here — that independent gate is Task 5's; this
+// deliberately NOT asserted here — that independent gate is the verifier's; this
 // module only proves the payload is the one that was sealed for these claims.
 //
 // Memory hygiene: the DEK, KEK and the provider-returned master-key copy are
@@ -139,7 +139,7 @@ function assertMasterKeyBytes (masterKey) {
 
 // Secret-scalar chunk validation for the captured key bundle: the SDK's
 // getKey() string is the concatenation of little-endian SECRET scalars
-// (main first, then one per output) — NOT public points (final-review C1).
+// (main first, then one per output) — NOT public points.
 function requireSecretScalarChunk (chunk) {
   if (typeof chunk !== 'string' || !LOWER_HEX_64.test(chunk)) fail(PAYLOAD_INVALID)
   try {
@@ -183,12 +183,12 @@ function requireCanonicalAmount (value) {
  * amounts/hashes, and the SECRET key-bundle contract — the bundle is the
  * concatenation of little-endian secret scalars (main first, then exactly
  * `additionalKeyCount` additional secrets), each strictly inside
- * 0 < s < curve order (final-review C1). The OPTIONAL populated public built
+ * 0 < s < curve order. The OPTIONAL populated public built
  * facts (mainPublicKey/additionalPublicKeys/outputKeys) must be canonical
  * point encodings when present and explicit null when the SDK did not expose
  * them; they are NEVER required to equal the secret bundle — confirmed raw
- * chain structure supplies the later independent correspondence gate
- * (Task 5). Populated built change fields are validated; an unavailable
+ * chain structure supplies the later independent correspondence gate.
+ * Populated built change fields are validated; an unavailable
  * change amount stays explicit null and pairs with a null change address.
  * Fields the SDK did not populate must be explicit null.
  */
@@ -330,7 +330,7 @@ export function sealPaymentProof (request) {
   const currentVersion = keyProvider.getCurrentVersion()
   if (!Number.isSafeInteger(currentVersion) || currentVersion <= 0) fail(PROVIDER_INVALID)
   const masterKey = keyProvider.getMasterKey(currentVersion)
-  // Best-effort hygiene on EVERY path (final-review M3): even a provider
+  // Best-effort hygiene on EVERY path: even a provider
   // returning a malformed buffer (assertMasterKeyBytes throws) has handed us
   // secret bytes — zero them rather than leak them. Honest limits: the
   // canonical payload string and the parsed payload object are immutable JS
@@ -418,7 +418,7 @@ export function openPaymentProof (request) {
 
   const masterKey = keyProvider.getMasterKey(envelope.masterKeyVersion)
 
-  // Best-effort hygiene on EVERY path (final-review M3): malformed provider
+  // Best-effort hygiene on EVERY path: malformed provider
   // buffers, failed decryptions and validation refusals all scrub the key
   // material and the decrypted plaintext buffer. Honest limits: the plaintext
   // string handed to JSON.parse and the parsed payload object are immutable

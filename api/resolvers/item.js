@@ -334,11 +334,11 @@ function whenClause (when, table) {
 }
 
 export const activeOrMine = (me) => {
-  // StasherNews posting-fee gate (§6.2, Q8): a PENDING_FEE item is invisible to
+  // StasherNews posting-fee gate: a PENDING_FEE item is invisible to
   // everyone except its author until the rewardsWalletObserver observes its posting fee and
   // flips feeStatus to FEE_PAID. (Existing items default to FEE_NOT_REQUIRED.)
   //
-  // StasherNews bounty gate (A-13): an unfunded bounty — bountyPiconeros = 0
+  // StasherNews bounty gate: an unfunded bounty — bountyPiconeros = 0
   // with bountyStatus UNFUNDED/PENDING_FUNDING/DETECTED — is likewise invisible
   // to everyone except its author until the funding payment confirms (FUNDED).
   // Non-bounty items are identified by bountyPiconeros = 0, NOT by bountyStatus

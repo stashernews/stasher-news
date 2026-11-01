@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Phase 1 exit-gate smoke test (spec §10):
+# Exit-gate smoke test:
 #   register a stagenet account -> receive stagenet XMR -> observe via /get_address_txs.
 #
 # Usage:
@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-echo "=== Phase 1 smoke test: register -> send -> observe ==="
+echo "=== smoke test: register -> send -> observe ==="
 echo "  address: $ADDRESS"
 echo
 
@@ -67,7 +67,7 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
     echo "================================================================"
     echo "$RESP"
     echo
-    echo "Phase 1 exit gate PASSED."
+    echo "Exit-gate smoke test PASSED."
     exit 0
   fi
 

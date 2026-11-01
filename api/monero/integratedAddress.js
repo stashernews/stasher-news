@@ -3,7 +3,7 @@ import { base58xmr } from '@scure/base'
 import { keccak256 } from 'js-sha3'
 
 // Integrated-address encoder for Monero payment-ID-based tip attribution
-// (spec §4.2). A tip is attributed by encoding a unique 8-byte payment ID into
+// A tip is attributed by encoding a unique 8-byte payment ID into
 // an integrated address derived from the author's primary address.
 //
 // Layout (77 bytes):

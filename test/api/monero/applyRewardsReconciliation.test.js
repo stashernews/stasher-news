@@ -35,10 +35,10 @@ import {
   verifiedRepairFixture
 } from '../../fixtures/rewards-payment-verification'
 
-// Isolated real-DB apply tests for the atomic accounting repair (Task 13).
+// Isolated real-DB apply tests for the atomic accounting repair.
 //
 // The database is the dedicated /stasher_rewards_repair_test one; the synthetic
-// evidence is Task 12's exact money story. The suite is skipped everywhere else
+// evidence is the fixture's exact money story. The suite is skipped everywhere else
 // so ordinary dev-DB collection neither crashes nor touches that database.
 // Run via:
 //   docker exec stasher-rewards-repair-runner npm run test -- \
@@ -63,7 +63,7 @@ const reserveInputs = () => ({
 })
 
 // A closed-shape COMPLETE verifier-result test double for the APPLY-gate
-// suites (final-review I1/I2): the synthetic story's recorded outflows are
+// suites: the synthetic story's recorded outflows are
 // covered by these explicit complete payments, exactly the evidence an
 // operator-approved repair requires. Safe result shape only; never a claim
 // about the historical fixture itself (the fixture stays unresolved without
@@ -122,8 +122,8 @@ const completeTestVerification = ({ hash, scope, members, role = 'REWARDS', fee 
 
 // The proof-era evidence extension for the synthetic story: the recorded
 // payout batch covered by a REWARDS verification. The ESCROW leg verifications
-// are injected AFTER the rows are seeded (final-review I1 round 3: the
-// canonical escrow member id is the recorded bounty payment's own id).
+// are injected AFTER the rows are seeded (the canonical escrow member id is
+// the recorded bounty payment's own id).
 const withCompleteStoryVerifications = input => {
   const out = structuredClone(input)
   out.evidence.evidenceVersion = 2
@@ -161,7 +161,7 @@ const storyEscrowVerifications = (awardPayment, rolloverPayment) => {
   ]
 }
 
-// Task 5: the apply gate performs its own guarded recheck. Tests inject the
+// The apply gate performs its own guarded recheck. Tests inject the
 // read-only collection (the SAME approved evidence the fixture built from —
 // never a serialized report treated as fresh authority) and the boundary
 // daemon that still reports the approved block hash as canonical.
@@ -314,9 +314,9 @@ function countingModels (client) {
   beforeAll(async () => {
     db = new PrismaClient()
     // One-time reset of rows an earlier crashed run may have leaked into the
-    // shared throwaway DB: both fixture families (the Task 12 synthetic story
-    // and the Task 3/5 verified pair) register ownerless platform_rewards
-    // wallets on the same isolated database. Journal+proof deletion shares one
+    // shared throwaway DB: both fixture families register ownerless
+    // platform_rewards wallets on the same isolated database. Journal+proof
+    // deletion shares one
     // transaction (the deferred delete-guard requires the pair to go together).
     const addresses = [SCOPE.walletAddress, verifiedFixtureIds.SCOPE.walletAddress]
     await db.$transaction([
@@ -333,13 +333,13 @@ function countingModels (client) {
     if (db) await db.$disconnect()
   })
 
-  // FK-safe fixture for the Task 12 synthetic evidence: real users/items/
+  // FK-safe fixture for the synthetic evidence: real users/items/
   // distributions/payouts/earns/receipts/bounty payments/journal rows in the
   // dedicated isolated DB. The manifest is built from the SAME `readRepairLedger`
   // output an operator CLI would read, so the apply preconditions are exact by
   // construction (and a non-applicable fixture fails loudly here).
   async function seedRepairFixture () {
-    // Final-review I1: the seeded story's recorded outflows (the CONFIRMED/
+    // The seeded story's recorded outflows (the CONFIRMED/
     // SENT payout batch and both escrow settlement legs) are covered by
     // explicit complete verifications — the historical fixture alone now
     // correctly builds an UNRESOLVED strict audit and can never be applied.
@@ -538,7 +538,7 @@ function countingModels (client) {
     })
     created.bountyPayments.push(awardPayment.id, rolloverPayment.id)
 
-    // Final-review I1 round 3: the escrow leg verifications bind the CANONICAL
+    // The escrow leg verifications bind the CANONICAL
     // escrow member id — the recorded bounty payment's own id — so they are
     // injected here, after the rows exist.
     rawEvidence.escrow = {
@@ -834,7 +834,7 @@ function countingModels (client) {
     try {
       const wrongScope = structuredClone(evidence)
       wrongScope.scope.walletAddress = '5SomeOtherWallet'
-      // Final-review I2: the re-verification gate binds every collected
+      // The re-verification gate binds every collected
       // result to its slot's wallet scope, so a wrong-scope evidence now
       // refuses there (fail closed) — the verification facts can never be
       // silently re-attributed to another wallet.
@@ -940,7 +940,7 @@ function countingModels (client) {
     }
   })
 
-  test('fresh escrow proof loss and legacy surviving-proof loss refuse the guarded APPLY (final-review I2)', async () => {
+  test('fresh escrow proof loss and legacy surviving-proof loss refuse the guarded APPLY', async () => {
     const fixture = await seedRepairFixture()
     try {
       const args = {
@@ -1007,7 +1007,7 @@ function countingModels (client) {
     }
   })
 
-  // Fix round 2 (final-review I2 test rigor): APPLY rollback coverage driven
+  // APPLY rollback coverage driven
   // by the REAL verifier over fake read-only sessions (the legacyRepairFixture
   // machinery: real envelope-carrying legacy contracts, real verifier gates).
   // The closed-shape doubles above stay for the pure comparison-contract tests;
@@ -1015,7 +1015,7 @@ function countingModels (client) {
   const REAL_BOUNDARY = { height: 3000000, blockHash: 'd4'.repeat(32) }
   const PRIZE_HASH = 'c5'.repeat(32)
 
-  // Honest escrow contracts (final-review I1 round 3): the recorded combined
+  // Honest escrow contracts: the recorded combined
   // disposition's single tx pays the prize member AND the fee member — each
   // with the canonical escrow member identity (member id = the recorded bounty
   // payment id, canonical leg, exact recorded settled amount). The fixed
@@ -1035,9 +1035,9 @@ function countingModels (client) {
   // hash-remapped fake chain session with a real surviving proof bundle (or,
   // with `withSurvivingProof: false`, the REAL unresolved
   // LEGACY_PROOF_MISSING result for the same payment). The contract members
-  // are the CALLER's honest per-leg facts (final-review I1 round 3: the escrow
-  // disposition proves its prize member, the separate fee proves its fee
-  // member — never one shared two-member payment).
+  // are the CALLER's honest per-leg facts (the escrow disposition proves its
+  // prize member, the separate fee proves its fee member — never one shared
+  // two-member payment).
   const realLegacyVerification = async ({ hash, journalRole, bountyPaymentId, withSurvivingProof, members }) => {
     const chain = paymentChainFixture()
     const session = {
@@ -1328,7 +1328,7 @@ function countingModels (client) {
     const fixture = await seedRealRollbackFixture({ withLegacyPayouts: true })
     try {
       // Approved: the REAL complete surviving-proof verification backfills ONE
-      // journal-less legacy journal row (Task 4).
+      // journal-less legacy journal row.
       const base = await legacyRepairFixture({ withSurvivingProof: true })
       const complete = base.verification
       expect(complete.status).toBe('complete')
@@ -1381,7 +1381,7 @@ function countingModels (client) {
   })
 
   test('the REAL verifier receipt-unavailable unresolved result never covers a recorded escrow leg (round 3)', async () => {
-    // Final-review round 3 (B3): the real verifier returns a VALIDATOR-VALID
+    // The real verifier returns a VALIDATOR-VALID
     // unresolved result whose members remain materialized when receipt checks
     // are unavailable — membership-only attribution silently covered recorded
     // legs with exactly this shape. The recorded disposition is the combined
@@ -1877,7 +1877,7 @@ function countingModels (client) {
         log: () => {}
       })
       expect(applied).toEqual({ mode: 'apply', applied: true, digest: fixture.manifest.digest })
-      // Task 5 owns the authoritative recheck: the CLI runs NO duplicate
+      // The APPLY gate owns the authoritative recheck: the CLI runs NO duplicate
       // independent pre-apply rescan, so the trusted collector ran exactly once
       // (inside the guarded apply, before any transaction).
       expect(collectEvidence).toHaveBeenCalledTimes(1)
@@ -1941,7 +1941,7 @@ function countingModels (client) {
   })
 })
 
-// Task 5: guarded APPLY re-verifies cryptographic evidence. The builder's
+// The guarded APPLY re-verifies cryptographic evidence. The builder's
 // closed v2 relay operations are applied through the real APPLY gate with an
 // injected fresh read-only collection (the REAL #1 verifier over fake
 // read-only sessions — never a serialized success flag); every refusal happens
@@ -2068,8 +2068,8 @@ function countingModels (client) {
     await db.$executeRaw`ALTER TABLE "RewardsWalletTransaction" ENABLE TRIGGER "RewardsWalletTransaction_capture_immutable"`
   }
 
-  // Local Task 5 helper: ONE real #1 protected journal/proof pair (Task 3's
-  // verified fixture) plus the REAL audit-surface rows its ledger projection
+  // Local helper: ONE real #1 protected journal/proof pair (the shared verified
+  // fixture) plus the REAL audit-surface rows its ledger projection
   // names — real users/payouts/earns/distribution/account/subaddress with the
   // projection patched to the real identity values — so the apply-side shared
   // snapshot fingerprints exactly what the builder consumed. The captured row's
@@ -2620,9 +2620,9 @@ function countingModels (client) {
     }
   })
 
-  // --- journal-less legacy backfill (Task 4 insert through the Task 5 gate) ---
+  // --- journal-less legacy backfill (insert through the APPLY gate) ---
 
-  // The Task 4 journal-less legacy payout candidate: the recorded payout rows
+  // The journal-less legacy payout candidate: the recorded payout rows
   // exist, the journal row does not, and the complete surviving proof is the
   // ONLY insert authority. Real rows mirror the fixture projection with the
   // identity values patched to reality.
@@ -2901,7 +2901,7 @@ describe('reconcile-rewards-wallet CLI argument handling', () => {
   })
 })
 
-// Task 6: versioned CLI/CHECK publishing and freshness coherence. A CHECK binds
+// Versioned CLI/CHECK publishing and freshness coherence. A CHECK binds
 // the CURRENT pre-repair audit identity and the measured drift, and is only
 // published while a short consistent re-read proves the collection still
 // matches the DB it was collected from. The publisher fixtures are fake models
@@ -3181,7 +3181,7 @@ describe('reconcile-rewards-wallet CLI argument handling', () => {
   })
 })
 
-// Final-review Important regression: the contractual signed ops fields must
+// Regression: the contractual signed ops fields must
 // accept exact negative values (known debt) in both before and after, while
 // every other money field stays nonnegative and a corrected snapshot must be
 // internally consistent. Pure dispatcher coverage (no DB) so it runs everywhere.

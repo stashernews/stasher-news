@@ -2,7 +2,7 @@ import { readPaymentProofInventory } from '@/api/monero/paymentProofStore'
 import { accountingAuditFingerprint } from '@/lib/rewardsAuditFingerprint'
 
 // One authoritative scoped reader/select/filter contract for the rewards
-// accounting audit (rewards reconciliation plan, Task 1). Every freshness
+// accounting audit. Every freshness
 // consumer reads through `readRewardsAuditSnapshot` so the ledger groups, the
 // receipt visibility rule and the `accounting:v2:` fingerprint can never drift
 // apart. No wallet, daemon or key provider is ever opened here: the proof

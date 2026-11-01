@@ -1,9 +1,9 @@
 import { gql } from 'graphql-tag'
 
-// Bounty funding typeDefs (A-13). Task 3 adds only the funding mutation +
-// BountyFunding result type + the Item funding-status fields; the award /
-// reclaim / rollover mutations and the BountyPayment payout type land in
-// Task 4 (a duplicate `type BountyPayment` already exists in
+// Bounty funding typeDefs: the funding mutation +
+// BountyFunding result type + the Item funding-status fields, plus the award /
+// reclaim / rollover mutations and the BountyPayment payout type (a duplicate
+// `type BountyPayment` already exists in
 // api/typeDefs/notifications.js as a Notification union member).
 export default gql`
   extend type Mutation {

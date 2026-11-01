@@ -138,7 +138,7 @@ describe('verifyReceiptAmount', () => {
   })
 
   // -------------------------------------------------------------------------
-  // PID BINDING (2026-09-19 review finding): the hash-first lookup binds the
+  // PID BINDING (2026-09-19): the hash-first lookup binds the
   // tx hash, but the claimed payment id must ALSO be bound to that tx — a
   // token-holding replay could otherwise re-attribute a real payment to a
   // different pending pid on the same account (duplicate tip credits, bounty
@@ -248,12 +248,12 @@ describe('v1.0.4 mempool receipt verification (amount proof is not mining)', () 
 })
 
 // ---------------------------------------------------------------------------
-// daemon level (Task 9). A monerod-fallback receipt is accepted ONLY when BOTH
+// daemon level. A monerod-fallback receipt is accepted ONLY when BOTH
 // hold: the tx extra decrypts to the claimed payment id under the recipient's
 // view key, AND an on-chain output is provably owned by the recipient. The
 // extra below is built with the shipping pid crypto (test setup only) and the
 // account envelope is really encrypted/decrypted, so the control flow runs
-// against the real helpers; Task 8's regtest fixture independently pins the
+// against the real helpers; the regtest fixture independently pins the
 // crypto to monero-core data (voutKeys/txPubKeys/keys are chain-derived).
 // ---------------------------------------------------------------------------
 describe('verifyReceiptAmount daemon level (monerod fallback)', () => {

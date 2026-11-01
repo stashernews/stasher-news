@@ -5,12 +5,12 @@ import { logError } from '@/lib/logger'
 import { META_SUB, USER_ID } from '@/lib/constants'
 
 // computeCuratorShares — the share-computation core of StasherNews' weekly
-// rewardsDistributor (Phase 4 Task 7 / design spec §5). It ports Stacker.news'
+// rewardsDistributor. It ports Stacker.news'
 // worker/earn.js reward CTE verbatim, changing ONLY the input source: confirmed
 // ObservedTip rows (P2P Monero tips) replace the legacy PayIn ZAP records, and
 // the pool unit is piconeros (1e-12 XMR).
 //
-// What was dropped vs earn.js (per the design spec):
+// What was dropped vs earn.js:
 //   - the ITEM_CREATE PayIn LATERAL join + America/Chicago day filter -> a direct
 //     Item.createdAt range filter [periodStart, periodEnd);
 //   - the EACH_ITEM_PORTION (item-author) UNION branch (SN sets it to 0 — dead
@@ -20,7 +20,7 @@ import { META_SUB, USER_ID } from '@/lib/constants'
 // What was kept: NTILE(100) percentile cutoff, the "islands" contiguous-zap
 // dedupe, the power(sum, 0.25) quad-root diminishing returns, the
 // 1/LN(rank + e - 1) early-tipper boost, the HANDICAP_NYMS / HANDICAP_ZAP_MULT
-// 0.5x curator multiplier (staff/founder users weigh half; restored per A-09),
+// 0.5x curator multiplier (staff/founder users weigh half),
 // the per-partition (post vs comment) normalization split by EACH_ZAP_PORTION,
 // and the per-user total_proportion roll-up.
 //
@@ -32,7 +32,7 @@ import { META_SUB, USER_ID } from '@/lib/constants'
 // they never earn a share or consume a topN slot.
 //
 // This module is PURE: it computes shares and returns them. It touches no wallet,
-// creates no rows, and wires no job (Task 8's rewardsDistributor calls this and
+// creates no rows, and wires no job (the rewardsDistributor calls this and
 // performs the on-chain payouts).
 
 // --- Constants (mirror earn.js, adapted to piconeros) ---
@@ -56,7 +56,7 @@ const EACH_ZAP_PORTION = 2.0
 // cancel — so only this HAVING dust filter is unit-sensitive.
 const ZAP_THRESHOLD_PICONEROS = 100_000_000n
 
-// SN-parity handicap (restored per A-09): staff/founder accounts get a 0.5x
+// SN-parity handicap: staff/founder accounts get a 0.5x
 // curator multiplier (their curation still counts, but at half weight). Ids
 // are resolved at compute time from HANDICAP_NYMS (lib/founderNyms.js):
 // 'stasher' (616) and 'sn' (4502) are migration-guaranteed; 'untraceable'
@@ -66,7 +66,7 @@ const ZAP_THRESHOLD_PICONEROS = 100_000_000n
 // entry is inert; the multiplier still applies to the remaining accounts.
 export const HANDICAP_ZAP_MULT = 0.5
 
-// --- Shared SQL fragments (spec §4: T must share turf/trust/founder SQL with
+// --- Shared SQL fragments (T must share turf/trust/founder SQL with
 // computeCuratorShares, not copy it) ---
 //
 // The identifier arguments are Prisma.raw values, i.e. SQL identifiers chosen

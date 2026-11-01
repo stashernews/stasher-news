@@ -397,7 +397,7 @@ test.each([true, false])('a completion committed after the missed-day snapshot a
   expect(notifyFlameAdvanced.mock.calls.filter(([id]) => id === userId)).toHaveLength(1)
 })
 
-// Day-5 boost credit (spec 2026-10-05-quest-rebalance-boost-credit, task 3):
+// Day-5 boost credit:
 // exactly one held credit, exactly 30 days of expiry, suppression never
 // refreshes the held row, and the marker advances even when suppressed.
 
@@ -677,7 +677,7 @@ test('concurrent advances for different users stay isolated', async () => {
   }
 })
 
-// --- scheduled-retry safety (2026-10-12 incident, Finding 2): pg-boss now
+// --- scheduled-retry safety (2026-10-12 incident): pg-boss now
 // redelivers the nightly evaluation (retryLimit 3, anchored to the job's
 // original creation day). Every real-DB regression below is scoped to its own
 // fixtures and proves a redelivery can neither double-settle a day that

@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Funding-flow integration test (A-13 Task 3): initiateBountyFundingCore mints
+// Funding-flow integration test: initiateBountyFundingCore mints
 // a per-bounty integrated address on the ESCROW wallet carrying a "bn:"
 // payment id, registers the lws tx-confirmation webhook, records the
 // BountyPidMap + a PENDING ObservedBounty, and returns the monero: URI
@@ -485,7 +485,7 @@ test('rejects when the caller is not logged in', async () => {
     .rejects.toThrow('you must be logged in')
 })
 
-test('rejects a funder who is not the bounty author (A-13 final: ownership check)', async () => {
+test('rejects a funder who is not the bounty author (ownership check)', async () => {
   await ensureFeeConfig()
   const authorId = await createUser()
   const strangerId = await createUser()
@@ -518,7 +518,7 @@ test('rejects when the payer has no registered wallet (needed for reclaim attrib
     .rejects.toThrow('you must attach a wallet to fund a bounty')
 })
 
-test('rejects changing the bounty amount on a FUNDED bounty (A-13 final: escrow desync gate)', async () => {
+test('rejects changing the bounty amount on a FUNDED bounty (escrow desync gate)', async () => {
   const userId = await createUser()
   const item = await createPost(userId, { bountyPiconeros: 5_000_000_000n, bountyStatus: 'FUNDED' })
 
@@ -622,7 +622,7 @@ test('receipts accumulate: a top-up crosses the quote and funds with the cumulat
   expect(await prisma.feeObservation.count({ where: { postId: item.id, feeType: 'BOUNTY_FEE' } })).toBe(0)
 })
 
-// --- zero-conf count-eligibility (Task 11) ---
+// --- zero-conf count-eligibility ---
 //
 // A receipt recorded from a daemon-level (0-conf) verdict is provisional: the
 // tx + payment id + recipient output are proven, but the RingCT amount is not,

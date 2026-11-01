@@ -1,12 +1,12 @@
 /* eslint-env jest */
 
-// Real-DB tests for the bounty escrow signer's dispatch loop (A-13, 2026-08-19
-// beta incident), driven through the FULL capture barrier (Finding #1, Task 7):
+// Real-DB tests for the bounty escrow signer's dispatch loop (2026-08-19 beta
+// incident), driven through the FULL capture barrier:
 // build(relay:false) -> extract the ACTUAL settlement from the built object
 // BEFORE the pair commits -> durable journal+proof pair -> authenticate ->
 // CAS the single attempt -> relayTx the SAME object once -> persist. The
 // wallet is a capture-grade fake; the database is the dedicated isolated one
-// (real Task 2 crypto, real store rows, real BountyPayment/Item/User rows).
+// (real seal/open crypto, real store rows, real BountyPayment/Item/User rows).
 //
 // Covers the money contracts: single-tx payout dispatch (prize + platform fee
 // as destinations with the network fee subtracted from the last destination)
@@ -46,7 +46,7 @@ const ISOLATED_DB = (() => {
   try { return new URL(process.env.DATABASE_URL).pathname === '/stasher_rewards_repair_test' } catch { return false }
 })()
 
-// --- deterministic synthetic address/point helpers (throwaway, Task 1 style;
+// --- deterministic synthetic address/point helpers (throwaway style;
 // scalar space 910+ stays clear of the other suites) ---
 
 const point = scalar => Buffer.from(ed25519.ExtendedPoint.BASE.multiply(BigInt(scalar)).toRawBytes()).toString('hex')
@@ -210,7 +210,7 @@ const makeAddress = n => encodeStagenetPrimaryAddress({ spendKey: point(2n * Big
             : { getDestinations: () => actual.map(d => ({ getAddress: () => d.address, getAmount: () => d.amount })) }),
           getChangeAddress: () => WADDR,
           getChangeAmount: () => destSum - netFee,
-          // The SDK captures the SECRET-bundle STRING (final-review C1).
+          // The SDK captures the SECRET-bundle STRING.
           getKey: () => secretBundleHex(keySeed, 3)
         }
         built.push(tx)

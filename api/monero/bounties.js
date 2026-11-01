@@ -10,7 +10,7 @@ import {
 } from '@/api/monero/escrowTransactions'
 import { errorLabel } from '@/api/monero/rewardsTransactions'
 
-// Bounty escrow signer (A-13, 2026-08-10 amendment). The ONLY component that
+// Bounty escrow signer (2026-08-10 amendment). The ONLY component that
 // holds the BOUNTY ESCROW wallet's spend key (separate standalone wallet — never
 // the rewards wallet). Opens an in-memory monero-ts wallet from env, sends each
 // QUEUED BountyPayment through the capture barrier, records the tx hash, flips
@@ -20,7 +20,7 @@ import { errorLabel } from '@/api/monero/rewardsTransactions'
 // ROLLOVER / fee-waived refunds), so the winner/refund receives the exact
 // booked amount and the escrow consumes exactly prize + fee (2026-09-18 fix:
 // exact-funded awards used to strand a network fee short).
-// Every dispatch follows the same capture boundary (Finding #1): build
+// Every dispatch follows the same capture boundary: build
 // relay:false -> snapshot the ACTUAL built-tx settlement (real network fee,
 // real net received amounts) BEFORE anything commits -> freeze the fee
 // destination -> prepare the durable journal+proof pair (ESCROW owner role) ->
@@ -33,7 +33,7 @@ import { errorLabel } from '@/api/monero/rewardsTransactions'
 // contract stops BEFORE relay. The fee destination is frozen BEFORE dispatch
 // (once, when NULL) — never derived from today's environment after the fact.
 // Relay writes NO hot-wallet receipt: escrow cash is recognized later from
-// confirmed hot-wallet receipts only (rewards accounting repair §4).
+// confirmed hot-wallet receipts only.
 // Re-syncs the wallet's chain view once per dispatch before reading balances,
 // so outputs that unlock after open are visible without a worker restart.
 //
@@ -220,12 +220,12 @@ async function escrowWalletScope (wallet) {
 //    network fee, the winner receives the exact booked prize, and ops
 //    physically receives the fee minus the network fee while the ledger stays
 //    booked gross (the network-fee delta is the documented unbooked-ops
-//    class, spec 2026-09-18).
+//    class).
 //  - ROLLOVER and fee-waived payouts: one destination for the full amount,
 //    subtractFeeFrom it, so the escrow still zeroes exactly.
 // Relay writes NO hot-wallet FeeObservation: the old CONFIRMED-at-relay
-// BOUNTY_ROLLOVER insert is gone because a signed tx is not proof of receipt
-// (rewards accounting repair §4). Receipt attribution uses the actual
+// BOUNTY_ROLLOVER insert is gone because a signed tx is not proof of receipt.
+// Receipt attribution uses the actual
 // confirmed hot-wallet receipt plus the settlement facts snapshotted here.
 // Deferred-fee rows (feePendingAt) from before 2026-09-18 are still settled by
 // the legacy retry branch below; new payouts never set it.

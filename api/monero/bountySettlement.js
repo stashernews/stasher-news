@@ -1,4 +1,4 @@
-// Bounty escrow settlement reader (rewards accounting repair §3.1). The
+// Bounty escrow settlement reader. The
 // signed sender-side transaction is the settlement authority: it carries the
 // ACTUAL outgoing destinations (post subtractFeeFrom) and the real network
 // fee. The dispatcher snapshots these facts on BountyPayment after relay, so a

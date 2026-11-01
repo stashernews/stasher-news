@@ -1,7 +1,6 @@
 /* eslint-env jest */
 
-// Integration test for the unused-image cleanup worker (Task 3 of the upload-fee
-// plan; 2026-09-12 tightened). Seeds Upload rows with past created_at timestamps
+// Integration test for the unused-image cleanup worker (2026-09-12 tightened). Seeds Upload rows with past created_at timestamps
 // and runs deleteUnusedImages directly (no pg-boss), asserting only the old,
 // unreferenced uploads are deleted — 24 hours for everyone — regardless of the
 // paid flag, while recent or referenced uploads survive. "Referenced" now means

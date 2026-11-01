@@ -12,25 +12,25 @@ import { readRewardsWalletLedger } from '@/api/monero/rewardsLedger'
 import { withRewardsPhase } from './rewardsPhase'
 import { incomeFromInflow, planCuratorBudget, readTrustWeighting } from './curatorBudget'
 
-// rewardsDistributor — StasherNews' weekly rewards-pool distribution job
-// (Phase 4 Task 8 / design spec §5, §6.2). Each week it:
+// rewardsDistributor — StasherNews' weekly rewards-pool distribution job.
+// Each week it:
 //
 //   1. tallies CONFIRMED platform-wallet inflow by source (downvotes +
 //      posting/territory fees) for the period;
 //   2. applies the PlatformFeeConfig allocation split to get the rewards earmark;
 //   3. adds the prior period's rolledOverPiconeros to form the pool;
-//   4. plans the week's curator budget (spec 2026-10-19): LEGACY/SHADOW and
+//   4. plans the week's curator budget: LEGACY/SHADOW and
 //      every failure path pay min(pool, 0.2 XMR fallback cap), ACTIVE pays
 //      min(target, limit, pool) — target = k × T4 + an approved breaker
 //      make-up, limit = the reserve drawdown limit. Every mode records T, F,
 //      the budget inputs/results and the breaker state;
-//   5. calls computeCuratorShares (Task 7) to apportion that budget across the
+//   5. calls computeCuratorShares to apportion that budget across the
 //      curators (tippers) of the period's top content;
 //   6. writes one RewardDistribution row + one QUEUED RewardPayout per curator
 //      who has a registered receiving address. Curators with no address are
 //      excluded — their share joins the rollover.
 //
-// The actual on-chain signing/sending is Task 9's hot-wallet signer
+// The actual on-chain signing/sending is the hot-wallet signer
 // (api/monero/rewards.js): after the ledger transaction below commits a PENDING
 // distribution + QUEUED payouts, finalizeDistribution drives the signer and
 // flips the distribution PENDING -> SENDING -> COMPLETE (payouts QUEUED -> SENT).
@@ -218,11 +218,11 @@ export async function runDistributionOnce ({ models, sendPayouts: injectSendPayo
   const db = ownsClient ? createPrisma() : models
   try {
     const sendPayouts = injectSendPayouts || defaultSendPayouts
-    // R02: recover distributions stranded in SENDING by a dead process BEFORE
+    // Recover distributions stranded in SENDING by a dead process BEFORE
     // this run's own work, so their QUEUED payouts are re-driven.
     await recoverStaleDistributions(db, { sendPayouts, boss, scheduleOpsSweep, getWallet })
     await warnUndeliveredDistributions(db)
-    // Phase timings (Finding 3): the ledger transaction and the completion
+    // Phase timings: the ledger transaction and the completion
     // (signer + terminal flips) are timed separately so a slow-but-legitimate
     // run is distinguishable from a hang in the phase logs. Wrapping in place
     // preserves return/throw identity; context carries only code-owned ids.
@@ -367,7 +367,7 @@ async function distribute (models) {
       logError('rewardsDistributor: trust walk stale or missing (heartbeat) — curator trust weighting disabled for this run')
     }
 
-    // --- Dynamic curator budget (spec 2026-10-19). Planned inside a SAVEPOINT
+    // --- Dynamic curator budget. Planned inside a SAVEPOINT
     // so a failure here can never abort the Serializable ledger transaction: on
     // any non-serialization error the run pays the 0.2 XMR fallback cap and
     // alerts after commit. Serialization/deadlock errors MUST escape so the
@@ -399,7 +399,7 @@ async function distribute (models) {
     }
     const curatorBudget = budgetPlan.appliedCuratorBudgetPiconeros
 
-    // --- Curator shares (Task 7). Read-only, so it COULD run outside the tx,
+    // --- Curator shares. Read-only, so it COULD run outside the tx,
     // but passing tx keeps the reads in the same serializable snapshot as the
     // writes below — fully consistent at no extra cost. ---
     const { shares } = await computeCuratorShares(
@@ -429,7 +429,7 @@ async function distribute (models) {
       })
     }
 
-    // --- Referral shares (A-09, forever-only) ---
+    // --- Referral shares (forever-only) ---
     // For every paid curator with a referrer, the referrer earns 10% of that
     // curator's share IN ADDITION (paid from the pool, upstream FOREVER_REFERRAL
     // semantics). Referral payouts are aggregated per referrer. A referrer without
@@ -450,7 +450,7 @@ async function distribute (models) {
       // Defensive: excluded accounts are already absent from computeCuratorShares,
       // but one must never generate a referral commission either.
       if (excludedCuratorIdSet.has(share.curatorId)) continue
-      // R04: referral payouts are earned on PAID curator shares only. A
+      // Referral payouts are earned on PAID curator shares only. A
       // wallet-less curator's share rolls over — 10% of money that was never
       // paid must not leak to their referrer.
       if (!paidCuratorIds.has(share.curatorId)) continue
@@ -480,7 +480,7 @@ async function distribute (models) {
     // --- Final ledger (atomic with the payout createMany below) ---
     // distributedPiconeros is the sum of the CREATED payouts (after address
     // filtering). rolledOverPiconeros is whatever is left — this captures BOTH
-    // the weekly cap's excess, Task 7's sub-minPayout/topN rollover, and the
+    // the weekly cap's excess, computeCuratorShares' sub-minPayout/topN rollover, and the
     // addressless-curator rollover, less any additional referral payouts.
     const distributedPiconeros = payoutRows.reduce((acc, p) => acc + p.piconeros, 0n)
     const finalRolledOverPiconeros = poolPiconeros - distributedPiconeros
@@ -500,7 +500,7 @@ async function distribute (models) {
         opsNetworkFeesAccountedPiconeros: ledger.totalNetworkFeesPiconeros,
         payoutCount: payoutRows.length,
         status: 'PENDING',
-        // Dynamic curator budget record (spec §6). Reconciled every run; the
+        // Dynamic curator budget record. Reconciled every run; the
         // applied budget is LEGACY/SHADOW fallback or ACTIVE
         // min(target, limit, pool) (target = k × T4 + approved make-up).
         ...budgetPlan.record
@@ -556,7 +556,7 @@ async function distribute (models) {
     }
 
     // The on-chain signing + PENDING -> SENDING -> COMPLETE flip happens AFTER
-    // this transaction commits, in finalizeDistribution (Task 9), so a signer
+    // this transaction commits, in finalizeDistribution, so a signer
     // failure never rolls back the atomic ledger write above.
 
     logger.info({
@@ -603,7 +603,7 @@ function toBigInt (v) {
   return BigInt(v)
 }
 
-// R03: FAILED payouts strand their funds (counted as distributed, excluded from
+// FAILED payouts strand their funds (counted as distributed, excluded from
 // rollover, re-entered only by manual reconciliation). Called at every
 // transition to COMPLETE so the terminal state can never read clean while
 // FAILED payouts exist. Logs + alerts only: no DB work, never throws.
@@ -619,7 +619,7 @@ function warnPayoutsStranded (distribution, payouts) {
     { dedupeKey: `dist-${distribution.id}-complete-with-failures` })
 }
 
-// Task 9: drive the hot-wallet signer after the ledger transaction commits a
+// Drive the hot-wallet signer after the ledger transaction commits a
 // PENDING distribution + its QUEUED payouts, and flip the distribution's status.
 //
 //   - Atomic {PENDING,FAILED} -> SENDING: the flip is a compare-and-set
@@ -670,7 +670,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
   if (!hasQueued) {
     // Nothing to send — covers the 0-payout week AND a row whose payouts are all
     // already SENT (e.g. a FAILED run since delivered). Reconcile straight to
-    // COMPLETE without ever entering SENDING. R03: the stranded-FAILED alert
+    // COMPLETE without ever entering SENDING. The stranded-FAILED alert
     // fires first so the terminal flip can never silently mask them.
     warnPayoutsStranded(distribution, payouts)
     await models.$queryRaw`
@@ -701,7 +701,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
         (accountingUnpersisted > 0 ? `. WARNING: ${accountingUnpersisted} unresolved rewards-wallet fee/journal accounting item(s) remain (unresolved fee costs or journal state — distinct from relayed-but-unpersisted recipient principal); the next run resolves proven relays from exact-hash wallet history before an all-SENT completion and never blindly re-relays.` : ''),
         { dedupeKey: `dist-${distribution.id}-send-incomplete` })
       // Conditional on SENDING closes the ordinary races (e.g. a stale sender
-      // whose row was watchdog-recovered and re-driven, R02, must not clobber
+      // whose row was watchdog-recovered and re-driven must not clobber
       // the newer owner's state). A sender genuinely alive beyond the stale
       // timeout is the documented, accepted tail.
       await models.$queryRaw`
@@ -710,7 +710,7 @@ export async function finalizeDistribution (models, distribution, sendPayouts) {
       moneroDistributionStatus.set(DISTRIBUTION_STATUS_GAUGE.FAILED)
       return
     }
-    // R03: a mixed FAILED+QUEUED distribution must not flip COMPLETE silently
+    // A mixed FAILED+QUEUED distribution must not flip COMPLETE silently
     // over stranded funds — warn before the success-path terminal write too.
     warnPayoutsStranded(distribution, payouts)
     await models.$queryRaw`
@@ -735,9 +735,9 @@ function alertCompletionAccountingBlocked (distribution, detail) {
     { dedupeKey: `dist-${distribution.id}-accounting-blocked` })
 }
 
-// Readiness gate for the all-SENT / no-QUEUED completion path (Task 10, routed
-// Task 8 finding). A distribution with no QUEUED payouts never calls the
-// signer, so sendPayouts' journal reconciliation (Task 6/8) does not run there:
+// Readiness gate for the all-SENT / no-QUEUED completion path. A distribution
+// with no QUEUED payouts never calls the
+// signer, so sendPayouts' journal reconciliation does not run there:
 // a proven payout relay whose fee journal persist failed would otherwise let
 // the run flip COMPLETE and schedule a sweep with unpersisted accounting.
 //
@@ -868,7 +868,7 @@ export async function completeAndEnqueue (models, distribution, signer, { boss, 
 // written in relayBucketTx's createTx catch, where no tx exists), but nothing
 // re-drives it — finalizeDistribution resumes only QUEUED rows and the
 // calendar-week idempotency guard stops returning the distribution once its UTC
-// week ends. This is the "manual re-entry" tool the R03 alert always referenced.
+// week ends. This is the "manual re-entry" tool the stranded-FAILED alert always referenced.
 //
 // Modes:
 //   dry-run (default): report candidates, mutate nothing.
@@ -888,7 +888,7 @@ export async function completeAndEnqueue (models, distribution, signer, { boss, 
 //     same enqueue eligibility for the delayed sweep). NEVER drive a no-op:
 //     the completion path's own accounting readiness gate + finalize's
 //     !hasQueued branch cannot mask the distribution COMPLETE over stranded
-//     rows. A drive crash mid-send is self-healing: the R02 watchdog fails
+//     rows. A drive crash mid-send is self-healing: the watchdog fails
 //     the SENDING row after 24h and the next run re-drives.
 export async function requeueFailedPayouts (models, distributionId, { confirm = false, send = true, sendPayouts: injectSendPayouts, boss, scheduleOpsSweep = true, getWallet } = {}) {
   // A send-capable invocation must own its scheduler before any DB mutation;
@@ -999,7 +999,7 @@ export async function warnUndeliveredDistributions (models) {
   }
 }
 
-// R02: how long a distribution may stay SENDING before the watchdog declares
+// How long a distribution may stay SENDING before the watchdog declares
 // it stranded. Worst-case genuine send = singleton wallet open (restore-height
 // sync dominates — minutes to low hours) + per-run incremental syncs + <=6
 // bucket create/relay cycles + row persists. 24h is ~10-100x that margin; it
@@ -1008,7 +1008,7 @@ export async function warnUndeliveredDistributions (models) {
 // magnitude of a plausible send duration.
 const REWARDS_SENDING_STALE_HOURS = Number(process.env.REWARDS_SENDING_STALE_HOURS) || 24
 
-// R02 watchdog: a process death between the SENDING CAS and the terminal
+// The watchdog: a process death between the SENDING CAS and the terminal
 // write (OOM, deploy restart, host crash) strands the row forever — the weekly
 // run early-returns on SENDING, the CLI takes the same path, and opsSweep
 // skips it. Flip stale rows to FAILED (the finalize CAS resumes FAILED) and

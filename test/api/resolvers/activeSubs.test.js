@@ -3,7 +3,7 @@
 // Regression test for the authed activeSubs path: it returns raw
 // `SELECT "Sub".*` rows (NOT Prisma-mapped objects), so every Sub column the
 // client SUB_FIELDS fragment requests must exist as a camelCase PHYSICAL
-// column (or be aliased). The 2026-08-21 turf-owner-revenue migration
+// column (or be aliased). The 2026-08-21 migration
 // initially created post_premium_piconeros/comment_premium_piconeros
 // snake_case via @map — the raw rows lacked postPremiumPiconeros and the
 // non-nullable Sub.postPremiumPiconeros field nulled the whole activeSubs

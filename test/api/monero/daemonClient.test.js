@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Unit tests for the monerod restricted-RPC client (Task 6 / spec §5.5).
+// Unit tests for the monerod restricted-RPC client.
 //
 // monero-lws returns no block hash in its /get_address_txs response, so the
 // indexer sources the cursor's `since_tx_block_hash` from monerod's
@@ -145,7 +145,7 @@ describe('getTransactions', () => {
   })
 
   test('omits malformed hex extras instead of silently truncating them', async () => {
-    // Finding 1: Buffer.from('01zz', 'hex') silently yields [0x01] and an odd
+    // Buffer.from('01zz', 'hex') silently yields [0x01] and an odd
     // string is truncated too; converting before validating let a malformed
     // acquisition pass the reader's Buffer check as usable evidence.
     const t = recordingTransport(() => jsonRes(200, {
@@ -672,7 +672,7 @@ describe('getPaymentTransactions', () => {
   })
 })
 
-// ---- request deadlines (Finding 1) -----------------------------------------
+// ---- request deadlines -----------------------------------------------------
 //
 // The raw-evidence reader retries ONLY deadline expiry, so a deadline must be
 // distinguishable from every other transport/HTTP/RPC failure. Each request

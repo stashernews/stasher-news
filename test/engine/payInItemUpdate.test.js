@@ -1,7 +1,7 @@
 /* eslint-env jest */
 
-// ITEM_UPDATE upload-fee regression (A-07). getInitial used to read
-// `totalFeesMsats` off uploadFees (renamed to totalFeesPiconeros in Task 1),
+// ITEM_UPDATE upload-fee regression. getInitial used to read
+// `totalFeesMsats` off uploadFees (renamed to totalFeesPiconeros),
 // which crashed the prospect with piconeros: undefined. Now getInitial builds a
 // POSTING-subaddress URI covering the upload fee and attaches a MEDIA_UPLOAD
 // beneficiary (onPaid is a no-op; Upload.paid flips in rewardsWalletObserver's
@@ -19,7 +19,7 @@
 // result item must keep the ITEM_CREATE payIn for ITEM_UPDATE payIns (upstream
 // 59f9f8d5; stripped by c0043ef3).
 //
-// Deferred fee-bearing edits (Task 3, 2026-09-17). An ITEM_UPDATE that attaches
+// Deferred fee-bearing edits (2026-09-17). An ITEM_UPDATE that attaches
 // uploads over 10MB quotes the upload fee on its moneroUri (piconeros stays 0n),
 // so the payIn is born PAID and onBegin used to apply the edit immediately — a
 // user could attach >10MB media and never pay by dismissing the QR. onBegin now
@@ -29,7 +29,7 @@
 // was in flight is dropped (the upload stays paid and is re-attachable); free
 // edits still apply at onBegin.
 //
-// R10 turf-addition fees (2026-09-21; repost exemption 2026-09-26). An edit
+// Turf-addition fees (2026-09-21; repost exemption 2026-09-26). An edit
 // that ADDS non-owned turfs is priced at the BASE platform floor per added
 // non-owned turf (reposts never carry the anti-spam escalation — the post
 // already paid it at creation; the owner premium rides the owner-direct leg
@@ -253,7 +253,7 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
-// --- A-07 regression: ITEM_UPDATE with uploads no longer crashes (totalFeesMsats bug) ---
+// --- Regression: ITEM_UPDATE with uploads no longer crashes (totalFeesMsats bug) ---
 test('getInitial builds an upload-fee URI for an item update adding a >10MB upload', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
@@ -592,7 +592,7 @@ test('an edit adding exactly one non-owned walleted turf routes owner-direct and
 
   expect(result.moneroPaymentId).toMatch(/^[0-9a-f]{16}$/)
   expect(result.moneroSubaddressMajor).toBeNull()
-  // the R10 gate fix: owner-leg payIns carry moneroPaymentId, not a
+  // the gate fix: owner-leg payIns carry moneroPaymentId, not a
   // subaddress — they must defer too, or the edit would apply before payment
   expect(await prisma.pendingItemUpdate.findUnique({ where: { payInId: result.id } })).toBeTruthy()
   expect((await prisma.item.findUnique({ where: { id: itemId } })).subNames).toEqual([])

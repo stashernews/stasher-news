@@ -7,14 +7,14 @@ import {
 import { openPaymentProof, sealPaymentProof } from './paymentProofCrypto'
 
 // Payment-proof lifecycle: paused-writer inventory check and key-version
-// rotation (Finding #1, Task 8). Read-only check + re-encryption rotation over
+// rotation. Read-only check + re-encryption rotation over
 // the existing PaymentTransactionProof rows — this module NEVER provisions,
 // elects or drops registry keys, never signs, never relays, and never touches
 // journal or payout rows: recorded SENT/CONFIRMED delivery and principal facts
 // are outside its write surface by construction (its only write is the proof
 // CAS below).
 //
-// Full-envelope reads are private to the Task 3 store and to THIS module (the
+// Full-envelope reads are private to the proof store and to THIS module (the
 // rotation allowance). Everything returned or loggable is safe metadata:
 // versions, counts, ids, and fixed issue codes — never key material, envelope
 // bytes, claims or payload content.
@@ -204,7 +204,7 @@ const feeLeg = (member, gross, actual) => ({
 })
 
 // Every actual destination must be attributable to the contracted members
-// while every member obligation survives (final-review I5): members may SHARE
+// while every member obligation survives: members may SHARE
 // one destination address, so matching is per CANONICAL DESTINATION AGGREGATE
 // — one destination per address with the summed amount, or several entries
 // for the same address summing to it, must both be accepted. The fee-
@@ -303,8 +303,8 @@ function deriveClaims ({ owner, built, scope, dispatchId }) {
       owner.frozenTerms.feeRecipientAddress, network, fee, feeActual)
     const members = sortMembers([prizeMember, feeMember])
     assertDestinationsMatchMembers(built, members)
-    // Destination-ordered legs; two members may SHARE one address
-    // (final-review I5); visit each address once with prize before fee.
+    // Destination-ordered legs; two members may SHARE one address;
+    // visit each address once with prize before fee.
     const legs = [...new Set(built.destinations.map(destination => destination.address))]
       .flatMap(address => [prizeMember, feeMember]
         .filter(member => member.address === address)
@@ -337,7 +337,7 @@ function deriveClaims ({ owner, built, scope, dispatchId }) {
       receivingAggregates: [],
       // The consolidation target is the DESTINATION's derived position (the
       // wallet primary: account 0, subaddress 0), never the swept source
-      // account (final-review I6).
+      // account.
       ownedTargets: [{
         accountIndex: '0',
         subaddressIndex: '0',

@@ -89,7 +89,7 @@ test('reverseMapPaymentId returns null for an unknown paymentId', async () => {
   expect(row).toBeNull()
 })
 
-// Group C — getInitial webhook registration (Task 3)
+// Group C — getInitial webhook registration
 
 describe('downZap getInitial webhook registration', () => {
   const baseModels = (overrides = {}) => ({
@@ -149,7 +149,7 @@ test('reverseDownvotePenalty subtracts weight, downPiconeros, and the ancestor r
   expect(vals).toContain(500000000n)
 })
 
-// Group E — applyDownvoteTransition (Task 13: the exactly-once NULL->height
+// Group E — applyDownvoteTransition (the exactly-once NULL->height
 // transition that owns the downvote penalty across every attribution path)
 
 test('applyDownvoteTransition is an atomic exactly-once null->height transition', async () => {

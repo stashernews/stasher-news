@@ -5,7 +5,7 @@
 -- ltree `path`; upstream's update_item_path (20230126184544_root_id_funcs)
 -- derives BOTH path and rootId (the top-level post id, from the parent's
 -- path). Since the fork's restore, every app-created comment has rootId NULL:
---   - the A-13 award guard `winner.rootId !== (item.rootId ?? item.id)`
+--   - the bounty award guard `winner.rootId !== (item.rootId ?? item.id)`
 --     rejects every real comment (observed live on bounty post 2808 /
 --     comment 2884);
 --   - pinItem's root-reply check (`item.parentId !== item.rootId`) and the

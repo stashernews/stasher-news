@@ -1,7 +1,7 @@
--- A-13 Task 6: bounty ranking weight + trigger re-binding.
+-- Bounty ranking weight + trigger re-binding.
 --
 -- The ranking trigger gains the funded bounty amount (Item.bountyPiconeros)
--- wherever the piconeros tip term enters — weight 1:1 with tips per the plan:
+-- wherever the piconeros tip term enters — weight 1:1 with tips:
 --   - ranktop: + bountyPiconeros (1:1, same as piconeros)
 --   - litCenteredSum INSERT weight: + bountyPiconeros / 1000.0 (same divisor
 --     as the piconeros term in that sum)

@@ -3,8 +3,8 @@
 // Integration test for worker/trust.js — verifies the trust graph reads from the
 // live P2P observation tables (ObservedTip / ObservedDownvote), NOT the dead
 // PayIn/ItemPayIn tables. The nightly trust job (pgboss 'trust', 0 2 * * * UTC)
-// consumes this graph to populate UserSubTrust per ACTIVE territory; Task 2 of the
-// merged plan consumes UserSubTrust.zapPostTrust/etc. to weight live tips.
+// consumes this graph to populate UserSubTrust per ACTIVE territory;
+// UserSubTrust.zapPostTrust/etc. are consumed to weight live tips.
 //
 // A trust edge needs only a ONE-directional follow: sum() FILTER returns NULL
 // over no matching rows, and the NULL aggregates used to zero every

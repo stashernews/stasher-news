@@ -1,4 +1,4 @@
-// Fee-subaddress pool derivation + auto top-up (spec §5.6, §6.2).
+// Fee-subaddress pool derivation + auto top-up.
 //
 // The rewards-wallet fee pool is pre-derived subaddresses (major 1 = posting,
 // 2 = territory, 3 = donate, 4 = tip-unwalleted, 5 = boost) stored as

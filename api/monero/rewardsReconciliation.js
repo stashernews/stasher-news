@@ -21,10 +21,10 @@ import {
   recordedOutflowCoverage
 } from '@/api/monero/rewardsOutflowCoverage'
 
-// Deterministic, evidence-bound accounting repair manifest (rewards accounting
-// repair §8, Task 12). PURE: the function is a total function of its input
+// Deterministic, evidence-bound accounting repair manifest. PURE: the
+// function is a total function of its input
 // object — it reads no DB, opens no wallet, sends nothing and never mutates the
-// provided evidence/ledger/decisions. Task 13 applies a confirmed manifest.
+// provided evidence/ledger/decisions. The apply gate applies a confirmed manifest.
 //
 // Input shape:
 //   {
@@ -52,17 +52,17 @@ import {
 //     opsCarryProvenance: { [distributionId]: { verified: true, source } }
 //   }
 //
-// Output manifest (v2, rewards reconciliation plan Tasks 1–3):
+// Output manifest (v2):
 //   { version: 2, accountingFingerprintVersion: 2, scope, boundary,
 //     evidenceDigest, ledgerFingerprint, protectedRewardsFingerprint,
 //     preconditionFingerprint, decisionsDigest, issues[], operations[],
 //     before, after, digest }
-// `ledgerFingerprint` is the SHARED `accounting:v2:` audit identity from
-// Task 1 (`accountingAuditFingerprint` over the same snapshot input the
+// `ledgerFingerprint` is the SHARED `accounting:v2:` audit identity
+// (`accountingAuditFingerprint` over the same snapshot input the
 // builder consumed) — the union money digest is no longer an accounting
 // authority. All money values are exact decimal strings; BigInts never escape.
 //
-// The apply gate (Task 13) consumes three extra public interfaces from this
+// The apply gate consumes three extra public interfaces from this
 // module, all fail-closed:
 //   - `readRepairLedger(models, scope, { reserve } = {})` reads the same safe
 //     row projections the builder consumes through the ONE shared audit
@@ -91,13 +91,13 @@ import {
 // PREPARED -> RELAYED journal promotion additionally carries its closed v2
 // `relayProof` (api/monero/rewardsRelayProof.js); the same proof also binds
 // the ONE journal-less legacy backfill insert authorized by complete
-// independently surviving evidence (rewards reconciliation Task 4, reason
+// independently surviving evidence (reason
 // `legacy-complete-payment-backfill`). Every other operation never touches a
 // reward contract (RewardPayout / Earn / distribution reward totals), a payout
 // state, or an actual sweep principal/hash.
 //
 // Issues identify the exact row/hash and reason. ANY material issue means the
-// manifest is NOT applicable (Task 13 refuses); there is deliberately no way to
+// manifest is NOT applicable (the apply gate refuses); there is deliberately no way to
 // suppress or delete an issue. `rebuildOpsSnapshots` and `manifestDigest` are
 // the other public interfaces.
 
@@ -378,8 +378,8 @@ export function normalizeEvidence (value) {
           pendingIncoming: arrayOf(evidence.escrow.bridge?.pendingIncoming).map(normalizeIncomingEntry).sort(byHashKey),
           pendingOutgoing: arrayOf(evidence.escrow.bridge?.pendingOutgoing).map(normalizeOutgoingEntry).sort(byHashKey)
         },
-        // The collector's ESCROW payment verifications (rewards reconciliation
-        // Task 4): projected like the top-level verifications so the reverse
+        // The collector's ESCROW payment verifications: projected like the
+        // top-level verifications so the reverse
         // escrow-leg coverage can bind collected evidence — never silently
         // discarded.
         paymentVerifications: arrayOf(evidence.escrow.paymentVerifications)
@@ -392,7 +392,7 @@ export function normalizeEvidence (value) {
     if (amount != null) accounts[key] = amount
   }
   return {
-    // The v2 evidence contract (rewards reconciliation Task 3): the approved
+    // The v2 evidence contract: the approved
     // collection carries its contract version, the explicit observation
     // window and the safe verifier results it was built from. Payment
     // verifications are part of the approved evidence digest; repair
@@ -537,8 +537,8 @@ function normalizeJournalRow (row) {
     relayAttempted: row.relayAttemptedAt != null,
     relayedAt: isoOrNull(row.relayedAt),
     relayProvenance: stringOrNull(row.relayProvenance),
-    // Proof-era capture + declared-proof facts (rewards reconciliation
-    // Task 3): the promotion binds a verified payment to the row's own
+    // Proof-era capture + declared-proof facts:
+    // the promotion binds a verified payment to the row's own
     // capture identity, and the complete precondition fingerprint covers them.
     dispatchId: stringOrNull(row.dispatchId),
     captureContractVersion: intOrNull(row.captureContractVersion),
@@ -578,7 +578,7 @@ function normalizeLedger (value) {
     distributions: arrayOf(ledger.distributions).map(normalizeDistribution).filter(Boolean).sort(sortByNumberedId),
     transactions: arrayOf(ledger.transactions).map(normalizeJournalRow).filter(Boolean).sort((a, b) => a.txHash.localeCompare(b.txHash)),
     bountyPayments: arrayOf(ledger.bountyPayments).map(normalizeBountyPayment).filter(Boolean).sort(sortByNumberedId),
-    // Recorded escrow journals (final-review I1 round 3): the authoritative
+    // Recorded escrow journals: the authoritative
     // leg rows the reverse escrow coverage binds against — a leg's covering
     // verification must bind the recorded journal owner and carry the leg's
     // frozen membership. Raw paymentClaims travel verbatim (the claims
@@ -621,7 +621,7 @@ function normalizeLedger (value) {
 }
 
 // ---------------------------------------------------------------------------
-// Allocation helpers (Task 5 helpers, historical terms)
+// Allocation helpers (historical terms)
 // ---------------------------------------------------------------------------
 
 function rawFromReceipts (receipts, downvotes) {
@@ -706,8 +706,8 @@ function multisetMatches (expected, actual) {
   return true
 }
 
-// The mandated legacy funding-identification predicate (Task 1 migration,
-// reused by manifest generation): a BOUNTY_FEE observation is a funding-time
+// The mandated legacy funding-identification predicate (reused by manifest
+// generation): a BOUNTY_FEE observation is a funding-time
 // accrual when it is tied to an ObservedBounty's funding — the funding tx
 // itself, one of the bounty's partial-funding receipts, or a legacy
 // `abandoned-<paymentId>` pseudo-row — or when the escrow wallet's own
@@ -745,7 +745,7 @@ export function buildRewardsReconciliation (input = {}) {
   const scope = normalizeScope(input.scope)
   const boundary = normalizeBoundary(input.boundary)
   const evidence = normalizeEvidence(input.evidence)
-  // Raw receipt visibility (final-review B2): the ONE shared receipt rule
+  // Raw receipt visibility: the ONE shared receipt rule
   // classifies the RAW rows — a raw-formed malformed amount (`7`, `'07'`,
   // `'+7'`) is not an observable monetary row even though the normalizer can
   // read it. The complete raw group stays the fingerprint/precondition
@@ -757,7 +757,7 @@ export function buildRewardsReconciliation (input = {}) {
     if (id != null && isObservableMonetaryReceipt(row)) observableReceiptIds.add(id)
   }
   const ledger = normalizeLedger(input.ledger)
-  // The ONE shared monetary working-set filter (final-review I3), driven by
+  // The ONE shared monetary working-set filter, driven by
   // the RAW classification above: applied separately INSIDE analysis, never to
   // the fingerprint or precondition input.
   const analysisReceipts = ledger.receipts.filter(row => observableReceiptIds.has(row.id))
@@ -896,7 +896,7 @@ export function buildRewardsReconciliation (input = {}) {
     validateJournalFact({ row, payoutsById, sweepHashOwners, scope, issue })
   }
 
-  // -- Before ledger facts (Task 7 union; scoped, deduplicated rows) --------
+  // -- Before ledger facts (scoped, deduplicated rows) ----------------------
 
   const beforeSummary = summarizeRewardsLedger({
     payouts: ledger.payouts,
@@ -1145,7 +1145,7 @@ export function buildRewardsReconciliation (input = {}) {
 
   // -- Safe payment-verification collection ---------------------------------
 
-  // Proof-era authority (rewards reconciliation Task 3): the approved
+  // Proof-era authority: the approved
   // collection may carry #1 verifier results. They are indexed by
   // role/scope/hash with duplicate/conflict detection BEFORE any outgoing
   // classification, and repair authorization against them requires the v2
@@ -1204,7 +1204,7 @@ export function buildRewardsReconciliation (input = {}) {
   // INDEPENDENT of any drift computation: there is deliberately no
   // aggregate-drift guard here or anywhere below. Relay journal rows, confirmed
   // history and pending bridge entries are operational recovery facts and
-  // chain presence, never strict coverage (final-review I1): a recorded
+  // chain presence, never strict coverage: a recorded
   // outflow without complete proof stays a named issue whatever the
   // destination/fee history shows. Exact same-cause records are deduplicated
   // against the builder's own.
@@ -1261,7 +1261,7 @@ export function buildRewardsReconciliation (input = {}) {
   const verifyJournalDestinations = (row, entry) =>
     journalRelayEvidenceMismatch({ row, entry, scope, ownedAddresses })
 
-  // Journal-less legacy backfill (rewards reconciliation Task 4): a complete
+  // Journal-less legacy backfill: a complete
   // independently surviving legacy verification — never a destination-only or
   // tx-hash-only input, and never a new signing operation — backfills ONE
   // historical journal row carrying the same closed v2 relayProof with null
@@ -1314,8 +1314,8 @@ export function buildRewardsReconciliation (input = {}) {
     afterTransactions.push({ ...after, principalPiconeros, networkFeePiconeros: BigInt(after.networkFeePiconeros) })
   }
 
-  // Evidence-bound promotion of one attempted PREPARED row (rewards
-  // reconciliation Task 3): the complete verified payment resolves the row's
+  // Evidence-bound promotion of one attempted PREPARED row: the complete
+  // verified payment resolves the row's
   // journal contradiction/pending-attempt state with ONE closed operation, or
   // records the exact refusal — generic issues are never doubled for a row a
   // verification was collected for.
@@ -1727,7 +1727,7 @@ export function buildRewardsReconciliation (input = {}) {
     })
   }
 
-  // -- Resulting totals (same Task 5/7 helpers) -----------------------------
+  // -- Resulting totals -----------------------------------------------------
 
   const afterSummary = summarizeRewardsLedger({
     payouts: ledger.payouts,
@@ -1868,7 +1868,7 @@ export function buildRewardsReconciliation (input = {}) {
     boundary,
     evidenceDigest,
     // The SHARED v2 audit identity over the COMPLETE raw snapshot input the
-    // builder consumed (rewards reconciliation Task 1; final-review I3) —
+    // builder consumed —
     // never a union money digest and never a filtered working set.
     ledgerFingerprint: accountingAuditFingerprint({
       scope: input.scope,
@@ -2345,7 +2345,7 @@ function recoverSettlement ({ payment, leg, escrowOutgoingByHash, scope, issue }
 }
 
 // ---------------------------------------------------------------------------
-// Apply preconditions (Task 13)
+// Apply preconditions
 // ---------------------------------------------------------------------------
 
 // The immutable reward-contract fingerprint embedded in every manifest and
@@ -2426,7 +2426,7 @@ function ledgerPreconditionView (ledger, config) {
     observedBountyReceipts: normalized.observedBountyReceipts.map(row => ({ ...row })),
     items: normalized.items.map(row => ({ id: row.id, bountyPiconeros: amount(row.bountyPiconeros), bountyFeePiconeros: amount(row.bountyFeePiconeros) })),
     earns: normalized.earns.map(row => ({ ...row, piconeros: amount(row.piconeros) })),
-    // v2 snapshot groups (rewards reconciliation Task 2): the complete
+    // v2 snapshot groups: the complete
     // precondition now also binds the escrow journal, the declared-proof
     // inventory, the proven wallet identities/subaddresses and the audited
     // reserve inputs. Money becomes exact decimal strings; dates canonicalize
@@ -2521,7 +2521,7 @@ export function ledgerPreconditionFingerprint (ledger, config) {
 // move while the chain advances — but adding, removing or changing any
 // confirmed fact, any pending attempt/proof OR any collected escrow verifier
 // fact the approved manifest may rely on is an incompatible rescan: the CLI
-// refuses and requires a new manifest/review (final-review I2). Verification
+// refuses and requires a new manifest/review. Verification
 // facts enter through #1's stable-facts projection so advancing confirmation
 // counts and the later recheck time never enter; an entry that is not a safe
 // PaymentVerificationV1 result is retained as an explicit invalid marker so
@@ -2663,14 +2663,14 @@ export function journalRelayEvidenceMismatch ({ row, entry, scope, ownedAddresse
 }
 
 // Safe field reader for the build/apply precondition comparison. ONE delegated
-// read through the shared v2 audit snapshot (rewards reconciliation Task 1):
+// read through the shared v2 audit snapshot:
 // the exact same scoped selects, registered-identity proof and proof-inventory
 // reads the audit uses, so the repair path can never consume a different set
 // of facts than the audit fingerprinted. Returns the COMPLETE snapshot groups
 // (including the escrow journal, identity rows, subaddresses and proof
 // inventory), the fee config, the audited reserve inputs and the snapshot's
 // `accounting:v2:` fingerprint — the SAME full identity the audit and the
-// public ledger reader fingerprint (final-review I3: the snapshot is the
+// public ledger reader fingerprint (the snapshot is the
 // fingerprint/precondition authority and is never pre-filtered here). Any
 // monetary working-set reduction (the ONE shared receipt-visibility rule
 // `isObservableMonetaryReceipt`) is applied separately inside the builder's

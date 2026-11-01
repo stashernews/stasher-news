@@ -1,7 +1,7 @@
-// Strict raw-chain and restored-ownership adapter (Finding #1, Task 4).
+// Strict raw-chain and restored-ownership adapter.
 //
 // `collectPaymentChainEvidence` builds the private, secret-free evidence
-// session the payment verifier (Task 5) consumes:
+// session the payment verifier consumes:
 //
 //   - validated raw transaction records, fetched in ≤50-hash batches through
 //     the injected `daemon.getPaymentTransactions` (the strict additive method
@@ -16,7 +16,7 @@
 //     output index (pinned monero-cpp monero_wallet_full.cpp:344) and is used
 //     only as the cross-check value against `raw.outputIndices[localIndex]`
 //     when the daemon supplied them — never as a local index.
-//   - INDEPENDENT SENDER-SIDE OWNERSHIP ENUMERATION (final-review I2): every
+//   - INDEPENDENT SENDER-SIDE OWNERSHIP ENUMERATION: every
 //     raw output is re-derived against the derived sender addresses using
 //     ephemeral sender view access — Hs(8*a*R || varint(i))*G + spend over
 //     the main key and the output's ordered additional key — and the result
@@ -25,7 +25,7 @@
 //     recorded minor, account-0 minors included) is prepared and validated
 //     BEFORE the scan; an owned index outside it refuses (derive-and-rescan
 //     is the operator remedy).
-//   - AUDITED CANDIDATE HASHES (final-review I3): raws are fetched for the
+//   - AUDITED CANDIDATE HASHES: raws are fetched for the
 //     union of scanned hashes AND the caller's audited hashes (journal /
 //     payout / sweep / escrow hashes), independent of owned-output presence —
 //     a fetchable outgoing payment with no change/owned receipt is never
@@ -42,8 +42,8 @@
 // input only. Missing rows are never filled from journals or captures: the
 // only ownership inputs are the wallet scans, the daemon raw records and the
 // wallet's own derived identity. The session carries its authoritative
-// collection boundary and the derived position↔address map (final-review I4,
-// I6) so the verifier never has to reconstruct either from volatile facts.
+// collection boundary and the derived position↔address map so the verifier
+// never has to reconstruct either from volatile facts.
 //
 // Every refusal carries a fixed machine code (`error.code`).
 
@@ -53,7 +53,7 @@ import { oneTimeOutputKey, parseTxExtraStrict } from './paymentKeyStructure'
 const HEX64 = /^[0-9a-f]{64}$/
 const NETWORK_TYPES = Object.freeze({ MAINNET: 0, STAGENET: 2 })
 // The derivation domain must cover the primary plus fee-account primaries
-// 1..5 (final-review I2): runtime recovery may not declare the derivation
+// 1..5: runtime recovery may not declare the derivation
 // complete by pre-listing accounts alone.
 const REQUIRED_MAJORS = [1, 2, 3, 4, 5]
 
@@ -190,7 +190,7 @@ function validateRawRecord (record, requestedHashes, boundaryHeight) {
   } else if (inputKeyImages.length === 0) {
     throw paymentEvidenceError('RAW_RECORD_INVALID', `${txHash} spends nothing it could own`)
   }
-  // Block facts are required per record (final-review I4): maturity is derived
+  // Block facts are required per record: maturity is derived
   // from independently checked heights, so the daemon-resolved block hash must
   // be present and well-formed on every fetched record.
   assertHex64(record.blockHash, 'RAW_RECORD_INVALID', `${txHash} blockHash`)
@@ -232,7 +232,7 @@ function validateDerivation (derivation) {
 }
 
 /**
- * The PREPARED derivation domain (final-review I2): position → { address,
+ * The PREPARED derivation domain: position → { address,
  * spendKey }, decoded from the derived addresses BEFORE any scan. The scope
  * primary (0:0) must be present, every REQUIRED_MAJORS primary must be
  * prepared, and every derived entry must decode on the scope network. A
@@ -362,8 +362,8 @@ function preparedDomain (derivation, scope, journalRole) {
  *   viewWallet?: object,
  *   auditedHashes?: string[]
  * }} options `auditedHashes` are the audited candidate hashes (journal /
- *   payout / sweep / escrow) fetched independently of owned-output presence
- *   (final-review I3); unknown-to-the-daemon candidates simply stay absent and
+ *   payout / sweep / escrow) fetched independently of owned-output presence;
+ *   unknown-to-the-daemon candidates simply stay absent and
  *   refuse at ownershipFor time.
  * @returns {{ rawByHash: Map<string, object>, ownedOutputs: object[],
  *   ownershipFor: Function, deriveOwnedIndexes: Function, boundary: object,
@@ -407,7 +407,7 @@ export async function collectPaymentChainEvidence ({
   }
 
   validateDerivation(derivation)
-  // The domain is prepared and validated BEFORE any scan (final-review I2).
+  // The domain is prepared and validated BEFORE any scan.
   const domainPositions = preparedDomain(derivation, scope, journalRole)
   if (typeof derivation.primaryAddress === 'string' && derivation.primaryAddress !== scope.walletAddress) {
     throw paymentEvidenceError('DERIVATION_INVALID', 'derivation.primaryAddress differs from scope.walletAddress')
@@ -445,7 +445,7 @@ export async function collectPaymentChainEvidence ({
   }
 
   // Validated raw records for the UNION of scanned transaction hashes AND the
-  // audited candidate hashes (final-review I3) — never only hashes found in
+  // audited candidate hashes — never only hashes found in
   // owned-output scans. Candidate hashes are normalized strictly; a candidate
   // unknown to the daemon stays absent from the session (its verification
   // refuses RAW_TX_MISSING at ownershipFor time — an unresolved result, never
@@ -579,7 +579,7 @@ export async function collectPaymentChainEvidence ({
     }
   }
 
-  // INDEPENDENT SENDER-SIDE OWNERSHIP ENUMERATION (final-review I2): re-derive
+  // INDEPENDENT SENDER-SIDE OWNERSHIP ENUMERATION: re-derive
   // every raw output against the prepared derived addresses with ephemeral
   // sender view access — Hs(8*a*R || varint(i))*G + spend, over the main key
   // and the output's ordered additional key — and REQUIRE exact equality with
@@ -742,11 +742,11 @@ export async function collectPaymentChainEvidence ({
     ownedOutputs,
     ownershipFor: Object.freeze(ownershipFor),
     deriveOwnedIndexes: Object.freeze(deriveOwnedIndexes),
-    // The authoritative collection boundary (final-review I4): the verifier
+    // The authoritative collection boundary: the verifier
     // consumes THIS, never a tip reconstructed from volatile raw facts.
     boundary: Object.freeze({ height: boundary.height, blockHash: boundary.blockHash }),
-    // Independent position↔address correspondence from the prepared domain
-    // (final-review I6): null outside the domain.
+    // Independent position↔address correspondence from the prepared domain:
+    // null outside the domain.
     addressForPosition: Object.freeze((majorIndex, subaddressIndex) => {
       if (!Number.isSafeInteger(majorIndex) || !Number.isSafeInteger(subaddressIndex)) return null
       return domainPositions.get(`${majorIndex}:${subaddressIndex}`)?.address ?? null

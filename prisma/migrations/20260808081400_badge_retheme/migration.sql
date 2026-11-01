@@ -1,7 +1,7 @@
 -- Badge re-theme: the streak is now a FLAME; gun/horse streaks were never
 -- granted by any code and are removed with their columns. COIN and VERIFIED
 -- are badge-notification streak rows (first tip in a 24h window / wallet
--- registration) managed by Task 4.
+-- registration).
 --
 -- PostgreSQL (16.x included) has no `ALTER TYPE ... DROP VALUE`, so the enum
 -- is recreated (Global Constraints fallback): the old labels COWBOY_HAT/GUN/

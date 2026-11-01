@@ -1,4 +1,4 @@
--- Tip-ranking devaluation (spec §4.4-4.5): the ranking trigger reads the
+-- Tip-ranking devaluation: the ranking trigger reads the
 -- CAPPED tip terms (tipRankPiconeros / commentTipRankPiconeros) instead of the
 -- raw totals, and every item's capped terms are backfilled once from
 -- ItemUserAgg + the anon residual. No historical un-crediting: displayed

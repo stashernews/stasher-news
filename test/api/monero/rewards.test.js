@@ -1,12 +1,11 @@
 /* eslint-env jest */
 
-// Stubbed-wallet unit tests for the rewards hot-wallet signer (Task 9 / spec §6.2).
+// Stubbed-wallet unit tests for the rewards hot-wallet signer.
 //
 // These verify the sendPAYOUTS LOGIC + state machine WITHOUT a real stagenet
 // wallet or spend keys: the wallet is injected (a plain object exposing
 // createTx / getUnlockedBalance) and the Prisma client is an in-memory stub, so
-// the suite never touches the network or spends real XMR. This is the Task-9
-// primary gate; a real stagenet send is exercised end-to-end in Task 10.
+// the suite never touches the network or spends real XMR.
 //
 // Run via the app container:
 //   docker exec -u apprunner app npx jest test/api/monero/rewards.test.js
@@ -22,12 +21,12 @@ import { keccak256 } from 'js-sha3'
 import { logInfo, logError, logWarn } from '../../../lib/logger'
 import { secretBundleHex } from '@/test/fixtures/payment-proof'
 
-// The capture barrier (Task 6/Finding #1) authenticates every send against
+// The capture barrier authenticates every send against
 // the configured wallet scope and encodes every receiving address, so the
 // environment must name a REAL decodable primary address the fake wallet
 // reports, and every recipient label maps to a deterministic decodable
 // address. The TX-proof registry gets a synthetic throwaway master key (real
-// Task 2 crypto, never a real secret). Set once for the suite.
+// seal/open crypto, never a real secret). Set once for the suite.
 const point = scalar => Buffer.from(ed25519.ExtendedPoint.BASE.multiply(BigInt(scalar)).toRawBytes()).toString('hex')
 function encodeStagenetPrimaryAddress ({ spendKey, viewKey }) {
   const body = new Uint8Array(65)
@@ -107,7 +106,7 @@ const makeOutgoing = (hash, address, amount) => ({
   getTx: () => ({ getHash: () => hash })
 })
 
-// In-memory RewardsWalletTransaction model for the Task 6 journal helpers
+// In-memory RewardsWalletTransaction model for the journal helpers
 // (prepareWalletTransaction / relayWalletTransaction /
 // reconcileWalletTransactions). Implements the exact surface those helpers
 // use — $transaction passes a client exposing this model, findUnique resolves
@@ -330,7 +329,7 @@ function makeFakeWallet ({ unlocked = 1_000_000_000_000_000n, unlockedByAccount,
       }),
       getChangeAddress: () => null,
       getChangeAmount: async () => null,
-      // The SDK captures the SECRET-bundle STRING (final-review C1).
+      // The SDK captures the SECRET-bundle STRING.
       getKey: () => secretBundleHex(keySeed, 2)
     }
   }
@@ -669,7 +668,7 @@ test('consolidates fee accounts into the primary when no single account can host
   expect(wallet.calls).toHaveLength(0) // no payout sends this run
   expect(wallet.sweepCalls).toEqual([{ accountIndex: 3, address: REWARDS_ADDRESS, relay: false }])
   // The consolidation is born with relay:false, journaled BEFORE the relay, and
-  // journaled as a zero-principal self transfer (Task 6 consolidation boundary).
+  // journaled as a zero-principal self transfer (consolidation boundary).
   const consolidation = [...models.journal.rows.values()].find(r => r.kind === 'CONSOLIDATION')
   expect(consolidation).toMatchObject({ state: 'RELAYED', accountIndex: 3, principalPiconeros: 0n })
   expect(consolidation.metadata).toEqual({ selfTransfer: true, destination: REWARDS_ADDRESS })
@@ -737,7 +736,7 @@ test('a payout that cannot cover its own fee stays QUEUED and skips consolidatio
   expect(models.store.get(1).state).toBe('QUEUED')
   expect(wallet.relayCalls).toHaveLength(0) // nothing relayed
   // aggregate 6e9 - 2x1e9 conservative headroom < 5e9: consolidation cannot
-  // make this payout spendable, so it must not burn sweep fees (spec §6).
+  // make this payout spendable, so it must not burn sweep fees.
   expect(wallet.sweepCalls).toHaveLength(0)
 })
 
@@ -873,7 +872,7 @@ describe('ensureFeeAccounts', () => {
     expect(captured).toMatch(/si\.state <> 'AVAILABLE'/)
   })
 
-  // Audit variant (rewards accounting repair §8 / Task 12): the read-only
+  // Audit variant: the read-only
   // reconciliation must derive EVERY recorded SubaddressIndex minor, including
   // AVAILABLE rows, so the audit wallet can see and compare every address.
   // Send-time behavior above is unchanged.
@@ -945,7 +944,7 @@ test('reconciles a relayed-but-unpersisted payout from wallet history instead of
   expect(wallet.relayCalls).toHaveLength(0)
 })
 
-test('reconciliation persist failure (both writes) counts the row unpersisted — never re-sent, never silently complete (final-review fix #1)', async () => {
+test('reconciliation persist failure (both writes) counts the row unpersisted — never re-sent, never silently complete', async () => {
   const p1 = makePayout({ id: 1, recipientAddress: '5RECONFAIL', piconeros: 2_000_000_000n })
   const models = makeFakeModels([p1])
   const wallet = makeFakeWallet({
@@ -963,7 +962,7 @@ test('reconciliation persist failure (both writes) counts the row unpersisted �
   expect(wallet.relayCalls).toHaveLength(0)
 })
 
-test('findMany failure fails closed: the row is skipped and never re-sent this run (final-review fix #2)', async () => {
+test('findMany failure fails closed: the row is skipped and never re-sent this run', async () => {
   const p1 = makePayout({ id: 1, recipientAddress: '5UNPROVABLE', piconeros: 2_000_000_000n })
   const models = makeFakeModels([p1])
   const wallet = makeFakeWallet({
@@ -1036,7 +1035,7 @@ test('a HealthSnapshot balance persist failure never throws into the payout flow
   expect(logWarn).toHaveBeenCalledWith(expect.stringContaining('HealthSnapshot balance persist failed'), expect.any(Error))
 })
 
-// --- Task 8: largest-first whole payouts, journaled relays and useful-only
+// --- largest-first whole payouts, journaled relays and useful-only
 // consolidation. The fake journal/wallet above record real relay facts (fee,
 // destinations, relayed flag) and deduct balances only on relay, so these
 // tests exercise the full create -> prepare -> attempt -> relay -> persist
@@ -2700,7 +2699,7 @@ test('consolidation refuses duplicate sweep hashes across accounts (one hash is 
       getChangeAddress: () => null,
       // Unavailable change is explicit null and pairs with a null address (C1).
       getChangeAmount: async () => null,
-      // The SDK captures the SECRET-bundle STRING (final-review C1).
+      // The SDK captures the SECRET-bundle STRING.
       getKey: () => secretBundleHex(300n, 1)
     }]
   }
@@ -2714,7 +2713,7 @@ test('consolidation refuses duplicate sweep hashes across accounts (one hash is 
     expect.stringContaining('duplicate/invalid transaction hashes'))
 })
 
-// Final-review Critical regression: a durable RELAYED payout journal entry must
+// Regression: a durable RELAYED payout journal entry must
 // stop a still-QUEUED member from being built and relayed a second time even
 // when the wallet-history read throws or returns nothing. The journal is the
 // durable proof of payment; a history outage must never erase it.
@@ -2830,7 +2829,7 @@ test('a durable RELAYED proof that disagrees with the live payout is withheld an
     expect.stringContaining('durable RELAYED payout proof'))
 })
 
-// Final-review Important regression (finding 4): credential-bearing wallet
+// Regression: credential-bearing wallet
 // exceptions must never reach logs or alert transport from the two new
 // api/monero/rewards.js boundaries — only the fixed errorLabel diagnostic.
 const SECRET_MARKERS = {

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { alert } from '@/lib/alert'
 
-// dbBackup — nightly encrypted DB backup (Phase 6 Task E1). Spawns
+// dbBackup — nightly encrypted DB backup. Spawns
 // scripts/backup-db.sh (pg_dump | gpg -> BACKUP_DIR), prunes local dumps older
 // than BACKUP_RETENTION_DAYS, and optionally uploads the fresh dump to S3.
 //

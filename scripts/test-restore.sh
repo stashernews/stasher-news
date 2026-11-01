@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# test-restore.sh — DR restore-validation test (Phase 6 Task E5).
+# test-restore.sh — DR restore-validation test.
 #
 # Proves the disaster-recovery RESTORE path end-to-end against a live dev-DB
 # snapshot, without touching the dev DB itself:

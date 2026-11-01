@@ -1,4 +1,4 @@
--- Bounded retries for the daily streak evaluation (Finding 2, 2026-10-12).
+-- Bounded retries for the daily streak evaluation (2026-10-12).
 --
 -- The nightly run just after 00:10 UTC evaluates the UTC day that just ended.
 -- On 2026-10-12 it exceeded the 10-second Prisma interactive transaction

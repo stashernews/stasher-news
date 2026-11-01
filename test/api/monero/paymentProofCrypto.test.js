@@ -1,13 +1,13 @@
 /* eslint-env jest */
 
-// TX-proof key registry and authenticated payment-proof envelope (Finding #1,
-// Task 2). The registry is a separate, lazy, immutable version→key map with a
+// TX-proof key registry and authenticated payment-proof envelope. The registry
+// is a separate, lazy, immutable version→key map with a
 // mandatory explicit current version; the envelope seals a ProofPayloadV1 with
 // a fresh random DEK wrapped under an HKDF-derived KEK, with both AES-GCM
 // layers authenticated against the canonical claims binding.
 //
 // Everything here is synthetic: registry keys are generated in test memory
-// (Buffer.alloc patterns, like the brief's pinned test) and no env dump, real
+// (Buffer.alloc patterns) and no env dump, real
 // key, or real secret appears anywhere. Error behavior is asserted by exact
 // fixed error-code equality, so no test can pass while a message leaks key
 // material, plaintext, or library internals.
@@ -396,7 +396,7 @@ describe('sealPaymentProof: envelope structure', () => {
 })
 
 describe('sealPaymentProof: pinned KEK/AAD construction', () => {
-  test('envelope decrypts under the brief formulas via an independent oracle', () => {
+  test('envelope decrypts under the pinned formulas via an independent oracle', () => {
     const master = Buffer.alloc(32, 3)
     const keys = createPaymentProofKeyProvider({
       TXPROOF_MASTER_KEYS: JSON.stringify({ 7: master.toString('base64') }),
@@ -659,7 +659,7 @@ describe('ProofPayloadV1 validation', () => {
   })
 
   test('an off-bundle populated main public key is accepted (no bundle↔public equality requirement)', () => {
-    // Final-review C1: the bundle carries SECRET scalars and the optional
+    // The bundle carries SECRET scalars and the optional
     // populated public facts are a different representation — the validator
     // must never require equality between them (the raw chain is the gate).
     const offBundle = mutated(p => { p.builtStructure.mainPublicKey = pointHex() })

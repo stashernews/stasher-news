@@ -2,7 +2,7 @@
 import { recordedOutflowCoverage } from '@/api/monero/rewardsOutflowCoverage'
 import { auditLedgerFixture } from '@/test/fixtures/payment-proof'
 
-// Reverse recorded-outflow coverage (rewards reconciliation plan, Task 4).
+// Reverse recorded-outflow coverage.
 // Pure unit tests over the shared audit-ledger fixture: no DB, no wallet, no
 // daemon, no clock. The module proves every recorded outflow (payouts, sweeps,
 // escrow legs) against evidence row-first — one deterministic issue per
@@ -51,7 +51,7 @@ const missingHistoryEvidence = () => ({ outgoing: [], paymentVerifications: [], 
 // A closed-shape COMPLETE verification (safe result only, like the collector's
 // legacy surviving-proof results): strict coverage authority under evidence
 // v2. Members are { address, actualPiconeros, id?, leg? } — member identity
-// (id/leg) is part of the exact escrow attribution (final-review I1 round 3).
+// (id/leg) is part of the exact escrow attribution.
 const completeVerification = ({ hash, scope, members, fee = '7', owned = '33', role = 'REWARDS', journalId = null }) => {
   const total = members.reduce((acc, member) => acc + BigInt(member.actualPiconeros), 0n)
   return {
@@ -204,7 +204,7 @@ test('a partial multi-hash principal allocation is named without double attribut
     proofId: null
   })
   const issues = recordedOutflowCoverage({ ledger: f.ledger, evidence: missingHistoryEvidence(), scope: f.scope })
-  // Journal history proves nothing (final-review I1): NEITHER hash is covered,
+  // Journal history proves nothing: NEITHER hash is covered,
   // so the recorded 600 is proven by zero complete-verification principal.
   expect(issues).toContainEqual(expect.objectContaining({
     code: 'RECORDED_SWEEP_PRINCIPAL_UNPROVEN',
@@ -372,7 +372,7 @@ describe('recorded payout batch membership', () => {
       scope: { network: 'STAGENET', walletAddress: 'w' }
     })
     // Every recorded row of the journal-covered batch stays a named identity:
-    // relay history is not a complete-payment proof (final-review I1).
+    // relay history is not a complete-payment proof.
     expect(codeOf(issues, 'RECORDED_PAYOUT_PROOF_UNSUPPORTED')).toEqual([
       expect.objectContaining({
         table: 'RewardPayout',
@@ -435,7 +435,7 @@ describe('recorded payout batch membership', () => {
   })
 
   test('a proof with members beyond the recorded batch is a named surplus, never coverage', () => {
-    // Re-review probe (final-review I1 round 2): a third, unrelated member in
+    // A third, unrelated member in
     // the complete proof must reject — the member multiset has to match the
     // recorded batch exactly, surplus included.
     const ledger = ledgerWithBatch(null, [row(301), row(302, 20n)])
@@ -505,7 +505,7 @@ test('a missing escrow prize or fee leg is an issue even when settlement columns
   ])
 })
 
-describe('strict verification-only coverage (final-review I1)', () => {
+describe('strict verification-only coverage', () => {
   // The audit fixture with every recorded fact covered by COMPLETE
   // verifications: the payout batch under one REWARDS proof, the sweep hash
   // under another (exact recorded principal), and both escrow legs under
@@ -709,10 +709,9 @@ describe('strict verification-only coverage (final-review I1)', () => {
   })
 
   test('an escrow proof paying a different recipient or amount does not attribute the leg', () => {
-    // Re-review probes (final-review I1 rounds 2-3): validator-valid complete
-    // results paying 1 piconero to a DIFFERENT recipient — or the right
-    // recipient at the wrong amount — are named as exact membership
-    // mismatches (missing + surplus), never coverage.
+    // Validator-valid complete results paying 1 piconero to a DIFFERENT
+    // recipient — or the right recipient at the wrong amount — are named as
+    // exact membership mismatches (missing + surplus), never coverage.
     const { f, escrowScope, evidence } = provedFixture()
     const payment = f.ledger.bountyPayments[0]
     const evidenceWith = escrowResults => ({
@@ -783,7 +782,7 @@ describe('strict verification-only coverage (final-review I1)', () => {
   })
 
   test('member id, member leg and journal-identity contradictions are each named', () => {
-    // Re-review probes (final-review I1 round 3): the frozen member identity
+    // The frozen member identity
     // is (id, leg, address, amount) and the verification must bind the
     // recorded escrow journal owner — any one contradiction is named.
     const { f, escrowScope, evidence } = provedFixture()
@@ -848,7 +847,7 @@ describe('strict verification-only coverage (final-review I1)', () => {
   })
 
   test('a recorded fee receipt requires its member even without a separate feeTxHash', () => {
-    // Re-review probe (final-review I1 round 3): a modern combined disposition
+    // A modern combined disposition
     // with a recorded fee receipt — the covering proof must contain the fee
     // member too; prize-only proofs name the missing fee member.
     const f = auditLedgerFixture()
@@ -918,7 +917,7 @@ describe('strict verification-only coverage (final-review I1)', () => {
   })
 
   test('non-complete results with materialized members never cover a recorded leg', () => {
-    // Final-review round 3 (B3): unresolved/rejected/unsupported results whose
+    // Unresolved/rejected/unsupported results whose
     // members remain populated are exactly the shapes that slipped past
     // membership-only attribution — the complete-status prerequisite names
     // the leg for every one of them.
@@ -1054,7 +1053,7 @@ describe('strict verification-only coverage (final-review I1)', () => {
   })
 
   test('confirmed escrow history alone no longer covers a settlement leg', () => {
-    // Final-review I1: a confirmed outgoing hash is relay history, not
+    // A confirmed outgoing hash is relay history, not
     // whole-payment closure — the leg needs its complete ESCROW verification.
     const f = auditLedgerFixture()
     const payment = f.ledger.bountyPayments[0]

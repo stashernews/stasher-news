@@ -4,7 +4,7 @@ import { MAX_TX_HASHES_PER_REQUEST } from '@/api/monero/daemonClient'
 import { createReconciliationCheckpoint } from '@/worker/reconciliationScan'
 
 // reconciliationRawTransactions — shared bounded raw-`extra` reader for the
-// reconciliation workers (Finding 1).
+// reconciliation workers.
 //
 // reconcilePendingTips (every 2 min) and reconcileOwnerFeeLegs (hourly) both
 // recover missed lws callbacks by re-deriving payment ids from a raw tx's

@@ -1,6 +1,5 @@
 /* eslint-env jest */
-// Pure policy tests for bounded rewards payout batching (rewards payout size
-// recovery, Task 1). No wallet, no DB: these helpers only order and split
+// Pure policy tests for bounded rewards payout batching. No wallet, no DB: these helpers only order and split
 // whole payout rows, and recognize the signer's exact transaction-size
 // rejection without treating unrelated failures as retryable.
 import {

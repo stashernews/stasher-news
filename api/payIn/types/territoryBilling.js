@@ -5,7 +5,7 @@ import { createPlatformFeeLeg } from '@/api/monero/ownerFeeLeg'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 import { subOccWhere } from '../lib/territory'
 
-// StasherNews territory billing/renewal (spec §6.2). Same shape as territoryCreate
+// StasherNews territory billing/renewal. Same shape as territoryCreate
 // but for an existing Sub at renewal: issues an integrated fee invoice, emits the
 // fee URI, and sets billingStatus=PENDING_FEE until the rewardsWalletObserver observes the
 // fee. ONCE territories are never billed.

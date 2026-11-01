@@ -14,7 +14,7 @@ export async function tippedInWindow (prisma, userId, { gte, lt } = {}) {
 }
 
 /**
- * Derive a day's quest completions for a user's draw (spec §2.1).
+ * Derive a day's quest completions for a user's draw.
  * UPVOTE = ObservedTip by tipper in the UTC day window; BOOST = a BOOST payIn
  * created in the window; FIRST_RESPONDER = a comment in the window on a parent
  * that had no earlier comment; TURF = a post OR comment in the window carrying

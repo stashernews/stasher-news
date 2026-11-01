@@ -10,7 +10,7 @@ import { useShowModal } from '@/components/modal'
 import { ObstacleButtons } from '@/components/obstacle'
 import Qr from '@/components/qr'
 
-// StasherNews author wallet onboarding (spec §8.2). Post-pivot there is one
+// StasherNews author wallet onboarding. Post-pivot there is one
 // detection model: paste primary address + view key, register with lws, tips
 // are detected via webhooks. Model B (manual proof) is deferred indefinitely.
 

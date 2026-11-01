@@ -69,7 +69,7 @@ function AddendumSubmitRow ({ onCancel }) {
 
 // Shown when the original 10-minute window ends while the full editor is open
 // (inline comment editor or the post edit route). The mounted editor keeps its
-// typed values visible but can no longer submit (finding #3); closing it opens
+// typed values visible but can no longer submit; closing it opens
 // the way to the addendum editor. The full body is never reinterpreted as an
 // addendum.
 export function ExpiredFullEditNotice ({ onCancel }) {

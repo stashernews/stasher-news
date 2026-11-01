@@ -22,8 +22,7 @@ import { readRewardsAuditReserve } from '@/api/monero/rewardsAuditSnapshot'
 import { ACCOUNTING_FINGERPRINT_VERSION } from '@/lib/rewardsAuditFingerprint'
 import { paymentVerificationFacts, validatePaymentVerification } from '@/api/monero/paymentVerification'
 
-// Atomic application of an approved accounting repair manifest (rewards
-// accounting repair §8, Task 13; guarded re-verification Task 5). The manifest
+// Atomic application of an approved accounting repair manifest. The manifest
 // is the ONLY repair authority: this module verifies the operator confirmed
 // its exact SHA-256 digest, then — BEFORE any mutation — re-verifies the
 // cryptographic evidence with a FRESH read-only collection (never a report's
@@ -48,7 +47,7 @@ import { paymentVerificationFacts, validatePaymentVerification } from '@/api/mon
 // delivery / recovery operation, or accepts an arbitrary Prisma table / field
 // mutation: the dispatcher below is a closed allowlist. Its ONLY new state
 // mutation is the proved rewards PREPARED -> RELAYED journal transition plus
-// the independently reverified journal-less legacy backfill insert (Task 4).
+// the independently reverified journal-less legacy backfill insert.
 
 const NETWORKS = new Set(['STAGENET', 'MAINNET'])
 const FEE_TYPES = new Set([
@@ -77,7 +76,7 @@ const SIGNED_MONEY_FIELDS = new Set(['opsRolledOverPiconeros', 'opsAvailablePico
 // `relayProof` is the exact evidence linkage a PREPARED -> RELAYED journal
 // transition must carry (the closed v2 contract, validated against BOTH the
 // approved and the fresh verifier facts) — or, for inserts, exactly the
-// independently reverified legacy backfill of Task 4.
+// independently reverified legacy backfill.
 const OPERATION_KEYS = new Set(['kind', 'table', 'id', 'txHash', 'key', 'network', 'walletAddress', 'before', 'after', 'relayProof', 'reason', 'sweepAccounting'])
 
 // Closed update allowlists per table. Payout/Earn rows, reward totals, payout
@@ -134,7 +133,7 @@ const JOURNAL_INSERT_FIELDS = [
   'relayAttemptedAt'
 ]
 
-// The legacy journal-less backfill insert (rewards reconciliation Task 4) is
+// The legacy journal-less backfill insert is
 // the ONLY insert that may carry a relayProof, and it must carry every
 // proof-era capture column EXPLICITLY NULL plus the observation/provenance the
 // insert records. Every other insert shape — and any capture value other than
@@ -289,7 +288,7 @@ function sameDestinationSet (a, b) {
 }
 
 // A PREPARED-with-attempt -> RELAYED transition is authorized ONLY by the
-// closed v2 relayProof (rewards reconciliation plan Task 5): the proof must be
+// closed v2 relayProof: the proof must be
 // the exact substantive projection of BOTH the approved and the fresh verifier
 // facts for the scoped transaction, must carry the approved observation (the
 // recorded `relayedAt`) and the approved evidence generation digest, and the
@@ -619,7 +618,7 @@ async function applyFeeObservationInsert (tx, operation) {
 // One proved journal row insert. Two closed shapes exist: the historical
 // no-relay-proof insert (a confirmed wallet relay the journal never recorded;
 // RELAYED fact, null attempt) and — carrying a relayProof — EXACTLY the
-// independently reverified journal-less legacy backfill of Task 4. Every other
+// independently reverified journal-less legacy backfill. Every other
 // insert shape, and any other relayProof-carrying insert, is refused.
 async function applyJournalInsert (tx, operation, context) {
   const after = operation.after
@@ -672,8 +671,8 @@ async function applyJournalInsert (tx, operation, context) {
   })
 }
 
-// ONE proved journal row insert the plan mandates (rewards reconciliation
-// Tasks 4+5): the builder's journal-less LEGACY complete-payment backfill. It
+// The ONE proved journal row insert: the builder's journal-less LEGACY
+// complete-payment backfill. It
 // is the ONLY insert that may carry a relayProof. The insert keeps every
 // proof-era capture column explicitly NULL, records the APPROVED observation
 // as `relayedAt` (never a reconstructed broadcast time) with the legacy
@@ -946,7 +945,7 @@ async function assertApprovedBoundaryCanonical (boundary, daemon) {
 // transaction, its current store inventory must equal the declared snapshot
 // inventory (a rotation with writers paused cannot slip through), and a
 // complete fresh verification of the same payment — from the declared owner's
-// OWN wallet role (final-review I2: REWARDS facts from the top-level
+// OWN wallet role (REWARDS facts from the top-level
 // collection, ESCROW facts from the nested escrow collection) — must agree
 // with the store.
 const freshVerificationsForRole = (fresh, role) => (role === 'ESCROW'

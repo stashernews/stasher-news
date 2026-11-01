@@ -10,8 +10,7 @@ import {
 } from '@/api/monero/paymentVerification'
 import { createPaymentProofKeyProvider } from '@/api/monero/paymentProofKeys'
 
-// Read-only scoped chain evidence for the rewards + escrow wallets (rewards
-// accounting repair §8, Task 12).
+// Read-only scoped chain evidence for the rewards + escrow wallets.
 //
 // The audit that precedes an accounting repair needs COMPLETE, scoped chain
 // facts at ONE fixed boundary: every incoming receipt (external and self), every
@@ -93,7 +92,7 @@ function requireModels (models) {
   if (typeof models?.$queryRaw !== 'function') {
     throw new Error('collectRewardsWalletEvidence: models.$queryRaw is required for fee-account derivation')
   }
-  // Payment verification identity sources (Task 5): journal rows carry the
+  // Payment verification identity sources: journal rows carry the
   // capture identity; payouts/sweeps/bounties carry recorded hashes only.
   for (const model of ['rewardsWalletTransaction', 'escrowWalletTransaction', 'rewardPayout', 'rewardDistribution', 'bountyPayment']) {
     if (typeof models?.[model]?.findMany !== 'function') {
@@ -465,7 +464,7 @@ async function scannedHeightWithResync (wallet, minCount) {
   return scanned
 }
 
-// --- payment verification union (Task 5) --------------------------------------
+// --- payment verification union ----------------------------------------------
 
 const VERIFIER_CONSTANTS = Object.freeze({
   verificationVersion: '1',
@@ -513,10 +512,10 @@ function assertSafeResult (result, hash) {
 
 /**
  * Build ONE verification session per audit wallet (reused across hashes): the
- * real Task 4 chain collector over the unfiltered scan at the stable boundary,
+ * real chain collector over the unfiltered scan at the stable boundary,
  * plus the captured wallet's checkTxKey as the receipt checker. `auditedHashes`
  * are the audited candidate hashes (journal/payout/sweep/escrow union) fetched
- * by the collector independent of owned-output presence (final-review I3). A
+ * by the collector independent of owned-output presence. A
  * wallet that cannot produce chain evidence (no getOutputs, scan disagreement,
  * …) yields null — captured rows then get explicit unresolved results, never a
  * fabricated pass. Only fixed error codes may surface; message text is dropped
@@ -867,7 +866,7 @@ export async function collectRewardsWalletEvidence (options = {}) {
       const rewardsOutgoingHashes = [...rewardsHistory.confirmedOutgoing, ...rewardsHistory.pendingOutgoing]
         .map(entry => entry.txHash)
       const rewardsPendingHashes = rewardsHistory.pendingOutgoing.map(entry => entry.txHash)
-      // Audited candidate hashes (final-review I3): the union of journal,
+      // Audited candidate hashes: the union of journal,
       // recorded payout/sweep (or escrow dispatch/settlement/fee) hashes —
       // fetched by the session independent of owned-output presence.
       const rewardsAuditedHashes = [

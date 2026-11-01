@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Handler tests for the delayed opsSweep job (2026-09-14 A′ decoupling).
+// Handler tests for the delayed opsSweep job.
 // Prisma + sweepOpsEarmark stubbed — no wallet/DB. Contract under test:
 // user-funds-first guards, the stale-id guard (rollover double-count), the
 // pg-boss job.data payload nesting, and the FAILED alert.
@@ -111,7 +111,7 @@ test('accepts a CONFIRMED payout as settled (future-proofs PayoutState.CONFIRMED
 })
 
 test('handler reads distributionId from job.data (pg-boss v9 nesting) — stale follow-up skips', async () => {
-  // Regression lock for the review finding: jobWrapper spreads the raw job, so
+  // Regression lock: jobWrapper spreads the raw job, so
   // a handler declared as ({ distributionId }) would get undefined and a stale
   // follow-up would silently sweep the latest row instead of skipping.
   const sweep = jest.fn()

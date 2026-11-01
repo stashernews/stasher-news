@@ -3,7 +3,7 @@ import http from 'node:http'
 import { decryptViewKey } from './viewkey.js'
 import { freshLwsTransactions } from './lwsCursor.js'
 
-// monero-lws REST client (Task 3 / spec §5).
+// monero-lws REST client.
 //
 // This is the single network boundary between StasherNews and the chain.
 // Two consumers: the worker (confirmFinalizer / rewardsWalletObserver)
@@ -19,7 +19,7 @@ import { freshLwsTransactions } from './lwsCursor.js'
 //
 // Security: the private view key traverses the wire on every wallet call
 // (lws per-request body auth). View keys are decrypted in-process from the
-// encrypted envelope stored on MoneroViewKey via decryptViewKey (Task 2) and
+// encrypted envelope stored on MoneroViewKey via decryptViewKey and
 // are NEVER logged and NEVER included in error messages — see the redacted
 // error classes below.
 
@@ -151,8 +151,7 @@ function parseJsonText (text) {
 }
 
 // Promote declared piconero amount fields (JSON strings) to BigInt. Other
-// fields are passed through verbatim so callers (the reorg reconciler in
-// Task 6) see the full response shape.
+// fields are passed through verbatim so callers see the full response shape.
 function parseAmounts (obj) {
   if (!obj || typeof obj !== 'object') return obj
   const out = { ...obj }
@@ -167,7 +166,7 @@ function parseAmounts (obj) {
 // omitted mempool fields (height, timestamp) / optional payment_id -> null.
 //
 // The per-tx amount is exposed as `piconeros` (the domain column on
-// ObservedTip and what the Task 4 indexer / brief's test sketch read), NOT
+// ObservedTip and what the indexer reads), NOT
 // lws's wire name `total_received`. Only this per-tx amount is renamed; the
 // account-level lifetime `total_received` returned by /get_address_info and
 // the top-level balance in parseAddressTxs is a different value and stays.
@@ -370,7 +369,7 @@ export function createLwsClient (options = {}) {
     return request(`${adminUrl}/rescan`, { height, addresses }, { admin: true })
   }
 
-  // ---- webhook management (spec §4.3) --------------------------------------
+  // ---- webhook management ---------------------------------------------------
   // lws pushes tx-confirmation callbacks at 0-conf (detection) and at each
   // confirmation up to the requested ceiling. Registration + cleanup are admin
   // REST calls that reuse the existing request() (Content-Length + auth-omission

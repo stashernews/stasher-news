@@ -1,5 +1,4 @@
-// Eligible tip volume T for the dynamic curator budget (spec
-// 2026-10-19-dynamic-curator-budget-design.md §4).
+// Eligible tip volume T for the dynamic curator budget.
 //
 // T sizes the weekly curator budget to ALL eligible curation spending in the
 // period, unlike computeCuratorShares which only pays tips on items created in

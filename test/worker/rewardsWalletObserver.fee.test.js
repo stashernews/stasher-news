@@ -1,12 +1,12 @@
 /* eslint-env jest */
 
-// Integration test for the rewardsWalletObserver fee-attribution branch (Phase 3 Task 5).
+// Integration test for the rewardsWalletObserver fee-attribution branch.
 //
 // runRewardsWalletObserverOnce is the testable core: it processes rewards-wallet outputs
 // and, for each output at a fee subaddress (major 1 = posting, 2 = territory),
 // idempotently records a FeeObservation, links it to the pending PayIn, and flips
 // the gated Item.feeStatus PENDING_FEE -> FEE_PAID (so the post goes live). The
-// pluggable payment_id -> downvote branch is the documented Phase 4 extension
+// pluggable payment_id -> downvote branch is the documented extension
 // point and is left as a no-op here.
 //
 // txs are passed in directly (the pg-boss handler fetches them via lwsClient), so
@@ -20,7 +20,7 @@ import { logError } from '@/lib/logger'
 import { sweepFakeRewardsWallets } from '../helpers/sweepRewardsWallets'
 
 // The flip-time quota bookkeeping is guarded by flipPendingToLive (it logs +
-// alerts instead of wedging the observer); mock those sinks so the findings-6
+// alerts instead of wedging the observer); mock those sinks so the
 // surfacing assertions below can pin them without network/log noise. Mirrors
 // rewardsWalletObserver.flip.test.js.
 jest.mock('../../lib/alert', () => ({ __esModule: true, alert: jest.fn() }))
@@ -276,7 +276,7 @@ test('rewardsWalletObserver is idempotent across re-polls', async () => {
   expect(live.netInvestment).toBe(1_000_000_000n)
 })
 
-test('rewardsWalletObserver ignores outputs whose subaddress matches no pending fee (Phase 4 downvote path)', async () => {
+test('rewardsWalletObserver ignores outputs whose subaddress matches no pending fee (downvote path)', async () => {
   // major 0 / minor 0 with a payment_id -> not a fee subaddress; no FeeObservation, no throw
   const tx = lwsFeeTx('c3' + 'ef'.repeat(31), '1000000000', 0, 0)
   tx.payment_id = 'aabbccddeeff0011'
@@ -339,7 +339,7 @@ test('a BOOST fee observation bumps Item.boost at DETECTION', async () => {
   expect(fee.piconeros).toBe(1_000_000_000n)
 })
 
-// A-14 follow-up (Task 6): boosts above Int4 max (2,147,483,647 piconeros ~
+// Boosts above Int4 max (2,147,483,647 piconeros ~
 // 0.0021 XMR) must not silently fail. The old `boost + ${piconeros}::INTEGER`
 // cast threw "integer out of range" (caught by the try/catch), so the payment
 // succeeded but the ranking bump never happened. With the columns now BigInt
@@ -365,7 +365,7 @@ test('a BOOST fee observation above Int4 max (1 XMR) bumps Item.boost at DETECTI
   expect(fee.piconeros).toBe(1_000_000_000_000n)
 })
 
-// A-13 regression guard (2026-08-10 live incident): the observer's pg-boss
+// Regression guard (2026-08-10 live incident): the observer's pg-boss
 // handler selects the platform_rewards account with a bare findFirst. Test
 // suites (boost payIn, observer suites themselves) seed viewKey-less
 // platform_rewards rows against the live DB; with no orderBy/filter the
@@ -455,7 +455,7 @@ test('a top-up to the same subaddress accumulates and flips the item live at the
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f2' + 'ab'.repeat(31), '400000000', major, minor)] })
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('f3' + 'ab'.repeat(31), '600000000', major, minor)] })
 
-  // TWO observation rows for one payIn — possible only after Task 2's unique drop
+  // TWO observation rows for one payIn — possible only after the unique drop
   const rows = await prisma.feeObservation.findMany({ where: { payInId: payIn.id } })
   expect(rows).toHaveLength(2)
 
@@ -557,9 +557,9 @@ test('an underpaid TERRITORY fee does not flip billingStatus to PAID', async () 
   expect(sub.billingStatus).toBe('PENDING_FEE')
 })
 
-// --- R01: feeQuotaEligible items consume their free quota at the flip ---
+// --- feeQuotaEligible items consume their free quota at the flip ---
 
-test('a feeQuotaEligible COMMENT consumes its free-comment quota when it flips live (R01)', async () => {
+test('a feeQuotaEligible COMMENT consumes its free-comment quota when it flips live', async () => {
   const { comment, major, minor } = await seedPendingFeeComment(subMinor())
   await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('a7' + '89'.repeat(31), '1000000000', major, minor)] })
@@ -570,7 +570,7 @@ test('a feeQuotaEligible COMMENT consumes its free-comment quota when it flips l
   expect(user.freeCommentResetAt).toBeTruthy()
 })
 
-test('a feeQuotaEligible POST consumes its free-post quota when it flips live (R01)', async () => {
+test('a feeQuotaEligible POST consumes its free-post quota when it flips live', async () => {
   const { item, major, minor } = await seedPendingFeePost(subMinor())
   await prisma.item.update({ where: { id: item.id }, data: { feeQuotaEligible: true } })
   await runRewardsWalletObserverOnce({ models: prisma, account: rewardsWallet, txs: [lwsFeeTx('b8' + '9a'.repeat(31), '1000000000', major, minor)] })
@@ -591,7 +591,7 @@ test('an UNMARKED pending-fee item consumes no quota on flip (over-quota / anon 
   expect(user.freeCommentResetAt).toBeNull() // never touched
 })
 
-test('quota consumption is exactly-once across re-polls (R01)', async () => {
+test('quota consumption is exactly-once across re-polls', async () => {
   const { comment, major, minor } = await seedPendingFeeComment(subMinor())
   await prisma.item.update({ where: { id: comment.id }, data: { feeQuotaEligible: true } })
   const tx = lwsFeeTx('da' + 'bc'.repeat(31), '1000000000', major, minor)
@@ -601,11 +601,11 @@ test('quota consumption is exactly-once across re-polls (R01)', async () => {
   expect(user.freeCommentCount).toBe(1)
 })
 
-// --- finding 6: the flip-time comment spend is base-first, credit-aware and
+// --- the flip-time comment spend is base-first, credit-aware and
 // serialized. Before the fix the comment branch force-incremented an already
 // exhausted base counter and never touched a banked REPLY credit, so the
 // credit-aware creation gate (commentQuotaFor) could waive the reply fee on
-// upload-fee replies indefinitely without ever spending the credit. ---
+// fee-bearing replies indefinitely without ever spending the credit. ---
 
 async function consumedReplyCredits (userId) {
   return await prisma.streakReward.count({ where: { userId, type: 'REPLY', consumedAt: { not: null } } })

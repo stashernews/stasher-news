@@ -45,7 +45,7 @@ function targetMultBpsFor (resolved, config) {
   return DEFAULT_TARGET_MULT_BPS
 }
 
-// The configured drawdown weeks W (spec §3.1, valid 4..104). Exposed so the
+// The configured drawdown weeks W (valid 4..104). Exposed so the
 // copy can quote the ACTUAL configuration instead of hardcoding the 13-week
 // ledger default; null when nothing valid is configured — an out-of-range W
 // fails closed to LEGACY anyway, so no limit sentence is ever rendered from it.
@@ -114,7 +114,7 @@ async function getLiveCuratorBudget (models) {
         poolPiconeros: pool.poolPiconeros
       })
 
-      // F (spec §3.1) excludes donations: a donation raises the pool but never
+      // F excludes donations: a donation raises the pool but never
       // the weekly run rate.
       const inflow = await readRewardsInflow(tx, {
         start: periodStart,
@@ -138,7 +138,7 @@ async function getLiveCuratorBudget (models) {
       })
       const record = budgetPlan.record
 
-      // "Pool winding down" (spec §10): the last two RECORDED runs must both
+      // "Pool winding down": the last two RECORDED runs must both
       // have ended in DRAWDOWN. The live projection itself never counts, so a
       // one-off binding cannot flash the label, and a NULL outcome (pre-feature
       // or backfilled row) does not satisfy the condition.
@@ -150,7 +150,7 @@ async function getLiveCuratorBudget (models) {
       const windingDown = recentRuns.length === 2 &&
         recentRuns.every(row => row.dynamicBudgetMode === 'DRAWDOWN')
 
-      // This week's target from the plan's own inputs: T4 x configured k + the
+      // This week's target from the budget's own inputs: T4 x configured k + the
       // approved make-up — the same arithmetic the pure function used, exposed
       // so the page can compare the limit against what the budget needs.
       const targetPiconeros = record.tipT4Piconeros != null

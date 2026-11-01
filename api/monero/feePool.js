@@ -1,4 +1,4 @@
-// Rewards-wallet fee subaddress pool (spec §5.6, §6.2).
+// Rewards-wallet fee subaddress pool.
 //
 // Posting and territory fees land on the single platform rewards wallet via
 // DEDICATED subaddresses, pre-derived OFFLINE (scripts/derive-rewards-fee-subaddresses.js)
@@ -11,7 +11,7 @@
 //   major 3 = donations (rewards pool)
 //   major 4 = tips to wallet-less authors (TIP_UNWALLETED)
 //   major 5 = boosts (rewards pool)
-// (Major 0 is the wallet's primary address; Phase 4's downvotes use payment IDs,
+// (Major 0 is the wallet's primary address; downvotes use payment IDs,
 //  not subaddresses, so they do not consume this pool.)
 
 import prisma from '@/api/models'
@@ -61,7 +61,7 @@ export async function getRewardsWalletId (models = prisma) {
 }
 
 /**
- * Choke-point attempt throttle (audit A-3 follow-up): every fee-subaddress
+ * Choke-point attempt throttle: every fee-subaddress
  * consumer (item create/update, boost, donate, territory ops) funnels through
  * reserveFeeSubaddress, and every attempt permanently consumes one pool entry
  * whether or not it is ever paid — so an unpaid-attempt loop from one account

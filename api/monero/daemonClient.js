@@ -1,15 +1,14 @@
 import https from 'node:https'
 import http from 'node:http'
 
-// monerod restricted-RPC client (Task 6 / spec §5.5).
+// monerod restricted-RPC client.
 //
 // monero-lws's /get_address_txs response carries per-tx heights but NO block
 // hash (lws source: light_wallet.cpp:494-531), so the
 // reorg-safe cursor's `since_tx_block_hash` dimension has to be sourced
 // elsewhere. monerod's `get_block_header_by_height` JSON-RPC returns exactly
 // that — the hash for a given height — and is a read-only header call the
-// restricted RPC permits (the design spec lists MONEROD_URL as
-// the restricted RPC endpoint).
+// restricted RPC permits.
 //
 // This is a SEPARATE daemon from lws (different process, different transport:
 // monerod JSON-RPC over plain HTTP vs. lws REST), so it gets its own client
@@ -41,8 +40,8 @@ export const MAX_TX_HASHES_PER_REQUEST = 50
 const HEX_BYTES_RE = /^(?:[0-9a-fA-F]{2})*$/
 const isByteValue = b => Number.isSafeInteger(b) && b >= 0 && b <= 255
 
-// A request that exceeded its deadline aborts with this typed error (Finding
-// 1) so callers can tell "monerod did not answer in time" apart from every
+// A request that exceeded its deadline aborts with this typed error so
+// callers can tell "monerod did not answer in time" apart from every
 // other transport/HTTP/RPC failure. The fixed code is safe to classify
 // without echoing arbitrary error text, and the retry decision belongs to the
 // caller (the raw-evidence reader retries exactly one deadline per batch).
@@ -263,7 +262,7 @@ export function createDaemonClient (options = {}) {
     return out
   }
 
-  // ---- strict raw evidence (payment-proof chain adapter, Finding #1) --------
+  // ---- strict raw evidence (payment-proof chain adapter) --------------------
   //
   // Unlike getTransactions above, this is a STRICT evidence fetch for the
   // rewards payment verification chain: every response shape it does not fully

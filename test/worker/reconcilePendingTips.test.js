@@ -1120,7 +1120,7 @@ test('a non-empty candidate list with zero raw evidence is incomplete: expiry de
 })
 
 test('a malformed raw extra is missing evidence: expiry deferred, then refetched once corrected', async () => {
-  // Finding 1 end-to-end: '01zz' used to be silently truncated by
+  // End-to-end: '01zz' used to be silently truncated by
   // Buffer.from(hex) into [0x01], so the daemonClient returned a "valid"
   // Buffer, the reader counted the hash as available, the pass reported
   // COMPLETE, and an unmatched, expired-age tip was EXPIRED off a malformed

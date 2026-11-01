@@ -1,4 +1,4 @@
--- A-13 bounties Phase A: schema foundation.
+-- Bounties: schema foundation.
 -- - PostType + BOUNTY, FeeType + BOUNTY_FEE/BOUNTY_ROLLOVER
 -- - Item bounty lifecycle columns (bountyPiconeros/bountyStatus/bountyConfirmedAt)
 -- - PlatformFeeConfig bounty fee config

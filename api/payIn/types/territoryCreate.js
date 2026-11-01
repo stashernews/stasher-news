@@ -6,7 +6,7 @@ import { createPlatformFeeLeg } from '@/api/monero/ownerFeeLeg'
 import { scheduleTerritoryBilling } from '../lib/scheduleTerritoryBilling'
 import { assertUploadsWithinFreeSize, throwOnExpiredUploads } from '@/api/resolvers/upload'
 
-// StasherNews territory creation (spec §6.2). The founder pays a territory fee to
+// StasherNews territory creation. The founder pays a territory fee to
 // the platform rewards wallet via an integrated-address invoice (legacy:
 // a major-2 subaddress); the territory is created billingStatus=PENDING_FEE
 // (invisible/inactive) until the fee is observed and flipped to PAID. piconeros=0 (no custodial sats) so the SN
@@ -30,7 +30,7 @@ export async function getInitial (models, { billingType, name, uploadIds = [] },
 
   const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
   const fee = territoryFeePiconeros(billingType, config)
-  // Day-7 quest-streak discount (spec §2.4): applied to the quoted fee here and
+  // Day-7 quest-streak discount: applied to the quoted fee here and
   // consumed at creation; one held max, one month expiry.
   const discountHeld = !!(await models.streakReward.findFirst({
     where: { userId: me.id, type: 'TURF_DISCOUNT', consumedAt: null, expiresAt: { gt: new Date() } },

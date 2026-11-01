@@ -217,7 +217,7 @@ export default {
     // amount), so this checks whether an observation in a "payment succeeded"
     // state has landed for it — mirroring shouldTriggerPaymentSuccess (DETECTED
     // or CONFIRMED). FeeObservation.payInId is @unique, so at most one row.
-    // Owner-routed legs (turf-owner-revenue) record ObservedSubFee receipts
+    // Owner-routed legs record ObservedSubFee receipts
     // instead: those are born DETECTED and only mature, so any receipt row
     // means coins landed — no state filter needed. Only resolved when a query
     // explicitly requests it (e.g. the DONATE modal poll), so it costs nothing

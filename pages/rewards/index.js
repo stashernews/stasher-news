@@ -75,7 +75,7 @@ function toBigInt (value) {
 
 export { DEFAULT_DRAWDOWN_WEEKS } from '@/lib/curatorBudgetCopy'
 
-// This week's spending-limit sentence (spec §10, amended 2026-10-21). The
+// This week's spending-limit sentence. The
 // projection's outcome names the binding cap: FULL — the limit
 // sits above the target; DRAWDOWN — the limit binds and sets the effective
 // multiple; POOL_SHORT — the pool itself, not the drawdown, is the binding cap.

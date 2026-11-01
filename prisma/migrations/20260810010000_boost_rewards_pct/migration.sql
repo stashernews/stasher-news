@@ -1,4 +1,4 @@
--- A-14: boostRewardsPct config + 1:1 boost ranking weight (drop the legacy
+-- boostRewardsPct config + 1:1 boost ranking weight (drop the legacy
 -- sats->msats boost*1000 factor; boost is stored in piconeros).
 
 ALTER TABLE "PlatformFeeConfig" ADD COLUMN "boostRewardsPct" INTEGER NOT NULL DEFAULT 50;

@@ -8,7 +8,7 @@ import { piconerosToMXmr } from '@/lib/format'
 import { bountyPiconerosOf } from '@/lib/bounty'
 import { AWARD_BOUNTY_MUTATION, RECLAIM_BOUNTY_MUTATION, ROLLOVER_BOUNTY_MUTATION } from '@/fragments/payIn'
 
-// Bounty author controls (A-13 Task 7 Step 3): award on descendant comments,
+// Bounty author controls: award on descendant comments,
 // reclaim + roll over on an expired bounty post. All three queue an escrow
 // payout (BountyPayment QUEUED) that the worker's signer dispatches; the
 // on-chain payout is async, so the UI confirms the queueing and updates the

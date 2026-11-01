@@ -197,7 +197,7 @@ describe('resolveItemSubName', () => {
   })
 })
 
-describe('lookupTipTx cursor invariant (audit 2026-09-11 finding 1)', () => {
+describe('lookupTipTx cursor invariant', () => {
   // Mined rows (height present): real durable progress candidates.
   const txs = [
     { id: 101, hash: 'a', payment_id: 'feeleg', piconeros: 1n, height: 900 },
@@ -262,7 +262,7 @@ describe('lookupTipTx cursor invariant (audit 2026-09-11 finding 1)', () => {
   })
 })
 
-describe('chainMismatch (audit 2026-09-11 finding 2)', () => {
+describe('chainMismatch', () => {
   const tip = { piconeros: 1000n, txHash: 'AA11' }
   test('true when the stored amount disagrees with the chain tx', () => {
     expect(chainMismatch(tip, { piconeros: 999n, hash: 'aa11' })).toBe(true)

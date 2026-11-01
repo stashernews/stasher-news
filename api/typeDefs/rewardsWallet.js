@@ -1,7 +1,7 @@
 import { gql } from 'graphql-tag'
 
-// StasherNews transparency surface: the public rewardsWalletInfo query (spec
-// §4.4, §6.4, §7.3). Exposes the platform rewards wallet address, its public
+// StasherNews transparency surface: the public rewardsWalletInfo query.
+// Exposes the platform rewards wallet address, its public
 // view key (embedded in the address; cannot decode transaction amounts), and
 // the ledger-derived received/principal/network-fee split with the LITERAL
 // rewards/ops allocations (next distribution pool / signed pending ops sweep).
@@ -96,7 +96,7 @@ export default gql`
     walletlessTipRewardsPct: Int!
   }
 
-  # A weekly rewards distribution run (spec §5, §6.2). Each distribution records
+  # A weekly rewards distribution run. Each distribution records
   # the pool total, the amount distributed to curators, the rollover, and its
   # individual RewardPayout rows with real on-chain tx hashes. The ops-sweep
   # fields expose what happened to the ops earmark's share this period: it is
@@ -129,7 +129,7 @@ export default gql`
     correctedPendingOpsPiconeros: BigInt!
     opsSweepTxHash: String
     opsSweepState: String!
-    # Dynamic curator budget record (spec §6). Nullable because pre-feature
+    # Dynamic curator budget record. Nullable because pre-feature
     # rows and backfilled history may not have these figures. Every tip stage
     # is a TOTAL; no tipper identity or config exclusion ID is exposed here.
     rawTipPiconeros: BigInt
@@ -141,7 +141,7 @@ export default gql`
     incomePiconeros: BigInt
     tipT4Piconeros: BigInt
     incomeF4Piconeros: BigInt
-    # This run's drawdown reserve and spending limit (spec §3.1). NULL on
+    # This run's drawdown reserve and spending limit. NULL on
     # pre-feature rows and backfilled history: no dynamic budget ran, so no
     # limit is invented.
     reservePiconeros: BigInt

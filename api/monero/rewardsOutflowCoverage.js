@@ -1,7 +1,7 @@
 import { validatePaymentVerification } from '@/api/monero/paymentVerification'
 import { normalizePaymentClaims, paymentClaimDigest } from '@/api/monero/paymentClaims'
 
-// Reverse recorded-outflow coverage (rewards reconciliation plan, Task 4).
+// Reverse recorded-outflow coverage.
 // PURE: this module reads no DB, opens no wallet, touches no clock and never
 // mutates its inputs. It proves every RECORDED outflow — payout rows, recorded
 // sweep hashes, escrow settlement legs — against the collected evidence,
@@ -15,7 +15,7 @@ import { normalizePaymentClaims, paymentClaimDigest } from '@/api/monero/payment
 // DB/capture contract and receipt proof covers aggregates only), plus its
 // complete owned outgoing result.
 //
-// Strict recorded-outflow coverage (final-review I1) is verification-ONLY:
+// Strict recorded-outflow coverage is verification-ONLY:
 // a RELAYED PAYOUT journal row, a confirmed outgoing hash or a pending
 // mempool bridge is operational relay history and chain presence — NEVER a
 // complete-payment proof. A recorded payout whose evidence is missing,
@@ -170,7 +170,7 @@ export function recordedBatchMembershipMismatch (recordedRows, members) {
 }
 
 // The per-hash coverage authority for one recorded payout batch, computed
-// once per hash (final-review I1): 'verification' (a COMPLETE proof — the
+// once per hash: 'verification' (a COMPLETE proof — the
 // only strict coverage), 'journal' (RELAYED relay history: operational
 // recovery context, never strict coverage), 'unsupported' (a collected but
 // non-complete verifier result, a mempool bridge entry or a PREPARED
@@ -211,7 +211,7 @@ function verificationUncoveredRows (rows, verification) {
   return uncovered
 }
 
-// Surplus proof members (final-review I1 round 2): after removing every
+// Surplus proof members: after removing every
 // recorded row's exact `amount:address` pair, the leftover proved members —
 // payments the recorded batch never claims. Unreadable members never surface
 // here: the per-row pass already names every recorded row when any member is
@@ -238,8 +238,8 @@ function surplusProofMembers (rows, verification) {
 
 // One recorded SENT/CONFIRMED payout: its hash must be valid and its batch
 // proved row-first by a COMPLETE verification. Relay journal history, pending
-// bridge entries and non-complete verifier results are individually named
-// (final-review I1); per-row verification attribution keeps offsetting rows
+// bridge entries and non-complete verifier results are individually named;
+// per-row verification attribution keeps offsetting rows
 // distinct.
 function checkRecordedPayout (payout, context, addIssue) {
   const id = identifier(payout?.id)
@@ -269,7 +269,7 @@ function checkRecordedPayout (payout, context, addIssue) {
   if (uncovered.has(id)) {
     addIssue({ code: 'RECORDED_PAYOUT_MEMBER_MISMATCH', ...base, reason: REASONS.PROOF_MEMBER_MISMATCH })
   }
-  // Exact frozen membership (final-review I1 round 2): the proof's member
+  // Exact frozen membership: the proof's member
   // multiset must match the recorded batch EXACTLY — leftover proved members
   // beyond the recorded batch are a named surplus, never silent
   // over-coverage.
@@ -284,7 +284,7 @@ function checkRecordedPayout (payout, context, addIssue) {
   }
 }
 
-// Exact sweep attribution (final-review I1 round 2): a complete verification
+// Exact sweep attribution: a complete verification
 // attributes a recorded sweep only when it is EXACTLY the recorded
 // single-destination payment — exactly one readable member (an OPS_SWEEP pays
 // exactly one destination), whose address matches the recorded sweep target.
@@ -317,8 +317,8 @@ function recordedSweepTarget (context, hash) {
 // coverage is a COMPLETE verification per hash that attributes the recorded
 // sweep EXACTLY — one member, the recorded destination, and a principal sum
 // equal to the recorded swept total (mere opsSweepTxHash presence, a journal
-// row, a confirmed hash or an unattributed complete proof is not evidence —
-// final-review I1 round 2). Recorded actual swept fields are never changed
+// row, a confirmed hash or an unattributed complete proof is not evidence).
+// Recorded actual swept fields are never changed
 // here.
 function checkRecordedSweepHashes (distribution, context, addIssue) {
   const id = identifier(distribution?.id)
@@ -349,7 +349,7 @@ function checkRecordedSweepHashes (distribution, context, addIssue) {
     if ((context.sweepOwnersByHash.get(hash)?.filter(owner => owner != null).length ?? 0) > 1) sharedOwnership = true
   }
   const recorded = amountOrNull(distribution.opsSweptPiconeros) ?? 0n
-  // Exact attribution (final-review I1 round 2): the attributed principal must
+  // Exact attribution: the attributed principal must
   // EQUAL the recorded swept total — under- AND over-attribution are named. A
   // shared-hash ownership conflict already names the attribution problem: the
   // per-distribution allocation is not decided twice for the same hash.
@@ -383,7 +383,7 @@ function checkRecordedEscrowLegs (payment, context, addIssue) {
   for (const { leg, txHash } of legs) {
     const verification = txHash == null ? null : context.escrowVerifications.get(`ESCROW:${txHash}`)
     const journal = txHash == null ? null : context.escrowJournalByHash.get(txHash)
-    // Complete-status prerequisite (final-review round 3): an
+    // Complete-status prerequisite: an
     // unresolved/rejected/unsupported result — however many members it
     // materializes — never covers a recorded leg.
     if (!isComplete(verification)) {
@@ -511,7 +511,7 @@ function recordedLegMembers (payment, leg, journal) {
   }]
 }
 
-// Exact multiset difference (final-review I1 round 3): every expected member
+// Exact multiset difference: every expected member
 // is consumed by a proof member with the same id, leg and address and the
 // exact recorded amount where one is recorded; unconsumed expectations are
 // missing, unconsumed proof members are surplus.
@@ -601,7 +601,7 @@ export function recordedOutflowCoverage ({ ledger, evidence, scope } = {}) {
     evidenceVersion: safeEvidence.evidenceVersion
   })
   // Recorded escrow journals by leg hash: the authoritative owner/membership
-  // rows the escrow coverage binds against (final-review I1 round 3).
+  // rows the escrow coverage binds against.
   const escrowJournalByHash = new Map()
   for (const row of arrayOf(safeLedger.escrowTransactions)) {
     const hash = normalizeHash(row?.txHash)

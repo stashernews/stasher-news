@@ -31,8 +31,8 @@ jest.mock(`${process.cwd()}/lib/logger`, () => ({
   logError: jest.fn()
 }))
 
-// Isolated real-DB tests for the rewards-wallet capture barrier (Finding #1,
-// Task 6). Every payout batch, ops sweep and consolidation follows the same
+// Isolated real-DB tests for the rewards-wallet capture barrier. Every payout
+// batch, ops sweep and consolidation follows the same
 // boundary: build(relay:false) -> durable journal+proof PAIR (atomic store) ->
 // fresh pair authentication -> locked attempt CAS -> relayTx(the SAME object)
 // -> RELAYED with direct-relay-observation provenance. Only a durable,
@@ -57,7 +57,7 @@ const ISOLATED_DB = (() => {
 // purpose: if the module's label set ever changes, this suite fails loudly.
 const ERROR_LABELS = ['timeout', 'connection', 'rpc', 'unknown']
 
-// --- deterministic synthetic address/point helpers (throwaway, Task 1 style)
+// --- deterministic synthetic address/point helpers (throwaway style)
 // Scalar space starts at 100 to stay clear of the shared fixture scalars.
 
 const point = scalar => Buffer.from(ed25519.ExtendedPoint.BASE.multiply(BigInt(scalar)).toRawBytes()).toString('hex')
@@ -81,7 +81,7 @@ const leHex = value => {
 }
 
 ;(ISOLATED_DB ? describe : describe.skip)('rewards wallet capture barrier (isolated DB only)', () => {
-  // The Task 1 fixture's synthetic STAGENET payment: the fixture wallet
+  // The fixture's synthetic STAGENET payment: the fixture wallet
   // address is the scope, and the fixture transaction (hash f1…, fee 7,
   // destinations recipientA 40 + recipientB 20, change 33 at the primary) is
   // the canonical PAYOUT capture its chain fixture verifies COMPLETE.
@@ -159,8 +159,8 @@ const leHex = value => {
   // change output (a populated changeAddress implies a change vout).
   // Real one-time-key arithmetic for one built tx: external vouts via the
   // sender path against the recipients' PUBLIC keys, the change vout via the
-  // receiver a*R path against the hot wallet's own spend key (final-review
-  // C1/I1/I2). The hot wallet is the fixture wallet (view secret 6).
+  // receiver a*R path against the hot wallet's own spend key. The hot wallet
+  // is the fixture wallet (view secret 6).
   function builtTxKeys ({ destinations, changeAddress, keySeed }) {
     const decoded = destinations.map(d => decodeReceivingIdentity(d.address, 'STAGENET'))
     const slots = destinations.length + (changeAddress ? 1 : 0)
@@ -204,7 +204,7 @@ const leHex = value => {
       getChangeAddress: () => changeAddress,
       // Unavailable change is explicit null and pairs with a null address (C1).
       getChangeAmount: async () => (changeAddress === null ? null : changeAmount),
-      // The SDK captures the SECRET-bundle STRING (final-review C1); populated
+      // The SDK captures the SECRET-bundle STRING; populated
       // public facts ride the optional getters.
       getKey: () => keys.mainSecretHex + keys.additionalSecretHexes.join(''),
       getMainPublicKey: () => keys.mainPublicKey,
@@ -414,7 +414,7 @@ const leHex = value => {
 
   // --- dedicated audit sessions (promotion tests) ------------------------------
 
-  // PAYOUT promotion uses the Task 1 fixture's fake audit wallet + fake daemon
+  // PAYOUT promotion uses the fixture's fake audit wallet + fake daemon
   // THROUGH the production audit-session builder: the real collector builds
   // the session from the fixture scan, and the real verifier gates the
   // captured pair against it (the fixture payment verifies COMPLETE by
@@ -542,7 +542,7 @@ const leHex = value => {
       additionalPublicKeys: [...keys.additionalPublicKeys]
     }
     // The coinbase source output is wallet-owned: derive it on the receiver
-    // a*R path under its own main tx key (final-review I2 enumeration). A
+    // a*R path under its own main tx key. A
     // source at account 1 is owned at (1,0) — that position's spend key is
     // wallet-owned by construction of the prepared domain (makeAddress(301)).
     const sourceMainKey = senderPublicPart(70n, null)
@@ -596,7 +596,7 @@ const leHex = value => {
       getAccounts: jest.fn(async () => [0, 1, 2, 3, 4, 5].map(index => ({ getIndex: () => index }))),
       getPrimaryAddress: jest.fn(async () => SCOPE.walletAddress),
       getNetworkType: jest.fn(async () => 2),
-      // Raw-ownership enumeration seams (final-review I2): ephemeral view
+      // Raw-ownership enumeration seams: ephemeral view
       // access (the fixture wallet's view secret 6) plus the derived address
       // per domain position (the scope primary at (0,0), makeAddress(301)
       // for the fee-account primaries).
@@ -698,9 +698,9 @@ const leHex = value => {
       outputKeys: tx.getOutputKeys()
     }
     // The consolidation pays the wallet primary: the owned output sits at the
-    // DESTINATION's derived position (0,0) — final-review I6 (the captured
-    // owned target binds there, and the sender/receiver paths agree on the
-    // one-time key for a self-payment).
+    // DESTINATION's derived position (0,0) — the captured owned target binds
+    // there, and the sender/receiver paths agree on the one-time key for a
+    // self-payment.
     const ownedOutput = {
       getTx: () => ({ getHash: () => CONSOLIDATION_HASH, getHeight: () => LOCAL_TIP.height - 19 }),
       getAccountIndex: () => 0,
@@ -1111,7 +1111,7 @@ const leHex = value => {
     expect((await loadRow(journal.id)).state).toBe('RELAYED')
   })
 
-  // --- durable-but-unattempted pairs: reserved from rebuilding (Finding #1) -----
+  // --- durable-but-unattempted pairs: reserved from rebuilding -----------------
 
   test('an unattempted captured pair reserves its payouts from rebuilding and alerts operators with a stable per-hash dedupeKey', async () => {
     const { payouts } = await seedQueuedPayouts([{ address: ADDRESS_A, piconeros: 40n }, { address: ADDRESS_B, piconeros: 20n }])

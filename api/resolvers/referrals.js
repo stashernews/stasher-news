@@ -4,7 +4,7 @@ import { GqlAuthenticationError } from '@/lib/error'
 export default {
   Query: {
     // Referral earnings for the caller: FOREVER_REFERRAL Earn rows (written
-    // weekly by rewardsDistributor, A-09), bucketed per UTC day. `when` is one
+    // weekly by rewardsDistributor), bucketed per UTC day. `when` is one
     // of WHENS (day/week/month/year/forever/custom); `from`/`to` are ms
     // timestamps used only for custom ranges (the page sends them as strings).
     referrals: async (parent, { when, from, to }, { me, models }) => {

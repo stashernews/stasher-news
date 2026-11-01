@@ -9,13 +9,13 @@ import {
   isCurrentAccountingFingerprint
 } from '@/lib/rewardsAuditFingerprint'
 
-// The factual rewards-hot-wallet ledger (rewards accounting repair §5): ONE
+// The factual rewards-hot-wallet ledger: ONE
 // read-side union of proved facts for:
 //   - the next-distribution pool and the transparency pages
 //     (lib/rewardsPool.js, api/resolvers/rewards.js, api/resolvers/rewardsWallet.js),
 //   - the ops-sweep spending bound and the weekly distribution checkpoint
 //     (api/monero/rewards.js, worker/rewardsDistributor.js),
-//   - the repair manifest (§12/§13, via the ledger fingerprint).
+//   - the repair manifest (via the ledger fingerprint).
 //
 //   I = all CONFIRMED eligible hot-wallet receipts (read by rewardsInflow.js),
 //   P = de-duplicated reward principal PROVEN sent (recorded SENT/CONFIRMED
@@ -915,7 +915,7 @@ export function summarizeRewardsLedger ({
 // the unchanged de-duplicated PAYOUT/OPS_SWEEP/CONSOLIDATION union over the
 // shared snapshot's scoped journal/payout/distribution groups, and the audit
 // fingerprint is the shared `accounting:v2:` digest of ONE complete safe
-// snapshot (rewards reconciliation Task 1) read in the caller's Serializable
+// snapshot read in the caller's Serializable
 // transaction — never a wallet, daemon or key provider. The configured scope
 // must be the registered platform_rewards identity (label + network, resolved
 // like the #1 collector; foreign or absent identity refuses). Accepts a

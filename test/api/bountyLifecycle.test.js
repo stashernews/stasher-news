@@ -1,12 +1,12 @@
 /* eslint-env jest */
 
-// Lifecycle-flow integration test (A-13 Task 4): award / reclaim / rollover.
+// Lifecycle-flow integration test: award / reclaim / rollover.
 // payBounty queues a QUEUED AWARD BountyPayment paying the winner's registered
 // address and flips the Item to AWARDED inside the claim transaction (the claim
 // UPDATE is the double-award guard). reclaimBounty (EXPIRED only) refunds the
 // escrow to the author's wallet (REFUNDED); rolloverBounty (EXPIRED only) sends
 // the full escrow balance (bounty + fee) to the rewards pool (ROLLED_OVER).
-// All three only QUEUE rows — the signer (Task 5 worker) relays them.
+// All three only QUEUE rows — the signer worker relays them.
 //
 // Real-DB test against a live, migrated dev stack — mirroring the seeding
 // patterns of test/api/bountyFunding.test.js (deterministic fee config, unique
@@ -377,7 +377,7 @@ test('payBounty accepts a comment whose rootId is populated by the item_path tri
   })
 })
 
-// A-13 award indication: the claim transaction must mark the winning comment
+// Award indication: the claim transaction must mark the winning comment
 // (bountyAwardedAt) and link the bounty post to it (bountyWinnerCommentId),
 // and the bountyWinnerName resolver must resolve the winner's user name.
 test('payBounty records the winning comment (bountyAwardedAt + bountyWinnerCommentId) and resolves its author name', async () => {

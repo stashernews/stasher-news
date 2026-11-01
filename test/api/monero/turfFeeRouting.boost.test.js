@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// BOOST fee routing (Task 8 turf-owner-revenue; revised for R08 2026-09-21;
+// BOOST fee routing (revised 2026-09-21;
 // integrated platform invoices 2026-10-24): a boost ALWAYS pays the platform
 // rewards wallet — never owner-direct, even for a single-turf item with a
 // walleted owner. The owner-direct leg was removed because an item author
@@ -77,7 +77,7 @@ const me = { id: 7 }
 beforeEach(() => { process.env.TURF_OWNER_FEES = '1'; jest.clearAllMocks() })
 afterEach(() => { delete process.env.TURF_OWNER_FEES })
 
-describe('BOOST getInitial routing (platform-only after R08)', () => {
+describe('BOOST getInitial routing (platform-only)', () => {
   it('routes a single-turf item with a walleted owner to the platform', async () => {
     const m = models()
     const r = await getInitial(m, { id: '1', piconeros: '500000000' }, { me })

@@ -3,7 +3,7 @@ import { collectRewardsWalletEvidence } from '@/api/monero/rewardsWalletEvidence
 import { FI } from '../../fixtures/rewards-accounting-evidence'
 import { paymentChainFixture } from '../../fixtures/payment-proof'
 
-// Read-only evidence collection tests (rewards accounting repair §8, Task 12).
+// Read-only evidence collection tests.
 // Every wallet is a fake; no DB, no daemon, no SDK. The fakes define
 // createTx/relayTx/sweepUnlocked as throw-on-call and every test asserts the
 // audit never invoked them.
@@ -238,7 +238,7 @@ function makeModels ({
         }
         return [...byMajor.entries()].map(([major, maxMinor]) => ({ major, maxMinor }))
       }),
-      // Payment verification identity sources (Task 5): journal rows carry the
+      // Payment verification identity sources: journal rows carry the
       // capture identity; payouts/sweeps/bounties carry recorded hashes only.
       rewardsWalletTransaction: {
         findMany: jest.fn(async () => rewardJournalRows)
@@ -730,7 +730,7 @@ describe('collectRewardsWalletEvidence', () => {
     expect(serialized).not.toMatch(/privateSpendKey|privateViewKey|mnemonic|seed/i)
   })
 
-  // --- Task 5: evidence v2, verification union, readability, sentinels ------
+  // --- evidence v2, verification union, readability, sentinels --------------
 
   const V2_HASHES = {
     LEGACY_JOURNAL: 'd1'.repeat(32),

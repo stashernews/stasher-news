@@ -9,8 +9,7 @@ import {
   makeupPiconeros
 } from '@/lib/curatorBudget'
 
-// Money-path tests for the dynamic curator budget (spec
-// 2026-10-19-dynamic-curator-budget-design.md §3, §4 step 6, §5, §6).
+// Money-path tests for the dynamic curator budget.
 // Pure BigInt helpers: no DB, no wallet, import inert. Every expected value
 // is hand-computed with flooring at each division.
 

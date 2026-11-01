@@ -198,7 +198,7 @@ export async function incrementFreePostCount (tx, { item, userId }) {
 
 /**
  * Consume the free quota for a PENDING_FEE item at its fee flip
- * (worker/rewardsWalletObserver.js flipPendingToLive) — the R01 fix.
+ * (worker/rewardsWalletObserver.js flipPendingToLive).
  *
  * The creation-time incrementFree* calls skip items that aren't freeborn
  * (freebie=false / feeStatus=PENDING_FEE), so an in-quota author whose only

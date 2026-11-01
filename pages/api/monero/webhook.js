@@ -19,7 +19,7 @@ import { safeEqual } from '@/lib/domains/auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { clientIp } from '@/lib/client-ip'
 
-// lws tx-confirmation webhook receiver (spec §4.4).
+// lws tx-confirmation webhook receiver.
 //
 // lws pushes callbacks at 0-conf (detection) and at each subsequent
 // confirmation up to the requested ceiling. The receiver drives the
@@ -27,7 +27,7 @@ import { clientIp } from '@/lib/client-ip'
 //   PENDING  -> DETECTED  (0-conf callback: record tx, bump Item.msats)
 //   DETECTED -> CONFIRMED (N-conf callback: bump User.stackedPiconeros)
 //
-// Detection has two verification levels (0-conf design, Component C). lws
+// Detection has two verification levels. lws
 // reports the tx with its amount and chain height, but its REST API cannot see
 // mempool txs — the structural cause of the early-callback miss (not a benign
 // race that self-resolves). monerod's daemon level therefore carries 0-conf
@@ -39,7 +39,7 @@ import { clientIp } from '@/lib/client-ip'
 // lws sight to trust-correct, and credit/confirmation branches accept lws only
 // — no value ever moves on a daemon verdict.
 //
-// Self-tip exclusion (spec §2.3) runs at the 0-conf claim AND is re-run once
+// Self-tip exclusion runs at the 0-conf claim AND is re-run once
 // the tx is mined: lws cannot report spent_outputs for a mempool tx, so the
 // 0-conf self-send check can fail open. recheckDetectedTip re-runs it at the
 // first callback carrying a block height and at the N-conf claim (before any
@@ -77,7 +77,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   const expected = process.env.LWS_WEBHOOK_TOKEN
   if (!expected) {
     // Fail closed: an unconfigured token must never accept money-moving callbacks.
-    // (Task 2's validator makes this unreachable in prod; this is the belt-and-suspenders.)
+    // (the env validator makes this unreachable in prod; this is the belt-and-suspenders.)
     if (process.env.NODE_ENV === 'production') return res.status(401).end()
     // dev convenience: no token configured -> open
   } else if (!safeEqual(headerToken, expected) && !safeEqual(body.token, expected)) {
@@ -231,7 +231,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     if (tip.state === 'PENDING') {
       const piconeros = parseOrReject()
       if (piconeros == null) return
-      // Self-tip exclusion (spec §2.3): direct self-tip is a free check from
+      // Self-tip exclusion: direct self-tip is a free check from
       // data in hand; the self-send check scans the recipient account via lws
       // (tip callbacks are low-frequency). Fail closed on lws errors: a non-200
       // makes lws retry, and reconcilePendingTips is the backstop.
@@ -240,8 +240,8 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
       let selfSendTx = null
       if (!direct && tip.recipientAccount?.viewKey && tip.recipientAccount?.status === 'ACTIVE') {
         // Incremental scan via the account's lastTxId cursor + full-scan
-        // fallback — see lookupTipTx (api/monero/selfTip.js). Hash-first
-        // (review finding 5): only the callback's named tx counts as evidence,
+        // fallback — see lookupTipTx (api/monero/selfTip.js). Hash-first:
+        // only the callback's named tx counts as evidence,
         // so a same-pid dust tx can never drive shouldExcludeTip on the wrong
         // tx. On lws 0.3 a mempool tx carried no spent_outputs (check failed
         // open at 0-conf); on v1.0.4 it can — recheckDetectedTip still
@@ -352,12 +352,12 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
               )`
           if (claimed > 0) {
             const rankDelta = await applyTipDetected(tip.postId, tip.tipperId, piconeros, tx)
-            // Persist the applied rank delta for exact reorg reversal (spec §4.3).
+            // Persist the applied rank delta for exact reorg reversal.
             await tx.$executeRaw`
               UPDATE "ObservedTip" SET "rankPiconeros" = ${rankDelta}
               WHERE id = ${tip.id} AND state = 'DETECTED'`
             // Claims mint no streak state: the flame is quest-driven (the daily
-            // evaluation owns it — spec 2026-09-23-daily-quests) and the coin
+            // evaluation owns it) and the coin
             // badge was removed entirely.
           }
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
@@ -511,7 +511,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     return res.status(200).end()
   }
 
-  // Bounty funding branch (A-13): no tip matched the payment id, so this may
+  // Bounty funding branch: no tip matched the payment id, so this may
   // be a funding into the bounty ESCROW wallet ("bn:" namespace, reverse
   // mapped through the BountyPidMap). Unknown ids (no ObservedBounty row) are a
   // 200 no-op — lws retries would otherwise pile up for foreign payments.
@@ -895,9 +895,9 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
     if (dv.state === 'DETECTED') {
       const piconeros = parseOrReject()
       if (piconeros == null) return
-      // The shared NULL->height transition owns the penalty (Task 13), so this
+      // The shared NULL->height transition owns the penalty, so this
       // callback must present only the lws-verified tx — never the callback
-      // tx_info (D9 residual: the callback's attacker-controlled block must not
+      // tx_info (the callback's attacker-controlled block must not
       // reach the row). Credit-side path: lws only (no daemon RPC), never a
       // provisional verdict.
       const verdict = await verifyOrReject({
@@ -964,7 +964,7 @@ export async function handleWebhook (req, res, models = prisma, monero = lwsClie
   // row is inserted PROVISIONAL (height NULL) and the verified height/penalty
   // come from the shared transition below — writing the callback's tx_info
   // block here would both forge a height and make the transition CAS
-  // unreachable (silent penalty loss; Task 13).
+  // unreachable (silent penalty loss).
   const verifiedHash = verdict.tx?.hash ?? txHash
   const verifiedHeight = verdict.tx?.height ?? null
   const rows = await models.$queryRaw`

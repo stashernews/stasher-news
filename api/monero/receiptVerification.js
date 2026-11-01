@@ -28,7 +28,7 @@ export class ReceiptLookupError extends Error {}
 //   - transient lws failure -> ReceiptLookupError (caller returns non-200 so
 //     lws retries; reconcilePendingTips/confirmFinalizer are the backstops)
 //   - missing/mismatched tx -> { ok: false } (caller records no credit)
-// HASH-FIRST (review finding 1): the callback txHash is BOUND to the chain tx
+// HASH-FIRST: the callback txHash is BOUND to the chain tx
 // by the lookup itself — a tx selected by pid alone is never evidence for a
 // named hash, so a fabricated/mismatched hash rejects with tx_not_found (and
 // a deduped collision WARN when a same-pid tx coexists) instead of binding the
@@ -38,7 +38,7 @@ export class ReceiptLookupError extends Error {}
 // self-send check (one lws call per callback); a prefetched tx whose hash
 // disagrees with the callback's is discarded the same way.
 // On success returns { ok: true, level: 'lws', tx, chainHeight }.
-// PID BINDING (2026-09-19 review finding): the hash-first lookup binds the
+// PID BINDING: the hash-first lookup binds the
 // claimed tx HASH, but the claimed PAYMENT ID must also be bound to that tx —
 // otherwise a token-holding replay can re-attribute a real payment to a
 // different pending pid on the same account (duplicate tip credits, bounty
@@ -54,7 +54,7 @@ export class ReceiptLookupError extends Error {}
 // change output itself, so the amount is unverifiable at every level. Fee
 // branches apply a self-send guard (webhook.js) that refuses to credit such
 // txs; verification stays amount-strict for every other caller.
-// DAEMON FALLBACK (Task 9): when lws cannot see the named hash, monerod
+// DAEMON FALLBACK: when lws cannot see the named hash, monerod
 // (restricted RPC) is consulted for the raw tx. On v1.0.4 a mempool lws hit
 // usually satisfies the lookup directly (amount proof, height still null —
 // amount proof is NOT mining); the fallback remains for genuine misses, where

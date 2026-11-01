@@ -38,7 +38,7 @@ async function main () {
 
   const payouts = dist.payouts || await prisma.rewardPayout.findMany({ where: { distributionId: dist.id } })
   if (payouts.length > 0) {
-    console.log(`--- ${payouts.length} QUEUED RewardPayout(s) (Task 9 sends these) ---`)
+    console.log(`--- ${payouts.length} QUEUED RewardPayout(s) ---`)
     for (const p of payouts) {
       console.log(`  curator=${p.curatorId} state=${p.state} ${p.piconeros.toString()} pico (~${piconerosToXmr(p.piconeros)} XMR) -> ${p.recipientAddress}`)
     }

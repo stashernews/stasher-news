@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Unit tests for the view-key envelope encryption helper (Task 2).
+// Unit tests for the view-key envelope encryption helper.
 //
 // AES-256-GCM envelope: a fresh random per-row DEK encrypts the view key;
 // the DEK is wrapped by a master-key-derived KEK (HKDF-SHA256, dekVersion
@@ -15,8 +15,7 @@ const MODULE_PATH = require.resolve('../../../api/monero/viewkey')
 const VALID_MASTER_B64 = Buffer.from('a'.repeat(32)).toString('base64')
 const KEY_B_B64 = Buffer.from('b'.repeat(32)).toString('base64')
 
-// 64-hex-char Monero private view key (per controller resolution #6 — a clean
-// literal, not the brief's escaped template artifact).
+// 64-hex-char Monero private view key (a clean literal).
 const VIEWKEY_HEX = '7e3d' + '0'.repeat(60)
 
 // Fields of the MoneroViewKey prisma model that the envelope must match so a

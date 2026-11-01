@@ -51,7 +51,7 @@ export default function CommentEdit ({ comment, editThreshold, expired, onSucces
   return (
     <div className={`${styles.reply} mt-2`}>
       <FeeButtonProvider>
-        {/* finding #3: once the window expires the editor stays mounted with
+        {/* once the window expires the editor stays mounted with
             its typed values; `expired` refuses every submission path */}
         <FormExpiredContext.Provider value={expired}>
           <Form

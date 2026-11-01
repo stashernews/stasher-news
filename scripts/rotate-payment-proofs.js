@@ -1,4 +1,4 @@
-// Paused-writer payment-proof rotation CLI (Finding #1, Task 8).
+// Paused-writer payment-proof rotation CLI.
 //
 //   npx tsx --tsconfig jsconfig.json scripts/rotate-payment-proofs.js            # --check (default)
 //   npx tsx --tsconfig jsconfig.json scripts/rotate-payment-proofs.js --check

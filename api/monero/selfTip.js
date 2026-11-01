@@ -77,7 +77,7 @@ export async function resolveItemSubName (postId, handle) {
 }
 
 // Find the lws tx row for a payment id on a scannable recipient account.
-// HASH-FIRST (review finding 1): when the caller names a tx hash, only that
+// HASH-FIRST: when the caller names a tx hash, only that
 // exact tx counts as evidence — a tx selected by payment id alone is NOT
 // evidence for the named hash, because same-pid dust collisions must not
 // resolve to the wrong tx. With no named hash the pid lookup is unchanged
@@ -103,7 +103,7 @@ export async function lookupTipTxMeta (models, monero, account, paymentId, { txH
       if (t.hash) byHash.set(String(t.hash).toLowerCase(), t)
       if (t.payment_id) byPid.set(String(t.payment_id).toLowerCase(), t)
     }
-    // Hash-first (review finding 1): when the claim/row names a hash, a tx
+    // Hash-first: when the claim/row names a hash, a tx
     // selected by pid is NOT evidence for it — same-pid dust collisions must
     // not resolve to the wrong tx.
     if (txHash != null) {
@@ -134,7 +134,7 @@ export async function lookupTipTxMeta (models, monero, account, paymentId, { txH
   // re-delivers them) with no re-attribution backstop — starved fees leave
   // items PENDING_FEE until abandonFeeItems deletes them. The observer
   // itself advances the cursor every minute, so verification lookups stay
-  // incremental without this write. (Audit 2026-09-11, finding 1.)
+  // incremental without this write.
   if (account.label !== 'platform_rewards' && !fullSnapshot) {
     // Mined-only candidate progress: lws v1.0.4 mempool IDs are response
     // positions and must never advance a durable watermark (the observer
@@ -156,8 +156,8 @@ export async function lookupTipTx (models, monero, account, paymentId, opts) {
 }
 
 // True when a DETECTED tip's stored amount/txHash disagree with the chain tx
-// found for its payment id — evidence of a forged pre-verification callback
-// (audit 2026-09-11, finding 2). Hash comparison only when BOTH are present: a
+// found for its payment id — evidence of a forged pre-verification callback.
+// Hash comparison only when BOTH are present: a
 // NULL stored txHash is not itself forgery evidence (callbacks may omit
 // tx_hash; verifyReceiptAmount tolerates that at detection). A multi-pid
 // single-tx compares against the whole-tx amount — the same accepted posture
@@ -203,7 +203,7 @@ export function chainMismatch (tip, tx) {
 //                   'daemon_unreachable' | 'lws_miss_monerod_has_tx' |
 //                   'amount_unavailable').
 //
-// HASH-FIRST ANCHOR (review finding 1): the row's own txHash — when a valid
+// HASH-FIRST ANCHOR: the row's own txHash — when a valid
 // 64-hex hash — is the only tx that counts as evidence; a same-pid tx selected
 // by payment id alone never resolves for a named hash (lookupTipTxMeta
 // collision signal, alert deduped by pid).
@@ -215,7 +215,7 @@ export function chainMismatch (tip, tx) {
 // exclusion claim (Serializable, state-guarded, reverseTip + AbuseSignal with
 // the TX_NOT_FOUND_EXCLUDED kind and stored-vs-chain details).
 //
-// Exclusion dispositions (spec §2.3, audit 2026-09-11 finding 2):
+// Exclusion dispositions:
 //   - DIRECT_SELF_TIP: tipper == author, no scan needed.
 //   - SELF_SEND: own-index candidates close exactly against the tx's received
 //     amount (not the provisional tip amount) -> claim
@@ -296,7 +296,7 @@ async function correctAndBind ({ models, tip, tx, confirmations, height }) {
   let claimed = 0
   let boundPiconeros = null
   await models.$transaction(async (txh) => {
-    // Atomic binding claim (review finding 4): only one caller may reverse the
+    // Atomic binding claim: only one caller may reverse the
     // provisional delta and re-apply it. A concurrent finalizer/webhook that
     // already bound the row loses here (0 rows) instead of double-applying,
     // and does NOT rely on a Serializable abort (which would 500 the webhook).

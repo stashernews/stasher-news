@@ -18,7 +18,7 @@ import {
 import { createPaymentProofKeyProvider } from '@/api/monero/paymentProofKeys'
 import { withRewardsPhase } from '@/worker/rewardsPhase'
 
-// Rewards hot-wallet signer (Phase 4 Task 9 / design spec §5.6, §6.2).
+// Rewards hot-wallet signer.
 //
 // The ONLY component in the running stack that holds the platform rewards
 // wallet's SPEND key. It opens a full (spend-capable) MoneroWalletWasm from the
@@ -27,7 +27,7 @@ import { withRewardsPhase } from '@/worker/rewardsPhase'
 // hash, and flips the payout QUEUED -> SENT (confirmFinalizer later matures
 // SENT -> CONFIRMED at N confirmations).
 //
-// Fund-safety rules (see task-9 brief + design spec):
+// Fund-safety rules:
 //   - keys are read from env and NEVER logged / serialized;
 //   - sending requires UNLOCKED funds — recently-received outputs are locked
 //     ~10 blocks, so an insufficient unlocked balance is a SKIP (payout stays
@@ -40,8 +40,8 @@ import { withRewardsPhase } from '@/worker/rewardsPhase'
 //     bucket stays QUEUED (nothing was broadcast — double-pay-safe) and the
 //     next drive re-sends; recovery consolidation only fires when it can
 //     actually help (see sendPayouts);
-//   - every relayed bucket/consolidation is journaled BEFORE its relay (Task 6
-//     boundary); an attempted-but-unproven relay is never blindly re-sent and
+//   - every relayed bucket/consolidation is journaled BEFORE its relay; an
+//     attempted-but-unproven relay is never blindly re-sent and
 //     never marks a recipient FAILED — it is resolved only from exact-hash
 //     wallet history. During genuine shortage the largest affordable whole
 //     payouts are sent and the remainder stays an explicit QUEUED debt;
@@ -61,12 +61,12 @@ const SIGNER_ACCOUNTS = [0, 1, 2, 3, 4, 5]
 
 // Dust floor for the weekly ops sweep to cold storage: sweep only leaves the
 // hot wallet with at least this much unlocked, and only fires if the target
-// clears it. 0.001 XMR default (spec §6.4 / task B3).
+// clears it. 0.001 XMR default.
 const REWARDS_OPS_SWEEP_MIN_PICONEROS = BigInt(process.env.REWARDS_OPS_SWEEP_MIN_PICONEROS || '1000000000')
 
 // Consolidate only funded fee accounts above this dust floor — sweeping a
 // near-empty account just burns a tx fee (or throws on dust), and the throw
-// fired a spurious per-account CRITICAL. Fixed 0.0001 XMR (audit #4).
+// fired a spurious per-account CRITICAL. Fixed 0.0001 XMR.
 const CONSOLIDATION_MIN_PICONEROS = 100_000_000n
 
 // Per-tx fee headroom for signer sends: the ops sweep retries a full-balance
@@ -120,8 +120,8 @@ export async function getRewardsWallet (models) {
 // nothing. Exported for tests. No-ops with a warning when models is
 // unavailable (send paths then behave account-0-only, like before this fix).
 //
-// `includeAvailable` is the read-only AUDIT variant (rewards accounting repair
-// §8 / Task 12): the reconciliation must derive EVERY recorded SubaddressIndex
+// `includeAvailable` is the read-only AUDIT variant: the reconciliation must
+// derive EVERY recorded SubaddressIndex
 // minor, including AVAILABLE rows, before comparing derived addresses against
 // the DB. The send path keeps the default (assigned minors only), so send-time
 // scope/restore behavior is unchanged.
@@ -255,7 +255,7 @@ function resolveNetworkType (api, env) {
 // whole rewards are sent NOW and the remainder stays an explicit QUEUED debt
 // (Earn rows, distributedPiconeros and rolledOverPiconeros are never touched).
 //
-// Every bucketed relay follows the Task 6 journal boundary: build with
+// Every bucketed relay follows the journal boundary: build with
 // relay:false -> durable immutable PREPARED row -> claim the attempt with a CAS
 // -> relay the SAME object -> RELAYED. Journal reconciliation runs before live
 // rows are selected; unresolved journal PAYOUT attempts are excluded this run
@@ -308,7 +308,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
   // wallet's last processed height, and this only runs in the weekly
   // rewardsDistributor cron — never a web hot path. A sync error propagates to
   // finalizeDistribution (FAILED + CRITICAL, resumable next run) exactly like
-  // the balance read. Timed as wallet-incremental-sync (Finding 3).
+  // the balance read. Timed as wallet-incremental-sync.
   await withRewardsPhase('wallet-incremental-sync', () => w.sync())
 
   // Journal recovery runs BEFORE live-row selection: the wallet must prove it
@@ -358,7 +358,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
       piconeros: journalExcluded.reduce((acc, p) => acc + p.piconeros, 0n).toString()
     }, 'sendPayouts: accounting exclusions — attempted-but-unproven journal relays stay QUEUED (no fresh build)')
   }
-  // Accounting exclusions carry explicit IDs/amounts/reasons (spec §6 audit):
+  // Accounting exclusions carry explicit IDs/amounts/reasons:
   // rows whose recorded-hash safety lookup failed stay QUEUED too. The
   // reconciled rows are money that already moved, not exclusions.
   const unprovableHistory = recon.excluded.filter(p => !recon.reconciled.includes(p))
@@ -459,7 +459,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
   sentPiconeros += recoveredRows.reduce((acc, p) => acc + p.piconeros, 0n)
 
   // Audit the unpaid remainder with explicit IDs, amounts and reasons,
-  // separately per class (spec §6): planner omissions (no account capacity),
+  // separately per class: planner omissions (no account capacity),
   // build omissions (real fee fit), retryable build omissions (pre-relay "tx
   // not possible"), and accounting exclusions (journal/history uncertainty,
   // logged above). Exact decimal strings only — pino cannot serialize BigInt.
@@ -503,7 +503,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
     }, 'sendPayouts: unresolved account accounting stopped further chunks; no same-account retry this run')
   }
 
-  // Targeted fragmentation recovery (Task 4): at most ONE bounded
+  // Targeted fragmentation recovery: at most ONE bounded
   // consolidation cycle per fragmented distribution/source-account pair. The
   // durable CONSOLIDATION history is read BEFORE building anything; a failed
   // read, a PREPARED reservation, or an already-spent pair withholds the sweep.
@@ -521,7 +521,7 @@ export async function sendPayouts (payouts, { models, wallet } = {}) {
   // plan-time snapshot predates this drive's spends and would authorize sweeps
   // that cannot cure the remainder. A true aggregate shortage never
   // consolidates: repeated shortage runs must not burn repeated needless sweep
-  // fees (spec §6). No recovery candidates means no extra balance reads.
+  // fees. No recovery candidates means no extra balance reads.
   //
   // Durable history gates EVERY candidate source, including this legacy branch
   // after a generic retryable error or planner omission with no singleton-size
@@ -1180,7 +1180,7 @@ async function buildBucketBatch (w, accountIndex, payouts, { unlockedBeforeBuild
 }
 
 // Build + journal + relay a batch tx from ONE account. The built tx is
-// journaled (Task 6 boundary) BEFORE any relay; a journal failure means nothing
+// journaled BEFORE any relay; a journal failure means nothing
 // is relayed and the whole chunk stays QUEUED. Returns the split so sendPayouts
 // can tally: a payout is never split across txs — it is sent whole or skipped whole.
 async function relayBucketTx (w, models, accountIndex, payouts, planInfo = {}) {
@@ -1791,7 +1791,7 @@ function setBalanceGauge (models, unlocked) {
 }
 
 // Sweep the weekly ops earmark from the hot rewards wallet to offline cold
-// storage (spec §6.4 / task B3; protected-funds bound per Task 9). Runs as ONE
+// storage. Runs as ONE
 // more sequential createTx on the SAME singleton wallet, strictly AFTER
 // sendPayouts returns — never concurrent, never a second wallet, so no
 // same-output double-spend (monero-ts marks an input spent in-memory the
@@ -1873,7 +1873,7 @@ function sweepAccountingRefusal (snapshot) {
 }
 
 // Push the wallet's ACTUAL refreshed unlocked balance into the gauge (the
-// last-known-balance meaning is unchanged — Task 11). Runs on EVERY path that
+// last-known-balance meaning is unchanged). Runs on EVERY path that
 // spent or whose relay outcome is uncertain; a wallet/metric failure is logged
 // and ISOLATED, so it can never alter the sweep result.
 async function refreshBalanceGauge ({ distributionId, models, wallet }) {
@@ -2020,7 +2020,7 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
   // Same stale-cached-view fix as sendPayouts: refresh before reading balances.
   await w.sync()
   // The wallet must prove it IS the configured rewards wallet before any read
-  // or send is trusted (Task 6 identity boundary).
+  // or send is trusted (the identity boundary).
   try {
     await assertWalletScope(w, scope)
   } catch (err) {
@@ -2035,7 +2035,7 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
   // Resolve every attempted-but-unproven journal relay from a fresh confirmed
   // whole-payment verification. A provable relay is journaled here; an
   // unprovable one BLOCKS the sweep — an unknown send is never treated as
-  // safely unbroadcast (Task 6/9 boundary).
+  // safely unbroadcast.
   const reconciliation = await reconcileWalletTransactions({ models, wallet: w, scope })
   if (reconciliation.uncertainSweep || reconciliation.accountingUnpersisted > 0) {
     return await refuseSweepAccounting({
@@ -2380,7 +2380,7 @@ function toTxHash (hash) {
 }
 
 // Wallet history can contain BUILT-but-unrelayed transactions (a cached tx
-// whose relay was never attempted or whose outcome is unresolved) — the Task 6
+// whose relay was never attempted or whose outcome is unresolved) — the
 // journal boundary treats an explicit relayed/confirmed flag as the only relay
 // evidence. A history entry that exposes either flag must prove it; an entry
 // exposing neither is a legacy shape and keeps the pre-journal behavior.

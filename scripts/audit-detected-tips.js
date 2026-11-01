@@ -1,4 +1,4 @@
-// Pre-deploy audit (2026-09-11 review, finding 2): scan every DETECTED
+// Pre-deploy audit (2026-09-11): scan every DETECTED
 // ObservedTip and bind its stored piconeros/txHash to the chain tx found for
 // its payment id. Rows created through the pre-verification webhook may carry
 // forged amounts; once the confirm-time CHAIN_MISMATCH exclusion is deployed

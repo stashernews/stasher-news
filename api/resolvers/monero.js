@@ -13,14 +13,14 @@ import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 import { rateLimit } from '@/lib/rate-limit'
 import { clientIp } from '@/lib/client-ip'
 
-// StasherNews Monero wallet-setup + tip-initiation resolvers (spec §4.5, §7.3).
+// StasherNews Monero wallet-setup + tip-initiation resolvers.
 //
 // Operations:
 //   - Mutation.registerMoneroAccount — wallet onboarding (primary address + view key)
 //   - Mutation.initiateTip           — start a P2P tip via webhook + payment ID
 //   - Query.myMoneroAccount          — the caller's registered account
 //
-// `MoneroAccount` field resolver (controller #2): privacyMode lives on the
+// `MoneroAccount` field resolver: privacyMode lives on the
 // owner USER (User.privacyMode) — not a column on the MoneroAccount model,
 // so it is resolved per-field below.
 
@@ -141,7 +141,7 @@ export async function initiateTipCore ({ postId, amount, models, monero, me, hea
 
 export default {
   Query: {
-    // §7.3 line 970. Returns the caller's MoneroAccount (with owner User
+    // Returns the caller's MoneroAccount (with owner User
     // eager-loaded so the privacyMode field resolver resolves) or null.
     // Null-on-anonymous matches the codebase convention for `my*` queries.
     async myMoneroAccount (parent, args, { me, models }) {
@@ -175,9 +175,9 @@ export default {
   },
 
   Mutation: {
-    // §7.3 line 956. Wallet onboarding.
+    // Wallet onboarding.
     //
-    // Atomicity / lws-vs-local ordering (controller #4): lws.addAccount is
+    // Atomicity / lws-vs-local ordering: lws.addAccount is
     // called FIRST so an lws failure leaves nothing locally. A local-persist
     // failure AFTER a successful lws addAccount leaves an lws-only orphan —
     // acceptable for v1 because lws add_account is idempotent on address, so
@@ -218,7 +218,7 @@ export default {
         throw new GqlInputError('invalid Monero private view key')
       }
 
-      // 2. lws admin registration FIRST (plaintext view key over TLS — spec §5).
+      // 2. lws admin registration FIRST (plaintext view key over TLS).
       //    addAccount is idempotent on address: re-registering a wallet that was
       //    previously unregistered (lws INACTIVE) reactivates it. A 500 escaping
       //    the client's idempotency fallback means lws rejected the address
@@ -240,7 +240,7 @@ export default {
         throw err
       }
 
-      // 3. Persist locally in a transaction (atomic). encryptViewKey (Task 2)
+      // 3. Persist locally in a transaction (atomic). encryptViewKey
       //    returns the spread-safe AES-256-GCM envelope; the plaintext is
       //    never written. Upsert on (address, network) so a wallet that was
       //    soft-deleted by unregisterMoneroAccount (ownerUserId -> null,
@@ -281,7 +281,7 @@ export default {
         await tx.moneroViewKey.create({
           data: { accountId: account.id, ...encryptViewKey(viewKey) }
         })
-        // privacyMode lives on the USER (controller #2), not MoneroAccount.
+        // privacyMode lives on the USER, not MoneroAccount.
         // Default to AUTO_INDEX when the caller omits it — post-pivot there is
         // only one detection model, so AUTO_INDEX is the implicit choice.
         await tx.user.update({ where: { id: me.id }, data: { privacyMode: privacyMode ?? 'AUTO_INDEX' } })
@@ -306,7 +306,7 @@ export default {
       })
     },
 
-    // Spec §4.5. Start a P2P tip. Thin wrapper over initiateTipCore (which enforces
+    // Start a P2P tip. Thin wrapper over initiateTipCore (which enforces
     // the min-tip floor, mints the integrated address + payment ID, registers the lws
     // webhook, and creates the PENDING ObservedTip). The webhook receiver handles
     // detection + confirmation and calls applyTipDetected (the ranking hook).
@@ -318,7 +318,7 @@ export default {
     },
 
     // Revoke wallet observation. Mirrors registerMoneroAccount's "lws FIRST"
-    // ordering (controller #4): an lws failure aborts here so NOTHING local
+    // ordering: an lws failure aborts here so NOTHING local
     // changes — if we soft-deleted locally while lws kept scanning, the wallet
     // would keep receiving tip credits the owner believes they removed, which
     // is a privacy leak. deleteAddressWebhooks is best-effort (an INACTIVE lws
@@ -354,7 +354,7 @@ export default {
   },
 
   // Field resolver for the NON-model field on the GraphQL MoneroAccount
-  // type (controller resolution #2). Cheap and only fires when the field is
+  // type. Cheap and only fires when the field is
   // actually selected.
   MoneroAccount: {
     // privacyMode lives on the owner User (User.privacyMode). Callers that

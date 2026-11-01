@@ -208,7 +208,7 @@ export default function TerritoryForm ({ sub }) {
         modifier: cost => cost + Number(fee / 1000n)
       }
     }
-    // Day-7 quest-streak discount (spec §2.4): shown while held; the payIn
+    // Day-7 quest-streak discount: shown while held; the payIn
     // engine applies the same percentage to the quoted URI (shared helper).
     if (turfDiscountHeld) {
       const discount = fee - applyTurfDiscount(fee)

@@ -13,7 +13,7 @@ import {
 } from './paymentClaims'
 import { openPaymentProof, sealPaymentProof } from './paymentProofCrypto'
 
-// Atomic payment-proof store (Finding #1, Task 3).
+// Atomic payment-proof store.
 //
 // Every hot-wallet or escrow send captures ONE durable pair before any relay:
 // the immutable journal row (rewards journal or escrow dispatch journal) and
@@ -292,7 +292,7 @@ async function readBuiltTx (tx) {
 
   // The installed SDK's MoneroTx.getKey() returns a STRING of concatenated
   // little-endian SECRET key material: the main tx secret first, then the
-  // ordered additional per-output secrets (final-review C1). The bundle is
+  // ordered additional per-output secrets. The bundle is
   // captured exactly as built; the corresponding public keys are NOT exposed
   // by the built object, so the public built facts are optional/nullable and
   // are NEVER required to equal the secret bundle (the confirmed raw chain
@@ -428,7 +428,7 @@ const feeLeg = (member, gross, actual) => ({
 })
 
 // Every actual destination must be attributable to the contracted members
-// while every member obligation survives (final-review I5): members may SHARE
+// while every member obligation survives: members may SHARE
 // one destination address, so matching is per CANONICAL DESTINATION AGGREGATE
 // — one destination per address with the summed amount, or several entries
 // for the same address summing to it, must both be accepted. The fee-
@@ -567,8 +567,7 @@ function deriveClaims ({ owner, built, scope, dispatchId }) {
       receivingAggregates: [],
       // The consolidation target is the DESTINATION's derived position —
       // production consolidations pay the wallet primary address (account 0,
-      // subaddress 0) regardless of which source account was swept
-      // (final-review I6).
+      // subaddress 0) regardless of which source account was swept.
       ownedTargets: [{
         accountIndex: '0',
         subaddressIndex: '0',
@@ -626,7 +625,7 @@ async function readEscrowPayout (client, owner) {
   if (!payout || payout.itemId !== owner.itemId) fail(OWNER_CONFLICT)
   // The live disposition KIND is a material owner fact: a live row whose kind
   // diverged from the captured expectation must never receive captured
-  // settlement facts (final-review I11). Scoped to the DISPOSITION leg — the
+  // settlement facts. Scoped to the DISPOSITION leg — the
   // LEGACY_SEPARATE_FEE leg's journal kind is the leg name, while the live
   // row keeps its disposition kind.
   if (owner.leg === 'DISPOSITION' && payout.kind !== owner.kind) fail(OWNER_CONFLICT)
@@ -637,7 +636,7 @@ async function readEscrowPayout (client, owner) {
   if (requestedFee !== BigInt(terms.feePiconeros)) fail(OWNER_CONFLICT)
   // The frozen fee destination is compared in BOTH directions — a fee-less
   // contract must not accept a live row carrying a divergent fee address
-  // either (final-review I11).
+  // either.
   if ((payout.feeRecipientAddress ?? null) !== terms.feeRecipientAddress) fail(OWNER_CONFLICT)
   if (owner.leg === 'LEGACY_SEPARATE_FEE' &&
     (requestedFee <= 0n || !payout.txHash || payout.feeTxHash != null || payout.feePendingAt == null)) {
@@ -770,7 +769,7 @@ function envelopeIntegrityDigest (proof) {
     .digest('hex')
 }
 
-// The plan's locked proofInventory shape: safe metadata + integrity digests,
+// The locked proofInventory shape: safe metadata + integrity digests,
 // never envelope bytes.
 function inventoryFor (proof) {
   return {
@@ -1177,7 +1176,7 @@ export async function claimPaymentAttempt (request) {
   for (let attempt = 1; ; attempt++) {
     try {
       return await models.$transaction(async client => {
-        // Durability parity with the prepare transaction (final-review I10):
+        // Durability parity with the prepare transaction:
         // a relay attempt marker that can vanish under async commit would
         // make a broadcast look never-attempted after a crash.
         await client.$executeRaw`SET LOCAL synchronous_commit = on`

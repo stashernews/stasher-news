@@ -4,9 +4,8 @@ import { useMe } from './me'
 import { BadgeTooltip } from './badge'
 import { ladderCopyFor, QUEST, QUEST_REPLY_REWARDS, questTitle } from '@/lib/quests'
 
-// Daily quests module (spec 2026-09-23-daily-quests). Rendered ONLY on the
-// viewer's own profile; visual reference:
-// docs/mockups/2026-09-24-quests-round7-ladder.html. Every flame day carries a
+// Daily quests module. Rendered ONLY on the
+// viewer's own profile. Every flame day carries a
 // hover/focus tooltip describing that day's ladder reward.
 export default function QuestsModule () {
   const { me } = useMe()

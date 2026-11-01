@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Unit tests for the pgboss deadline/expiry monitor (Finding 3). The 2026-10-12
+// Unit tests for the pgboss deadline/expiry monitor. The 2026-10-12
 // incident: the weekly rewardsDistributor handler outran pg-boss 9's 15-minute
 // default expireIn, so the manager failed the queue row OUTSIDE the worker's
 // jobWrapper — no handler exception, no operator alert. These tests pin the
@@ -148,7 +148,7 @@ test('an alert failure does not advance past the row; the next scan retries it f
 })
 
 test('a resolved false is not delivery: the job stays unmarked and the next check retries the alert', async () => {
-  // Finding 2: lib/alert resolves false (without throwing) on a non-OK status,
+  // lib/alert resolves false (without throwing) on a non-OK status,
   // a caught transport error, or a skipped post. The monitor must not mark a
   // job notified off that — otherwise a transient alert-channel outage
   // permanently suppresses the expiry alarm for the job.

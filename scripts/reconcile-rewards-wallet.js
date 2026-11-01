@@ -1,12 +1,12 @@
 // Read-only dry-run / explicit CHECK publication / guarded APPLY for the
-// rewards-wallet accounting repair (rewards accounting repair §8, Task 13).
+// rewards-wallet accounting repair.
 //
 //   dev dry-run:
 //     docker exec -w /app -u apprunner app npx tsx --tsconfig jsconfig.json \
 //       scripts/reconcile-rewards-wallet.js --output /tmp/rewards-repair-report.json
 //
 //   VPS (loader-wrapped, canonical four-file prod chain — see the operator
-//   runbook at docs/ops/rewards-wallet-accounting-repair.md):
+//   runbook):
 //     NODE_ENV=production docker compose --env-file .env.development \
 //       --env-file .env.local -f docker-compose.yml -f docker-compose.volumes.yml \
 //       -f docker-compose.prod.yml -f docker-compose.prodmode.yml \
@@ -263,7 +263,7 @@ async function executePublishCheck (options, context) {
     // it are unchanged. One short consistent transaction re-reads the shared
     // audit snapshot (DB reads only — no chain calls, no re-collection) and
     // compares its own complete `accounting:v2:` identity BEFORE the insert
-    // (final-review I3: the snapshot identity, exactly what the builder bound
+    // (the snapshot identity, exactly what the builder bound
     // and the public reader fingerprints — never a filtered recomputation); a
     // moved ledger aborts with no row, so a stale collection is never labeled
     // current.
@@ -310,7 +310,7 @@ async function executeApply (options, context) {
     throw new Error('apply report manifest does not match the confirmed SHA-256')
   }
 
-  // Task 5 owns the authoritative fresh recheck: the guarded apply collects
+  // The guarded apply owns the authoritative fresh recheck: it collects
   // ONE fresh read-only collection through the SAME trusted seam this CLI
   // resolved, re-verifies the approved boundary/chain facts/evidence and every
   // proved payment, then applies. This script performs no duplicate

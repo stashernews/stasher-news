@@ -1,4 +1,4 @@
-// Turf-owner fee routing (2026-08-21 turf-owner-revenue design).
+// Turf-owner fee routing (2026-08-21 design).
 //
 // A posting/comment fee routes OWNER-DIRECT (one payment, 100% to the
 // turf owner's registered wallet via a fee: payment-ID leg) iff:
@@ -11,7 +11,7 @@
 //     belong to the rewards pool, not a personal wallet), and
 //   - that turf's owner has a registered MoneroAccount.
 // Everything else keeps today's rewards-wallet subaddress routing. BOOSTS are
-// platform-only since R08 (2026-09-21): the boost owner-direct leg was removed
+// platform-only since 2026-09-21: the boost owner-direct leg was removed
 // after an item author round-tripped boost money to a colluding turf owner
 // while buying rank — see api/payIn/types/boost.js.
 

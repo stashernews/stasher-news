@@ -1,5 +1,4 @@
-// Cursor rules for monero-lws /get_address_txs responses (spec
-// docs/superpowers/specs/2026-10-23-lws-v1-adoption-design.md §3).
+// Cursor rules for monero-lws /get_address_txs responses.
 //
 // lws v1.0.4 IDs are response positions and mempool rows follow mined rows, so
 // advancing a durable watermark from pending rows suppresses later mined

@@ -1,9 +1,7 @@
-// Narrow DB helpers for the flame boost credit and reward-write serialization
-// (spec 2026-10-05-quest-rebalance-boost-credit, task 3).
+// Narrow DB helpers for the flame boost credit and reward-write serialization.
 
 /**
- * Take the row lock that serializes every reward write for one user (plan
- * review focus 3). The caller runs this inside the transaction that will do
+ * Take the row lock that serializes every reward write for one user. The caller runs this inside the transaction that will do
  * the writes and acquires it BEFORE reading any user/streak state, so
  * concurrent sweeps, ladder advances, and redemption transactions can neither
  * double-grant a rung nor cross a banked cap: each writer re-reads committed
@@ -58,8 +56,8 @@ export async function availableBoostCredit (models, userId) {
 }
 
 /**
- * Per-request memoized availability read for the two UserPrivates fields
- * (spec §5.2: "Resolve both from the same available-credit reader"). The
+ * Per-request memoized availability read for the two UserPrivates fields. Both
+ * resolve from the same available-credit reader. The
  * GraphQL context object is built fresh per request by pages/api/graphql.js
  * (a plain object literal), so it is a safe cache key — unlike `models`,
  * which is a process-wide PrismaClient shared by every request. Memoizing

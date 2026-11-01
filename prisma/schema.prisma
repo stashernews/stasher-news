@@ -124,7 +124,7 @@ model User {
   curedBy                 Cure?                @relation("Cure_curee")
   curedByMe               Cure[]               @relation("Cure_curer")
 
-  // StasherNews Monero fields (§4.2)
+  // StasherNews Monero fields
   moneroAddress       String?
   privacyMode         PrivacyMode?
   stackedPiconeros    BigInt       @default(0)
@@ -282,14 +282,13 @@ enum StreakRewardType {
   BOOST
 }
 
-// Typed streak rewards (spec 2026-09-23-daily-quests, rev 3): the ledger of
+// Typed streak rewards: the ledger of
 // granted rewards, one row each with its own expiry. REPLY credits are banked
 // per completed quest by the sweep and per rung by the ladder, consumed at
 // comment creation; POST credits are granted by the ladder, consumed at post
 // creation (base quota first, soonest-expiring first). TURF_DISCOUNT is
 // consumed by turf creation and never stacked (grants suppressed while one is
-// held). BOOST credits are the day-5 flame reward (spec
-// 2026-10-05-quest-rebalance-boost-credit): one available at a time, 30-day
+// held). BOOST credits are the day-5 flame reward: one available at a time, 30-day
 // expiry, consumed by exact-ID redemption on the author's own live post.
 model StreakReward {
   id         Int              @id @default(autoincrement())
@@ -339,7 +338,7 @@ model ItemUpload {
   @@index([uploadId])
 }
 
-// Post-window addendum (2026-10-04 spec): pins media reused by an item's
+// Post-window addendum: pins media reused by an item's
 // addendum so the daily unreferenced-media sweep spares it while the
 // addendum lives. Deliberately separate from ItemUpload — the paid editor
 // reconciles THAT table from the original text and would drop addendum pins.
@@ -385,7 +384,7 @@ model PendingItemUpdate {
   @@index([createdAt])
 }
 
-// Server-side post draft (2026-09-22 spec). Pre-submission only: never an
+// Server-side post draft. Pre-submission only: never an
 // Item, never a PayIn. Owner-scoped; swept by abandonStaleDrafts after
 // DRAFT_TTL_DAYS of inactivity. Upload pins live in DraftUpload so the
 // deleteUnusedImages sweep spares media referenced by a live draft.
@@ -563,7 +562,7 @@ model Item {
   threadSubscriptions     ThreadSubscription[]
   User                    User[]
   itemUploads             ItemUpload[]
-  // Post-window addendum (2026-10-04 spec): one free informational edit below
+  // Post-window addendum: one free informational edit below
   // the locked original. addendumText/addendumUpdatedAt are the displayed
   // content/time; addendumRevision is the optimistic-concurrency token (never
   // reset, so a stale tab cannot ABA-overwrite a cleared addendum). The
@@ -596,30 +595,30 @@ model Item {
   // that depends on this column unnecessarily ... remove during next maintenance window
   subName                 String?               @db.Citext
 
-  // StasherNews posting-fee gate (§6.2, Q8): a low-rep author's post is created
+  // StasherNews posting-fee gate: a low-rep author's post is created
   // PENDING_FEE and invisible until the rewardsWalletObserver observes the posting fee;
   // FEE_PAID (or FEE_NOT_REQUIRED for above-threshold authors) makes it visible.
   feeStatus  ItemFeeStatus @default(FEE_NOT_REQUIRED)
   feePayInId Int?          @unique
   feePayIn   PayIn?        @relation("ItemFeePayIn", fields: [feePayInId], references: [id])
 
-  // R01: true when this PENDING_FEE item was within free-quota terms at
+  // True when this PENDING_FEE item was within free-quota terms at
   // creation (its only on-chain cost was the upload fee) — flipPendingToLive
   // consumes its free post/comment quota when the fee is observed and the
   // item goes live.
   feeQuotaEligible Boolean @default(false)
 
-  // Bounties (A-13): the funded bounty amount + status lifecycle. UNFUNDED posts
+  // Bounties: the funded bounty amount + status lifecycle. UNFUNDED posts
   // are invisible until the funding payment confirms (mirrors the feeStatus gate).
   bountyPiconeros       BigInt          @default(0)
   bountyStatus          BountyStatus    @default(UNFUNDED)
   bountyConfirmedAt     DateTime?
-  // Frozen escrow fee terms (rewards accounting repair, §3.1): the exact fee the
+  // Frozen escrow fee terms: the exact fee the
   // funding confirmation booked alongside the net prize. NULL means UNKNOWN
   // legacy terms, NOT zero — dispositions fail closed on missing terms rather
   // than recomputing under a changed fee config. Abandonment freezes 0.
   bountyFeePiconeros    BigInt?
-  // A-13 award indication: the winning comment (bountyAwardedAt) and the link
+  // Award indication: the winning comment (bountyAwardedAt) and the link
   // from the bounty post to it (bountyWinnerCommentId) — set atomically in
   // the payBounty claim transaction. BountyPayment stays the historical record.
   bountyAwardedAt       DateTime?
@@ -846,7 +845,7 @@ model Sub {
   postsPiconerosFilter BigInt      @default(-100000000000)
   nsfw                 Boolean     @default(false)
 
-  // StasherNews territory-fee gate (§6.2): territory create/renew fees land on the
+  // StasherNews territory-fee gate: territory create/renew fees land on the
   // rewards wallet; billingStatus tracks PAID -> PENDING_FEE -> LAPSED. Reuses the
   // existing billedLastAt/billPaidUntil cadence in worker/territory.js.
   billingStatus  SubBillingStatus @default(PAID)
@@ -1373,12 +1372,12 @@ model PayIn {
   userId Int
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // StasherNews (§4.2): Monero URI / observed-tip / observed-downvote linkage
+  // StasherNews: Monero URI / observed-tip / observed-downvote linkage
   moneroUri             String?
   paymentId             String?
   observedTipId         BigInt?
   observedDownvoteId    BigInt?
-  // StasherNews fee linkage (§6.2): the rewards-wallet fee subaddress this PayIn
+  // StasherNews fee linkage: the rewards-wallet fee subaddress this PayIn
   // watches. The detected FeeObservations are reached via the `feeObservations`
   // back-relation (1:N — one row per partial-payment tx under the cumulative
   // fee gate, FK on FeeObservation.payInId) rather than a redundant scalar.
@@ -1441,10 +1440,10 @@ enum PayOutType {
 }
 
 // =====================================================================
-// ==== STASHERNEWS MONERO OBSERVATION MODELS (spec §4.3)            ====
+// ==== STASHERNEWS MONERO OBSERVATION MODELS                        ====
 // =====================================================================
 // All monetary columns are BigInt piconeros (1e-12 XMR). The relation
-// syntax in the spec was malformed (fields:/references: swapped); it is
+// syntax as originally drafted was malformed (fields:/references: swapped); it is
 // reproduced here with correct Prisma syntax.
 
 enum Network {
@@ -1497,7 +1496,7 @@ enum PayoutState {
   FAILED
 }
 
-// Dynamic curator budget mode (spec 2026-10-19-dynamic-curator-budget-design.md).
+// Dynamic curator budget mode.
 enum CuratorBudgetMode {
   LEGACY
   SHADOW
@@ -1519,14 +1518,14 @@ enum OpsSweepState {
   FAILED
 }
 
-// Rewards-wallet transaction journal (rewards accounting repair §3.3).
+// Rewards-wallet transaction journal.
 enum RewardsWalletTxKind {
   PAYOUT
   OPS_SWEEP
   CONSOLIDATION
 }
 
-// Bounty escrow dispatch kinds (Finding #1). LEGACY_SEPARATE_FEE records the
+// Bounty escrow dispatch kinds. LEGACY_SEPARATE_FEE records the
 // separately-settled fee tx of the pre-2026-09-18 deferred-fee shape; its
 // member legs and journal leg are LEGACY_SEPARATE_FEE (CHECK-enforced).
 enum EscrowWalletTxKind {
@@ -1554,7 +1553,7 @@ enum RewardsReconciliationKind {
   APPLY
 }
 
-// StasherNews fee ledger (§6.2). Posting/territory fees land on the platform
+// StasherNews fee ledger. Posting/territory fees land on the platform
 // rewards wallet via dedicated subaddresses; the rewardsWalletObserver attributes them.
 enum FeeType {
   POSTING
@@ -1685,7 +1684,7 @@ model ObservedTip {
 
   // One Monero tx carries exactly ONE payment id, so a txHash can fund exactly
   // one tip. The global unique is the storage-layer backstop for the
-  // pid-binding class of replay attacks (2026-09-19 review finding): even if a
+  // pid-binding class of replay attacks (2026-09-19): even if a
   // claim path were ever bypassed, the same tx can never seed two tip rows.
   @@unique([txHash])
   @@unique([txHash, recipientAccountId, recipientMajor, recipientMinor])
@@ -1705,9 +1704,9 @@ enum TipExclusionReason {
   TX_NOT_FOUND
 }
 
-// Deterministic self-tip abuse events (spec §3). One row per excluded
+// Deterministic self-tip abuse events. One row per excluded
 // ObservedTip (tipId unique). Written transactionally with every exclusion.
-// Resolution fields are free-form until the moderation spec formalizes them.
+// Resolution fields are free-form until formalized.
 enum AbuseSignalKind {
   SELF_TIP_EXCLUDED
   SELF_SEND_EXCLUDED
@@ -1799,7 +1798,7 @@ model BountyPidMap {
   consumedAt DateTime?
 }
 
-// One received on-chain funding payment for a bounty (A-13 underpayment
+// One received on-chain funding payment for a bounty (underpayment
 // support). A bounty is paid in as few or as many txs as the payer used;
 // ObservedBounty.piconeros is the CUMULATIVE sum of its receipts, and the
 // funding only confirms once that sum covers declared bounty + fee.
@@ -1816,7 +1815,7 @@ model ObservedBountyReceipt {
 
   // One tx = one payment id = one bounty funding, ever. Global unique is the
   // storage-layer backstop against re-attributing a real funding tx to a second
-  // bounty's pid (escrow over-commitment; 2026-09-19 review finding).
+  // bounty's pid (escrow over-commitment; 2026-09-19).
   @@unique([txHash])
   @@unique([bountyId, txHash])
   @@index([bountyId])
@@ -1844,7 +1843,7 @@ model BountyPayment {
   sentAt           DateTime?
   confirmedAt      DateTime?
 
-  // Settlement facts captured at dispatch (rewards accounting repair §3.1):
+  // Settlement facts captured at dispatch:
   // where the fee actually went and the transaction's real miner fee / received
   // amounts. Environment changes cannot retrospectively move an old fee; the
   // frozen destination is the settlement authority.
@@ -1890,7 +1889,7 @@ enum BountyPayoutKind {
 // An observed posting/territory fee payment (arrives on the platform rewards
 // wallet via a DEDICATED fee subaddress — major 1 = posting, major 2 = territory).
 // The rewardsWalletObserver attributes each fee output to its pending PayIn and flips the
-// linked Item.feeStatus / Sub.billingStatus to paid. Phase 4's rewardsDistributor
+// linked Item.feeStatus / Sub.billingStatus to paid. The rewardsDistributor
 // sums these per period. postId/subName are denormalized for the rewards ledger.
 model FeeObservation {
   id                 BigInt        @id @default(autoincrement())
@@ -1910,7 +1909,7 @@ model FeeObservation {
   // StasherNews donation split (fee-allocation v2): the payer's chosen rewards
   // share copied from the PayIn at attribution; null = 100% to the pool.
   donationRewardsPct Int?
-  // Hot-wallet receipt eligibility (rewards accounting repair §3.2): only rows
+  // Hot-wallet receipt eligibility: only rows
   // with walletReceipt = true AND state CONFIRMED count as hot-wallet receipts.
   // Legacy funding-time BOUNTY_FEE rows are retained as historical evidence but
   // marked false; new funding/abandonment writes no FeeObservation at all.
@@ -1951,13 +1950,13 @@ model RewardDistribution {
   opsSweptPiconeros      BigInt             @default(0)
   opsSweepTxHash         String?
   opsSweepState          OpsSweepState      @default(NOT_SWEEPED)
-  // Cumulative RELAYED network cost already included in opsAvailablePiconeros
-  // (rewards accounting repair §5). Legacy rows default to zero; unswept ops
+  // Cumulative RELAYED network cost already included in opsAvailablePiconeros.
+  // Legacy rows default to zero; unswept ops
   // carry reads as opsAvailable - opsSwept - (Fnow - this). Fees incurred after
   // creation reduce the active carry immediately, exactly once.
   opsNetworkFeesAccountedPiconeros BigInt @default(0)
 
-  // Dynamic curator budget record (spec §6), written every run from Stage 3.
+  // Dynamic curator budget record, written every run.
   rawTipPiconeros               BigInt?
   eligibleTipStages             Json?
   trustedTipPiconeros           BigInt?   // final T (after stale fallback + breaker)
@@ -2000,7 +1999,7 @@ model RewardPayout {
   @@index([distributionId])
 }
 
-// Rewards-wallet transaction journal (rewards accounting repair §3.3): one row
+// Rewards-wallet transaction journal: one row
 // per hot-wallet send, unique by (network, walletAddress, txHash). A PREPARED
 // fee is not an incurred expense; only RELAYED fees count. Never stores keys,
 // signed transaction blobs, or wallet credentials. RewardPayout /
@@ -2025,7 +2024,7 @@ model RewardsWalletTransaction {
   preparedAt          DateTime             @default(now())
   relayAttemptedAt    DateTime?
   relayedAt           DateTime?
-  // Proof-era capture (Finding #1): all five columns are written together in
+  // Proof-era capture: all five columns are written together in
   // one INSERT or all stay null (legacy rows) — migration SQL enforces the
   // all-or-nothing v1 tuple, the deferred pair triggers bind proofId to the
   // PaymentTransactionProof row, and an immutability trigger forbids changing
@@ -2046,7 +2045,7 @@ model RewardsWalletTransaction {
   @@index([distributionId])
 }
 
-// Bounty escrow dispatch journal (Finding #1): one row per escrow send, always
+// Bounty escrow dispatch journal: one row per escrow send, always
 // a complete proof-era capture (no legacy rows — legacy escrow history is
 // recovered read-only, never synthesized). Unique by scope triple and by
 // (network, walletAddress, bountyPaymentId, leg): one tx per escrow leg, so an
@@ -2087,7 +2086,7 @@ model EscrowWalletTransaction {
   @@index([network, walletAddress, state])
 }
 
-// The encrypted payment-proof envelope (Finding #1): exactly one owner — the
+// The encrypted payment-proof envelope: exactly one owner — the
 // hot rewards journal OR the escrow dispatch journal (CHECK + deferred pair
 // triggers). Rows are self-authenticating EnvelopeV1 material bound to the
 // canonical claims (claimDigest/bindingDigest); byte fields are the GCM
@@ -2120,7 +2119,7 @@ model PaymentTransactionProof {
   escrowJournal  EscrowWalletTransaction?  @relation("EscrowPaymentProof", fields: [escrowJournalId], references: [id], onDelete: Restrict)
 }
 
-// Idempotent reconciliation application audit (rewards accounting repair §8):
+// Idempotent reconciliation application audit:
 // a CHECK run persists its read-only evidence; an APPLY run is keyed by the
 // manifest digest so duplicate application is a no-op. The table supports CHECK
 // evidence publication only when an operator explicitly requests it.
@@ -2277,7 +2276,7 @@ model PlatformFeeConfig {
   id                             Int    @id @default(1)
   requiredConfirmations          Int    @default(10)
   minTipPiconeros                BigInt @default(100000000)
-  // Tip-ranking devaluation (spec §4): per-tipper cap + account-age factor for
+  // Tip-ranking devaluation: per-tipper cap + account-age factor for
   // attributed tips; collective cap + factor for anonymous tips.
   tipRankCapPiconeros            BigInt @default(100000000000)
   tipRankFactorFloor             Float  @default(0.7)
@@ -2289,14 +2288,14 @@ model PlatformFeeConfig {
   freePostThresholdPiconeros     BigInt @default(10000000000)
   freePostMinAgeDays             Int    @default(7)
   postingFeeFloorPiconeros       BigInt @default(1000000000)
-  // Flat comment/reply fee (spec 2026-09-18-comment-fee-config): decoupled
+  // Flat comment/reply fee: decoupled
   // from the posting floor so comments can be priced below posts. 6e8 = 0.0006 XMR.
   commentFeePiconeros            BigInt @default(600000000)
   territoryMonthlyPiconeros      BigInt @default(20000000000)
   territoryYearlyPiconeros       BigInt @default(200000000000)
   territoryOncePiconeros         BigInt @default(1000000000000)
   maxTurfPremiumPiconeros        BigInt @default(10000000000) @map("max_turf_premium_piconeros")
-  // allocation to rewards vs ops, per source (accounting-level; §6.4)
+  // allocation to rewards vs ops, per source (accounting-level)
   downvoteRewardsPct             Int    @default(100)
   postingFeeRewardsPct           Int    @default(70)
   territoryFeeRewardsPct         Int    @default(30)
@@ -2307,7 +2306,7 @@ model PlatformFeeConfig {
   // boosts (BOOST fee observations): % of inflow allocated to the curator
   // rewards pool; the remainder is the ops share. Default 30 (operator, 2026-08-11).
   boostRewardsPct                Int    @default(30)
-  // bounties (A-13): fee = max(bountyFeeMinPiconeros, bountyFeePct% of the
+  // bounties: fee = max(bountyFeeMinPiconeros, bountyFeePct% of the
   // bounty), capped at 20% of the bounty -> 100% ops; expiry window in days
   // from funding confirmation.
   bountyFeeMinPiconeros          BigInt @default(10000000000)
@@ -2331,7 +2330,7 @@ model PlatformFeeConfig {
   // resolving to a positive integer are ignored with a log line. Read at
   // distribution time, so a SQL edit takes effect on the next weekly run.
   distributionExcludedCuratorIds Int[] @default([])
-  // Dynamic curator budget (spec 2026-10-19-dynamic-curator-budget-design.md).
+  // Dynamic curator budget.
   // LEGACY = record only, pay the 0.2 XMR fallback cap; SHADOW = same
   // payouts, both numbers shown; ACTIVE = pay min(k × T4 + make-up, limit,
   // pool). Invalid values fail closed to the fallback cap with a CRITICAL

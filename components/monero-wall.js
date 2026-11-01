@@ -8,7 +8,7 @@ import { piconerosToMXmr } from '@/lib/format'
 import { REMOVE_MONERO_WALL, OPEN_MONERO_WALL_COMMENTS } from '@/fragments/items'
 import styles from './monero-wall.module.css'
 
-// Monerowall panel (spec §UI). The server serves only the teaser to locked
+// Monerowall panel. The server serves only the teaser to locked
 // viewers, so this renders under the teaser: progress toward the public-unlock
 // threshold, a fixed-amount unlock for logged-in readers, and an any-amount
 // contribute leg. Unlocking IS an ordinary P2P tip (initiateTip via TipModal) —

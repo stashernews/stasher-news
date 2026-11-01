@@ -266,7 +266,7 @@ async function work () {
   // reverseStaleDetections: flips DETECTED-without-height observations older
   // than STALE_DETECTED_EXPIRY_MS (48h) to REORGED and reverses their
   // provisional effects (rank, upvotes, boost, downvote penalty, fee-gated
-  // item liveness) — closes the 0-conf double-spend window (audit A-1).
+  // item liveness) — closes the 0-conf double-spend window.
   // Recurrence is cron-owned (pgboss.schedule row reverseStaleDetections,
   // every 10 min) — no self-requeue.
   await boss.work('reverseStaleDetections', { includeMetadata: true }, jobWrapper(reverseStaleDetections))
@@ -301,7 +301,7 @@ async function work () {
   await seedRewardsDistributor({ boss })
 
   // opsSweep: one-shot delayed cold-storage sweep of the rewards-wallet ops
-  // earmark (2026-09-14 A′ decoupling). Enqueued by the rewardsDistributor
+  // earmark (2026-09-14 decoupling). Enqueued by the rewardsDistributor
   // handler with startAfter = 1h after a COMPLETE run; never touches
   // distribution status, and defers/rolls over via opsRolledOverPiconeros if
   // the wallet is locked, the node is catching up, or a payout is in flight.
@@ -344,7 +344,7 @@ async function work () {
   // releases it. Cron-owned (0 16 * * 1 UTC, migration 20261008132506_newsletter).
   await boss.work('newsletterCampaign', { includeMetadata: true }, jobWrapper(newsletterCampaign))
 
-  // Newsletter boot check (spec T3): an enabled-but-unconfigured newsletter
+  // Newsletter boot check: an enabled-but-unconfigured newsletter
   // must surface immediately, not silently no-op until the first cron tick.
   if (isNewsletterEnabled()) {
     const missing = checkNewsletterConfig()

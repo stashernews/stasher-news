@@ -308,7 +308,7 @@ test('applyTipDetected no-ops when the tipper is the item author (defense-in-dep
 
 test('capped rank: a tip beyond the 0.1 XMR per-tipper cap adds money but no rank', async () => {
   const u = await createUser(30); created.users.push(u) // matured tipper: factor 1.0
-  // separate author: u tipping their own post would trip the Task 5 self-tip
+  // separate author: u tipping their own post would trip the self-tip
   // guard (applyTipDetected returns 0n) and never exercise the cap math
   const author = await createUser(); created.users.push(author)
   const p = await createRoot(author, 'cap-test'); created.items.push(p)

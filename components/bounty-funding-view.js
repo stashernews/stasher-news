@@ -24,7 +24,7 @@ const ITEM_BOUNTY_STATUS = gql`
     }
   }`
 
-// Post-create funding payment (A-13 Task 7 Step 2): calls fundBounty(postId)
+// Post-create funding payment: calls fundBounty(postId)
 // for the escrow integrated address + monero: URI, shows the payment view with
 // the platform fee line, and polls bountyStatus until the funding confirms
 // (FUNDED), then shows a success view and navigates to the post.

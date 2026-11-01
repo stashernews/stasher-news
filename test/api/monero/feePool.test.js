@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Integration tests for the rewards-wallet fee subaddress pool (spec §5.6, §6.2).
+// Integration tests for the rewards-wallet fee subaddress pool.
 //
 // reserveFeeSubaddress atomically draws (FOR UPDATE SKIP LOCKED) the lowest-id
 // AVAILABLE SubaddressIndex on the platform_rewards wallet for a fee type's major

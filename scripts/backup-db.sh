@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# backup-db.sh — dump + encrypt the stackernews DB (Phase 6 Task E1).
+# backup-db.sh — dump + encrypt the stackernews DB.
 #
 # pg_dump of POSTGRES_DB piped through gpg asymmetric encryption to the
 # BACKUP_PUBLIC_KEY recipient, written to BACKUP_DIR/<db>-<utc-timestamp>.sql.gpg.

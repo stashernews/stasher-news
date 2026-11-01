@@ -144,7 +144,7 @@ test('is idempotent across re-runs', async () => {
   expect((await prisma.item.findUnique({ where: { id: item.id } })).deletedAt).not.toBeNull()
 })
 
-// Regression (final review Finding 1): an underpaid owner-routed leg leaves an
+// Regression: an underpaid owner-routed leg leaves an
 // ObservedSubFee DETECTED receipt pointing at the fee PayIn. The sweep deletes
 // that PayIn — with ON DELETE RESTRICT the delete threw P2003, rolled the whole
 // abandonment tx back, and the hourly cron re-failed forever on the poison row.
@@ -190,7 +190,7 @@ test('abandons an item with an ObservedSubFee receipt: PayIn deleted, receipt su
   expect(live.state).toBe('DETECTED')
 })
 
-// --- Finding 5: soft-deleted pending-fee items ---
+// --- Soft-deleted pending-fee items ---
 // Production observation: items soft-deleted while PENDING_FEE kept their fee
 // PayIn + SubFeePidMap rows (the old selector required deletedAt null). The fee
 // PayIn stayed watched forever and a late fee could flip deleted content live

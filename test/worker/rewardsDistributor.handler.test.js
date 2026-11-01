@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Unit tests for the shared completion enqueue (2026-09-14 A′ + Task 10):
+// Unit tests for the shared completion enqueue:
 // the delayed opsSweep follow-up and the no-QUEUED accounting readiness gate.
 // Pure — fake boss/models, no DB, no wallet.
 

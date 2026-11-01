@@ -1,5 +1,5 @@
 -- Give every rewardsDistributor job an explicit four-hour execution budget and
--- no automatic retries (Finding 3). pg-boss 9 defaults jobs to a 15-minute
+-- no automatic retries. pg-boss 9 defaults jobs to a 15-minute
 -- expireIn (pgboss.job.expirein); the 2026-10-12 weekly run exceeded that after
 -- ~23 minutes, so pg-boss marked the job failed while the handler ran on to
 -- completion. A retried distribution could double-pay (QUEUED RewardPayouts

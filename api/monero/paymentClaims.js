@@ -3,7 +3,7 @@ import { ed25519 } from '@noble/curves/ed25519'
 import { base58xmr } from '@scure/base'
 import { keccak256 } from 'js-sha3'
 
-// Canonical payment-claims codec (Finding #1, Task 1).
+// Canonical payment-claims codec.
 //
 // `PaymentClaimsV1` is the immutable, authenticated description of one Monero
 // payment: what the platform contracted to pay, to which receiving identities,
@@ -328,7 +328,7 @@ function normalizeFeePolicy (value, members, networkFeePiconeros) {
     const key = memberKey(memberId, leg)
     const member = membersByKey.get(key)
     if (!member) fail(INCONSISTENT)
-    // Fee legs are injective over members (final-review M1): every member is
+    // Fee legs are injective over members: every member is
     // covered EXACTLY once — a duplicate leg and an omitted member are both
     // refusals, never a silently skewed subtraction contract.
     if (covered.has(key)) fail(INCONSISTENT)

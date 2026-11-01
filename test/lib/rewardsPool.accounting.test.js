@@ -4,7 +4,7 @@ import { getNextRewardsPool } from '@/lib/rewardsPool'
 // getNextRewardsPool now reads ONE inflow reader (readRewardsInflow) and ONE
 // factual ledger (readRewardsWalletLedger) inside a consistent Serializable
 // transaction, and prices the unswept ops carry with the cumulative network
-// cost checkpoint (spec §5). These tests pin the exact checkpoint arithmetic
+// cost checkpoint. These tests pin the exact checkpoint arithmetic
 // and the separation between reward commitments, the next pool and ops.
 
 const CONFIG = {

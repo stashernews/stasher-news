@@ -133,7 +133,7 @@ test('BOOST expiry stays 30 real days under the compressed quest clock', async (
 })
 
 test('a held credit expiring during the user-row lock wait does not suppress the fresh day-5 grant', async () => {
-  // Grant-side mirror of the redemption lock-wait case (spec §5.1: sample the
+  // Grant-side mirror of the redemption lock-wait case (sample the
   // DB wall clock AFTER acquiring locks). The caller's row lock parks through
   // a long wait, and now_utc() stays frozen at the transaction's BEGIN —
   // before the wait — so adjudicating availability from it would count a

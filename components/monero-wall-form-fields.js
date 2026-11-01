@@ -83,7 +83,7 @@ export default function MoneroWallFields ({ item }) {
   // Walls are create-time only (2026-09-21 amendment): never render wall
   // controls when editing a post without an active wall — no add-at-edit,
   // no re-add after removal. Removal itself lives in the author view
-  // (Task 10, removeMoneroWall).
+  // (removeMoneroWall).
   if (editing && !wallActive) return null
 
   const noWallLeg = !editing && values.moneroWallEnabled &&

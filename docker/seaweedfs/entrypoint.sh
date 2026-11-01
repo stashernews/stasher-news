@@ -8,7 +8,7 @@
 # renderer (scripts/render-media-config.cjs) produces exactly this shape; the
 # gate below is the last line of defense against a hand-made or mangled
 # config, demonstrated to otherwise boot "healthy" while denying every
-# operation (review finding, 2026-10-24).
+# operation (2026-10-24).
 #
 # The config is staged read-only-mountable source -> private copy (0600,
 # owned by the runtime user), because the runtime user cannot read a

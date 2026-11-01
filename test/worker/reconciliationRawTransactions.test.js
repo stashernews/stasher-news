@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Unit tests for worker/reconciliationRawTransactions (Finding 1).
+// Unit tests for worker/reconciliationRawTransactions.
 //
 // The reader is a bounded, process-local memory of `{ hash, extra }` evidence
 // shared by the two reconciliation workers. These tests inject a daemon double

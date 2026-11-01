@@ -1,5 +1,4 @@
-// Synthetic rewards-accounting repair input (rewards accounting repair §8,
-// Task 12). Exact, unrelated small amounts — NO production approximate
+// Synthetic rewards-accounting repair input. Exact, unrelated small amounts — NO production approximate
 // figures. The shape is exactly what `buildRewardsReconciliation` consumes:
 //
 //   { scope, boundary, evidence, ledger, decisions, config, reserve }
@@ -24,7 +23,7 @@
 // not applicable. Call `withApprovedIncomingClassification(input)` (or pass
 // `{ classifyIncoming: true }`) for the variant whose corrections reconcile
 // the ledger to zero drift. Even that variant is NOT a clean strict audit
-// (final-review I1): its recorded payout batch is covered only by a RELAYED
+// Its recorded payout batch is covered only by a RELAYED
 // journal row and its escrow legs only by confirmed escrow history — relay
 // history is never complete-payment evidence, so the strict audit NAMES each
 // recorded outflow (RECORDED_PAYOUT_PROOF_UNSUPPORTED /
@@ -298,7 +297,7 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
       }
     },
     ledger: {
-      // Complete v2 audit-snapshot groups (rewards reconciliation Task 1):
+      // Complete v2 audit-snapshot groups:
       // the shared `accounting:v2:` fingerprint projects every group and
       // column below, so the fixture carries the same complete shape the
       // snapshot reader returns. Registered wallet identities first.
@@ -475,7 +474,7 @@ export function syntheticRewardsEvidence ({ classifyIncoming = false } = {}) {
         {
           // Pending relay attempt: PREPARED + attempted, mempool evidence.
           // Pre-proof-era row: it stays unresolved unless independently
-          // verified evidence exists (rewards reconciliation Task 3).
+          // verified evidence exists.
           id: 604,
           network: SCOPE.network,
           walletAddress: SCOPE.walletAddress,

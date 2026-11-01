@@ -1,4 +1,4 @@
--- rev 3: banked reply credits + the golden flame shield.
+-- Banked reply credits + the golden flame shield.
 -- ADD VALUE is transaction-safe on PG12+ as long as the value is not used in
 -- the same transaction (nothing inserts REPLY here).
 ALTER TYPE "StreakRewardType" ADD VALUE IF NOT EXISTS 'REPLY';

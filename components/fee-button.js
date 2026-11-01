@@ -74,7 +74,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
   }
 
   // Posts: the StasherNews posting fee is a flat on-chain Monero payment to the
-  // platform rewards wallet (spec §6.2 Q5): 0.001 XMR once the month's free
+  // platform rewards wallet: 0.001 XMR once the month's free
   // post is spent. Legacy per-turf baseCost lines are denominated
   // in sats and would misquote the fee, so posts render a single postingFee line
   // (or no lines at all when the author posts free).

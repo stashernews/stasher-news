@@ -1,4 +1,4 @@
--- Restore public.search_users_by_name(text, real, integer) (Finding 4).
+-- Restore public.search_users_by_name(text, real, integer).
 -- Both resolver call sites — userSuggestions (api/resolvers/user.js) and
 -- searchUsers — call this helper, but the fork's migration history never
 -- created it, so every name search failed with SQLSTATE 42883

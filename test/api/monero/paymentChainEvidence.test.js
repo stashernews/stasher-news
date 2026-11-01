@@ -1,12 +1,12 @@
 /* eslint-env jest */
 
-// Strict raw-chain and restored-ownership adapter (Finding #1, Task 4).
+// Strict raw-chain and restored-ownership adapter.
 //
-// The tests drive the REAL collector against the Task 1 chain fixture: an
+// The tests drive the REAL collector against the chain fixture: an
 // unfiltered fake wallet scan (spent rows included, SDK getIndex() deliberately
 // the GLOBAL index), a fake daemon serving validated raw records, and an
 // independent view-only wallet. Every refusal below pins a fixed error code so
-// the verifier (Task 5) can branch on exact failure classes.
+// the verifier can branch on exact failure classes.
 
 import { collectPaymentChainEvidence } from '@/api/monero/paymentChainEvidence'
 import { paymentChainFixture } from '../../fixtures/payment-proof'

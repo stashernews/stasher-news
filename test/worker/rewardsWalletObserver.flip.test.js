@@ -306,7 +306,7 @@ test('a throwing quota consumption cannot roll back the flip or wedge the pass (
   expect((await prisma.item.findUnique({ where: { id: later.item.id } })).feeStatus).toBe('FEE_PAID')
 })
 
-// --- Finding 5: deleted content must never enter the live path ---
+// --- Deleted content must never enter the live path ---
 // deleteItemByAuthor keeps feeStatus PENDING_FEE + feePayInId, so a fee that
 // lands after the deletion used to win the ITEM_CREATE pending-to-paid claim:
 // the deleted item flipped FEE_PAID, consumed quota, denormalized its ancestors

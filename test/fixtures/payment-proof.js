@@ -5,9 +5,8 @@ import { base58xmr } from '@scure/base'
 import { keccak256 } from 'js-sha3'
 import { oneTimeOutputKey, senderPublicPart } from '@/api/monero/paymentKeyStructure'
 
-// Deterministic, throwaway synthetic fixtures for the Finding #1 payment-proof
-// codec, envelope, store, chain adapter and verifier tasks (Task 1 fixture
-// contract). Everything is derived from the small deterministic scalars
+// Deterministic, throwaway synthetic fixtures for the payment-proof
+// codec, envelope, store, chain adapter and verifier tasks. Everything is derived from the small deterministic scalars
 // 1..20 on the ed25519 base point: no real secrets, keys, addresses, wallet
 // history or transaction hashes exist anywhere in this file.
 //
@@ -42,7 +41,7 @@ import { oneTimeOutputKey, senderPublicPart } from '@/api/monero/paymentKeyStruc
 // The captured key bundle is the SECRET-bundle STRING the installed SDK's
 // `MoneroTx.getKey()` returns: the little-endian main secret followed by the
 // ordered additional per-output secrets (exactly one additional secret per
-// chain output), NOT an object of public keys (final-review C1).
+// chain output), NOT an object of public keys.
 //
 // All addresses are checksum-valid and curve-valid on MAINNET (18/19/42) and
 // STAGENET (24/25/36).
@@ -408,7 +407,7 @@ function memberForLeg (members, leg) {
  * exposed through SDK-shaped getters, plus a ProofPayloadV1-shaped
  * `proofPayload` for the envelope task. `getKey()` returns the SECRET-bundle
  * STRING the installed SDK captures (main secret + one additional secret per
- * output, little-endian hex — final-review C1). The payload's public
+ * output, little-endian hex). The payload's public
  * built-structure fields default to explicit null (the SDK does not expose
  * them); pass `populatedPublicKeys: true` to opt into the populated variant.
  * Accepts the same overrides as `paymentFixture`.
@@ -543,8 +542,8 @@ const readAddressText = address => {
  * `paymentFixture` override.
  *
  * @param {object} [overrides]
- * @returns {object} fixture facts; see the Task 1 report for the full shape.
- *   Task 5 additive extension: `session.checkTxKey` (same jest.fn as
+ * @returns {object} fixture facts.
+ *   Additive extension: `session.checkTxKey` (same jest.fn as
  *   `wallet.checkTxKey`) so verification sessions carry the receipt checker.
  */
 export function paymentChainFixture (overrides = {}) {
@@ -686,7 +685,7 @@ export function paymentChainFixture (overrides = {}) {
     [SOURCE_TX_HASH]: source,
     ...(spend === null ? {} : { [SPEND_TX_HASH]: spend })
   }
-  // Task 5 fix I1 (additive): raw records carry the daemon-resolved block
+  // Additive fix: raw records carry the daemon-resolved block
   // hash. The fake daemon's getBlockHashByHeight answers BOUNDARY.blockHash
   // for every height, so the records carry exactly that value — the same
   // value its getPaymentTransactions attaches per distinct height.
@@ -698,7 +697,7 @@ export function paymentChainFixture (overrides = {}) {
     const text = readAddressText(address)
     return fakeCheck(externalReceipts.find(receipt => receipt.address === text) ?? null)
   })
-  // Sender-side raw-ownership enumeration support (final-review I2): the
+  // Sender-side raw-ownership enumeration support: the
   // ephemeral view access (private view key a = 6) plus the DERIVED address
   // per domain position (primary + account primaries 1..5). The derived
   // spend keys are the fixture account pairs, so address↔position mapping is
@@ -737,7 +736,7 @@ export function paymentChainFixture (overrides = {}) {
   const daemon = {
     getPaymentTransactions: jest.fn(async hashes => {
       const records = (Array.isArray(hashes) ? hashes : []).map(hash => rawByHash[hash]).filter(Boolean)
-      // Task 5 fix I1 (additive): resolve the block hash per DISTINCT height
+      // Additive fix: resolve the block hash per DISTINCT height
       // like the real daemonClient, so raw records carry `blockHash`.
       const resolved = new Map()
       for (const record of records) {
@@ -773,7 +772,7 @@ export function paymentChainFixture (overrides = {}) {
       ? { owned: [changeRow], inputSources: [sourceRow] }
       : { owned: [], inputSources: [] }),
     deriveOwnedIndexes: () => [{ accountIndex: 0, subaddressIndex: 0 }],
-    // Final-review I4/I6: the session carries its authoritative collection
+    // The session carries its authoritative collection
     // boundary and the independent position→address mapper from the prepared
     // derivation domain.
     boundary: { height: boundary.height, blockHash: boundary.blockHash },
@@ -783,7 +782,7 @@ export function paymentChainFixture (overrides = {}) {
       const [majorIndex, minorIndex] = position.split(':').map(Number)
       return { majorIndex, minorIndex, address }
     }),
-    // Task 5 (additive): verification sessions carry the captured sender
+    // Verification sessions carry the captured sender
     // wallet's receipt checker so the verifier can run the exact checkTxKey
     // gate. Same jest.fn instance as `wallet.checkTxKey`.
     checkTxKey
@@ -849,7 +848,7 @@ export function paymentChainFixture (overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Rewards accounting audit fixture (rewards reconciliation plan, Task 1).
+// Rewards accounting audit fixture.
 //
 // One complete synthetic DB-shaped ledger input for the shared audit snapshot
 // and the `accounting:v2:` fingerprint: every group and every exact column of

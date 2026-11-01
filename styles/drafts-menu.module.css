@@ -1,6 +1,5 @@
 /* Drafts menu — visual layer for components/drafts-menu.js.
-   Mirrors docs/superpowers/specs/2026-09-22-drafts-ui-mockups.html (approved):
-   ember split button, 340px panel, icon-tile rows with chip + age + file count,
+   Ember split button, 340px panel, icon-tile rows with chip + age + file count,
    media meter footer, cap warning. Dark values are the mockup's palette;
    light values are derived equivalents, all body text >= 4.5:1 on the panel.
    Palette lives on .root and inherits into the (in-tree) popper menu. */

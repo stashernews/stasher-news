@@ -1,9 +1,9 @@
 /* eslint-env jest */
 
-// PayIn.feeObserved owner-leg coverage (Task 7, turf-owner-revenue):
+// PayIn.feeObserved owner-leg coverage:
 // mock-based unit tests proving the resolver flips true when EITHER a
 // FeeObservation (platform fee-pool flow) OR an ObservedSubFee receipt
-// (owner-direct flow, Task 5) exists for the payIn.
+// (owner-direct flow) exists for the payIn.
 //
 // The jest.mock preamble stubs the heavy transitive deps api/resolvers/payIn.js
 // pulls in (mirroring test/api/monero/turfFeeRouting.itemCreate.test.js):

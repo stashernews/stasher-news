@@ -516,7 +516,7 @@ test('raw failure is visible and a later cron invocation retries the receipt', a
 })
 
 test('raw fallback logs a fixed failure category without echoing exception text', async () => {
-  // Plan §1: the raw-fallback catch must log account id, candidate count, and
+  // The raw-fallback catch must log account id, candidate count, and
   // a fixed category only — transport/crypto error text can embed sensitive
   // input (view-key material, raw tx payloads), so it must never reach the
   // logs OR the alert body.

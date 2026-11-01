@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
 # backup-master-key.sh — gpg-encrypt VIEWKEY_MASTER_KEY to BACKUP_PUBLIC_KEY and
-# write the blob to MASTERKEY_BACKUP_DIR (Phase 6 Task E2).
+# write the blob to MASTERKEY_BACKUP_DIR.
 #
 # VIEWKEY_MASTER_KEY is the AES-256-GCM envelope key for every MoneroViewKey row.
 # Losing it is unrecoverable data loss, so the blob MUST be stored SEPARATELY from
 # the DB backups (different dir / bucket / operator). The script refuses to write
 # into BACKUP_DIR to enforce that.
 #
-# Run on first key provisioning AND on every master-key rotation (Task C2): a
+# Run on first key provisioning AND on every master-key rotation: a
 # versioned registry means each retired key must also be escrowed, not just the
 # current one, so old encrypted DB backups stay restorable.
 #

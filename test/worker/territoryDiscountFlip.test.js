@@ -20,7 +20,7 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
-// Spec §5: the day-7 discount is consumed only on a successful creation, so it
+// The day-7 discount is consumed only on a successful creation, so it
 // is spent at the fee FLIP (payment observed), not when the payIn is created.
 test('a territory fee flip consumes exactly one held TURF_DISCOUNT', async () => {
   const userId = await mkUser()

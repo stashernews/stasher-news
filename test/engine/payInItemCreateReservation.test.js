@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Free-unit RESERVATION for upload-fee items (finding #6 residual, I-1).
+// Free-unit RESERVATION for upload-fee items.
 //
 // An upload-fee item created in-quota is born PENDING_FEE (optimistic — before
 // any payment) and its free unit is only SPENT at the fee flip. Without a

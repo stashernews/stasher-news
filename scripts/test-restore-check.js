@@ -1,4 +1,4 @@
-// test-restore-check.js — companion to scripts/test-restore.sh (Phase 6 Task E5).
+// test-restore-check.js — companion to scripts/test-restore.sh.
 //
 // Reads MoneroViewKey envelopes on stdin (one row per line, pipe-delimited:
 // id|dekVersion|ciphertext|iv|tag|wrappedDek, with every bytea field hex-encoded

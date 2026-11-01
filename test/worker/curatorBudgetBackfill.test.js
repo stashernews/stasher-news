@@ -26,7 +26,7 @@ function startOfUtcWeek (date) {
   return start
 }
 
-// Every column the backfill is allowed to touch (spec §9.1).
+// Every column the backfill is allowed to touch.
 const WRITABLE_FIELDS = new Set([
   'rawTipPiconeros',
   'eligibleTipStages',

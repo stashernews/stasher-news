@@ -1,4 +1,4 @@
-// Separate TX-proof master-key registry (Finding #1, Task 2).
+// Separate TX-proof master-key registry.
 //
 // The registry maps positive integer key versions to 32-byte AES-256 master
 // keys used to wrap payment-proof DEKs (see paymentProofCrypto.js). It is
@@ -71,7 +71,7 @@ function parseRegistry (env) {
     const match = PER_VERSION_NAME.exec(name)
     if (match !== null && readEnv(env, name) !== null) {
       // Per-version names get the same canonical positive safe-integer gate
-      // as JSON entries (final-review M2): `Number(...)` on a huge or
+      // as JSON entries: `Number(...)` on a huge or
       // non-canonical numeric suffix must never be accepted silently.
       const version = Number(match[1])
       if (!CANONICAL_POSITIVE.test(match[1]) || !Number.isSafeInteger(version)) fail(REGISTRY_INVALID)

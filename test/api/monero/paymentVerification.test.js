@@ -22,9 +22,9 @@ jest.mock(`${process.cwd()}/lib/logger`, () => ({
   logError: jest.fn()
 }))
 
-// Whole-payment verification tests (Finding #1, Task 5), against the dedicated
-// isolated database with REAL store rows + REAL envelope crypto (Tasks 2/3),
-// the Task 1 fixture family and the REAL Task 4 chain collector. Every call
+// Whole-payment verification tests, against the dedicated isolated database
+// with REAL store rows + REAL envelope crypto, the payment-proof fixture
+// family and the REAL chain collector. Every call
 // runs the real verifier; no test ever asserts a fabricated verified flag.
 // Runs only when DATABASE_URL points at /stasher_rewards_repair_test; skipped
 // everywhere else. Run ONLY via the guarded isolated runner.
@@ -87,7 +87,7 @@ const makeWallet = () => ({
   relayTx: jest.fn(async () => { throw new Error('verifier tests must never relay') })
 })
 
-// --- real-chain session helpers (Task 4 collector over hand-built facts) -----
+// --- real-chain session helpers (collector over hand-built facts) -----
 
 const sdkRow = row => ({
   getTx: () => ({ getHash: () => row.txHash, getHeight: () => row.blockHeight }),
@@ -100,10 +100,10 @@ const sdkRow = row => ({
   getIsSpent: () => row.isSpent
 })
 
-// Builds a REAL Task 4 session (never a canned one) from plain facts, then
+// Builds a REAL collector session (never a canned one) from plain facts, then
 // attaches the receipt checker exactly as the production collector does. The
 // wallet proves the ephemeral view access the raw ownership enumeration
-// requires (final-review I2), and the derivation must be the PREPARED full
+// requires, and the derivation must be the PREPARED full
 // domain (primary + majors 1..5) unless the caller narrows it deliberately.
 async function realSession ({
   rawRecords,
@@ -274,7 +274,7 @@ const fullDerivation = () => paymentChainFixture().collectOptions.derivation
     expect(f.session.checkTxKey).toHaveBeenCalledWith(f.txHash, expect.any(String), ADDRESS_B)
   })
 
-  test('the real Task 4 collector session verifies identically to the canned stand-in', async () => {
+  test('the real collector session verifies identically to the canned stand-in', async () => {
     const f = paymentChainFixture()
     // The fixture wallet and daemon are exactly what collectPaymentChainEvidence
     // consumes; attach the receipt checker exactly as the collector will.
@@ -347,7 +347,7 @@ const fullDerivation = () => paymentChainFixture().collectOptions.derivation
       owner: consolidationOwner(),
       keyProvider
     })
-    // Final-review I6 model: the wallet primary is (0,0), and the capture
+    // Model: the wallet primary is (0,0), and the capture
     // binds its owned target there. The tx actually paid the wallet-owned
     // ACCOUNT 1 primary — still an internal (owned) output, so cash closes at
     // zero residual, but the scanned owned output sits at a DIFFERENT derived
@@ -595,7 +595,7 @@ const fullDerivation = () => paymentChainFixture().collectOptions.derivation
   test('rejects a key-structure mismatch between the captured bundle and the raw chain', async () => {
     // The capture populates its optional public built facts (the test opt-in
     // path), so the raw chain's swapped main tx key is caught by the
-    // byte-for-byte binding (final-review I1 keeps this corroboration).
+    // byte-for-byte binding.
     const prepared = await preparePaymentDispatch({
       models: db,
       wallet: makeWallet(),

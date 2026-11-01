@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Stubbed-wallet unit tests for sweepOpsEarmark (task B3 / spec §6.4, Task 9).
+// Stubbed-wallet unit tests for sweepOpsEarmark.
 //
 // These verify the ops-sweep state machine WITHOUT a real stagenet wallet or
 // spend keys: the wallet is injected (a plain object exposing createTx /
@@ -8,7 +8,7 @@
 // the suite never touches the network or spends real XMR. Mirrors the
 // sendPayouts stubbed-wallet tests in test/api/monero/rewards.test.js.
 //
-// Task 9 wires the REAL accounting readers through this fake: the ledger and
+// The suite wires the REAL accounting readers through this fake: the ledger and
 // pool queries below feed readRewardsWalletLedger / readRewardsInflow /
 // getNextRewardsPool exactly like Prisma would (never a production fixture
 // bypass), the journal fake records real OPS_SWEEP facts (principal + actual
@@ -25,7 +25,7 @@ import { alert } from '../../lib/alert'
 import { paymentFixture, secretBundleHex } from '@/test/fixtures/payment-proof'
 import { prepareWalletTransaction, relayWalletTransaction } from '@/api/monero/rewardsTransactions'
 
-// D1 migrated rewards.js from console.* to the pino logger (lib/logger.js), so
+// The fork migrated rewards.js from console.* to the pino logger (lib/logger.js), so
 // CRITICAL/relayed logs no longer hit console.error/console.log. Mock the logger
 // with a relative path (next/jest gives jest.mock no `@/` alias) and assert on
 // the logError stub — mirrors test/worker/deleteUnusedImages.test.js.
@@ -37,7 +37,7 @@ jest.mock('../../lib/logger', () => ({
 }))
 jest.mock('../../lib/alert', () => ({ __esModule: true, alert: jest.fn() }))
 
-// The Task 6/7 accounting helpers bind every read and send to the configured
+// The accounting helpers bind every read and send to the configured
 // rewards wallet scope: the environment must name the same primary address and
 // network the fake wallet/DB rows report, or the sweep fails closed.
 const savedProofEnv = Object.fromEntries([
@@ -139,7 +139,7 @@ const feeFact = (fee, txHash) => ({
   proofId: null
 })
 
-// In-memory RewardsWalletTransaction model for the Task 6 journal helpers
+// In-memory RewardsWalletTransaction model for the journal helpers
 // (prepareWalletTransaction / relayWalletTransaction /
 // reconcileWalletTransactions). Same surface as the payout fake: findUnique
 // resolves the (network, walletAddress, txHash) compound key, findMany filters
@@ -793,7 +793,7 @@ test('defers (SKIPPED_LOCKED, not FAILED) when createTx throws "tx not possible"
     3_000_000_000_000n - 1_000_000_000n,
     3_000_000_000_000n - 2_000_000_000n
   ])
-  // A permanent non-lock deferral must not be silent (review finding).
+  // A permanent non-lock deferral must not be silent.
   expect(logWarn).toHaveBeenCalledWith(
     expect.objectContaining({ distributionId: dist.id, target: '3000000000000' }),
     expect.stringContaining('deferred')
@@ -832,7 +832,7 @@ test('logs the attempted amount and account unlocked balance before createTx (in
 })
 
 // =============================================================================
-// Task 9: protected funds — outstanding rewards, the next pool, the standing
+// Protected funds — outstanding rewards, the next pool, the standing
 // reserve and the sweep's own real fees all bind the spend; unresolved
 // accounting refuses the sweep outright.
 // =============================================================================

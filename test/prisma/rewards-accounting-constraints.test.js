@@ -7,7 +7,7 @@ import path from 'path'
 import { buildRewardsReconciliation, readRepairLedger } from '@/api/monero/rewardsReconciliation'
 import { applyRewardsReconciliation } from '@/api/monero/applyRewardsReconciliation'
 
-// Isolated real-DB tests for the rewards-wallet accounting repair (Task 1).
+// Isolated real-DB tests for the rewards-wallet accounting repair.
 //
 // 1) Money CHECK constraints + journal uniqueness, exercised through the
 //    generated Prisma client against the dedicated rewards test database.
@@ -353,7 +353,7 @@ const seedFeeObservation = async (scratch, { txHash, postId, piconeros, feeType 
         writersPaused: true,
         evidence
       }, {
-        // Task 5's guarded apply re-verifies with a fresh read-only
+        // The guarded apply re-verifies with a fresh read-only
         // collection; this migration-handoff scenario injects the same
         // collection and the boundary daemon (no live scan here).
         collectEvidence: async () => evidence,

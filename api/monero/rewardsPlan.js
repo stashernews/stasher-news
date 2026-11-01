@@ -1,5 +1,5 @@
-// Deterministic whole-payout planning for the rewards hot wallet (rewards
-// accounting repair §6). Pure BigInt helpers: no Prisma client and no wallet is
+// Deterministic whole-payout planning for the rewards hot wallet. Pure BigInt
+// helpers: no Prisma client and no wallet is
 // created here, so importing this module is inert and the planner is testable
 // in isolation.
 

@@ -637,7 +637,7 @@ function sortActiveSubs (subs) {
     (priority.get(a.name) ?? Infinity) - (priority.get(b.name) ?? Infinity))
 }
 
-// Never-seen PENDING_FEE turf visibility clause (spec 2026-08-17-turf-visibility-gate-design.md).
+// Never-seen PENDING_FEE turf visibility clause,
 // AND-ed onto the existing status-based WHERE. Requires a `LEFT JOIN "PayIn" bp
 // ON bp.id = "Sub"."billingPayInId"` in the query. Visible iff not a never-seen
 // PENDING_FEE turf (renewal/update payIns and legacy no-payIn rows pass), or the

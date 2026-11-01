@@ -4,7 +4,7 @@ import { useRoot } from './root'
 import { useShowModal } from './modal'
 import { AwardBountyModal } from './bounty-actions'
 
-// Inline award control on comments under a funded bounty post (A-13): the
+// Inline award control on comments under a funded bounty post: the
 // visible replacement for the old three-dots dropdown item. Renders only for
 // the bounty post's author, on someone else's live comment, and only once the
 // bounty is FUNDED — the same conditions the server's payBounty enforces, so

@@ -17,8 +17,8 @@ import {
   verifiedRepairFixture
 } from '@/test/fixtures/rewards-payment-verification'
 
-// Deterministic confirmed attempted-PREPARED transition tests (rewards
-// reconciliation plan, Task 3). The FIXTURE prepares a real #1 proof pair on
+// Deterministic confirmed attempted-PREPARED transition tests. The FIXTURE
+// prepares a real #1 proof pair on
 // the dedicated isolated database and verifies it with the REAL verifier over
 // a fake read-only chain session; every builder call is PURE (no DB, no
 // wallet, no wall clock). Runs only when DATABASE_URL points at
@@ -390,7 +390,7 @@ isolated('evidence-bound relay promotion (isolated DB only)', () => {
   })
 })
 
-// Task 5: the guarded APPLY re-verification contract. Pure comparisons over
+// The guarded APPLY re-verification contract. Pure comparisons over
 // the REAL verifier result from the fixture (isolated DB builds the protected
 // pair; the comparisons themselves never touch the DB).
 isolated('compatible payment re-verification (isolated DB only)', () => {
@@ -503,11 +503,11 @@ isolated('compatible payment re-verification (isolated DB only)', () => {
   })
 })
 
-// Final-review I2: the re-verification gate compares BOTH wallet roles under
+// The re-verification gate compares BOTH wallet roles under
 // their independently bound scopes — nested ESCROW verifier facts are as
 // binding as top-level REWARDS facts. Closed safe result shapes only; the
 // comparisons never touch the DB.
-describe('compatible payment re-verification covers both wallet roles (final-review I2)', () => {
+describe('compatible payment re-verification covers both wallet roles', () => {
   const REWARDS_SCOPE = { network: 'STAGENET', walletAddress: '5RewardsGateWallet' }
   const ESCROW_WALLET = '5EscrowGateWallet'
   const ESCROW_SCOPE = { network: 'STAGENET', walletAddress: ESCROW_WALLET }

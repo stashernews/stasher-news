@@ -1,13 +1,13 @@
 /* eslint-env jest */
 
 // Isolated-DB integration tests for confirmed bounty-arrival attribution and
-// the bounded cursor-miss recovery pass (Task 4, rewards accounting repair §4).
+// the bounded cursor-miss recovery pass.
 //
 // The rewards hot wallet books bounty revenue ONLY from a verified incoming
 // output on the platform rewards wallet that matches the frozen escrow
-// settlement on BountyPayment (Task 3): the exact settlement tx hash (txHash,
+// settlement on BountyPayment: the exact settlement tx hash (txHash,
 // or feeTxHash for a legacy separate fee), the frozen destination, and the
-// captured net amount. Relay/funding write no cash row (Tasks 2/3) — these
+// captured net amount. Relay/funding write no cash row — these
 // receipts are the only new bounty revenue rows.
 //
 // Runs only in the dedicated isolated runner (DATABASE_URL pathname

@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Schema-presence test for the StasherNews baseline (Task 1).
+// Schema-presence test for the StasherNews baseline.
 // Inspects the *generated* Prisma client DMMF metadata, so it only requires
 // `prisma generate` — no live database connection is made.
 //
@@ -85,14 +85,14 @@ test('Item has the StasherNews posting-fee columns (subaddress columns dropped)'
   for (const c of ['feeStatus', 'feePayInId', 'feePayIn', 'observedTips', 'observedDownvotes']) {
     expect(fields).toContain(c)
   }
-  // dead pre-registered-subaddress columns and relation removed in Task 5
+  // dead pre-registered-subaddress columns and relation removed
   for (const removed of ['subaddressIndexMajor', 'subaddressIndexMinor', 'subaddress', 'moneroAccountId', 'moneroAccount', 'subaddresses']) {
     expect(fields).not.toContain(removed)
   }
 })
 
 // Regression guard: the `moneroAccount` back-relation was dropped from Item
-// along with the scalar `moneroAccountId` (Task 5), so it is asserted absent.
+// along with the scalar `moneroAccountId`, so it is asserted absent.
 // The surviving Monero back-relations are asserted via DMMF `kind` as relation
 // fields, so a dropped/renamed relation is caught going forward.
 const relationFieldsOf = (modelName) => {
@@ -105,7 +105,7 @@ test('Item exposes its Monero back-relations as relation fields', () => {
   for (const r of ['observedTips', 'observedDownvotes']) {
     expect(rels).toContain(r)
   }
-  // PostSubaddress back-relation removed in Task 5
+  // PostSubaddress back-relation removed
   for (const removed of ['moneroAccount', 'subaddresses']) {
     expect(rels).not.toContain(removed)
   }
@@ -135,7 +135,7 @@ test('PayInType and PayInState enums are reduced to the StasherNews set', () => 
     'TERRITORY_UNARCHIVE', 'TERRITORY_UPDATE', 'TIP'
   ])
   // PAID is restored for the SN payIn engine (piconeros=0 / completed actions use
-  // payInState='PAID'); it was a Phase 0 reconciliation gap to drop it.
+  // payInState='PAID'); dropping it was a gap.
   expect(valuesOf('PayInState').sort()).toEqual(['CONFIRMED', 'DETECTED', 'FAILED', 'PAID', 'PENDING_PAYMENT'])
 })
 
@@ -206,7 +206,7 @@ test('User badge settings use the re-themed names (hideBadges/noteBadges)', () =
   }
 })
 
-test('Item has the A-13 bounty lifecycle columns and relations', () => {
+test('Item has the bounty lifecycle columns and relations', () => {
   const fields = fieldsOf('Item')
   for (const c of ['bountyPiconeros', 'bountyStatus', 'bountyConfirmedAt', 'bountyPayments', 'observedBounties']) {
     expect(fields).toContain(c)
@@ -219,7 +219,7 @@ test('Item has the A-13 bounty lifecycle columns and relations', () => {
   expect(status.default).toBe('UNFUNDED')
 })
 
-test('A-13 bounty enums and PostType.BOUNTY are in the DMMF', () => {
+test('Bounty enums and PostType.BOUNTY are in the DMMF', () => {
   expect(valuesOf('PostType')).toContain('BOUNTY')
   expect(valuesOf('BountyStatus').sort()).toEqual([
     'AWARDED', 'DETECTED', 'EXPIRED', 'FUNDED', 'PENDING_FUNDING',
@@ -232,7 +232,7 @@ test('A-13 bounty enums and PostType.BOUNTY are in the DMMF', () => {
   }
 })
 
-test('PlatformFeeConfig has the A-13 bounty fee fields', () => {
+test('PlatformFeeConfig has the bounty fee fields', () => {
   const fields = allModels.find(m => m.name === 'PlatformFeeConfig').fields
   const byName = Object.fromEntries(fields.map(f => [f.name, f]))
   expect(byName.bountyFeeMinPiconeros.type).toBe('BigInt')
@@ -273,7 +273,7 @@ test('StreakReward ledger exists with typed per-reward expiry and provenance', (
   expect(modelNames).toContain('StreakReward')
   const fields = fieldsOf('StreakReward')
   ;['userId', 'streakId', 'type', 'grantedAt', 'expiresAt', 'consumedAt', 'itemId'].forEach(f => expect(fields).toContain(f))
-  // BOOST joins the ledger (spec 2026-10-05-quest-rebalance-boost-credit):
+  // BOOST joins the ledger:
   // the day-5 flame reward credit, redeemed as a promo ranking boost.
   expect(valuesOf('StreakRewardType').sort()).toEqual(['BOOST', 'POST', 'REPLY', 'TURF_DISCOUNT'])
   expect(modelNames).toContain('QuestCompletion')

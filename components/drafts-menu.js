@@ -3,11 +3,10 @@
 // each create form; an instance with no Form ancestor renders list-only
 // (no formik -> no save half). The list is cross-type;
 // opening a draft navigates to the draft's OWN form route on the ROOT /post
-// path with ?draft=<id> (see the cross-type contract in the drafts plan).
+// path with ?draft=<id>.
 // Explicit save only — no autosave in v1.
 //
-// Visual layer: styles/drafts-menu.module.css, mirroring the approved mockup
-// (docs/superpowers/specs/2026-09-22-drafts-ui-mockups.html). The custom
+// Visual layer: styles/drafts-menu.module.css. The custom
 // toggles render their own ▾ glyph + count because the app hides Bootstrap's
 // .dropdown-toggle::after globally (styles/globals.scss).
 import { forwardRef, useEffect, useRef } from 'react'
@@ -33,7 +32,7 @@ import styles from '@/styles/drafts-menu.module.css'
 // /post (never a turf-scoped path — defaultPostType would override the type).
 const TYPE_QUERY = { DISCUSSION: 'discussion', LINK: 'link', BOUNTY: 'bounty', POLL: 'poll' }
 
-// row icon tile glyphs, per the mockup
+// row icon tile glyphs
 const TYPE_ICON = { DISCUSSION: '✎', LINK: '🔗', BOUNTY: '◎', POLL: '▤' }
 
 const MB = 1024 * 1024

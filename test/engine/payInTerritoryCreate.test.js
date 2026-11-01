@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Engine-level regression for the StasherNews payIn engine (Tasks 1-4).
+// Engine-level regression for the StasherNews payIn engine.
 //
 // TERRITORY_CREATE is an piconeros:0 fee payIn: getInitial builds a rewards-wallet
 // fee URI (no custodial sats), begin() -> payInCreate() yields payInState=PAID,

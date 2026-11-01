@@ -1,4 +1,4 @@
-// Separately encrypted TX-proof master-key registry escrow (Finding #1, Task 8).
+// Separately encrypted TX-proof master-key registry escrow.
 //
 //   npx tsx --tsconfig jsconfig.json scripts/backup-payment-proof-keys.js
 //
@@ -94,7 +94,7 @@ async function waitForExit (child) {
   }
 }
 
-// Complete-write helper (final-review M4): writeSync may perform a SHORT
+// Complete-write helper: writeSync may perform a SHORT
 // write — loop until the whole ciphertext is on disk.
 function writeAllSync (fd, buffer) {
   let written = 0
@@ -103,9 +103,9 @@ function writeAllSync (fd, buffer) {
   }
 }
 
-// The gpg child never runs unbounded (final-review M4).
+// The gpg child never runs unbounded.
 const GPG_TIMEOUT_MS = 30_000
-// Minimal inherited environment for the gpg child (final-review M4): ambient
+// Minimal inherited environment for the gpg child: ambient
 // secrets (credentials, key material, loader exports) never reach the crypto
 // process; gpg needs only PATH/HOME to locate its binary and keyring.
 const gpgChildEnv = env => {
@@ -192,8 +192,8 @@ export async function backupPaymentProofRegistry (seams = {}) {
     // The document reaches gpg ONLY via stdin; stderr is drained, never read
     // into any output; the ciphertext (stdout bytes) is the ONLY thing ever
     // written to disk. Stream completion AND the process exit are both
-    // awaited before anything is published. The child's lifetime is BOUNDED
-    // (final-review M4): a hung gpg is killed and the run fails instead of
+    // awaited before anything is published. The child's lifetime is BOUNDED:
+    // a hung gpg is killed and the run fails instead of
     // blocking the operator forever. The child inherits only the minimal env
     // gpg needs (PATH, HOME, GPG_*/LOCALE overrides never cross the
     // boundary) so ambient secrets cannot leak into the crypto process.

@@ -1,8 +1,8 @@
-// Territory fee math (spec §6.2). Pure (no Prisma, no lexical) so it is
+// Territory fee math. Pure (no Prisma, no lexical) so it is
 // unit-testable. The territory payIn types consume this to build the rewards-wallet
 // fee URI; the rewardsWalletObserver observes the fee and flips Sub.billingStatus to PAID.
 //
-// §6.2: monthly 0.02 XMR (2e10 piconeros), yearly 0.2 XMR (2e11), once 1 XMR (1e12).
+// Fee schedule: monthly 0.02 XMR (2e10 piconeros), yearly 0.2 XMR (2e11), once 1 XMR (1e12).
 
 import { buildMoneroUri } from '@/api/monero/uri'
 import { moneroUriAddress, moneroUriAmountPiconeros } from '@/lib/format'
@@ -22,7 +22,7 @@ export function territoryFeePiconeros (billingType, config) {
   return fn(config)
 }
 
-/** Apply the held quest-streak discount to a territory fee (spec §2.4 day 7).
+/** Apply the held quest-streak discount to a territory fee.
  * Floors to whole piconeros and never makes the fee negative. */
 export function discountedTerritoryFee (feePiconeros, discountHeld) {
   if (!discountHeld || feePiconeros <= 0n) return feePiconeros

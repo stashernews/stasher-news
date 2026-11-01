@@ -11,20 +11,20 @@ import { maybeGrantVerifiedBadge } from '@/api/verifiedBadge'
 import { recheckDetectedTip } from '@/api/monero/selfTip'
 import { alert } from '@/lib/alert'
 
-// confirmFinalizer — matures provisional tips (Task 7 / spec §5.5, Q5).
+// confirmFinalizer — matures provisional tips.
 //
 // moneroIndexer records each observed tip as DETECTED the moment lws first
-// reports it (0-conf), and applyTipDetected (Task 5) has ALREADY bumped the
+// reports it (0-conf), and applyTipDetected has ALREADY bumped the
 // post's ranking columns at that point — DETECTED credit is provisional. A
 // tip becomes final once it is buried under REQUIRED_CONFIRMATIONS (10) blocks
-// (spec Q7: Monero reorgs are shallow, so 10 confs is effectively final).
+// (Monero reorgs are shallow, so 10 confs is effectively final).
 //
 // This job is the counterpart that flips the mature ones DETECTED -> CONFIRMED.
 // It reads the current chain height from monerod (get_info) ONCE per run (one
 // daemon call per run — never per tip), scans DETECTED ObservedTips
 // whose height is set (mempool tips have height == null and cannot be
 // confirmed yet), and for each mature tip flips state and bumps the author's
-// stackedPiconeros lifetime-received denorm (spec Q5: stackedPiconeros = sum
+// stackedPiconeros lifetime-received denorm (stackedPiconeros = sum
 // of CONFIRMED ObservedTip.piconeros, mirroring SN's stackedMsats).
 //
 // NULL-height backstop: a tip detected at 0-conf (daemon level) is left
@@ -251,9 +251,9 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
   // Fee observations (rewardsWalletObserver): mature DETECTED fee
   // observations to CONFIRMED at the same confirmation threshold. The gated
   // Item/Sub already went live on DETECTION; CONFIRMED just finalizes the ledger
-  // row so Phase 4's rewardsDistributor can sum paid fees per period. The linked
+  // row so the rewardsDistributor can sum paid fees per period. The linked
   // PayIn's own state is left untouched (it is the ITEM_CREATE bookkeeping state).
-  // Wallet-receipt eligibility is required (rewards accounting repair §3.2): an
+  // Wallet-receipt eligibility is required: an
   // ineligible legacy accrual row (walletReceipt = false) is historical evidence,
   // not cash, and must never be matured into a hot-wallet consumer sum.
   const fees = await models.feeObservation.findMany({
@@ -322,7 +322,7 @@ export async function runConfirmFinalizerOnce ({ models, daemonClient: client = 
     })
   }
 
-  // ObservedBounty (A-13) — TRUE backstop for a missed webhook CONFIRMED
+  // ObservedBounty — TRUE backstop for a missed webhook CONFIRMED
   // callback. The pid-map gate bug (item 2808) stranded the first real funding
   // at DETECTED: the 0-conf callback consumed the pid map, so every later
   // callback (including the N-conf CONFIRMED one that runs driveBountyFunding)
@@ -469,7 +469,7 @@ export async function backfillNullBountyHeights ({ models, lws, bounties }) {
 // row on it, matched by txHash. Still-mempool txs (height null on lws too) are
 // left untouched and retry next run. Mirrors backfillNullBountyHeights.
 // The downvote height resolution runs through applyDownvoteTransition, which
-// owns the ranking penalty on that NULL->height transition (Task 13) — a row
+// owns the ranking penalty on that NULL->height transition — a row
 // already transitioned by the webhook/observer CAS is a no-op here.
 // FeeObservation heights remain a plain ledger backfill (no ranking effect).
 export async function backfillNullObservationHeights ({ models, lws, downvotes, fees }) {

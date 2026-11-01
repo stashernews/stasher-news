@@ -3,7 +3,7 @@ import { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 
 // opsSweep — one-shot delayed cold-storage sweep of the rewards-wallet ops
-// earmark (2026-09-14 A′ decoupling).
+// earmark (2026-09-14 decoupling).
 //
 // Enqueued by the rewardsDistributor handler with startAfter = 1h once the
 // distribution is COMPLETE. The sweep used to run inline seconds after the
@@ -16,7 +16,7 @@ import { alert } from '@/lib/alert'
 // forward via opsRolledOverPiconeros, so a skipped tick costs nothing and the
 // next weekly distribution re-enqueues.
 //
-// The sweep itself is the fund-safety boundary (Task 9 / sweepOpsEarmark): it
+// The sweep itself is the fund-safety boundary (sweepOpsEarmark): it
 // reconciles the journal, bounds the spend by the ledger facts (ALL outstanding
 // rewards, the next rewards pool, the standing fee reserve) plus each tx's real
 // network fee, and returns FAILED with its own specific CRITICAL accounting

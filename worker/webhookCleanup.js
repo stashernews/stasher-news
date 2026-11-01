@@ -1,6 +1,6 @@
 import { lwsClient } from '@/api/monero/lwsClient'
 
-// webhookCleanup — sweep orphaned lws tx-confirmation webhooks (Phase 5).
+// webhookCleanup — sweep orphaned lws tx-confirmation webhooks.
 //
 // Each initiateTip registers a lws webhook. The receiver deletes it at CONFIRMED, but
 // (a) that deleteWebhook is best-effort, and (b) confirmFinalizer's safety-net CONFIRMED
@@ -15,7 +15,7 @@ import { lwsClient } from '@/api/monero/lwsClient'
 // webhook_list response shape.
 //
 // Downvote webhooks are swept off the DownvotePidMap, not an Observed* table: the event id
-// is registered at downvote ISSUANCE (Task 3), before any ObservedDownvote row exists (the
+// is registered at downvote ISSUANCE, before any ObservedDownvote row exists (the
 // row is only created at 0-conf detection). The id leaks permanently on lws in three paths:
 //   (1) a never-paid downvote — the map expires after 24h but the webhook stays registered;
 //   (2) the receiver's best-effort deleteWebhook at CONFIRMED fails;

@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Unit tests for the rewards-phase timing helper (Finding 3). The 2026-10-12
+// Unit tests for the rewards-phase timing helper. The 2026-10-12
 // distribution outran pg-boss's execution budget while running to completion;
 // these start/finish lines make slow-but-legitimate phases distinguishable from
 // hangs without ever touching money effects: the helper always invokes the

@@ -29,7 +29,7 @@ import {
   verifiedRepairFixture
 } from '@/test/fixtures/rewards-payment-verification'
 
-// Synthetic manifest tests (rewards accounting repair §8, Task 12). Pure: no
+// Synthetic manifest tests. Pure: no
 // DB, no wallet, no daemon. The fixture's exact money story is documented in
 // test/fixtures/rewards-accounting-evidence.js.
 
@@ -37,8 +37,8 @@ const clone = value => structuredClone(value)
 const codesOf = manifest => manifest.issues.map(issue => issue.code)
 const approve = () => withApprovedIncomingClassification(syntheticRewardsEvidence())
 
-// The pre-proof-era synthetic story under strict recorded-outflow coverage
-// (final-review I1): its SENT/CONFIRMED payout batch is covered only by a
+// The pre-proof-era synthetic story under strict recorded-outflow coverage:
+// its SENT/CONFIRMED payout batch is covered only by a
 // RELAYED journal row and its escrow legs only by confirmed escrow history —
 // operational relay history, never complete-payment proofs — so the strict
 // audit names each recorded fact instead of silently passing. Totals,
@@ -151,7 +151,7 @@ describe('synthetic fixture money story', () => {
     })
   })
 
-  // Final-review Important regression: the schema migration marks identified
+  // Regression: the schema migration marks identified
   // funding accruals walletReceipt=false BEFORE the repair manifest runs. The
   // historical distribution snapshot still carries their phantom ops
   // contribution, so the manifest must reconstruct (from the mandated funding
@@ -213,7 +213,7 @@ describe('synthetic fixture money story', () => {
     expect(regenerated.operations.filter(operation => operation.table === 'RewardDistribution')).toEqual([])
   })
 
-  // Final-review Important regression: signed ops debt is a contractual value.
+  // Regression: signed ops debt is a contractual value.
   // A negative snapshot propagates into the next distribution's carry and later
   // income repays it; none of it is malformed evidence or stale uncertainty.
   test('signed ops debt propagates and is repaid by later income without stale uncertainty', () => {
@@ -1102,7 +1102,7 @@ describe('decision provenance and shared fingerprint', () => {
   test('the manifest ledger fingerprint is the shared v2 audit identity, not the union digest', () => {
     const input = withApprovedIncomingClassification(syntheticRewardsEvidence())
     const manifest = buildRewardsReconciliation(input)
-    // v2 manifests bind the Task 1 audit fingerprint over the snapshot input;
+    // v2 manifests bind the shared audit fingerprint over the snapshot input;
     // the money-union digest is no longer an accounting authority.
     expect(manifest.ledgerFingerprint).toBe(accountingAuditFingerprint({
       scope: input.scope, ledger: input.ledger, config: input.config, reserve: input.reserve
@@ -1175,7 +1175,7 @@ describe('canonical manifest digest', () => {
 })
 
 // =============================================================================
-// v2 repair preconditions (rewards reconciliation Task 2): readRepairLedger
+// v2 repair preconditions: readRepairLedger
 // delegates to the ONE shared audit snapshot (same selects, scope proof and
 // receipt visibility as the audit), and the apply preconditions verify the
 // fresh read IS a current v2 snapshot read while the protected reward
@@ -1263,7 +1263,7 @@ describe('v2 repair preconditions', () => {
     expect(ledger.earns).toEqual(f.ledger.earns)
   })
 
-  test('the repair read keeps the COMPLETE audited receipt group (final-review I3)', async () => {
+  test('the repair read keeps the COMPLETE audited receipt group', async () => {
     // A metadata-only row (no chain hash, no positive material amount) is not
     // an observable monetary row: it is excluded from the builder's monetary
     // working set but RETAINED in the repair read — the shared snapshot is the
@@ -1332,7 +1332,7 @@ describe('v2 repair preconditions', () => {
     bridge: { pendingIncoming: [], pendingOutgoing: [] }
   })
 
-  test('builder, CHECK and APPLY fingerprint the FULL snapshot identity (final-review I3)', async () => {
+  test('builder, CHECK and APPLY fingerprint the FULL snapshot identity', async () => {
     const { f, models } = metadataRowLedger()
     const ledger = await readRepairLedger(models, f.scope)
     const manifest = buildRewardsReconciliation({
@@ -1397,7 +1397,7 @@ describe('v2 repair preconditions', () => {
     ['delete', f => {
       f.ledger.receipts = f.ledger.receipts.filter(candidate => candidate.id !== 109n)
     }]
-  ])('a %s of a zero/hashless receipt row moves the shared identity and refuses the apply (final-review I3)',
+  ])('a %s of a zero/hashless receipt row moves the shared identity and refuses the apply',
     async (_label, mutate) => {
       const approved = metadataRowLedger()
       const approvedLedger = await readRepairLedger(approved.models, approved.f.scope)
@@ -1425,7 +1425,7 @@ describe('v2 repair preconditions', () => {
         .toThrow(/changed since the manifest was approved/)
     })
 
-  test('raw-formed malformed amounts keep the RAW visibility rule (final-review B2)', async () => {
+  test('raw-formed malformed amounts keep the RAW visibility rule', async () => {
     // A raw `7`, `'07'` or `'+7'` is NOT an observable monetary row under the
     // shared raw rule — even though the normalizer can read every form. The
     // monetary working set follows the RAW classification; the FULL snapshot
@@ -1579,7 +1579,7 @@ describe('v2 evidence authorization (pure)', () => {
   test('the pre-proof-era synthetic story never promotes a relay on its own', () => {
     const manifest = buildRewardsReconciliation(approve())
     // Strict recorded-outflow coverage names the story's journal-only payout
-    // batch and history-only escrow legs (final-review I1); it never
+    // batch and history-only escrow legs; it never
     // fabricates a promotion or a complete proof for them.
     expect(codesOf(manifest)).toEqual(STORY_CODES)
     expect(manifest.operations.some(op => op.relayProof !== undefined)).toBe(false)
@@ -1596,7 +1596,7 @@ describe('v2 evidence authorization (pure)', () => {
 })
 
 // =============================================================================
-// Reverse recorded-outflow coverage (rewards reconciliation Task 4): every
+// Reverse recorded-outflow coverage: every
 // recorded payout/sweep/escrow leg is proved row-first against journal +
 // chain evidence or a complete verification — independent of any drift
 // computation (no aggregate-drift guard). Journal-less historical inserts are
@@ -1666,10 +1666,10 @@ const withNetDrift = (drift, mutate = input => input) => {
   return input
 }
 
-describe('reverse recorded-outflow coverage through the manifest (Task 4)', () => {
-  // Final-review I1: the synthetic story's journal-only payout batch and
-  // history-only escrow legs are individually named through the manifest —
-  // never silently covered by relay history.
+describe('reverse recorded-outflow coverage through the manifest', () => {
+  // The synthetic story's journal-only payout batch and history-only escrow
+  // legs are individually named through the manifest — never silently covered
+  // by relay history.
   test('the synthetic story names every journal-only payout and history-only escrow leg', () => {
     const manifest = buildRewardsReconciliation(approve())
     expect(manifest.issues).toEqual([
@@ -1734,7 +1734,7 @@ describe('reverse recorded-outflow coverage through the manifest (Task 4)', () =
     expect(manifest.operations.filter(op => op.txHash === OUTFLOW_HASH)).toEqual([])
   })
 
-  // Plan Task 4 Step 4: a MISSING fee is a named issue even while the net
+  // A MISSING fee is a named issue even while the net
   // drift is zero — the balance offset never absorbs a fee-specific gap.
   test('a missing fee stays named while the net drift is zero', () => {
     const input = withNetDrift('0', base => {
@@ -2036,8 +2036,8 @@ describe('escrow recorded-source coherence through the builder (fix round 4)', (
   })
 })
 
-describe('legacy complete-payment backfill (Task 4)', () => {
-  // The journal-less legacy payout candidate from the Task 3 fixture: real
+describe('legacy complete-payment backfill', () => {
+  // The journal-less legacy payout candidate from the shared fixture: real
   // verifier over the fake chain with an in-memory surviving key provider —
   // no proof-store row exists or is created anywhere.
   const legacyBackfillInput = async () => {
@@ -2182,7 +2182,7 @@ describe('legacy complete-payment backfill (Task 4)', () => {
 
     // The collector's own ESCROW verifications cover EVERY leg through the
     // manifest flow: normalization projects them, and the reverse check binds
-    // them instead of naming the legs (final-review I1: complete verifications
+    // them instead of naming the legs (complete verifications
     // are the only escrow-leg coverage).
     input.evidence.evidenceVersion = 2
     input.evidence.escrow.paymentVerifications = [
@@ -2202,7 +2202,7 @@ describe('legacy complete-payment backfill (Task 4)', () => {
     ]
     const covered = buildRewardsReconciliation(input)
     expect(codesOf(covered)).not.toContain('RECORDED_ESCROW_LEG_EVIDENCE_MISSING')
-    // Final-review I1 rounds 2-3: a validator-valid complete verification
+    // A validator-valid complete verification
     // paying a DIFFERENT recipient (whatever its member id) does not carry the
     // recorded leg member — the leg stays named through the manifest flow.
     const wrongRecipient = structuredClone(input)

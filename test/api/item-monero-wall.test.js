@@ -21,7 +21,7 @@ jest.mock('../../lib/lexical/server/html', () => ({
   lexicalHTMLGenerator: async () => ''
 }))
 
-// applyItemUpdate (Task 3 invalidation tests below) statically imports the
+// applyItemUpdate (invalidation tests below) statically imports the
 // ESM-only lexical mentions chain and queries text-derived relations; stub the
 // same boundaries test/engine/payInItemUpdate.test.js stubs.
 jest.mock('../../lib/lexical/server/mentions', () => ({
@@ -181,7 +181,7 @@ test('imgproxyUrls: non-walled items pass through untouched', async () => {
   expect(urls).toBe(item.imgproxyUrls)
 })
 
-// exact whole-token matching (final review, regraded Important): substring
+// exact whole-token matching: substring
 // matching kept a below-wall key whenever the teaser contained that URL as a
 // PREFIX of a longer teaser URL (/uploads/202 vs /uploads/2023) — a leak on a
 // security gate. Matching now requires the URL as a whole token in the teaser
@@ -580,7 +580,7 @@ describe('assertMoneroWallWrite: coversComments (create-time only, needs a wall)
   })
 })
 
-// --- Review findings (2026-10-14): the long tail of content-bearing fields ---
+// --- The long tail of content-bearing fields (2026-10-14) ---
 
 test('imgproxyUrls: locked viewer gets no derivatives for a walled-discussion comment', async () => {
   const item = comment({ imgproxyUrls: { 'https://media.test/1.png': { '640w': '/sig/1' } } })
@@ -622,7 +622,7 @@ test('addendum: comments under post-only walls keep their addendum public', asyn
   expect(await addendumResolvers.Item.addendumText(item, {}, ctx)).toBe('post-window bonus content')
 })
 
-// --- Second-pass review findings: xPreview + fail-open alignment ---
+// --- xPreview + fail-open alignment ---
 
 test('xPreview: locked viewer gets no preview for a walled-discussion comment', async () => {
   const item = comment({ xPreview: { statusUrl: 'https://x.com/a/status/1', text: 'secret tweet', publicSource: true, sourceUrl: 'https://x.com/a/status/1' } })

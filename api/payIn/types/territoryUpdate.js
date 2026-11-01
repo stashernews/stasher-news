@@ -37,7 +37,7 @@ export async function getInitial (models, { oldName, billingType, uploadIds = []
 
   // cadence switch to a longer/once plan: charge the FULL new fee on-chain at the
   // switch; the new period starts at the end of the current paid coverage so the
-  // remaining days are never double-charged (spec §4b).
+  // remaining days are never double-charged.
   const cadenceFee = needsCadenceFee(oldSub, billingType)
   if (cadenceFee) {
     const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })

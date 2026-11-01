@@ -1,4 +1,4 @@
-// Posting-fee quota + fee math (spec §6.2, Q5; rev 3 flat quotas).
+// Posting-fee quota + fee math.
 //
 // Every registered user gets the SAME quota: 1 free reply per WEEK (Monday
 // 00:00 UTC windows, alongside the weekly rewards distribution) and 1 free
@@ -46,7 +46,7 @@ export function commentFeePiconeros (config) {
   return config.commentFeePiconeros
 }
 
-/** Weekly free-reply quota: flat one tier (spec rev 3). Quest rewards bank
+/** Weekly free-reply quota: flat one tier. Quest rewards bank
  * StreakReward REPLY rows instead of extending this. */
 export function freeCommentsQuota (user, config) {
   if (!user) return 0

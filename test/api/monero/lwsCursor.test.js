@@ -1,7 +1,6 @@
 /* eslint-env jest */
 
-// Contract tests for the portable lws cursor rules (spec §3,
-// docs/superpowers/specs/2026-10-23-lws-v1-adoption-design.md).
+// Contract tests for the portable lws cursor rules.
 //
 // monero-lws v1.0.4 /get_address_txs serializes transaction `id` as the
 // response-position index and appends mempool rows after mined rows. The

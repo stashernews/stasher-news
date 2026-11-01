@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Integration test for the bounties lifecycle worker (A-13 Phase B):
+// Integration test for the bounties lifecycle worker:
 //   1. EXPIRY: FUNDED bounties past bountyExpiryDays (from bountyConfirmedAt)
 //      flip to EXPIRED (author can then reclaim or roll over).
 //   2. SEND: QUEUED BountyPayments are dispatched by the escrow signer
@@ -28,7 +28,7 @@ import { createPaymentProofKeyProvider } from '@/api/monero/paymentProofKeys'
 import { BOUNTY_UNDERPAY_ABANDON_DAYS } from '@/lib/constants'
 import { secretBundleHex } from '@/test/fixtures/payment-proof'
 
-// lib/alert and lib/logger are mocked: the Task 7 capture-barrier extension
+// lib/alert and lib/logger are mocked: the capture-barrier extension
 // below drives the REAL escrow signer, whose refused/uncertain dispatch paths
 // page ops — those pages are assertable side effects, never network calls.
 jest.mock('../../lib/alert', () => ({ alert: jest.fn() }))
@@ -479,9 +479,9 @@ test('a QUEUED payout with a stale feePendingAt is offered to the signer exactly
   expect(seen.filter(id => id === payout.id)).toHaveLength(1)
 })
 
-// --- Task 7 extension: the worker's send phase drives the REAL capture barrier.
+// --- Extension: the worker's send phase drives the REAL capture barrier.
 
-// Deterministic synthetic address helpers (throwaway, Task 1 style; scalar
+// Deterministic synthetic address helpers (throwaway; scalar
 // space 920+ stays clear of the api suites).
 const point = scalar => Buffer.from(ed25519.ExtendedPoint.BASE.multiply(BigInt(scalar)).toRawBytes()).toString('hex')
 const encodeStagenetPrimaryAddress = ({ spendKey, viewKey }) => {
@@ -539,7 +539,7 @@ function makeCaptureWallet ({ unlocked = 1_000_000_000_000_000n } = {}) {
         getOutgoingTransfer: () => ({ getDestinations: () => actual.map(d => ({ getAddress: () => d.address, getAmount: () => d.amount })) }),
         getChangeAddress: () => BARRIER_SCOPE_WALLET,
         getChangeAmount: () => destSum - BARRIER_NET_FEE,
-        // The SDK captures the SECRET-bundle STRING (final-review C1).
+        // The SDK captures the SECRET-bundle STRING.
         getKey: () => secretBundleHex(keySeed, 3)
       }
     })

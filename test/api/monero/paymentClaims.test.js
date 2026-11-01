@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Canonical payment-claims codec (Finding #1, Task 1): a closed PaymentClaimsV1
+// Canonical payment-claims codec: a closed PaymentClaimsV1
 // union with exact canonical serialization, receiving-identity aggregation and
 // binding digests. The claims commit to the payment's immutable structure —
 // never to mutable state (dates, attempts, dispatch bookkeeping).
@@ -448,7 +448,7 @@ describe('fixtures: paymentTxFixture', () => {
     expect(destinations.map(d => d.getAmount())).toEqual([40n, 20n])
     expect(tx.getChangeAddress()).toBe(claims.change.address)
     expect(tx.getChangeAmount()).toBe(33n)
-    // The SDK's getKey() is the SECRET-bundle STRING (final-review C1):
+    // The SDK's getKey() is the SECRET-bundle STRING:
     // main secret + one additional secret per output, little-endian hex.
     expect(typeof tx.getKey()).toBe('string')
     expect(tx.getKey()).toBe(tx.keyBundleHex)

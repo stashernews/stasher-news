@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Strict tx-extra / key-structure module (Finding #1, Task 4).
+// Strict tx-extra / key-structure module.
 //
 // These tests pin the ordered parser and the sender/receiver one-time-key
 // arithmetic against the deterministic synthetic fixture facts: every point
@@ -261,7 +261,7 @@ describe('parseKeyBundleHex / bundlePublicKeys', () => {
   })
 
   test('the fixture keyBundleHex is a valid SECRET bundle whose slots correspond to the raw tx keys', () => {
-    // Final-review C1: the captured bundle is the SDK's little-endian SECRET
+    // The captured bundle is the SDK's little-endian SECRET
     // scalars (main + one per output). The fixture derives the tx public key
     // slots from those very secrets — main r*G, standard slots r_i*G, the
     // subaddress slot r_i*B — so the kind-aware correspondence holds exactly.

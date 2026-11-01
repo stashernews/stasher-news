@@ -68,7 +68,7 @@ export function CardMedia ({ item, onClick }) {
   const nextRef = useRef()
   const previews = useMemo(() => {
     // Monerowall: media embedded in the locked portion is hidden from rendered
-    // output (spec 2026-09-18). `locked` is viewer-relative, so the author,
+    // output. `locked` is viewer-relative, so the author,
     // entitled viewers, and publicly unlocked posts still get the preview.
     if (item?.moneroWall?.locked) return []
     return pickUploadKeys(item?.imgproxyUrls, item?.url, item?.text)

@@ -28,7 +28,7 @@ const PRESETS = [
   10_000_000_000 // 0.01 XMR
 ]
 
-// StealthNews downvote modal (spec §6.9).
+// StealthNews downvote modal.
 //
 // A downvote pays a fee-sized Monero amount to the platform rewards wallet via
 // an integrated address. `act('DONT_LIKE_THIS')` calls pay('DOWN_ZAP'), which —

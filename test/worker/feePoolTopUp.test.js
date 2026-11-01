@@ -1,12 +1,12 @@
 /* eslint-env jest */
 
-// Integration tests for fee-pool top-up decision + orchestration (spec §5.6).
+// Integration tests for fee-pool top-up decision + orchestration.
 //
 // feePoolLevels is exercised against the live DB with an explicit accountId.
 // topUpFeePoolIfLow receives an injectable `derive` mock so the orchestration
 // (threshold check, batch target computation, per-major dispatch, in-progress
 // guard) is tested without monero-ts or the network. The real extendFeePool is
-// covered indirectly by the manual script (Task 2) and is a monero-ts
+// covered indirectly by the manual script and is a monero-ts
 // integration concern, not unit-tested here.
 
 import { PrismaClient } from '@prisma/client'

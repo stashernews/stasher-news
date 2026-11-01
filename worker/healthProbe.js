@@ -111,7 +111,7 @@ export async function runHealthProbeOnce ({
   return { lwsOk, monerodOk, height, stalled }
 }
 
-// The pgboss expiry monitor seam (Finding 3). The worker's jobWrapper spreads
+// The pgboss expiry monitor seam. The worker's jobWrapper spreads
 // `args` (incl. `models`) into the job payload, so production supplies models
 // and the default seam runs the module-singleton scan. Unit/CLI call sites
 // without models skip the scan; tests inject their own monitorJobs.

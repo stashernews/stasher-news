@@ -1,5 +1,5 @@
 /* eslint-env jest */
-// Real-DB test for quest completion derivation (spec §4.2). Seeds actions and
+// Real-DB test for quest completion derivation. Seeds actions and
 // asserts each check against the day window. Cleans up after itself.
 import { PrismaClient } from '@prisma/client'
 import { resolveDraw } from '@/api/quests/draw'

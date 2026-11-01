@@ -31,8 +31,8 @@ jest.mock(`${process.cwd()}/lib/logger`, () => ({
   logError: jest.fn()
 }))
 
-// Isolated real-DB tests for the escrow capture barrier and reconciliation
-// (Finding #1, Task 7). Every bounty escrow dispatch — the combined
+// Isolated real-DB tests for the escrow capture barrier and reconciliation.
+// Every bounty escrow dispatch — the combined
 // disposition tx (AWARD/RECLAIM prize + fee, or the single net output for
 // ROLLOVER / fee-waived refunds) and the legacy separate-fee retry — follows
 // the same boundary: build(relay:false) -> extract the ACTUAL settlement from
@@ -45,7 +45,7 @@ jest.mock(`${process.cwd()}/lib/logger`, () => ({
 // durable dispatch (attempted, unattempted, or RELAYED) withholds that exact
 // bountyPaymentId+leg on every later drive.
 //
-// Real Task 2 crypto, real store rows, real BountyPayment/Item/User rows; the
+// Real seal/open crypto, real store rows, real BountyPayment/Item/User rows; the
 // wallet is a capture-grade fake. Runs ONLY via the guarded isolated runner.
 // Local helpers only (R6): no shared test modules.
 
@@ -53,7 +53,7 @@ const ISOLATED_DB = (() => {
   try { return new URL(process.env.DATABASE_URL).pathname === '/stasher_rewards_repair_test' } catch { return false }
 })()
 
-// --- deterministic synthetic address/point helpers (throwaway, Task 1 style)
+// --- deterministic synthetic address/point helpers (throwaway style)
 // Scalar space starts at 900 to stay clear of the shared fixture scalars and
 // the rewards barrier suite's 100s/300s/400s/70s.
 
@@ -78,8 +78,7 @@ const leHex = value => {
 }
 // Real one-time-key arithmetic for one built escrow tx: external vouts via
 // the sender path against the recipients' PUBLIC keys, the change vout via
-// the receiver a*R path against the escrow wallet's own spend key
-// (final-review C1/I1/I2).
+// the receiver a*R path against the escrow wallet's own spend key.
 function escrowDerivedKeys ({ destinations, changeAddress, scalarBase, hotViewScalar, hotSpendPoint }) {
   const decoded = destinations.map(d => decodeReceivingIdentity(d.address, 'STAGENET'))
   const slots = destinations.length + (changeAddress ? 1 : 0)
@@ -244,7 +243,7 @@ function escrowDerivedKeys ({ destinations, changeAddress, scalarBase, hotViewSc
             : { getDestinations: () => actual.map(d => ({ getAddress: () => d.address, getAmount: () => d.amount })) }),
           getChangeAddress: () => WADDR,
           getChangeAmount: () => destSum - netFee,
-          // The SDK captures the SECRET-bundle STRING (final-review C1);
+          // The SDK captures the SECRET-bundle STRING;
           // populated public facts ride the optional getters.
           getKey: () => keys.mainSecretHex + keys.additionalSecretHexes.join(''),
           getMainPublicKey: () => keys.mainPublicKey,
@@ -390,7 +389,7 @@ function escrowDerivedKeys ({ destinations, changeAddress, scalarBase, hotViewSc
       additionalPublicKeys: [...keys.additionalPublicKeys]
     }
     // The coinbase source output is wallet-owned: derive it on the receiver
-    // a*R path under its own main tx key (final-review I2 enumeration).
+    // a*R path under its own main tx key.
     const sourceMainKey = senderPublicPart(70n, null)
     const sourceVout = oneTimeOutputKey({
       publicKey: sourceMainKey,
@@ -452,7 +451,7 @@ function escrowDerivedKeys ({ destinations, changeAddress, scalarBase, hotViewSc
       getAccounts: jest.fn(async () => [0, 1, 2, 3, 4, 5].map(index => ({ getIndex: () => index }))),
       getPrimaryAddress: jest.fn(async () => WADDR),
       getNetworkType: jest.fn(async () => 2),
-      // Raw-ownership enumeration seams (final-review I2).
+      // Raw-ownership enumeration seams.
       getPrivateViewKey: jest.fn(async () => leHex(2n * 900n + 1n)),
       getAddress: jest.fn(async (majorIndex, minorIndex) =>
         majorIndex === 0 && minorIndex === 0 ? WADDR : makeAddress(950n + BigInt(majorIndex))),
@@ -1082,7 +1081,7 @@ function escrowDerivedKeys ({ destinations, changeAddress, scalarBase, hotViewSc
     )
   })
 
-  // Read-boundary tampering: the Task 3 immutability trigger (correctly) refuses
+  // Read-boundary tampering: the store immutability trigger (correctly) refuses
   // an out-of-band UPDATE of captured facts, so the tampered capture is
   // simulated at the read boundary — the recovery gate must reject a claims
   // blob whose digest no longer matches the immutable journal digest.

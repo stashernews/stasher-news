@@ -1,7 +1,7 @@
 import { alert } from '@/lib/alert'
 import { logError, logWarn } from '@/lib/logger'
 
-// jobExpiryMonitor (Finding 3) — independent observation of pgboss deadline
+// jobExpiryMonitor — independent observation of pgboss deadline
 // failures/expirations for the two queues whose runs are long enough to outlive
 // pg-boss's execution budget.
 //
@@ -10,7 +10,7 @@ import { logError, logWarn } from '@/lib/logger'
 // (`node_modules/pg-boss/src/manager.js`, message `handler execution exceeded
 // <ms>ms`) failed the queue row OUTSIDE the worker's jobWrapper, so no handler
 // exception reached the permanent-failure alert — the run completed, the row
-// read `failed`, and nobody was paged. Tasks 2's 4-hour budget removes the
+// read `failed`, and nobody was paged. The 4-hour budget removes the
 // known cause; this monitor is the independent backstop that observes BOTH
 // pg-boss failure shapes for `rewardsDistributor` and `streak`:
 //   - state 'failed' with output->>'message' LIKE 'handler execution exceeded
@@ -107,7 +107,7 @@ export function createJobExpiryMonitor ({ alert: doAlert = alert, now = Date.now
       if (row?.state !== 'expired' && row?.state !== 'failed') continue
       const id = String(row.id)
       if (notifiedAt.has(id)) continue
-      // Delivery-aware (Finding 2): lib/alert resolves false instead of
+      // Delivery-aware: lib/alert resolves false instead of
       // throwing when the POST failed or was skipped, so only a literal true
       // counts as notified. A rejecting injected/legacy double is caught and
       // treated the same way. See lib/alert.js.

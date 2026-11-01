@@ -47,7 +47,7 @@ export function SubmitButton ({
   className, ...props
 }) {
   const formik = useFormikContext()
-  // a form whose edit window ended refuses submission entirely (finding #3)
+  // a form whose edit window ended refuses submission entirely
   const expired = useContext(FormExpiredContext)
 
   disabled ||= formik.isSubmitting || expired
@@ -329,7 +329,7 @@ function InputInner ({
   const onKeyDownInner = useCallback((e) => {
     const metaOrCtrl = e.metaKey || e.ctrlKey
     if (metaOrCtrl) {
-      // an expired form (finding #3) must not submit from the keyboard either
+      // an expired form must not submit from the keyboard either
       if (e.key === 'Enter' && !expired) formik?.submitForm()
     }
 
@@ -860,7 +860,7 @@ export function Range ({
 
 export const StorageKeyPrefixContext = createContext()
 
-// Set while a form is mounted past the end of its edit window (finding #3): the
+// Set while a form is mounted past the end of its edit window: the
 // typed values stay visible, but submission must be refused on EVERY path —
 // native submit, the submit button, and the keyboard shortcuts that route
 // through Formik's submitForm(). The caller renders the expiry notice.
@@ -874,7 +874,7 @@ export function Form ({
   const toaster = useToast()
   const initialErrorToasted = useRef(false)
   const { me } = useMe()
-  // set by the expiry-aware callers (finding #3); submission is refused while true
+  // set by the expiry-aware callers; submission is refused while true
   const expired = useContext(FormExpiredContext)
 
   useEffect(() => {
@@ -900,7 +900,7 @@ export function Form ({
   }, [storageKeyPrefix])
 
   const onSubmitInner = useCallback(async (values, ...args) => {
-    // Finding #3: the form is still mounted after the window ended (to keep
+    // the form is still mounted after the window ended (to keep
     // the typed values visible), so every submission path must be refused here
     // — the server's late-edit rejection stays the authority for anything that
     // somehow bypasses the client

@@ -103,7 +103,7 @@ async function uploadFeeLeg (models, { me, uploadFeesPiconeros, beneficiaries })
 }
 
 export async function getInitial (models, args, { me }) {
-  // StasherNews posting-fee gate (spec §6.2, Q5). Posting is free within the
+  // StasherNews posting-fee gate. Posting is free within the
   // monthly quota (established 5/month: stacked >= 1e10 piconeros AND age >= 7d;
   // low-rep 1/month); past the quota the user pays a posting fee to the platform
   // rewards wallet before their post goes live.
@@ -168,7 +168,7 @@ export async function getInitial (models, args, { me }) {
   }
 
   if (args.parentId) {
-    // StasherNews comment fee (spec §6.2): comments are free while the author has
+    // StasherNews comment fee: comments are free while the author has
     // freebies left (1/day low-rep, 3/day established, +1 per quest completed
     // today, +1 while the flame shows cycle day 3, resetting 00:00 UTC); beyond
     // the quota each comment costs the flat comment fee (commentFeePiconeros,
@@ -341,7 +341,7 @@ export async function onBegin (tx, payInId, args) {
   const feeRequired = payIn.moneroSubaddressMajor != null || payIn.moneroPaymentId != null
   const feeStatus = feeRequired ? 'PENDING_FEE' : 'FEE_NOT_REQUIRED'
 
-  // R01: an in-quota item whose only on-chain cost is the upload fee is born
+  // An in-quota item whose only on-chain cost is the upload fee is born
   // PENDING_FEE, so the creation-time incrementFree* calls skip it (not
   // freeborn). Mark it here to consume its free quota at the fee flip
   // (flipPendingToLive). Only items that would have been free but for the

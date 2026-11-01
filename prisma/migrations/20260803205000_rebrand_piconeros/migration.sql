@@ -1,5 +1,5 @@
 -- =====================================================================
--- Bucket B Task 2: rebrand_piconeros
+-- rebrand_piconeros
 -- Hand-crafted renames (Prisma's non-interactive diff would drop+re-add
 -- columns; we RENAME to preserve data).
 --

@@ -70,7 +70,7 @@ describe('filterXmrValidator client bounds', () => {
   })
 })
 
-describe('bountySchema piconero validation (A-13)', () => {
+describe('bountySchema piconero validation', () => {
   const schema = bountySchema({})
   const field = schema.fields.bountyPiconeros
   it('accepts the floor amount (BigInt limit compared without TypeError)', async () => {

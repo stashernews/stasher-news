@@ -1,6 +1,6 @@
 /* eslint-env jest */
 // Real-DB regression for the missing public.search_users_by_name(text, real,
-// integer) helper (Finding 4). Both resolver call sites — userSuggestions
+// integer) helper. Both resolver call sites — userSuggestions
 // (api/resolvers/user.js) and searchUsers — invoke this exact signature; with
 // the function absent they raise
 // "function search_users_by_name(text, real, integer) does not exist".

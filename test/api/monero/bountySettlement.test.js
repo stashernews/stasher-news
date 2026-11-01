@@ -1,7 +1,7 @@
 /* eslint-env jest */
 
-// Pure settlement reader for the bounty escrow signer (rewards accounting
-// repair §3.1). The signed sender-side transaction is the settlement
+// Pure settlement reader for the bounty escrow signer. The signed sender-side
+// transaction is the settlement
 // authority: it carries the ACTUAL destinations (post subtractFeeFrom) and
 // the real network fee. These tests pin the classification rules:
 //   - AWARD/RECLAIM: exact prize to the frozen recipient + net fee to the
@@ -149,7 +149,7 @@ test('readFeeSettlement rejects a fee tx that does not pay the frozen destinatio
   await expect(readFeeSettlement(tx, { feeRecipientAddress: '5COLD' })).rejects.toThrow(/ambiguous/i)
 })
 
-// --- Task 7: extraction happens BEFORE the capture pair commits -------------
+// --- extraction happens BEFORE the capture pair commits -------------
 // The settlement is now read from the BUILT (signed, unrelayed) tx, before the
 // durable journal+proof pair exists. These pins keep the reader's output
 // exactly the frozen settlement expectation shape the escrow dispatch
@@ -165,7 +165,7 @@ const captureGradeBuiltTx = (fee, actualDestinations) => ({
   getHash: () => 'ab'.repeat(32),
   getChangeAddress: () => '5CHANGE',
   getChangeAmount: () => 5n,
-  // The SDK captures the SECRET-bundle STRING (final-review C1).
+  // The SDK captures the SECRET-bundle STRING.
   getKey: () => secretBundleHex(900n, 2),
   // settlement-authoritative getters
   getFee: () => fee,

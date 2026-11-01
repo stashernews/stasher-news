@@ -1,7 +1,7 @@
 /* eslint-env jest */
 
 // Cursor-safety regression for the rewardsWalletObserver handler itself —
-// the deployment blocker from docs/superpowers/plans/2026-10-22-lws-behavior-assessment.md.
+// the deployment blocker.
 //
 // monero-lws v1.0.4 appends mempool rows to /get_address_txs with
 // response-position IDs. The old observer advanced lastTxId from ALL rows and

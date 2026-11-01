@@ -1,8 +1,8 @@
 -- Hot-feed boost weight parity (rank-lit): boosts now scale exactly like tips.
 --
 -- item_ranking_trigger's ranktop branch (the "top" sort) has been exact 1:1
--- between tips and boosts since A-14 (20260810010000): both are piconeros at
--- weight 1. The lit branch, however, came out of the A-14 rewrite with the
+-- between tips and boosts since 20260810010000: both are piconeros at
+-- weight 1. The lit branch, however, came out of that rewrite with the
 -- tip terms divided by 1000 (tips enter the decayed litCenteredSum in the
 -- same milli-piconero unit the cost terms natively use) while the boost terms
 -- stayed at raw piconero weight — the leftover scaling of the original

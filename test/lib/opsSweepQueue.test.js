@@ -1,7 +1,7 @@
 /* eslint-env jest */
 
-// Lifecycle tests for the explicitly owned, send-only CLI queue client
-// (Task 10). Pure — the boss factory is injected; no real pg-boss connection.
+// Lifecycle tests for the explicitly owned, send-only CLI queue client.
+// Pure — the boss factory is injected; no real pg-boss connection.
 
 import { withOpsSweepQueue } from '@/lib/opsSweepQueue'
 

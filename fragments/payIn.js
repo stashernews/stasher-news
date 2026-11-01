@@ -299,7 +299,7 @@ export const UPSERT_BOUNTY = gql`
     }
   }`
 
-// StasherNews bounty lifecycle (A-13). fundBounty mints the escrow integrated
+// StasherNews bounty lifecycle. fundBounty mints the escrow integrated
 // address + monero: URI; payBounty (award), reclaimBounty and rolloverBounty
 // queue the escrow payouts the worker dispatches.
 export const FUND_BOUNTY_MUTATION = gql`

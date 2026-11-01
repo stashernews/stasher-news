@@ -805,7 +805,7 @@ describe('UserPrivates boost credit fields', () => {
   })
 
   test('a grant landing between the two field resolutions cannot mix id and expiry', async () => {
-    // spec §5.2: both fields resolve from the SAME available-credit reader.
+    // Both fields resolve from the SAME available-credit reader.
     // The read is taken once at the first field's resolution; a credit landing
     // after it — every LATER read returns the new row — can never surface as
     // an id from the old row with an expiry from the new one.

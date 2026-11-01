@@ -5,7 +5,7 @@ import { REQUIRED_CONFIRMATIONS, BOUNTY_UNDERPAY_ABANDON_DAYS } from '@/lib/cons
 import { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 
-// bounties — bounty lifecycle worker (A-13 Phase B). Runs every 60s via the
+// bounties — bounty lifecycle worker. Runs every 60s via the
 // pgboss.schedule cron row `bounties` (cron-owned, retryLimit 0):
 //   1. EXPIRY: FUNDED bounties past bountyExpiryDays (from bountyConfirmedAt)
 //      flip to EXPIRED (author can then reclaim or roll over).
@@ -133,7 +133,7 @@ export async function bounties ({ boss, models }) {
   try {
     await runBountiesOnce({ models })
   } catch (err) {
-    // Fixed classification labels only (final-review M6): raw error objects
+    // Fixed classification labels only: raw error objects
     // and messages can carry transport detail, so the log record carries a
     // machine label, never the error itself.
     logError({ errorClass: errorLabel(err) }, 'bounties: run failed')

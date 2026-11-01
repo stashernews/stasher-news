@@ -34,7 +34,7 @@ export default function PostEdit ({ ssrData }) {
 
   const [canEdit, , editThreshold, editMode] = useCanEdit(item)
   // the mode when this route mounted: a FULL window expiring while the page is
-  // open must keep the typed form mounted (finding #3) — no swap to the
+  // open must keep the typed form mounted — no swap to the
   // addendum editor, no unmount/copy-loss — with an expiry notice and every
   // submission path refused
   const [modeAtOpen] = useState(editMode)

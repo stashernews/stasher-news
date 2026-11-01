@@ -13,7 +13,7 @@ import {
 import { createPaymentProofKeyProvider } from './paymentProofKeys'
 import { assertWalletScope, errorLabel } from './rewardsTransactions'
 
-// Escrow dispatch boundary (Finding #1, Task 7). Every bounty escrow send —
+// Escrow dispatch boundary. Every bounty escrow send —
 // the combined disposition tx (AWARD/RECLAIM prize + platform fee, or the
 // single net output for ROLLOVER / fee-waived refunds) and the legacy
 // separate-fee retry — follows the same barrier as the hot wallet:
@@ -70,7 +70,7 @@ const RELAYED_PERSIST_ATTEMPTS = 2
 // that with a bounded resync before the strict coverage check.
 const AUDIT_SCAN_RESYNC_ATTEMPTS = 3
 // The prepared derivation domain covers the primary plus fee-account
-// primaries 1..5 (final-review I2) — the same majors the fee-account
+// primaries 1..5 — the same majors the fee-account
 // infrastructure provisions.
 
 // Lazily-built provider over the separate TX-proof registry (the production
@@ -491,7 +491,7 @@ async function buildAuditSession ({ auditWallet, daemon, scope, models }) {
       journalRole: 'ESCROW',
       auditedHashes: await readPaymentAuditHashes({ models, scope, journalRole: 'ESCROW' })
     })
-    // Bracket the collection against the tip (final-review I4): a chain that
+    // Bracket the collection against the tip: a chain that
     // moved during the session refuses (null → rows retain uncertainty and
     // the next bounded run reruns), never a mixed-boundary promotion.
     const tipAfter = await auditBoundary(daemon)
@@ -699,8 +699,8 @@ async function recoverRelayedDispatch ({ models, row, claims, result }) {
     if (!settlement) return flag('captured settlement does not conserve the frozen terms')
     const prize = BigInt(claims.frozenTerms.prizePiconeros)
     const frozenFee = BigInt(claims.frozenTerms.feePiconeros)
-    // Material live contract facts in the compare-write predicate (final-review
-    // I11): the live disposition KIND, the frozen ITEM attribution and the
+    // Material live contract facts in the compare-write predicate: the live
+    // disposition KIND, the frozen ITEM attribution and the
     // frozen fee terms/destination — a live row whose material terms diverged
     // is withheld, never filled with captured settlement facts. Rollover
     // payouts freeze fee 0/null regardless of the live column (matching the

@@ -4,10 +4,10 @@ import { piconerosToXmr, xmrToPiconeros } from '@/lib/format'
 import { GqlInputError } from '@/lib/error'
 import { getItemResult } from '../lib/item'
 
-// StasherNews boost (A-14) — upstream-faithful one-time permanent ranking
+// StasherNews boost — upstream-faithful one-time permanent ranking
 // weight, 1:1 with tips. EVERY boost pays the platform rewards wallet via an
 // integrated-address invoice (legacy invoices: a DEDICATED major-5 fee
-// subaddress, still observed), NOT the legacy custodial sats path. R08: the owner-direct leg was REMOVED — a boost on an item in a
+// subaddress, still observed), NOT the legacy custodial sats path. The owner-direct leg was REMOVED — a boost on an item in a
 // single owned turf used to route 100% to that turf's owner when the owner had
 // a registered wallet; an item author could boost their own post in a
 // colluding owner's turf, paying the owner (minus tx fees) and getting the

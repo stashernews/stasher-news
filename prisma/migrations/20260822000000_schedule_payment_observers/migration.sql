@@ -6,7 +6,7 @@
 -- manual worker restart. With a schedule row, a dead run self-heals at the
 -- next cron tick. options jsonb is passed verbatim to send() for every
 -- cron-created job (pg-boss timekeeper.onSendIt). bounties keeps retryLimit 0:
--- its payout dispatch is relay-before-persist with no CAS (plan-1 decision).
+-- its payout dispatch is relay-before-persist with no CAS.
 -- Cadences: observer 20s->60s (accepted: +<=40s fee-detection latency vs
 -- 10-block finality); confirmFinalizer/healthProbe 60s; reconcilePendingTips
 -- 120s (*/2); bounties 60s; webhookCleanup hourly. Mirrors

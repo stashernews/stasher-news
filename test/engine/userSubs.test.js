@@ -6,7 +6,7 @@
 //
 // topSubs (api/resolvers/sub.js) aggregates LIVE confirmed observations
 // (ObservedTip / ObservedDownvote / FeeObservation / fee-gated PayIn rows) —
-// the legacy AggPayIn tables that caused the original 404 were dropped (A-12).
+// the legacy AggPayIn tables that caused the original 404 were dropped.
 // This test seeds a user and a territory, runs the real userSubs resolver
 // (which routes through topSubs), and asserts it neither throws nor drops the
 // territory. Run via:

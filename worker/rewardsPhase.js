@@ -1,6 +1,6 @@
 import { logInfo } from '@/lib/logger'
 
-// rewardsPhase (Finding 3 prerequisite) — start/finish timing for the six
+// rewardsPhase — start/finish timing for the six
 // rewards money phases, so the 2026-10-12 class of incident (a run that
 // outlives pg-boss's execution budget while still making progress) has
 // per-phase durations instead of one opaque multi-minute wall time.

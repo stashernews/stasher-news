@@ -11,7 +11,7 @@
 // the DB but absent here makes turfs holding it unsaveable — the JOB bug), and
 // every offered value must be a real enum value or the create path breaks.
 //
-// BOUNTY was restored as a first-class post type by A-13 (PostType.BOUNTY,
+// BOUNTY was restored as a first-class post type (PostType.BOUNTY,
 // monero-funded bounties). JOB remains in POST_TYPES/POST_TYPE_LABELS for
 // legacy turfs, but it is removal-only (excluded from DEFAULT_POST_TYPES):
 // job identity is the `jobs` turf (lib/item.js isJob), not a turf postType.
@@ -24,7 +24,7 @@ describe('POST_TYPES', () => {
     expect([...POST_TYPES].sort()).toEqual(Object.values(PostType).sort())
   })
 
-  test('offers the BOUNTY post type (A-13 funded bounties)', () => {
+  test('offers the BOUNTY post type', () => {
     expect(POST_TYPES).toContain('BOUNTY')
   })
 

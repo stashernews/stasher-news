@@ -11,14 +11,14 @@ import {
   parseTxExtraStrict
 } from './paymentKeyStructure'
 
-// Shared trusted confirmed whole-payment verification (Finding #1, Task 5).
+// Shared trusted confirmed whole-payment verification.
 //
 // Two entry points, one result contract:
 //
 //   verifyPaymentTransaction    loads + authenticates the captured journal/proof
-//                               pair through the Task 3 store (models +
+//                               pair through the proof store (models +
 //                               keyProvider), then verifies the payment against
-//                               an independently collected Task 4 chain session.
+//                               an independently collected chain session.
 //                               A legacy journal row (no capture tuple) falls
 //                               back to the legacy path: with the DEFAULT null
 //                               surviving-proof provider it stays unresolved
@@ -31,7 +31,7 @@ import {
 //                               synthesized and no journal/proof row is written.
 //
 // Verification flow (CAPTURE_V1): prove scope and a compatible canonical
-// boundary first; require a complete Task 4 session and call
+// boundary first; require a complete chain session and call
 // session.ownershipFor(txHash) for the exact hash so the input key-image gate
 // actually runs; the raw fee must equal the captured fee exactly; every raw
 // input must resolve to an independently restored owned prior output; the
@@ -129,22 +129,22 @@ const sortedUnique = values => [...new Set(values)].sort()
 
 /**
  * Normalize a verifier request: observedAt as canonical ISO, complete session
- * shape. The session is the private Task 4 evidence object (real collector
+ * shape. The session is the private chain-evidence object (real collector
  * output, optionally extended with the captured wallet's `checkTxKey` receipt
- * checker). The Task 1 canned stand-in (plain-object rawByHash, prior rows
+ * checker). The canned test stand-in (plain-object rawByHash, prior rows
  * directly in inputSources) is accepted by the same adapter.
  */
 function prepareSession (session, observedAt) {
   if (!isPlainObject(session) || typeof session.ownershipFor !== 'function' ||
     !isPlainObject(session.rawByHash) || !Array.isArray(session.ownedOutputs)) {
-    failRequest('a complete Task 4 chain session is required')
+    failRequest('a complete chain-evidence session is required')
   }
   const iso = canonicalIso(observedAt)
   if (iso === null) failRequest('observedAt must be an ISO timestamp')
   return { session, observedAt: iso }
 }
 
-// --- session adapter (real Task 4 session and Task 1 canned stand-in) --------
+// --- session adapter (real collector session and canned test stand-in) -------
 
 function sessionRawFor (session, txHash) {
   const rawByHash = session.rawByHash
@@ -393,7 +393,7 @@ function dedupeRecipients (members, network, excludedIdentities) {
  * Bind the captured/surviving key bundle to the raw chain's transaction public
  * keys. The bundle MUST parse as the secret-scalar bundle (main secret + the
  * advertised additional secrets) — public-point bundles are no longer a
- * compatibility path (final-review I1). Correspondence is enforced ONLY
+ * compatibility path. Correspondence is enforced ONLY
  * through the kind-aware per-output rules over the sender's secrets and the
  * recipients' PUBLIC keys: r_i*B for subaddress additional keys, r_i*G for
  * standard/change slots, and the a*R owned path — with scan-owned local
@@ -415,7 +415,7 @@ function assertKeyStructure ({ keyBundleHex, additionalKeyCount, builtStructure,
     return
   }
 
-  // The secret-scalar bundle is REQUIRED (final-review I1). A missing explicit
+  // The secret-scalar bundle is REQUIRED. A missing explicit
   // count (legacy surviving material) is derived from the raw chain's ordered
   // additional keys so multi-secret bundles stay on the deep path.
   let bundle = null
@@ -478,7 +478,7 @@ function assertKeyStructure ({ keyBundleHex, additionalKeyCount, builtStructure,
  * change/owned-target positions. `capturedFeePiconeros` is null on the legacy
  * path (no authenticated capture to compare against).
  *
- * Boundary/maturity discipline (final-review I4): the SESSION's authoritative
+ * Boundary/maturity discipline: the SESSION's authoritative
  * collection boundary is retained when supplied — never discarded — and
  * maturity is derived from independently checked heights (audited block
  * height against the boundary height, repository REQUIRED_CONFIRMATIONS).
@@ -555,7 +555,7 @@ function closureFacts ({ ownership, txHash, claims, capturedFeePiconeros, builtS
   // O side: the scan-owned outputs of the audited transaction, partitioned
   // against the captured change/owned-target positions — with the session's
   // independent position↔address mapping applied to the captured facts when
-  // the session can supply it (final-review I6).
+  // the session can supply it.
   let O = 0n
   const ownedOutputs = []
   const positions = new Map()
@@ -697,7 +697,7 @@ function closureFacts ({ ownership, txHash, claims, capturedFeePiconeros, builtS
     }
   }
 
-  // Required block facts (final-review I4): the audited height and its
+  // Required block facts: the audited height and its
   // daemon-resolved block hash must both be present, and maturity is DERIVED
   // from the independently checked heights — never taken from a volatile or
   // optional raw confirmation count.
@@ -726,7 +726,7 @@ function closureFacts ({ ownership, txHash, claims, capturedFeePiconeros, builtS
   }
 }
 
-// The session's independent position→address mapper (final-review I6), read
+// The session's independent position→address mapper, read
 // defensively from whichever session shape supplies it.
 const addressForPositionOf = sessionLike => {
   if (isPlainObject(sessionLike) && typeof sessionLike.addressForPosition === 'function') {
@@ -759,8 +759,8 @@ async function runGates ({
   ownedIdentities: ownedIdentitiesBase
 }) {
   const issues = newIssues()
-  // The owned identity set is the COMPLETE derived wallet identity set
-  // (final-review I6) — every position the session's prepared domain carries,
+  // The owned identity set is the COMPLETE derived wallet identity set —
+  // every position the session's prepared domain carries,
   // plus the captured change/owned-target identities — not only the
   // identities a capture happened to name.
   const ownedIdentities = new Set(ownedIdentitiesBase)
@@ -1149,7 +1149,7 @@ function deriveLegacyAggregates (members) {
 
 /**
  * Verify one confirmed whole payment from its captured journal/proof pair and
- * an independently collected Task 4 chain session. Returns a safe
+ * an independently collected chain session. Returns a safe
  * PaymentVerificationV1 result — never secret material. A legacy journal row
  * (no capture tuple) falls back to the legacy path with the injected
  * surviving-proof provider (default: none → LEGACY_PROOF_MISSING unresolved).
@@ -1518,7 +1518,7 @@ function validateTotals (totals, status, issues) {
     if (residual.toString() !== totals.residual) return false
   }
   if (status === 'complete') {
-    // Complete-result prerequisites (final-review I8): a `complete` closure
+    // Complete-result prerequisites: a `complete` closure
     // needs the WHOLE D/O/F/E arithmetic present — never nulls — and zero
     // residual with no material issues.
     if (totals.D === null || totals.O === null || totals.F === null ||
@@ -1532,7 +1532,7 @@ function validateTotals (totals, status, issues) {
 
 /**
  * Cross-field arithmetic/membership invariants available in the result object
- * itself (final-review I8): classified members must sum to the receiving
+ * itself: classified members must sum to the receiving
  * aggregates, E must equal the classified receipts, O must equal the owned
  * accounting total and the owned outputs must sum to it. `null` fields are
  * always allowed (unresolved facts) — a MATERIALIZED field that contradicts
@@ -1622,8 +1622,8 @@ export function validatePaymentVerification (result) {
   if (!validateOwnedAccounting(result.ownedAccounting)) return false
   if (!validateTotals(result.totals, result.status, result.issues)) return false
   if (!validateCrossFields(result)) return false
-  // Confirmation/boundary evidence prerequisites for a `complete` result
-  // (final-review I8, I4): a complete closure must carry its block facts —
+  // Confirmation/boundary evidence prerequisites for a `complete` result:
+  // a complete closure must carry its block facts —
   // audited height, daemon-resolved block hash, derived maturity — and a
   // coherent collection boundary.
   if (result.status === 'complete') {
@@ -1659,7 +1659,7 @@ export function validatePaymentVerification (result) {
 /**
  * The substantive safe facts of a verification result: everything except the
  * operation versions, the surviving-evidence digest and the observation time.
- * The projection keeps only STABLE HISTORICAL FACTS (final-review I7):
+ * The projection keeps only STABLE HISTORICAL FACTS:
  * amounts, identities, inclusion facts (heights/block hashes, output
  * positions/indexes), proof revisions/versions and issue codes. Volatile
  * facts are stripped: the advancing top-level AND per-aggregate confirmation

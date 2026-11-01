@@ -15,7 +15,7 @@ import { decodeReceivingIdentity } from '@/api/monero/paymentClaims'
 import { oneTimeOutputKey, senderPublicPart } from '@/api/monero/paymentKeyStructure'
 import { leHex, paymentChainFixture, paymentFixture, paymentTxFixture } from '@/test/fixtures/payment-proof'
 
-// Evidence-bound relay-repair fixtures (rewards reconciliation plan, Task 3).
+// Evidence-bound relay-repair fixtures.
 //
 // `verifiedRepairFixture({ kind, state, attempted })` builds ONE protected
 // journal/proof pair through the REAL #1 store (isolated DB, real envelope
@@ -48,7 +48,7 @@ export const RELAY_PROOF_FIELDS = Object.freeze([
   'provenance', 'survivingEvidenceDigest', 'observedAt'
 ].sort())
 
-// --- deterministic synthetic addresses/points (throwaway, Task 1 style) ------
+// --- deterministic synthetic addresses/points (throwaway) ------
 // Scalar space starts at 300 to stay clear of the shared payment fixture
 // scalars (1..106) and the rewards-transaction suite space (n <= 100).
 

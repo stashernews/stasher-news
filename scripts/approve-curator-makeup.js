@@ -1,4 +1,4 @@
-// Approve a breaker make-up (spec 2026-10-19 §5). Dry-run by default; --confirm
+// Approve a breaker make-up. Dry-run by default; --confirm
 // marks the tripped row so the IMMEDIATELY FOLLOWING distribution run pays
 // (rawT − capT) × k ÷ 4 once, at the CONFIGURED multiple (not the run's
 // effective multiple). Only ACTIVE mode actually pays it; LEGACY/SHADOW
@@ -50,7 +50,7 @@ export async function approveCuratorMakeup (prisma, distributionId, { confirm = 
     const row = await tx.rewardDistribution.findUnique({ where: { id: distributionId } })
     if (!row) return { distributionId, refused: 'not_found' }
     // Backfilled history never paid a dynamic budget, so no make-up may be
-    // approved on it (spec §9.1 / Task 5.1).
+    // approved on it.
     if (row.curatorBudgetParams?.backfilled === true) {
       return { distributionId, refused: 'backfilled' }
     }
@@ -70,8 +70,8 @@ export async function approveCuratorMakeup (prisma, distributionId, { confirm = 
       return { distributionId, refused: 'missing_breaker_data' }
     }
 
-    // The make-up is paid at the CONFIGURED k of the run that consumes it
-    // (spec §5), so the current config must validate; an invalid config is
+    // The make-up is paid at the CONFIGURED k of the run that consumes it,
+    // so the current config must validate; an invalid config is
     // refused with its reasons and no write rather than estimated on a
     // fallback.
     const resolved = await readCuratorBudgetConfig(tx)

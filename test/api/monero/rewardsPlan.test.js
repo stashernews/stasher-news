@@ -1,6 +1,6 @@
 /* eslint-env jest */
-// Pure planner tests for the rewards hot-wallet payout packing (Task 8 / spec
-// §6). No wallet, no DB: planPartialAccountSends is a deterministic BigInt
+// Pure planner tests for the rewards hot-wallet payout packing. No wallet, no
+// DB: planPartialAccountSends is a deterministic BigInt
 // assignment — largest whole payout first, ties by payout ID, accounts by
 // remaining capacity (ties by lowest account index), and a payout that fits no
 // account is skipped instead of vetoing the smaller rows behind it.

@@ -50,9 +50,9 @@ import { ed25519 } from '@noble/curves/ed25519'
 import { base58xmr } from '@scure/base'
 import { keccak256 } from 'js-sha3'
 
-// End-to-end money regression for the rewards hot-wallet accounting repair
-// (Task 14). ONE isolated scenario drives the REAL product functions through
-// the complete 2026-10-05 spec flow:
+// End-to-end money regression for the rewards hot-wallet accounting repair.
+// ONE isolated scenario drives the REAL product functions through
+// the complete flow:
 //
 //   funding (frozen fee, zero funding cash) -> confirmed net rollover receipt ->
 //   audited historical repair (build + apply) -> reward-contract snapshot ->
@@ -102,7 +102,7 @@ jest.setTimeout(240000)
 //   rollover net R           109e9  booked as one BOUNTY_ROLLOVER receipt
 //   rollover rewards         min(B, R) = 100e9; rollover ops = 9e9
 //
-// The historical era is Task 12's synthetic fixture (remapped to unique values):
+// The historical era is the synthetic fixture (remapped to unique values):
 // corrected D0 ops available 39, proven swept 10, cumulative RELAYED fees at
 // D1 creation 13 -> D1 opening ops carry 16. D1's own ops inflow is the
 // rollover ops 9e9 plus the repaired 5-piconero unbooked incoming (100% ops):
@@ -122,8 +122,8 @@ const EXPECTED_D1_OPS_AVAILABLE = ROLLOVER_OPS + 5n + 16n
 // sweep may never touch it, only the room left above it.
 const HISTORICAL_OUTSTANDING = 2_000_000_000n
 
-// A closed-shape COMPLETE verifier-result test double for the repair suites
-// (final-review I1/I2): safe PaymentVerificationV1 result shape only, closing
+// A closed-shape COMPLETE verifier-result test double for the repair suites:
+// safe PaymentVerificationV1 result shape only, closing
 // as D = O + F + E. This is an APPLY-gate/coverage test double — never a claim
 // that a historical row was a capture-era dispatch (the real verifier fixtures
 // live in test/fixtures/rewards-payment-verification.js).
@@ -198,7 +198,7 @@ const REAL_TIMER_APIS = [
 
 // Checksum-valid, curve-valid STAGENET primary addresses, unique per scenario
 // namespace so repeat runs and residue can never collide on the MoneroAccount
-// (address, network) unique key. The capture barrier (Task 6/Finding #1)
+// (address, network) unique key. The capture barrier
 // decodes every journal member address, so the synthetic identities must be
 // real base58/keccak encodings of deterministic throwaway curve points.
 const point = scalar => Buffer.from(ed25519.ExtendedPoint.BASE.multiply(BigInt(scalar)).toRawBytes()).toString('hex')
@@ -285,7 +285,7 @@ function createFakeWallet ({ address, networkType, ns }) {
       }),
       getChangeAddress: () => null,
       getChangeAmount: () => null,
-      // The SDK captures the SECRET-bundle STRING (final-review C1).
+      // The SDK captures the SECRET-bundle STRING.
       getKey: () => secretBundleHex(keySeed, 2)
     }
   }
@@ -393,7 +393,7 @@ function withPayoutPersistFailures (client, injection) {
   })
 }
 
-// --- capture-era regression helpers (Finding #1, Task 9) ---------------------
+// --- capture-era regression helpers ---------------------
 //
 // The scenarios below drive the REAL capture barrier/verifier/lifecycle over
 // synthetic throwaway material: explicitly independent audit sessions, fresh
@@ -428,7 +428,7 @@ const leHex = value => {
 // publics r_i*G (standard destinations), external vouts via the sender path
 // Hs(8*r_i*A || i)*G + B against the recipient's PUBLIC keys, and the owned
 // change vout via the receiver a*R path against the hot wallet's own spend
-// key (final-review C1/I1/I2 — every key below is derivable, never opaque).
+// key (every key below is derivable, never opaque).
 function payoutDerivedKeys ({ destinations, changeAddress, scalarBase, hotViewScalar, hotSpendPoint }) {
   const decoded = destinations.map(d => decodeReceivingIdentity(d.address, 'STAGENET'))
   const slots = destinations.length + (changeAddress ? 1 : 0)
@@ -484,7 +484,7 @@ function makePayoutBuiltTx ({ hash, fee, destinations, changeAddress, changeAmou
     }),
     getChangeAddress: () => changeAddress,
     getChangeAmount: () => changeAmount,
-    // The SDK captures the SECRET-bundle STRING (final-review C1); the
+    // The SDK captures the SECRET-bundle STRING; the
     // populated public facts stay available through the optional getters.
     getKey: () => keys.mainSecretHex + keys.additionalSecretHexes.join(''),
     getMainPublicKey: () => keys.mainPublicKey,
@@ -510,7 +510,7 @@ function positionIdentityFor (ns, majorIndex) {
 // transaction byte for byte: one owned coinbase source covering D exactly, the
 // scan-owned change/self outputs, and exact confirmed checkTxKey receipts for
 // every external destination. Driven through the REAL collector + verifier by
-// `reconcileWalletTransactions`' injected-auditWallet seam and by the Task 7
+// `reconcileWalletTransactions`' injected-auditWallet seam and by the
 // coordinated repair chain's direct collection. `sourceAccountIndex` names the
 // owned source position (a consolidation consolidates account 1).
 function paymentAuditChain ({ tx, hot, ns, scalarBase, sourceAccountIndex = 0 }) {
@@ -520,14 +520,14 @@ function paymentAuditChain ({ tx, hot, ns, scalarBase, sourceAccountIndex = 0 })
   const changeAmount = tx.getChangeAmount()
   // The raw records carry EXACTLY the built tx's public key slots and one-time
   // output keys, so the collector's raw ownership enumeration agrees with the
-  // SDK scan (final-review I2).
+  // SDK scan.
   const keys = {
     mainPublicKey: tx.getMainPublicKey(),
     additionalPublicKeys: tx.getAdditionalPublicKeys(),
     outputKeys: tx.getOutputKeys()
   }
   // 21 confirmations TO the boundary: blockHeight + confirmations - 1 must
-  // equal the authoritative tip exactly (final-review I4 coherence).
+  // equal the authoritative tip exactly.
   const auditedHeight = tip.height - 20
   const sourceHeight = tip.height - 1000
   const sourceHash = hashFor(ns, 0xb0 + Number(scalarBase % 97n))
@@ -629,7 +629,7 @@ function paymentAuditChain ({ tx, hot, ns, scalarBase, sourceAccountIndex = 0 })
     getAccounts: jest.fn(async () => [0, 1, 2, 3, 4, 5].map(index => ({ getIndex: () => index }))),
     getPrimaryAddress: jest.fn(async () => hot),
     getNetworkType: jest.fn(async () => 2),
-    // Raw-ownership enumeration seams (final-review I2): ephemeral view access
+    // Raw-ownership enumeration seams: ephemeral view access
     // plus the derived address per domain position (primary + majors 1..5).
     getPrivateViewKey: jest.fn(async () => leHex(hotViewSecretFor(ns))),
     getAddress: jest.fn(async (majorIndex, minorIndex) =>
@@ -698,7 +698,7 @@ function createEscrowWallet ({ address, networkType, ns, netFee, unlocked }) {
         }),
         getChangeAddress: () => address,
         getChangeAmount: () => destSum - netFee,
-        // The SDK captures the SECRET-bundle STRING (final-review C1).
+        // The SDK captures the SECRET-bundle STRING.
         getKey: () => secretBundleHex(keySeed, 3)
       }
     },
@@ -976,7 +976,7 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
   process.env.REWARDS_OPS_SWEEP_ENABLED = 'true'
   process.env.REWARDS_COLD_STORAGE_ADDRESS = COLD
   process.env.LWS_WEBHOOK_URL = 'http://stub.invalid/api/monero/webhook'
-  // Synthetic throwaway TX-proof registry (real Task 2 envelope crypto, never
+  // Synthetic throwaway TX-proof registry (real envelope crypto, never
   // a real secret): the capture barrier seals every prepared pair with it.
   process.env.TXPROOF_MASTER_KEYS = JSON.stringify({ 1: Buffer.alloc(32, 13).toString('base64') })
   process.env.TXPROOF_MASTER_KEY_CURRENT_VERSION = '1'
@@ -1006,17 +1006,17 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
   })
 
   // The dedicated audit chain for the pending pair's fresh-verification
-  // promotion (Task 6): a fake genesis-restored audit wallet + fake daemon
+  // promotion: a fake genesis-restored audit wallet + fake daemon
   // whose raw records mirror the captured key bundle byte for byte, one owned
   // coinbase source, the owned change output, and the exact confirmed
   // receipt. The production audit-session builder runs the REAL collector
   // and the REAL verifier over it.
   const pendingAuditChain = () => {
     // 21 confirmations TO the boundary: blockHeight + confirmations - 1 must
-    // equal the authoritative boundary height exactly (final-review I4).
+    // equal the authoritative boundary height exactly.
     const auditedHeight = BOUNDARY.height - 20
     const sourceHeight = BOUNDARY.height - 1000
-    // EXACTLY the built tx's derived key facts (final-review I2).
+    // EXACTLY the built tx's derived key facts.
     const pendingKeys = payoutDerivedKeys({
       destinations: [{ address: CURATOR_ONE }],
       changeAddress: HOT,
@@ -1101,7 +1101,7 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
       getAccounts: jest.fn(async () => [0, 1, 2, 3, 4, 5].map(index => ({ getIndex: () => index }))),
       getPrimaryAddress: jest.fn(async () => HOT),
       getNetworkType: jest.fn(async () => 2),
-      // Raw-ownership enumeration seams (final-review I2).
+      // Raw-ownership enumeration seams.
       getPrivateViewKey: jest.fn(async () => leHex(hotViewSecretFor(ns))),
       getAddress: jest.fn(async (majorIndex, minorIndex) =>
         majorIndex === 0 && minorIndex === 0 ? HOT : addressFor(ns, 20 + majorIndex)),
@@ -1357,7 +1357,7 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
     await seedTip(curatorOne, 2_000_000_000n, new Date(scenarioNow - 90 * 60 * 1000), 1)
     await seedTip(curatorTwo, 2_000_000_000n, new Date(scenarioNow - 60 * 60 * 1000), 2)
 
-    // --- historical era (Task 12 synthetic fixture, remapped + unique) ---------
+    // --- historical era (synthetic fixture, remapped + unique) ---------
     const historical = { d0: null }
     const evidence = (() => {
       const map = new Map([
@@ -1557,8 +1557,8 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
       // 15-piconero change output back to the primary, fee 1. The attempt is
       // stamped directly; the fresh-verification promotion after the repair
       // resolves it exactly like production would.
-      // The pending attempt's keys are REAL derived arithmetic (final-review
-      // C1/I1/I2): one external destination via the sender path, the owned
+      // The pending attempt's keys are REAL derived arithmetic:
+      // one external destination via the sender path, the owned
       // change via the receiver a*R path — the audit chain below re-derives
       // the identical facts.
       const pendingKeys = payoutDerivedKeys({
@@ -1683,7 +1683,7 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
       address: { HOT, COLD, OPS, CURATOR_ONE, CURATOR_TWO, BOUNTY_ESCROW },
       amounts: { DECLARED_BOUNTY, BOUNTY_FEE, FUNDING_TOTAL, ROLLOVER_NET, ROLLOVER_REWARDS, EXPECTED_D1_OPS_AVAILABLE },
       _state: stateP,
-      // Regression-seam surfaces for the capture-era scenarios (Task 9): the
+      // Regression-seam surfaces for the capture-era scenarios: the
       // cleanup tracking arrays (rows created inside a test body are pushed
       // here so even a failing body cleans them), the namespace for unique
       // synthetic identities, and the configured rewards scope.
@@ -1787,7 +1787,7 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
       // ledger, apply it atomically, then resolve the historical mempool attempt
       // from exact-hash wallet history (no blind re-relay).
       //
-      // Final-review I1: the historical destination-only story is first built
+      // The historical destination-only story is first built
       // AS THE OPERATOR FOUND IT — journal-only payout history and
       // history-only escrow legs — and the strict audit must NAME each
       // recorded outflow instead of silently passing (an unresolved manifest
@@ -1851,7 +1851,7 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
         })]
         proofEra.escrow = {
           ...proofEra.escrow,
-          // Honest per-leg doubles (final-review I1 round 3): each leg's proof
+          // Honest per-leg doubles: each leg's proof
           // carries the canonical escrow member — member id = the recorded
           // bounty payment's own id, canonical leg, the recorded recipient —
           // and the current rollover's settled amount IS recorded, so its
@@ -1888,7 +1888,7 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
           writersPaused: true,
           evidence: normalizeEvidence(proofEra)
         }, {
-          // Task 5's guarded apply re-verifies with a fresh read-only
+          // The guarded apply re-verifies with a fresh read-only
           // collection; this scenario injects the same approved collection and
           // the boundary daemon (no live scan in implementation tests).
           collectEvidence: async () => proofEra,
@@ -1912,7 +1912,7 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
         const payoutJournal = await db.rewardsWalletTransaction.findUnique({
           where: { network_walletAddress_txHash: { network: 'STAGENET', walletAddress: HOT, txHash: HASH.PAYOUT } }
         })
-        // Capture-era contract (Finding #1): the pending attempt's journal is a
+        // Capture-era contract: the pending attempt's journal is a
         // REAL captured pair whose fee was exact at send time — the repair
         // manifest must make NO fee correction for it (only the genuinely
         // LEGACY pre-capture row's fee is correctable under the amendment).
@@ -2298,7 +2298,7 @@ async function withIsolatedScenario (options, body) {
   })
 
   // ===========================================================================
-  // Capture-era regression package (Finding #1, Task 9). Every complete-
+  // Capture-era regression package. Every complete-
   // evidence case uses an explicitly synthetic independent audit session and
   // throwaway keys driven through the trusted verifier; the legacy historical
   // fixture above stays LEGACY (destination-only history never gains captured
@@ -2474,7 +2474,7 @@ async function withIsolatedScenario (options, body) {
       expect(journal.dispatchId).not.toBeNull()
       expect(journal.claimDigest).not.toBeNull()
       // Capture-era rows are fee-immutable: even an approved repair can never
-      // rewrite them (the Task 3 trigger, narrowed to proof-era rows by R9).
+      // rewrite them (the capture-era trigger, narrowed to proof-era rows).
       await expect(db.rewardsWalletTransaction.update({
         where: { id: journal.id },
         data: { networkFeePiconeros: 8n }
@@ -2778,7 +2778,7 @@ async function withIsolatedScenario (options, body) {
   })
 
   // ===========================================================================
-  // Coordinated repair chain (rewards reconciliation Task 7). ONE continuous
+  // Coordinated repair chain. ONE continuous
   // scenario per hot kind: future capture -> possible relay (uncertain
   // outcome) -> fresh confirmed verification (REAL collector + REAL verifier
   // over an explicitly synthetic audit session) -> builder promotion (closed
@@ -3240,7 +3240,7 @@ async function withIsolatedScenario (options, body) {
         return { manifest, original, evidence }
       }
 
-      // Final-review I1: strict recorded-outflow coverage is
+      // Strict recorded-outflow coverage is
       // verification-only. History-only escrow coverage (the outgoing entries
       // alone) is an UNRESOLVED strict audit — each recorded leg is named.
       const historyOnly = await buildManifest()
@@ -3271,7 +3271,7 @@ async function withIsolatedScenario (options, body) {
       expect(historyOnly.manifest.operations).toEqual([]) // the recorded debits stay
 
       // Covered: a complete ESCROW verification per exact leg hash, HONEST
-      // per leg (final-review I1 round 3): each captured leg's proof carries
+      // per leg: each captured leg's proof carries
       // the leg's own frozen member multiset derived from the journal row's
       // authenticated claims (canonical member id/leg/address/exact amount,
       // via the escrow reconcile's derivation), and binds the recorded journal
@@ -3316,7 +3316,7 @@ async function withIsolatedScenario (options, body) {
       expect(covered.manifest.operations).toEqual([])
       expect(covered.evidence).toEqual(covered.original) // the audit is pure
 
-      // The attribution is genuinely exercised (final-review I1 round 3): the
+      // The attribution is genuinely exercised: the
       // same hashes "proved" by complete results paying 1 piconero to a
       // DIFFERENT recipient — and binding no recorded journal owner — name
       // every leg through the exact-membership and owner bindings.

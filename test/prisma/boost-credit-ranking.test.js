@@ -1,7 +1,6 @@
 /* eslint-env jest */
 
-// DB test for the promotional boost ranking storage (spec
-// 2026-10-05-quest-rebalance-boost-credit, task 2). Item.promoBoostPiconeros
+// DB test for the promotional boost ranking storage. Item.promoBoostPiconeros
 // must rank through item_ranking_trigger with the SAME weight as a paid
 // boost — otherwise-identical items must land on identical ranktop/ranklit
 // lit state — while leaving every monetary/rank-accounting field untouched.

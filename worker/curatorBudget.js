@@ -1,5 +1,4 @@
-// Dynamic curator budget orchestrator (spec
-// 2026-10-19-dynamic-curator-budget-design.md §3–§6).
+// Dynamic curator budget orchestrator.
 //
 // This module composes the pure math (lib/curatorBudget.js) with the eligible
 // tip volume SQL (worker/eligibleTipVolume.js) and the recorded weekly history,
@@ -107,7 +106,7 @@ export async function readTrustWeighting (tx, config) {
   }
 }
 
-// Pool income F (spec §3.1): the rewards earmark excluding donations. A
+// Pool income F: the rewards earmark excluding donations. A
 // donation's rewards share is exactly `raw.donate` (allocateInflow), so it
 // raises the pool but never the weekly run rate. Floors at zero.
 export function incomeFromInflow (inflow) {
@@ -220,7 +219,7 @@ export async function planCuratorBudget (tx, {
   })
 
   // Stale trust only matters while weighting is on. With a recorded previous T,
-  // reuse it as this week's T (spec §4 step 8) while still computing the
+  // reuse it as this week's T while still computing the
   // stages at floor 1.0 so the record stays informative. With no recorded T,
   // the effective floor has already been forced to 1.0 by the distributor.
   const previousT = history[0]?.trustedTipPiconeros
@@ -244,7 +243,7 @@ export async function planCuratorBudget (tx, {
   const tipVolumes = [tPiconeros, ...history.map(row => toBigInt(row.trustedTipPiconeros))]
   const incomeVolumes = [income, ...incomeHistory.map(row => toBigInt(row.incomePiconeros))]
 
-  // Two-step make-up (spec §5): compute the budget first, then add the
+  // Two-step make-up: compute the budget first, then add the
   // approved make-up — at the CONFIGURED k, never this run's effective
   // multiple — and recompute. Approval only pays on the immediately following
   // run: a later row means the window closed, and a backfilled approval is
@@ -338,7 +337,7 @@ export async function planCuratorBudget (tx, {
   }
 }
 
-// --- History backfill (spec §9.1) -----------------------------------------
+// --- History backfill ------------------------------------------------------
 
 const optionalBigInt = value => (value == null ? null : BigInt(value))
 

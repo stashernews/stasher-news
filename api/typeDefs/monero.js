@@ -1,17 +1,17 @@
 import { gql } from 'graphql-tag'
 
-// StasherNews Monero wallet-setup GraphQL surface (spec §7.3).
+// StasherNews Monero wallet-setup GraphQL surface.
 //
-// Scope (controller resolution #1): ONLY the wallet-onboarding operations from
-// §7.3 land in Phase 2. The rest of §7.3 (setPrivacyMode, submitTipProof,
+// Scope: ONLY the wallet-onboarding operations are defined here.
+// The rest (setPrivacyMode, submitTipProof,
 // observedTips, platformFeeConfig, rewardsWalletInfo, rewardDistributions,
 // the ObservedTip / RewardsWalletInfo types, and the `moneroAddress` arg on
-// upsertSub) belongs to Phase 3/4/5 and is intentionally NOT defined here —
+// upsertSub) is intentionally NOT defined here —
 // YAGNI.
 //
 // `MoneroAccount` is the registered wallet under monero-lws observation. Its
 // privacyMode field is NOT a column on the Prisma model and is served by a
-// field resolver in api/resolvers/monero.js (controller resolution #2):
+// field resolver in api/resolvers/monero.js:
 // privacyMode lives on the owner USER (User.privacyMode), not on
 // MoneroAccount.
 //

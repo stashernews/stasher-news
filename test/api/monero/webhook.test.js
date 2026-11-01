@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Unit tests for the lws tx-confirmation webhook receiver (spec §4.4).
+// Unit tests for the lws tx-confirmation webhook receiver.
 //
 // The receiver is a Next.js API route whose core logic is exported as
 // `handleWebhook(req, res, models, monero, daemon)` so it can be tested with
@@ -77,7 +77,7 @@ jest.mock(`${process.cwd()}/api/monero/daemonClient`, () => ({
 // construction (credit call sites omit `daemon`, so verifyReceiptAmount can
 // never return a daemon verdict there). Wrap the real verifier in a jest.fn
 // delegate so specific tests can force the daemon level at this boundary and
-// exercise the gate itself (Task 10 review ZCD10-2); every other test runs the
+// exercise the gate itself; every other test runs the
 // REAL verification through the delegate.
 jest.mock(`${process.cwd()}/api/monero/receiptVerification`, () => {
   const actual = jest.requireActual(`${process.cwd()}/api/monero/receiptVerification`)
@@ -117,7 +117,7 @@ function mockModels (overrides = {}) {
       findFirst: jest.fn().mockResolvedValue(null),
       ...overrides.moneroAccount
     },
-    // Bounty branch models (A-13): default to "no matching bounty payment id"
+    // Bounty branch models: default to "no matching bounty payment id"
     // so tip-only tests exercise the fall-through as a 200 no-op. The pid-map
     // lookup is findFirst with the live-guard (consumedAt: null, expiresAt in
     // the future) — stale/consumed pids are unconsumable.
@@ -815,7 +815,7 @@ test('an N-conf callback for a legacy DETECTED row with a forged stored amount i
   // Pre-verification-webhook row: the STORED 999n was attacker-supplied and
   // no callback ever carried it. The callback amount (1000) matches the
   // chain tx — C4 passes — so only the stored-vs-chain binding in
-  // recheckDetectedTip can catch it (audit 2026-09-11, finding 2).
+  // recheckDetectedTip can catch it.
   const tip = {
     id: 2,
     postId: 10,
@@ -1537,7 +1537,7 @@ function scannableAccount (over = {}) {
 }
 
 // Daemon-level (0-conf) fixture wiring: the account keys and vout/txPubKeys are
-// the REAL chain-derived ownership fixture (Task 8), and the encrypted pid
+// the REAL chain-derived ownership fixture, and the encrypted pid
 // extra is built with the shipping pid crypto (setup only), so these tests run
 // the production daemon verification end-to-end.
 const DAEMON_PID = 'a1b2c3d4e5f60718'
@@ -2017,8 +2017,7 @@ test('0-conf callback claims the live pid map, inserts the row PROVISIONAL (heig
   await handleWebhook({ body: dvBody(), headers: {} }, res, models, monero)
 
   // The claim is a tagged-template $executeRaw (strings + values args), so
-  // assert on the recorded SQL via the harness's sqlOf pattern (the brief's
-  // "assert via the mock below if the harness records SQL differently").
+  // assert on the recorded SQL via the harness's sqlOf pattern.
   const sqlOf = call => Array.isArray(call[0]) ? call[0].join(' ') : call[0].text
   const sqls = models.$executeRaw.mock.calls.map(sqlOf)
   expect(sqls.some(sql => sql.includes('UPDATE "DownvotePidMap"') && sql.includes('"consumedAt" IS NULL') && sql.includes('"expiresAt" > NOW()'))).toBe(true) // atomic live-map claim UPDATE
@@ -2053,7 +2052,7 @@ test('expired or consumed pid map is a 200 no-op (claim UPDATE matched 0 rows)',
   expect(res.status).toHaveBeenCalledWith(200)
 })
 
-test('downvote 0-conf verification does NOT advance the observer cursor on the rewards account (starvation regression, audit finding 1)', async () => {
+test('downvote 0-conf verification does NOT advance the observer cursor on the rewards account (starvation regression)', async () => {
   // lws hands the verification lookup BOTH an unattributed fee tx (id 101)
   // and the downvote (id 102). Pre-fix, lookupTipTx advanced
   // MoneroAccount.lastTxId to 102 here and rewardsWalletObserver — the ONLY
@@ -2298,7 +2297,7 @@ describe('fee: branch (owner-routed turf fees)', () => {
     expect(flipPendingToLive).not.toHaveBeenCalled()
   })
 
-  // T2 (2026-09-19 review finding) end-to-end: a real fee tx for THIS leg can
+  // (2026-09-19) end-to-end: a real fee tx for THIS leg can
   // no longer be re-attributed to a DIFFERENT pending pid on the same owner
   // account. The lws tx is found by hash, but its pid differs from the claim —
   // the verification seam rejects pid_mismatch and nothing is recorded.
@@ -2622,7 +2621,7 @@ describe('fee: branch (owner-routed turf fees)', () => {
   })
 })
 
-// --- auth-denial tests (Task 3 / C4) ---
+// --- auth-denial tests ---
 const _origNodeEnv = process.env.NODE_ENV
 const _origToken = process.env.LWS_WEBHOOK_TOKEN
 afterEach(() => {

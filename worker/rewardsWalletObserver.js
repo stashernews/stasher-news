@@ -22,8 +22,8 @@ import { recoverPlatformFeePids } from '@/worker/platformFeePidRecovery'
 const TRANSACTION_OPTIONS = { maxWait: 5000, timeout: 15000 }
 
 // rewardsWalletObserver — observes posting/territory fees AND downvote payments paid to
-// the platform rewards wallet (Phase 3 Task 5 + Phase 4 Task 4 / spec §3.3, §5.6,
-// §6.2). The rewards wallet is the ONLY custodial component; every payment lands
+// the platform rewards wallet. The rewards wallet is the ONLY custodial
+// component; every payment lands
 // either on a DEDICATED subaddress (major 1 = posting, major 2 = territory) for
 // fees, or on the PRIMARY address (major 0) carrying a payment_id for downvotes.
 //
@@ -33,12 +33,12 @@ const TRANSACTION_OPTIONS = { maxWait: 5000, timeout: 15000 }
 //     subaddress, idempotently records a FeeObservation (DETECTED), and flips the
 //     gated Item.feeStatus PENDING_FEE -> FEE_PAID (or Sub.billingStatus), taking
 //     the post/territory live.
-//   - primary address + payment_id (Phase 4): reverses the payment_id via the
+//   - primary address + payment_id (downvotes): reverses the payment_id via the
 //     DownvotePidMap, idempotently records an ObservedDownvote (DETECTED), and
 //     transitions it to the verified height via applyDownvoteTransition, which
 //     owns the LOG-scaled ranking penalty (weightedDownVotes/downPiconeros) —
-//     exactly once, on the NULL->height transition (Task 13).
-//   - primary address, bounty settlement hash (rewards accounting repair §4):
+//     exactly once, on the NULL->height transition.
+//   - primary address, bounty settlement hash:
 //     attributes a verified incoming output to its frozen escrow settlement and
 //     books the single eligible FeeObservation receipt (BOUNTY_FEE 100% ops, or
 //     a BOUNTY_ROLLOVER with an exact mixed split). Unknown/cold outputs and
@@ -65,14 +65,14 @@ export async function runRewardsWalletObserverOnce ({ models, account, txs }) {
 }
 
 // Dispatcher — the single seam the fee, downvote, tip, and bounty branches
-// share. The subaddress (fee) branch is Phase 3; the rest are primary-address
+// share. The subaddress (fee) branch runs first; the rest are primary-address
 // branches distinguished by payment_id / settlement hash.
 async function attributeOutput (models, tx, account) {
   if (!account || account.label !== 'platform_rewards') return
-  // PHASE 3: attribute posting/territory fees by their receiving subaddress.
+  // Attribute posting/territory fees by their receiving subaddress.
   // Short-circuit: a fee subaddress output is never a downvote.
   if (await attributeFeeBySubaddress(models, tx)) return
-  // REWARDS ACCOUNTING REPAIR §4: a known bounty settlement hash arriving at
+  // BOUNTY RECEIPTS: a known bounty settlement hash arriving at
   // the rewards wallet books its receipt. Escrow payouts carry no payment_id,
   // so this is checked before (and independently of) the payment_id branches.
   if (await attributeBountyReceipt({ models, account, tx })) return
@@ -211,7 +211,7 @@ async function attributeIntegratedFee (models, tx, account) {
   return true
 }
 
-// Apply the boost ranking bump (A-14): increment the item's persistent boost
+// Apply the boost ranking bump: increment the item's persistent boost
 // weight 1:1 with the observed on-chain piconeros (the ranktop trigger weighs
 // boost at 1, matching tips). Comments also propagate commentBoost to
 // ancestors, mirroring the legacy boost onPaid SQL.
@@ -236,8 +236,8 @@ export async function applyBoostDetected (models, payIn, piconeros) {
     WHERE "Item".id = ancestors.id`
 }
 
-// Inverse of applyBoostDetected for the reverseStaleDetections sweep (audit
-// A-1): give back the boost weight an unconfirmed 0-conf receipt bumped.
+// Inverse of applyBoostDetected for the reverseStaleDetections sweep:
+// give back the boost weight an unconfirmed 0-conf receipt bumped.
 // GREATEST(...,0) floors guard against pre-migration drift.
 export async function reverseBoostDetected (models, payIn, piconeros) {
   const row = await models.itemPayIn.findUnique({ where: { payInId: payIn.id } })
@@ -266,7 +266,7 @@ export async function reverseBoostDetected (models, payIn, piconeros) {
 // inserted PROVISIONAL (height NULL) even when lws already reports a height:
 // the penalty is owned by applyDownvoteTransition's NULL->height CAS, so writing
 // the height into the insert would make that CAS unreachable and silently lose
-// the penalty on the observer-first path (Task 13). The insert's ON CONFLICT DO
+// the penalty on the observer-first path. The insert's ON CONFLICT DO
 // NOTHING guard makes a re-poll (or a raced webhook insert) a no-op; only the
 // fresh insert reaches the transition.
 async function attributeDownvoteByPaymentId (models, tx) {
@@ -373,7 +373,7 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
       })
     }, TRANSACTION_OPTIONS)
     if (flipped) {
-      // R01: an item that was in-quota at creation but born PENDING_FEE (its
+      // An item that was in-quota at creation but born PENDING_FEE (its
       // only cost was the upload fee) consumes its free quota HERE — the
       // creation-time increments skip non-freeborn items. Exactly-once (only
       // the winning flip branch reaches this) and best-effort: its OWN
@@ -449,7 +449,7 @@ export async function flipPendingToLive (models, payIn, feePiconeros) {
       })
       if (flipped.count > 0 && payIn.payInType === 'TERRITORY_CREATE') {
         // The creation's fee was observed: consume the day-7 TURF_DISCOUNT the
-        // user held at quote time (spec §5: consumed only on a successful
+        // user held at quote time (consumed only on a successful
         // creation — never on a submitted-but-unpaid one). Best-effort, in its
         // own try, mirroring the quota consumption above.
         try {
@@ -516,7 +516,7 @@ const detectReorg = createReorgDetector()
 // restart — observed live 2026-08-10: item 2755 stuck PENDING_FEE; under
 // cron-owned recurrence every tick would just fail the same way).
 // The viewKey filter excludes test rows outright; orderBy id asc matches the
-// repo's lookup convention (walletless plan Task 2).
+// repo's lookup convention.
 export async function findRewardsAccount (models) {
   return models.moneroAccount.findFirst({
     where: {
@@ -547,7 +547,7 @@ export async function rewardsWalletObserver ({ models, lws = lwsClient, detectRe
     const next = nextLwsCursor(txs, previousCursor)
     await runRewardsWalletObserverOnce({ models, account, txs: fresh })
 
-    // Bounded bounty-receipt recovery (rewards accounting repair §4), BEFORE
+    // Bounded bounty-receipt recovery, BEFORE
     // the cursor advance: a settlement output scanned before the sender's DB
     // persist completed sits behind the cursor and would never re-enter the
     // fresh slice. Recovery therefore scans the FULL history (the incremental

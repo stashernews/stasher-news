@@ -7,7 +7,7 @@ export default gql`
     curatorBudget: CuratorBudget!
   }
 
-  # Live projection of this week's dynamic curator budget (spec §10). It is
+  # Live projection of this week's dynamic curator budget. It is
   # final at the Monday 00:00 UTC distribution. No tipper identities or config
   # exclusion IDs are exposed: every stage is a total.
   type CuratorBudget {
@@ -22,7 +22,7 @@ export default gql`
     spendLimitPiconeros: BigInt   # (I4 + reserve / W) x 10000 / 11000; NULL when unavailable
     drawdownWeeks: Int            # the W the copy must quote (ledger default 13, valid 4..104); NULL when unavailable
     dynamicBudgetMode: String     # FULL | DRAWDOWN | POOL_SHORT for the live projection; NULL when unavailable
-    windingDown: Boolean!         # the last two recorded runs both ended in DRAWDOWN (spec §10)
+    windingDown: Boolean!         # the last two recorded runs both ended in DRAWDOWN
     breakerTripped: Boolean!
   }
 

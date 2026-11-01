@@ -11,8 +11,7 @@ import {
 } from './paymentProofStore'
 import { createPaymentProofKeyProvider } from './paymentProofKeys'
 
-// Durable per-transaction journal for rewards hot-wallet sends (rewards
-// accounting repair §3.3 / send-time journal boundary).
+// Durable per-transaction journal for rewards hot-wallet sends.
 //
 // Every payout batch, ops sweep and consolidation follows the same boundary:
 //
@@ -54,7 +53,7 @@ const NETWORK_TYPES = { MAINNET: 0, STAGENET: 2 }
 const TX_HASH_RE = /^[0-9a-f]{64}$/
 const JOURNAL_KINDS = new Set(['PAYOUT', 'OPS_SWEEP', 'CONSOLIDATION'])
 
-// One persist retry for a proven relay (spec: post-relay persistence failure is
+// One persist retry for a proven relay (post-relay persistence failure is
 // an accounting failure, never a reason to forget the relay).
 const RELAYED_PERSIST_ATTEMPTS = 2
 
@@ -211,8 +210,8 @@ function validateMetadata ({ kind, metadata, principalPiconeros, scope }) {
 // missing/misconfigured registry fails sealing and the dispatch never relays.
 const defaultKeyProvider = () => createPaymentProofKeyProvider(process.env)
 
-// Persist the durable journal+proof PAIR for a built-but-UNRELAYED transaction
-// (Finding #1 capture barrier). Preparation is delegated to the atomic pair
+// Persist the durable journal+proof PAIR for a built-but-UNRELAYED transaction.
+// Preparation is delegated to the atomic pair
 // store: the claims derive from the built transaction's REAL fields (hash,
 // fee, actual destinations, key bundle) plus the caller's owner expectations,
 // and the journal row + encrypted proof land together in one Serializable
@@ -387,9 +386,9 @@ export async function relayWalletTransaction ({ models, wallet, journal, tx, key
 // SESSION — never the signer singleton (whose cached restore height and
 // in-memory state must never serve as an audit authority), and never from
 // destination-shaped wallet history (a built-but-unrelayed cached tx or an
-// address/amount match can never prove a relay). The session is the Task 4
+// address/amount match can never prove a relay). The session is the
 // chain-evidence collector over the audit wallet's unfiltered scan plus the
-// audit wallet's own checkTxKey receipt checker; the Task 5 verifier gates the
+// audit wallet's own checkTxKey receipt checker; the verifier gates the
 // authenticated capture pair against the raw confirmed chain.
 
 // The audit wallet is opened from the platform rewards keys in env, restored
@@ -460,7 +459,7 @@ async function auditDerivation (auditWallet, scope, models) {
       return true
     }
 
-    // Prepare the domain BEFORE scanning (final-review I2): the primary plus
+    // Prepare the domain BEFORE scanning: the primary plus
     // fee-account primaries 1..5 (created on the dedicated in-memory audit
     // wallet when missing — never on the signer) and every recorded minor
     // INCLUDING account-0 minors. Pre-listing the currently exposed accounts
@@ -521,7 +520,7 @@ async function auditBoundary (daemon) {
 // never weakened.
 const AUDIT_SCAN_RESYNC_ATTEMPTS = 3
 // The prepared derivation domain covers the primary plus fee-account
-// primaries 1..5 (final-review I2) — the same majors the fee-account
+// primaries 1..5 — the same majors the fee-account
 // infrastructure provisions.
 const AUDIT_DERIVATION_MAJORS = 5
 
@@ -568,7 +567,7 @@ async function buildAuditSession ({ auditWallet, daemon, scope, models }) {
       boundary,
       auditedHashes: await readPaymentAuditHashes({ models, scope, journalRole: 'REWARDS' })
     })
-    // Bracket the collection against the tip (final-review I4): a chain that
+    // Bracket the collection against the tip: a chain that
     // moved during the session refuses (null → rows retain uncertainty and
     // the next bounded run reruns), never a mixed-boundary promotion.
     const tipAfter = await auditBoundary(daemon)
@@ -974,7 +973,7 @@ export async function reconcileWalletTransactions ({
   // claim CAS — but their named payouts / sweep leg are RESERVED from
   // rebuilding under a new hash until explicit operator handling resolves the
   // pair (verified teardown). Reusing the existing uncertainty machinery, they
-  // surface exactly where the brief mandates: PAYOUT members land in
+  // surface exactly where mandated: PAYOUT members land in
   // `uncertainPayoutIds` (sendPayouts already excludes them from fresh
   // selection), OPS_SWEEP sets `uncertainSweep` (blocking further sweeps), and
   // CONSOLIDATION rows are surfaced without new blocking semantics (they are

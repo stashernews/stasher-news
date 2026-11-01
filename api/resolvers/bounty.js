@@ -7,7 +7,7 @@ import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 import { alert } from '@/lib/alert'
 import { REQUIRED_CONFIRMATIONS, BOUNTY_MIN_PICONEROS } from '@/lib/constants'
 
-// Bounty funding (A-13 Task 3): `fundBounty(postId)` mints a per-bounty
+// Bounty funding: `fundBounty(postId)` mints a per-bounty
 // integrated address on the BOUNTY ESCROW wallet carrying a "bn:" payment id,
 // registers the lws tx-confirmation webhook, records the BountyPidMap + a
 // PENDING ObservedBounty, and returns a monero: URI paying bounty + fee in one
@@ -25,7 +25,7 @@ async function getBountyEscrowAccount (models) {
 }
 
 // Core funding logic (testable without GraphQL context). The payer MUST have a
-// registered wallet: reclaim attribution (Task 4) repays the funding to the
+// registered wallet: reclaim attribution repays the funding to the
 // wallet owner, so an unattributed funding could not be reclaimed.
 export async function initiateBountyFundingCore ({ postId, models, monero, me }) {
   const id = Number(postId)
@@ -279,7 +279,7 @@ export default {
     }
   },
   Item: {
-    // A-13 award indication: one join per bounty post (post pages only —
+    // Award indication: one join per bounty post (post pages only —
     // the fragment places this field on the post, never on feed items).
     bountyWinnerName: async (item, args, { models }) => {
       if (!item.bountyWinnerCommentId) return null

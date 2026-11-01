@@ -1,4 +1,4 @@
--- A-13 award indication: mark the winning comment + link the bounty post to it.
+-- Award indication: mark the winning comment + link the bounty post to it.
 -- Written atomically in the payBounty claim transaction. Self-FK follows the
 -- rootId convention (ON DELETE SET NULL).
 

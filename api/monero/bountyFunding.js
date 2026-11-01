@@ -1,7 +1,7 @@
 import { bountyFeePiconeros } from './bounties'
 import { alert } from '@/lib/alert'
 
-// Bounty funding CONFIRMED path (A-13). Shared by the lws webhook receiver
+// Bounty funding CONFIRMED path. Shared by the lws webhook receiver
 // (pages/api/monero/webhook.js) and the confirmFinalizer backstop
 // (worker/confirmFinalizer.js) so a bounty funding cannot stay provisional when
 // the webhook's N-conf callback is lost. Runs inside the caller's Serializable

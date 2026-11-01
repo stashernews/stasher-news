@@ -138,7 +138,7 @@ describe('no-op when webhook unset', () => {
   })
 })
 
-describe('delivery outcome is observable (Finding 2)', () => {
+describe('delivery outcome is observable', () => {
   // worker/jobExpiryMonitor marks a job notified only when delivery succeeded,
   // so alert() must resolve true/false rather than undefined. Existing callers
   // ignore the return value, so nothing else changes.

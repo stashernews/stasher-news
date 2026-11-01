@@ -126,7 +126,7 @@ export default function Comment ({
   const router = useRouter()
   const root = useRoot()
   const [, , , editMode] = useCanEdit(item)
-  // finding #3: the mode when the editor opened. A FULL window expiring
+  // the mode when the editor opened. A FULL window expiring
   // mid-edit keeps the mounted editor (with its typed values) visible and
   // refuses submission instead of swapping to the addendum editor.
   const fullEditExpired = editModeAtOpen === 'FULL' && editMode === 'ADDENDUM'

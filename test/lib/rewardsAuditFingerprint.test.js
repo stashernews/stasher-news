@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Task 1 (rewards reconciliation): the shared, closed `accounting:v2:`
+// Rewards reconciliation: the shared, closed `accounting:v2:`
 // fingerprint contract. These tests pin the COMPLETE projection inventory —
 // one freshness mutation per inventoried field — plus order independence,
 // Date/ISO equivalence, duplicate/invalid retention, missing-vs-null-vs-invalid
@@ -345,7 +345,7 @@ describe('accountingAuditProjection canonical semantics', () => {
   })
 
   test('canonical IDs are representation-independent exact identities', () => {
-    // Final-review M1: a safe nonnegative number, its BigInt form and its
+    // A safe nonnegative number, its BigInt form and its
     // canonical decimal string are the SAME exact id — one projected identity,
     // one fingerprint. The audit identifier can never depend on the JS
     // representation that carried the value.

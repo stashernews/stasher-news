@@ -47,7 +47,7 @@ const DAY = 24 * 60 * 60 * 1000
 const START = new Date('2026-10-19T00:00:00Z') // Monday 00:00 UTC
 const TIP = 250_000_000_000n // 0.25 XMR; four equal tippers give T = 1 XMR
 
-// Pure income definition (spec §3.1): the donation rewards share is exactly
+// Pure income definition: the donation rewards share is exactly
 // inflow.raw.donate, so a donation raises the pool but never F.
 describe('incomeFromInflow', () => {
   test('subtracts the donation rewards share and floors at zero', () => {
@@ -508,7 +508,7 @@ describe('isSerializationFailure', () => {
     await setConfig({ curatorBudgetMode: 'ACTIVE' })
     // I4 = T4 = 1 XMR; pool 7.5 = rollover 6.5 + income 1, so reserve = 6.5
     // and the limit (1 + 6.5/13) × 10/11 ≈ 1.36 XMR binds below the 1.5
-    // XMR target (spec §3.2).
+    // XMR target.
     await seedHistory({ lastRollover: 13n * XMR / 2n })
     await seedItemsAndTips()
     await seedInflow(XMR)
@@ -700,7 +700,7 @@ describe('isSerializationFailure', () => {
   })
 
   test('a valid arming window above both windows still arms and caps the spike', async () => {
-    // Whole-branch review I1: avg=4 and median=12 are both below arm=20. With
+    // avg=4 and median=12 are both below arm=20. With
     // 30 recorded periods the planner must retain at least 20, not truncate to
     // 12 and silently disable the breaker forever.
     await setConfig({
@@ -773,7 +773,7 @@ describe('isSerializationFailure', () => {
     await setConfig({ curatorBudgetMode: 'ACTIVE' })
     // T4 = (1 + 2.5 + 1 + 1) / 4 = 1.375 XMR; the approved make-up adds
     // (3 − 2.5) × 1.5 ÷ 4 = 0.1875 XMR to the 2.0625 XMR target, but the
-    // limit on the small pool still binds (spec §3.2/§5).
+    // limit on the small pool still binds.
     await seedHistory({
       lastRollover: 13n * XMR / 2n,
       tripped: true,
@@ -814,7 +814,7 @@ describe('isSerializationFailure', () => {
   })
 
   test('an unrecordable effective multiple fails safe inside planning: fallback cap, one CRITICAL alert', async () => {
-    // Whole-branch review I1: a tiny positive T4 plus an approved make-up is
+    // A tiny positive T4 plus an approved make-up is
     // not bounded by the configured k. Prior recorded T [10, 4, 4, 4] pico;
     // the current raw T 149e9 trips the breaker again (threshold
     // floor(mean([10,4,4,4]) x 2.5) = 12) and is capped to 12, so
@@ -872,7 +872,7 @@ describe('isSerializationFailure', () => {
   })
 
   test('an effective multiple exactly at the int4 boundary is recorded normally', async () => {
-    // Guard-scope pin (review I1): the boundary itself must still record.
+    // Guard-scope pin: the boundary itself must still record.
     // Prior T [4000, 4000, 4000, 4000] pico with the latest row tripped
     // (raw 3149624684, capped 4000) and approved; the current raw T 12000
     // trips again (threshold 4000 x 2.5 = 10000) and is capped to 10000, so

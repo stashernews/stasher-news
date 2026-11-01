@@ -1,4 +1,4 @@
--- Payment transaction proofs (Finding #1, Task 3): the encrypted proof store,
+-- Payment transaction proofs: the encrypted proof store,
 -- the escrow dispatch journal, and the corruption barriers that keep every
 -- proof atomically paired with exactly one owner.
 --
@@ -363,16 +363,16 @@ CREATE CONSTRAINT TRIGGER "PaymentTransactionProof_delete_guard"
 -- (network, wallet, hash), claims (dispatchId, capture contract, claimDigest,
 -- paymentClaims, proofId), principal, fee, source account, distribution, kind,
 -- metadata. LEGACY rows (incomplete/null capture tuple) are deliberately
--- EXEMPT: the amendment §8 legacy repair requires a legacy mutable/missing
--- recorded fee to be correctable when independently proven, and the plan's own
--- Task 3 text keeps "legacy repair fields and mutable state/timestamps" under
+-- EXEMPT: the legacy repair flow requires a legacy mutable/missing
+-- recorded fee to be correctable when independently proven, and
+-- "legacy repair fields and mutable state/timestamps" stay under
 -- the existing rules — legacy rows stay guarded by the reconciliation repair
 -- flow's own closed evidence/precondition gates, not by this trigger.
 -- Mutable state/timestamps/relay bookkeeping (state, relayAttemptedAt,
 -- relayedAt, relayProvenance) follow the existing journal rules either way.
 CREATE FUNCTION "rewards_journal_capture_immutable"() RETURNS trigger AS $$
 BEGIN
-  -- Legacy→capture promotion barrier (final-review I9): a legacy row (OLD
+  -- Legacy→capture promotion barrier: a legacy row (OLD
   -- capture tuple incomplete) can NEVER gain a complete capture tuple — not
   -- even in one atomic UPDATE that also inserts the matching proof row,
   -- because the deferred pair checks only ever observe the final complete

@@ -363,7 +363,7 @@ test('twelve held replies are grandfathered above the cap and banking resumes af
 
 // The sweep and a same-day advance both write StreakReward rows; without the
 // user-row lock their count predicates interleave and a 9-held bank can grow
-// past the cap of ten. The lock serializes every cap check (task 3).
+// past the cap of ten. The lock serializes every cap check.
 test('a concurrent day-3 rung and completion banking never cross the reply cap', async () => {
   const userId = await mkUser()
   // An active run whose previous day is unsettled: the sweep's own advance

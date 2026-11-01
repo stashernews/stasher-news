@@ -48,7 +48,7 @@ async function grantFlameAdvance ({ tx, userId, user, streak, dayDate }) {
 }
 
 /**
- * Advance the flame for a UTC day whose quests are cleared (spec §4.5). The
+ * Advance the flame for a UTC day whose quests are cleared. The
  * quest sweep calls this as soon as both completions are on record, so the
  * flame lights — badge, filled circle, level rewards — the moment the day is
  * cleared instead of waiting for 00:10 UTC; the daily evaluation calls it too
@@ -70,7 +70,7 @@ export async function advanceQuestStreak ({ models, userId, day, requirePrevSett
   let outcome = 'failed'
   try {
     await models.$transaction(async tx => {
-      // Serialize reward writes for the user first (task 3): the row lock must
+      // Serialize reward writes for the user first: the row lock must
       // precede every read below, so a concurrent sweep/evaluation of the same
       // day blocks until this transaction commits and then re-reads the settled
       // guard, seeing the day already advanced instead of double-granting.
@@ -126,7 +126,7 @@ export async function advanceQuestStreak ({ models, userId, day, requirePrevSett
 }
 
 /**
- * Daily quest-streak evaluation (spec §4.5). Runs just after 00:10 UTC and
+ * Daily quest-streak evaluation. Runs just after 00:10 UTC and
  * evaluates the UTC day that just ended (`now` minus a day, so a caller may
  * simulate a day passing): clearing both quests advances the flame (normally
  * already done by the sweep — this is the backstop for a sweep that recorded
@@ -309,8 +309,8 @@ export async function runScheduledStreak ({ models, createdon, evaluate = evalua
 
 /**
  * Grant every ungranted ladder level up to `to`. POST and REPLY bank capped
- * credits: grants stop at MAX_BANKED_POSTS / MAX_BANKED_REPLIES (spec rev 3
- * §2.4, count-before-insert). BOOST banks at most one credit
+ * credits: grants stop at MAX_BANKED_POSTS / MAX_BANKED_REPLIES
+ * (count-before-insert). BOOST banks at most one credit
  * (MAX_BANKED_BOOSTS): the rung — day 5 on odd weeks, day 2 on even weeks —
  * is suppressed while one is held WITHOUT refreshing the held row's expiry,
  * and it re-grants only once that row is consumed or expired; its expiry is
@@ -340,12 +340,11 @@ export async function grantLadderRewards ({ models, userId, streak, from, to }) 
     const type = REWARD_TYPE[kind]
     if (!type) continue // flame is cosmetic
     if (type === 'BOOST') {
-      // The boost-credit rung — day 5 on odd flame weeks, day 2 on even weeks
-      // (spec 2026-10-05-quest-rebalance-boost-credit):
+      // The boost-credit rung — day 5 on odd flame weeks, day 2 on even weeks:
       // count available rows under the caller's user lock and stop at the
       // cap of one — a held credit suppresses this rung without refreshing
       // its expiry. Unlike POST/REPLY the grant timestamps come from the
-      // database wall clock, and spec §5.1 requires sampling it AFTER
+      // database wall clock, and must be sampled AFTER
       // acquiring locks: the caller's row lock may have parked through a
       // long wait, and now_utc() would stay frozen at the transaction's
       // BEGIN (before the wait), so a credit expiring mid-wait would still
@@ -373,7 +372,7 @@ export async function grantLadderRewards ({ models, userId, streak, from, to }) 
       })
       if (held) continue
     } else {
-      // Banked credits stop at the cap (spec rev 3 §2.4).
+      // Banked credits stop at the cap.
       const [row] = await models.$queryRaw`
         SELECT count(*)::int AS held FROM "StreakReward"
         WHERE "userId" = ${userId} AND "type" = ${type}::"StreakRewardType"

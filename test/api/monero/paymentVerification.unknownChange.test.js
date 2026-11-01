@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Non-DB regression for final-review I2: the pinned SDK can leave a built
+// Non-DB regression: the pinned SDK can leave a built
 // transaction's change address/amount unset even when the confirmed chain has
 // a legitimate change output. Capture must preserve those facts as null, and
 // verification may then allow ONLY the independently derived source-primary

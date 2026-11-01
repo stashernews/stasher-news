@@ -1,4 +1,4 @@
--- A-14 follow-up (operator decision B): Item.boost/commentBoost Int -> BigInt so
+-- Item.boost/commentBoost Int -> BigInt so
 -- boosts above ~2.147e9 piconeros (0.0021 XMR) no longer overflow the DETECTION
 -- increment (worker/rewardsWalletObserver.js applyBoostDetected). The ranking
 -- trigger is unaffected: COALESCE(NEW.boost, 0)::double precision is valid for

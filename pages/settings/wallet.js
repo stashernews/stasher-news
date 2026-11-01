@@ -4,7 +4,7 @@ import { SettingsHeader } from './index'
 import WalletSetup from '@/components/wallet-setup'
 import Alert from 'react-bootstrap/Alert'
 
-// Stasher News author wallet onboarding (spec §8.2). SSR-only shell; the
+// Stasher News author wallet onboarding. SSR-only shell; the
 // WalletSetup component handles the query for an existing account and the
 // AUTO_INDEX registration flow client-side.
 export const getServerSideProps = getGetServerSideProps({ authRequired: true })

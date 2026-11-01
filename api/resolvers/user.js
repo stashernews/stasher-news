@@ -532,8 +532,7 @@ export default {
         // notifications.js): ended flames and verified badges only. An ACTIVE
         // flame's updatedAt bumps on every day-clear advance, but the advance
         // chronicle entries are noteQuests-gated — matching those rows here
-        // rings the bell for entries the dropdown then hides (M5 residual,
-        // 2026-09-26 review).
+        // rings the bell for entries the dropdown then hides.
         const streak = await models.streak.findFirst({
           where: {
             userId: me.id,
@@ -1102,14 +1101,14 @@ export default {
       return streak?.goldActive ?? false
     },
     turfDiscountHeld: async (user, args, { models }) => heldReward(models, user.id, 'TURF_DISCOUNT'),
-    // Day-5 boost credit view (spec 2026-10-05-quest-rebalance-boost-credit).
+    // Day-5 boost credit view.
     // Both fields await ONE per-request availability read: the context object
     // is built fresh per request (pages/api/graphql.js), so it is a safe
     // memoization key — unlike the process-wide `models` client — and
     // resolveBoostCreditAvailability caches the promise on it. A grant landing
     // between the two field resolutions can therefore never mix an id from one
-    // row with an expiry from another (spec §5.2 "resolve both from the same
-    // available-credit reader"), and the read issues once per request. The
+    // row with an expiry from another — both fields resolve from the same
+    // available-credit reader — and the read issues once per request. The
     // explicit identity guard below is what keeps a foreign request from ever
     // reaching the ledger (no foreign leakage).
     boostCreditId: async (user, args, ctx) => {
@@ -1308,7 +1307,7 @@ export default {
   }
 }
 
-// --- quest privates helpers (spec 2026-09-23-daily-quests) ---
+// --- quest privates helpers ---
 
 /** Today's draw + completions bundle for the module's privates fields. */
 async function questStateFor (models, user) {

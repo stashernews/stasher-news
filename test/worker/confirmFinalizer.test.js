@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Integration test for the confirmFinalizer job (Task 7 / spec §5.5, Q5).
+// Integration test for the confirmFinalizer job.
 //
 // runConfirmFinalizerOnce is the testable core of the pg-boss confirmFinalizer
 // job: it reads the current chain height from monerod (get_info) once per run,
@@ -490,8 +490,7 @@ test('a deferred re-check (lws miss corroborated by monerod) never credits or ex
   expect(signal).toBeNull()
 })
 
-// PR1 credit-hole lock-in (audit 2026-09-11, finding 2; Task 4/5 object
-// contract): a forged DETECTED row whose tx exists NOWHERE — absent from lws
+// Credit-hole lock-in: a forged DETECTED row whose tx exists NOWHERE — absent from lws
 // AND absent from monerod. The fail-closed corroboration must claim
 // TX_NOT_FOUND (EXCLUDED + AbuseSignal) and the credit pass must never bump the
 // author. (The deferred test above is the same lws miss when monerod still HAS
@@ -537,7 +536,7 @@ test('a forged DETECTED tip whose tx never existed is excluded, never credited',
   expect(daemon.getTransactions).toHaveBeenCalledWith([tip.txHash])
 })
 
-// I3 (final whole-branch review): a tip detected at 0-conf (daemon level) can
+// A tip detected at 0-conf (daemon level) can
 // sit DETECTED with height NULL. If every later mined webhook is lost, nothing
 // scans it — the maturity pass requires height NOT NULL, reconcilePendingTips
 // scans PENDING only, webhookMissCheck pages PENDING only — and at 48h
@@ -669,7 +668,7 @@ test('a DETECTED ObservedDownvote stays DETECTED below 10 confirmations', async 
   expect(after.confirmedAt).toBeNull()
 })
 
-// Task 13: a NULL-height downvote (observer/webhook detected the mempool tx
+// A NULL-height downvote (observer/webhook detected the mempool tx
 // before it was mined) is transitioned by the lws backfill through the shared
 // applyDownvoteTransition — height AND the ranking penalty are applied exactly
 // once, no matter how many finalizer runs see the row.

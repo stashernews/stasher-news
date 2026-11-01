@@ -3,8 +3,8 @@ import {
   validatePaymentVerification
 } from '@/api/monero/paymentVerification'
 
-// Closed version-2 relay-proof operation construction (rewards reconciliation
-// plan, Task 3). PURE: this module reads no DB, opens no wallet, signs
+// Closed version-2 relay-proof operation construction. PURE: this module
+// reads no DB, opens no wallet, signs
 // nothing, relays nothing and never mutates its inputs. It is the ONLY
 // authority for turning one verifier-checked confirmed whole payment into the
 // journal's PREPARED -> RELAYED update operation, and it fails closed: every
@@ -12,7 +12,7 @@ import {
 // operation is produced unless EVERY contract check passes.
 //
 // The exact relayProof field list is a closed contract shared with the APPLY
-// dispatcher (plan Task 5): `version, evidenceDigest, verificationVersion,
+// dispatcher: `version, evidenceDigest, verificationVersion,
 // scope, journalRole, journalId, dispatchId, captureMode, txHash, claimDigest,
 // proofInventory, sourceAccounts, members, receivingAggregates,
 // ownedAccounting, totals, confirmation, verifierVersion, sdkVersion,
@@ -66,7 +66,7 @@ const canonicalJson = value => {
 }
 
 /**
- * Closed-shape validator for the shared v2 relayProof contract (plan Task 5).
+ * Closed-shape validator for the shared v2 relayProof contract.
  * The APPLY dispatcher accepts a relayProof only when this holds; the
  * substantive comparison against the approved AND fresh verifier facts is the
  * caller's (it needs both collections). Never throws — returns a boolean.
@@ -120,8 +120,8 @@ export function validateJournalRelayProof (proof) {
 }
 
 // Role-scoped verification slots: a REWARDS entry binds to the collection's
-// top-level wallet scope, an ESCROW entry to the nested escrow wallet scope
-// (final-review I2). The slot identity carries role, scope and hash, so
+// top-level wallet scope, an ESCROW entry to the nested escrow wallet scope.
+// The slot identity carries role, scope and hash, so
 // same-hash results from the two wallet roles can never alias each other.
 const slotEntries = value => (Array.isArray(value) ? value : [])
 
@@ -142,7 +142,7 @@ const verificationEntries = evidence => [
 
 const slotKey = item => `${item.role}:${item.network}:${item.walletAddress}:${item.entry.txHash}`
 
-// Conflict-safe slot index (final-review I2; fix round 2): two results for
+// Conflict-safe slot index: two results for
 // one role/scope/hash bind the slot only when they are the SAME journal
 // identity with identical substantive facts AND the same surviving-proof
 // identity (the stable facts projection excludes the surviving evidence
@@ -170,7 +170,7 @@ const slotIndex = items => {
 }
 
 /**
- * Guarded re-verification comparison (plan Task 5; final-review I2): the
+ * Guarded re-verification comparison: the
  * fresh read-only collection must still prove EVERY complete payment the
  * approved collection proved — in BOTH wallet roles, each under its own
  * independently bound scope — with IDENTICAL substantive facts. Advancing
@@ -508,13 +508,13 @@ const observedAtOutsideCollection = (observedAt, collectionStartedAt, collectedA
 
 // The provenance/reason shared by the journal-less legacy backfill INSERT the
 // reconciliation builder produces from complete independently surviving
-// evidence (rewards reconciliation Task 4). Task 5's APPLY allowlist accepts
+// evidence. The APPLY allowlist accepts
 // exactly this insert.
 export const LEGACY_BACKFILL_REASON = 'legacy-complete-payment-backfill'
 
 /**
  * Build the closed v2 relayProof for a proved journal-less legacy candidate's
- * backfill INSERT (rewards reconciliation Task 4). The proof is the SAME
+ * backfill INSERT. The proof is the SAME
  * closed contract as the promotion operation's, except it binds no journal
  * identity: `journalId`, `dispatchId`, `claimDigest` and `proofInventory` are
  * explicitly null and the exact surviving-evidence digest is carried. Only a

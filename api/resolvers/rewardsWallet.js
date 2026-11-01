@@ -8,8 +8,8 @@ import { readNextRewardsPool } from '@/lib/rewardsPool'
 import { opsCarry, walletScope } from '@/lib/rewardsAccounting'
 import { GqlInputError } from '@/lib/error'
 
-// StasherNews public transparency surface for the platform rewards wallet
-// (spec §4.4, §6.4, §7.3). The rewards wallet is the ONLY custodial component:
+// StasherNews public transparency surface for the platform rewards wallet.
+// The rewards wallet is the ONLY custodial component:
 // a single Monero hot wallet (MoneroAccount { label: 'platform_rewards' }) that
 // receives all platform-bound revenue (downvotes, posting fees, territory fees).
 //
@@ -140,7 +140,7 @@ export default {
       }, { isolationLevel: 'Serializable', timeout: 10000 })
     },
 
-    // Public distribution log (spec §7.3): recent RewardDistributions with
+    // Public distribution log: recent RewardDistributions with
     // their RewardPayouts, curator nym resolved, and piconeros rendered as XMR
     // decimal for display. correctedPendingOpsPiconeros is the row's carry
     // corrected with the factual ledger. Each historical row's fee adjustment

@@ -1,5 +1,5 @@
-// Exact-credit authenticated atomic redemption of the flame boost credit
-// (spec 2026-10-05-quest-rebalance-boost-credit, task 4). The purse is the
+// Exact-credit authenticated atomic redemption of the flame boost credit.
+// The purse is the
 // StreakReward ledger: one available credit (unconsumed, unexpired) buys the
 // rank-only promo weight of a paid boost on the author's own live post.
 //

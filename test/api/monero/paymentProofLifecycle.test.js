@@ -29,12 +29,12 @@ jest.mock(`${process.cwd()}/lib/logger`, () => ({
   logError: jest.fn()
 }))
 
-// Payment-proof lifecycle tests (Finding #1, Task 8): paused-writer inventory
+// Payment-proof lifecycle tests: paused-writer inventory
 // check + key-version rotation, the rotation CLI, and the separately encrypted
 // full-registry escrow backup.
 //
-// DB parts run against the dedicated isolated database with REAL Task 2
-// crypto, REAL Task 3 store rows (pairs prepared through preparePaymentDispatch
+// DB parts run against the dedicated isolated database with REAL seal/open
+// crypto, REAL store rows (pairs prepared through preparePaymentDispatch
 // with in-memory test master versions) and are gated on the isolated runner
 // exactly like the other payment suites. The CLI and backup suites are pure
 // (fake models / fake GPG child process / injected clock) and run everywhere.
@@ -424,7 +424,7 @@ describe('payment proof lifecycle request refusals (pure)', () => {
     return journal
   }
 
-  // The full mixed-version fixture from the brief: several valid v1 rows, one
+  // The full mixed-version fixture: several valid v1 rows, one
   // already-at-target v2 row, one deliberately corrupt v1 row, an escrow row,
   // and the recorded-delivery row.
   const seedMixedFixture = async () => {
@@ -952,7 +952,7 @@ describe('backup-payment-proof-keys registry escrow (pure, fake gpg)', () => {
     expect(fs.statSync(result.file).mode & 0o777).toBe(0o600)
 
     // gpg was spawned WITHOUT a shell, with the exact pinned arguments, a
-    // bounded lifetime and a MINIMAL environment (final-review M4): ambient
+    // bounded lifetime and a MINIMAL environment: ambient
     // secrets never reach the crypto child — only PATH and HOME cross.
     expect(spawnGpg.calls).toHaveLength(1)
     expect(spawnGpg.calls[0].args).toEqual([

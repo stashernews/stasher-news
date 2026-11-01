@@ -1,10 +1,10 @@
 import { alert } from '@/lib/alert'
 
-// Confirmed bounty-arrival receipts (rewards accounting repair §4).
+// Confirmed bounty-arrival receipts.
 //
 // The rewards hot wallet books bounty revenue ONLY from a verified incoming
 // output on the platform rewards wallet (the rewardsWalletObserver scan)
-// matched against the frozen escrow settlement on BountyPayment (Task 3): the
+// matched against the frozen escrow settlement on BountyPayment: the
 // Exact settlement tx hash, the frozen destination, the receiving index that
 // identifies it, and the captured net amount. A signed sender-side tx is not
 // proof of receipt, so funding and relay write no cash row — these attributed
@@ -21,7 +21,7 @@ import { alert } from '@/lib/alert'
 //     newer recoverable ones.
 //   - __resetBountyRecoveryCursor: test-only rotation reset.
 //
-// Split rule (§4): a rollover uses ONE row for its real output — net total in
+// Split rule: a rollover uses ONE row for its real output — net total in
 // `piconeros` with the exact rewards component in `rewardsPiconeros`. For net
 // received N and frozen booked prize B: rewards = min(B, N), ops = N - rewards
 // (the escrow miner fee consumes the fee/ops portion first). Award/reclaim and
@@ -228,7 +228,7 @@ export async function attributeBountyReceipt ({ models, account, tx } = {}) {
 // primary-address revenue is never auto-classified. Returns the number of
 // fresh receipts.
 //
-// FAIRNESS (rewards accounting repair review fix): a persistently unbookable
+// FAIRNESS: a persistently unbookable
 // oldest window (settlement metadata missing, amount mismatch, wrong index)
 // must not monopolise every pass. A process-local rotation cursor (keyed by
 // rewards account id) advances over the FULL ordered leg key — the composite

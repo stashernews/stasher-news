@@ -50,7 +50,7 @@ export async function payWeeklyPostBounty ({ data: { id }, models, apollo, pay: 
 
   // CAS claim BEFORE paying: a retried/duplicate job loses the race and
   // no-ops instead of double-paying. This repo has no Item.bountyPaidTo
-  // column — A-13 replaced it with bountyWinnerCommentId (schema.prisma) —
+  // column — it was replaced with bountyWinnerCommentId (schema.prisma) —
   // so the claim conditionally sets bountyWinnerCommentId, mirroring the
   // payBounty claim transaction in api/resolvers/bounty.js (single-writer
   // domain: any concurrent award already set the column and this claim

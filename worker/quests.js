@@ -36,7 +36,7 @@ async function recordQuestCompletion ({ models, userId, day, quest }) {
 }
 
 /**
- * Detect quest completions for today's draw and record them (spec §4.2).
+ * Detect quest completions for today's draw and record them.
  * Candidates = users with a qualifying action in the lookback window; the
  * draw is deterministic, so no per-day state is needed for the check itself.
  * The insert is the idempotency guard AND the notification trigger.
@@ -120,7 +120,7 @@ export async function sweepQuestCompletions ({ models, now = new Date(), userIds
 }
 
 /**
- * Light the flame as soon as a day is cleared (spec §4.5): advance every day
+ * Light the flame as soon as a day is cleared: advance every day
  * whose completions are on record but whose streak has not counted it yet.
  * Driven by the recorded rows, not the action lookback, so a clear recorded
  * before a worker restart still lights, and a failed advance is retried on the

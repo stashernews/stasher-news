@@ -2,8 +2,8 @@
 import { money, allocateInflow, opsCarry, sweepDebitLimit, standingReserve, walletScope } from '@/lib/rewardsAccounting'
 import { rewardsFromInflow } from '@/lib/rewardsPool'
 
-// Exact BigInt money accounting for the platform rewards hot wallet (rewards
-// accounting repair §5). Pure helpers: no DB, no wallet, import inert.
+// Exact BigInt money accounting for the platform rewards hot wallet.
+// Pure helpers: no DB, no wallet, import inert.
 
 const CONFIG = {
   downvoteRewardsPct: 100,

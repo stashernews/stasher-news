@@ -1,4 +1,4 @@
--- Schedule reverseStaleDetections (audit A-1 stale-DETECTED reversal): flips
+-- Schedule reverseStaleDetections (stale-DETECTED reversal): flips
 -- DETECTED observations whose height is still NULL after
 -- STALE_DETECTED_EXPIRY_MS (48h) to REORGED and reverses their provisional
 -- effects. Every 10 min is far tighter than the 48h window needs and keeps the

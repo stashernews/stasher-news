@@ -1,5 +1,5 @@
 // Strict tx-extra parsing and Monero key-structure arithmetic for the
-// payment-proof chain adapter (Finding #1, Task 4).
+// payment-proof chain adapter.
 //
 // Two responsibilities, both independent of any wallet/daemon/DB:
 //

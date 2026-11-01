@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Integration test for computeCuratorShares (Phase 4 Task 7 / spec §5).
+// Integration test for computeCuratorShares.
 //
 // computeCuratorShares ports SN's worker/earn.js reward-share CTE to StasherNews:
 // it reads confirmed ObservedTip rows (P2P Monero tips) instead of legacy PayIn
@@ -369,7 +369,7 @@ test('each share carries per-type earns that sum exactly to the share', async ()
   }
 })
 
-// HANDICAP_IDS restore (A-09 Task 1): staff users 616/4502 get a 0.5x curator
+// HANDICAP_IDS restore: staff users 616/4502 get a 0.5x curator
 // proportion. Two identical posts with identical tips; the handicapped one's
 // curator share must be exactly half the other's. Uses USER_ID.sn (4502), NOT
 // 616: on a dev DB with real activity user 616 can carry genuine recent tips

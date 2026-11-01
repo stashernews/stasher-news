@@ -6,11 +6,11 @@ import { reverseBoostDetected } from '@/worker/rewardsWalletObserver'
 import { STALE_DETECTED_EXPIRY_MS } from '@/lib/constants'
 import { alert } from '@/lib/alert'
 
-// reverseStaleDetections — closes the 0-conf double-spend window (audit A-1).
+// reverseStaleDetections — closes the 0-conf double-spend window.
 //
 // Benefits are granted at 0-conf DETECTION (rank, upvotes, tip totals, boost
 // weight, fee-gated item liveness; downvote penalties at the verified
-// NULL->height transition, Task 13) and NOTHING previously reversed them:
+// NULL->height transition) and NOTHING previously reversed them:
 // confirmFinalizer only scans height-set rows, reverseTip had no
 // production caller, and reorg reconciliation is explicitly deferred. A
 // double-spent or mempool-evicted tx therefore kept every benefit forever.
@@ -20,9 +20,9 @@ import { alert } from '@/lib/alert'
 // mempool eviction horizon) to the existing REORGED terminal state (the
 // tip/downvote modals already render it) and reverses the effects:
 //   ObservedTip       -> reverseTip (rank terms, upvotes, totals, ItemUserAgg,
-//                        anon bucket — Task 2 exact inverse); height-NULL only
-//   ObservedDownvote  -> reverseDownvotePenalty (Task 3), but ONLY for rows
-//                        whose verified height is set: Task 13's transition
+//                        anon bucket — exact inverse); height-NULL only
+//   ObservedDownvote  -> reverseDownvotePenalty, but ONLY for rows
+//                        whose verified height is set: the transition
 //                        (applyDownvoteTransition) is the sole penalty writer,
 //                        so a height-NULL row never applied one and is skipped
 //                        here (it stays DETECTED awaiting the finalizer's
@@ -38,7 +38,7 @@ import { alert } from '@/lib/alert'
 //                        abandonFeeItems semantics + CRITICAL alert (content
 //                        removal is operator-visible)
 //   ObservedSubFee    -> same, plus reverseBoostDetected for owner-routed BOOST
-//                        legs (Task 4)
+//                        legs
 //
 // Money-safety: every claim is a conditional UPDATE (... WHERE state='DETECTED'
 // and the branch's height predicate) inside a Serializable transaction; only
@@ -83,7 +83,7 @@ export async function runReverseStaleDetectionsOnce ({
   }
 
   // --- ObservedDownvote ---
-  // Task 13 moved the penalty onto the verified NULL->height transition
+  // The penalty lives on the verified NULL->height transition
   // (applyDownvoteTransition) — the ONLY penalty writer — so a height-NULL row
   // has nothing to reverse and must be skipped here: reversing it would
   // subtract an amount that was never added, driving the ranking aggregates

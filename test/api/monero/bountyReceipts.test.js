@@ -1,12 +1,12 @@
 /* eslint-env jest */
 
-// Pure + stubbed contract tests for the confirmed bounty-arrival receipt helper
-// (Task 4, rewards accounting repair §4). The integrated attribution/recovery
+// Pure + stubbed contract tests for the confirmed bounty-arrival receipt helper.
+// The integrated attribution/recovery
 // behavior (real rows, the absence-of-receipt candidate query, cursor misses)
 // lives in test/worker/rewardsWalletObserver.bounty.test.js against the
 // dedicated isolated DB; this file never touches a database.
 //
-// Split rule (§4): for a rollover with net received N and frozen booked prize B
+// Split rule: for a rollover with net received N and frozen booked prize B
 // the rewards component is min(B, N) and the remainder is ops; award/reclaim
 // and legacy separate fees are 100% ops. Every row books the ACTUAL net
 // received amount, never the requested gross.

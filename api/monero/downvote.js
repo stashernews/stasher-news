@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client'
 import { META_SUB } from '@/lib/constants'
 import { alert } from '@/lib/alert'
 
-// Downvote address + payment_id reverse lookup (spec §3.3).
+// Downvote address + payment_id reverse lookup.
 //
 // When a user downvotes a post, they pay a fee-sized amount to the platform
 // rewards wallet via an *integrated address* (primary rewards address + an
@@ -17,7 +17,7 @@ import { alert } from '@/lib/alert'
 //
 // Pure: computes the downvote payment_id and folds it into the platform
 // rewards primary address as a Monero integrated address. The DownvotePidMap
-// row is recorded separately (Task 3's downZap getInitial) — this function
+// row is recorded separately (the downZap getInitial path) — this function
 // performs no DB I/O. Throws if PLATFORM_REWARDS_ADDRESS is unset.
 export function makeDownvoteAddress (postId, nonce) {
   const primary = process.env.PLATFORM_REWARDS_ADDRESS
@@ -134,8 +134,8 @@ export async function applyDownvoteTransition ({ models, dv, height, piconeros, 
   return true
 }
 
-// Inverse of applyDownvotePenalty for the reverseStaleDetections sweep (audit
-// A-1). The forward applied zapTrust * LOG(after/before) where after = before +
+// Inverse of applyDownvotePenalty for the reverseStaleDetections sweep.
+// The forward applied zapTrust * LOG(after/before) where after = before +
 // piconeros; after the give-back below the stored cumulative equals "before",
 // so the RETURNING recomputes the SAME log factor and subtracts it exactly
 // (exact under no interleaving; concurrent same-item downvotes interleave LOG

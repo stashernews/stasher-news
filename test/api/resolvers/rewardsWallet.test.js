@@ -1,8 +1,7 @@
 /* eslint-env jest */
 
 // Unit tests for Query.rewardsWalletInfo / Query.rewardDistributions — the
-// public transparency surface for the platform rewards wallet (spec §4.4,
-// §6.4).
+// public transparency surface for the platform rewards wallet.
 //
 // Every monetary fact comes from the SHARED readers, read in one Serializable
 // snapshot:

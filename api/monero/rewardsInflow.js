@@ -1,7 +1,7 @@
 import { allocateInflow, money } from '@/lib/rewardsAccounting'
 
-// The single CONFIRMED rewards-hot-wallet inflow reader (rewards accounting
-// repair §5). Every consumer — the next-pool readout, the weekly distributor,
+// The single CONFIRMED rewards-hot-wallet inflow reader. Every consumer
+// the next-pool readout, the weekly distributor,
 // the transparency pages, the ops sweep bound and the repair manifest — reads
 // inflow from here so their windows, eligibility and exact splits can never
 // drift apart.

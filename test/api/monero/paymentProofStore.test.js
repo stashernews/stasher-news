@@ -20,8 +20,8 @@ jest.mock(`${process.cwd()}/lib/logger`, () => ({
   logError: jest.fn()
 }))
 
-// Atomic-pair store tests (Finding #1, Task 3), against the dedicated isolated
-// database with REAL seal/open crypto (Task 2) and the Task 1 fixtures. The
+// Atomic-pair store tests, against the dedicated isolated database with REAL
+// seal/open crypto and the payment-proof fixtures. The
 // matrix proves the pair barrier end to end: a proof-insert fault rolls back
 // the journal AND never reaches relay; a fault after the write phase still
 // leaves neither row (neither/both semantics through a real transaction);

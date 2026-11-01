@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// ITEM_CREATE pgboss regression (Task 5 fix). pg-boss v9 dropped the DB-side
+// ITEM_CREATE pgboss regression. pg-boss v9 dropped the DB-side
 // default on pgboss.job.id (uuids are now minted by the JS client), so the raw
 // INSERTs in itemCreate.onPaid (timestampItem + imgproxy) and in
 // performBotBehavior (deleteItem + reminder) must supply gen_random_uuid().
@@ -203,7 +203,7 @@ test('performBotBehavior creates deleteItem + reminder pgboss jobs for marked te
   created.reminderIds.push(reminder.id)
 })
 
-// --- Fix 3: comments are exempt from the posting-fee gate (spec §2.2, row 826) ---
+// --- Fix 3: comments are exempt from the posting-fee gate ---
 test('getInitial returns a free prospect for comments — no fee subaddress draw', async () => {
   // No ensureFeeConfig() here: the comment early-return precedes any
   // PlatformFeeConfig read (and thus any feePool subaddress draw).
@@ -235,7 +235,7 @@ test('getInitial returns a free prospect for established users', async () => {
   expect(result).not.toHaveProperty('moneroUri')
 })
 
-// --- Task 4: established users past the 5/month free-post quota pay a posting fee ---
+// --- established users past the 5/month free-post quota pay a posting fee ---
 test('getInitial returns a posting-fee URI for established authors who exhausted their free-post quota', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
@@ -283,7 +283,7 @@ test('getInitial returns a x10 anon posting-fee URI for anonymous posts', async 
   await expectPlatformFeeLeg(prisma, result, 'POSTING')
 })
 
-// --- A-05: 1.5x spam-fee escalation (item_spam) is applied server-side ---
+// --- 1.5x spam-fee escalation (item_spam) is applied server-side ---
 test('getInitial escalates the posting fee x1.5 for a second root post within 10m', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
@@ -316,7 +316,7 @@ test('getInitial escalates the comment fee x1.5 for a repeat reply within 10m', 
   expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(900_000_000n) // 0.0006 x 1.5^1
 })
 
-// --- A-07: uploads over 10MB are charged on new posts ---
+// --- uploads over 10MB are charged on new posts ---
 test('getInitial includes the upload fee in the posting-fee URI for a >10MB upload', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
@@ -328,7 +328,7 @@ test('getInitial includes the upload fee in the posting-fee URI for a >10MB uplo
   expect(result.beneficiaries?.some(b => b.payInType === 'MEDIA_UPLOAD')).toBe(true)
 })
 
-// --- A-07 follow-up: upload fees are proportional (0.001 per 10MB block) ---
+// --- upload fees are proportional (0.001 per 10MB block) ---
 test('getInitial folds a 30MB upload fee (0.003 XMR) into the posting-fee URI', async () => {
   const userId = await createUser()
   await ensureFeeConfig()
@@ -404,7 +404,7 @@ test('pay("ITEM_CREATE", { uploadIds }) completes without flipping the upload; t
   created.items.push(item.id)
   expect(item.feeStatus).toBe('PENDING_FEE')
   expect(item.feePayInId).toBe(result.id)
-  // past the quota: an over-quota item is never marked quota-eligible (R01)
+  // past the quota: an over-quota item is never marked quota-eligible
   expect(item.feeQuotaEligible).toBe(false)
 
   // drive the observation-time flip: the observer sees the covering fee on the
@@ -416,14 +416,14 @@ test('pay("ITEM_CREATE", { uploadIds }) completes without flipping the upload; t
   expect(liveItem.feeStatus).toBe('FEE_PAID')
 })
 
-// --- R01: onBegin marks in-quota upload-fee items for flip-time quota consumption ---
+// --- onBegin marks in-quota upload-fee items for flip-time quota consumption ---
 //
 // An in-quota author whose item's only on-chain cost is the >10MB upload fee is
 // born PENDING_FEE (feeRequired), so the creation-time incrementFree* calls skip
 // it. onBegin sets feeQuotaEligible and flipPendingToLive consumes the quota at
 // the fee flip. Over-quota (pinned by the e2e above), owner-free, bio, and anon
 // items are never marked.
-describe('onBegin — feeQuotaEligible marker (R01)', () => {
+describe('onBegin — feeQuotaEligible marker', () => {
   async function createItemViaPay (userId, args) {
     const result = await pay(
       'ITEM_CREATE',
@@ -445,7 +445,7 @@ describe('onBegin — feeQuotaEligible marker (R01)', () => {
       WHERE id = ${userId}::int`
     const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
     const { result, item } = await createItemViaPay(userId, {
-      title: 'r01 in-quota post ' + Date.now(),
+      title: 'in-quota post ' + Date.now(),
       url: 'https://example.com/' + Date.now(),
       uploadIds: [uploadId],
       subNames: []
@@ -467,7 +467,7 @@ describe('onBegin — feeQuotaEligible marker (R01)', () => {
     const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
     const { result, item } = await createItemViaPay(userId, {
       parentId: String(parentId),
-      text: 'r01 in-quota comment',
+      text: 'in-quota comment',
       uploadIds: [uploadId]
     })
     expect(result.moneroUri).toMatch(/^monero:/)
@@ -485,7 +485,7 @@ describe('onBegin — feeQuotaEligible marker (R01)', () => {
     created.subs.push(turfName)
     const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
     const { result, item } = await createItemViaPay(userId, {
-      title: 'r01 owner-free post ' + Date.now(),
+      title: 'owner-free post ' + Date.now(),
       url: 'https://example.com/' + Date.now(),
       uploadIds: [uploadId],
       subNames: [turfName]
@@ -719,7 +719,7 @@ describe('getInitial — turf-owner fee waiver', () => {
 
 // --- turf repost: comment fees pin to the root post's home turf ---
 describe('getInitial — comments route on primarySubName', () => {
-  // mirrors the R01 describe's createItemViaPay: drive the full pay() engine so
+  // mirrors the feeQuotaEligible describe's createItemViaPay: drive the full pay() engine so
   // begin() -> onPaid runs synchronously (piconeros 0n -> PAID)
   async function createItemViaPay (userId, args) {
     const result = await pay(
@@ -962,7 +962,7 @@ describe('onPaid — comment denormalization timing', () => {
   })
 })
 
-// --- finding 6: a stale free-reply prospect cannot double-spend one banked
+// --- a stale free-reply prospect cannot double-spend one banked
 // REPLY credit. getInitial prices BEFORE payIn's payer row lock, so two
 // requests can both see the last credit and both price themselves free; the
 // locked onPaid consumption must fail closed for the loser and roll its item

@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// POLL_VOTE free-vote regression (A-08 Task 5). The fork removed poll-vote
+// POLL_VOTE free-vote regression. The fork removed poll-vote
 // founder revenue, so a poll vote must be free: getInitial returns piconeros 0n
 // and the payIn engine marks it PAID at creation (mCostRemaining 0n → PAID),
 // after which onBegin records + anonymizes the PollVote row.

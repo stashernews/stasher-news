@@ -191,7 +191,7 @@ test('incrementFreeCommentCount rolls a stale counter over to a fresh weekly win
   }
 })
 
-// --- consumeQuotaForFlippedItem (R01: flip-time quota consumption) ---
+// --- consumeQuotaForFlippedItem (flip-time quota consumption) ---
 
 test('consumeQuotaForFlippedItem is a no-op without the feeQuotaEligible marker', async () => {
   const tx = mkTx({ freeCommentCount: 0, freeCommentResetAt: null })
@@ -350,7 +350,7 @@ test('consumeQuotaForFlippedItem consumes a banked reward when the post base quo
   expect(streakRewardSql(tx)).toHaveLength(1)
 })
 
-// --- finding 6: serialized, base-first, fail-closed flip consumption ---
+// --- serialized, base-first, fail-closed flip consumption ---
 
 test('consumeQuotaForFlippedItem locks the user row BEFORE reading quota state (no stale pre-lock snapshot)', async () => {
   const calls = []

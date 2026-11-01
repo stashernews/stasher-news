@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Integration test for the rewardsWalletObserver downvote-attribution branch (Phase 4 Task 4).
+// Integration test for the rewardsWalletObserver downvote-attribution branch.
 //
 // runRewardsWalletObserverOnce is the testable core: it processes rewards-wallet outputs
 // and, for each output to the PRIMARY address (major 0) carrying a payment_id,

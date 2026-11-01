@@ -1,4 +1,4 @@
-// Backfill the dynamic curator budget history (spec 2026-10-19 §9.1).
+// Backfill the dynamic curator budget history.
 // Dry-run by default. Fills only the recorded-history fields on the most recent
 // distributions (default: curatorBreakerFloorMedianPeriods) and never touches
 // money columns, payouts or Earn rows. Rows are processed oldest first inside

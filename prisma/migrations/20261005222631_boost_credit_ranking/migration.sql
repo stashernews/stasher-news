@@ -1,5 +1,4 @@
--- Promotional boost ranking storage (spec 2026-10-05-quest-rebalance-boost-credit,
--- task 2): Item.promoBoostPiconeros is the rank-only promo term consumed by
+-- Promotional boost ranking storage: Item.promoBoostPiconeros is the rank-only promo term consumed by
 -- BOOST credit redemption. It is NOT money: nothing in the payIn engine, the
 -- item_net_investment trigger, or the reward ledger reads it — only
 -- item_ranking_trigger folds it into ranktop/ranklit with the same weight as

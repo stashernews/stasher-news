@@ -3,8 +3,7 @@
 The newsletter is a **biweekly community roundup** sent as a Resend **Broadcast**
 to a **Segment** of **Contacts**. It runs on Resend's *marketing* plane — a
 separate quota from the transactional 100/day shared by login codes and the
-weekly digest, so a blast can never starve them. Spec:
-`docs/superpowers/specs/2026-10-06-newsletter-design.md`.
+weekly digest, so a blast can never starve them.
 
 Local state: `users.newsletterOptIn` (default **true** — soft opt-in for
 verified accounts), `users.newsletterSuppressed` (set by bounce/complaint

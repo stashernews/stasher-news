@@ -4,8 +4,8 @@ import { PrismaClient } from '@prisma/client'
 import { readRewardsInflow } from '@/api/monero/rewardsInflow'
 import { rewardsFromInflow } from '@/lib/rewardsPool'
 
-// One parameterized reader for CONFIRMED rewards-hot-wallet inflow (rewards
-// accounting repair §5). Every fee-source subselect requires walletReceipt=true
+// One parameterized reader for CONFIRMED rewards-hot-wallet inflow.
+// Every fee-source subselect requires walletReceipt=true
 // and the same [start, end) window; BOUNTY_ROLLOVER receipts mix an exact
 // reward component (rewardsPiconeros) with the ops remainder. The mocked
 // contracts run everywhere; the real-DB window/eligibility/flooring checks run

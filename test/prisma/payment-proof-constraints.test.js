@@ -2,8 +2,8 @@
 import { PrismaClient } from '@prisma/client'
 import { Client } from 'pg'
 
-// Real-DB constraint tests for the payment-proof pair storage (Finding #1,
-// Task 3): the exactly-one-owner CHECK, envelope byte/digest/version CHECKs,
+// Real-DB constraint tests for the payment-proof pair storage: the
+// exactly-one-owner CHECK, envelope byte/digest/version CHECKs,
 // the DEFERRABLE INITIALLY DEFERRED pair-integrity triggers (a mismatch rolls
 // back ONLY at COMMIT — a mid-transaction repair commits), the immutability
 // triggers over captured journal facts and the rotation-only proof update
@@ -497,11 +497,11 @@ const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
     expect(row.relayProvenance).toBe('relay-wallet')
   })
 
-  test('legacy rows keep the guarded repair mutability (amendment §8 fee correction)', async () => {
+  test('legacy rows keep the guarded repair mutability (fee correction)', async () => {
     // A legacy RELAYED row with no capture tuple: the reconciliation repair's
     // plain-UPDATE fee correction must succeed — the immutability trigger
-    // deliberately exempts legacy rows (plan: "legacy repair fields follow
-    // existing rules").
+    // deliberately exempts legacy rows (legacy repair fields follow
+    // existing rules).
     const legacyId = await insertHotJournal(db, { txHash: HASH_A, legacy: true })
     await db.$executeRawUnsafe(
       'UPDATE "RewardsWalletTransaction" SET state = \'RELAYED\', "relayedAt" = now() WHERE id = $1', legacyId)
@@ -526,7 +526,7 @@ const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 
   test('a legacy row cannot gain a proof-era capture tuple post-hoc', async () => {
     // Writing the complete five-column tuple is rejected IMMEDIATELY by the
-    // legacy→capture promotion barrier (final-review I9) — the deferred pair
+    // legacy→capture promotion barrier — the deferred pair
     // trigger can never even see the promoted state, so the atomic
     // "update the tuple AND insert the matching proof in one transaction"
     // route is equally dead.
@@ -545,7 +545,7 @@ const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
   })
 
   test('an ATOMIC legacy→capture promotion (complete tuple + matching proof in one transaction) is rejected', async () => {
-    // Final-review I9: the R9 legacy exemption let a transaction update its
+    // The legacy exemption let a transaction update its
     // complete capture tuple and insert the matching proof in ONE
     // transaction — the deferred checks passed on the complete result. The
     // immediate promotion barrier now rejects the update before COMMIT, so

@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '@/api/models'
 import { META_SUB } from '@/lib/constants'
 
-// Ranking side-effects of an observed Monero tip (capped rank terms, spec §4).
+// Ranking side-effects of an observed Monero tip (capped rank terms).
 //
 // In addition to the true totals (`Item.piconeros`, ancestor
 // `commentPiconeros`) and the notification surface (`Item.lastTipAt`, read by

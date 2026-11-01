@@ -4,11 +4,10 @@
 // rewardsDistributor below). payWeeklyPostBounty must claim via CAS (no
 // read-then-pay).
 //
-// STEP 1 AUDIT — idempotency verdicts (full evidence in
-// .superpowers/sdd/task-4-report.md):
+// STEP 1 AUDIT — idempotency verdicts:
 //   - payWeeklyPostBounty (worker/weeklyPosts.js): NOT idempotent
 //     (read-then-pay TOCTOU) -> CAS claim added. NOTE: this repo has NO
-//     Item.bountyPaidTo column — A-13 replaced it with bountyWinnerCommentId
+//     Item.bountyPaidTo column — replaced with bountyWinnerCommentId
 //     (prisma/schema.prisma). The claim conditionally sets
 //     bountyWinnerCommentId, mirroring the payBounty claim transaction in
 //     api/resolvers/bounty.js:190-197 (single-writer domain; the api/ TIP

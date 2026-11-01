@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { getMasterKey, getCurrentVersion, addMasterKeyVersion } from './masterkey'
 
-// View-key envelope encryption (Task 2 / spec Q3).
+// View-key envelope encryption.
 //
 // Authors' Monero private view keys are encrypted at rest so the indexer
 // worker can decrypt them in-process to poll monero-lws; the web process
@@ -82,7 +82,7 @@ export function encryptViewKey (plaintext) {
 
 // Decrypt an envelope-shaped object ({ ciphertext, iv, tag, wrappedDek,
 // dekVersion }) back to the plaintext view key. Pure crypto: no Prisma, no
-// DB lookup — the caller (Task 3's lwsClient) fetches the MoneroViewKey row
+// DB lookup — the caller (lwsClient) fetches the MoneroViewKey row
 // and passes it here. Throws on any tamper (GCM auth failure).
 export function decryptViewKey (envelope) {
   const masterKey = getMasterKey(envelope.dekVersion)

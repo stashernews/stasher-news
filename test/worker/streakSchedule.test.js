@@ -1,5 +1,5 @@
 /* eslint-env jest */
-// Scheduled streak evaluations (Finding 2, 2026-10-12): the nightly 00:10 UTC
+// Scheduled streak evaluations (2026-10-12): the nightly 00:10 UTC
 // run hit the 10s Prisma interactive transaction timeout while the rewards
 // distribution was running, failed with P2028 before its first write, and —
 // with retryLimit 0 — one user's day rollover was never applied. pg-boss now

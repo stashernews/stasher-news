@@ -1,10 +1,10 @@
 /* eslint-env jest */
 
-// Integration tests for the Monero resolvers (spec §4.5, §7.3).
+// Integration tests for the Monero resolvers.
 //
 // registerMoneroAccount is the wallet-onboarding mutation: it validates the
 // stagenet address + private view key via monero-ts (real validation, NOT
-// mocked), encrypts the view key (Task 2 envelope), registers the account
+// mocked), encrypts the view key (envelope crypto), registers the account
 // with monero-lws, and persists MoneroAccount / MoneroViewKey rows + sets
 // User.privacyMode.
 //

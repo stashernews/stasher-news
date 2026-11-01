@@ -149,8 +149,8 @@ export default gql`
     depth: Int
     mine: Boolean!
     boost: BigInt!
-    # StasherNews: the rank-only promo weight of a redeemed boost credit
-    # (spec 2026-10-05-quest-rebalance-boost-credit). Never money: it moves
+    # StasherNews: the rank-only promo weight of a redeemed boost credit.
+    # Never money: it moves
     # nothing in PayIn, the rewards wallet, or the monetary filters.
     promoBoostPiconeros: BigInt!
     bounty: Int

@@ -1,7 +1,7 @@
 /* eslint-env jest */
 
 // =============================================================================
-// Phase 2 exit-gate integration test — WEBHOOK FLOW (spec 2026-07-27 §7).
+// Exit-gate integration test — WEBHOOK FLOW.
 //
 // End-to-end on STAGENET against the REAL monerod + monero-lws + app + worker:
 //   register an author wallet (primary address + view key)
@@ -15,7 +15,7 @@
 //      ObservedTip CONFIRMED, author's User.stackedPiconeros bumped.
 //
 // This exercises the FULL non-custodial webhook pipeline against real chain
-// state. It is the Phase 2 exit gate.
+// state. It is the exit gate.
 //
 // -----------------------------------------------------------------------------
 // SKIP GUARD: this test NEVER runs under `./sndev test`. It is gated on
@@ -198,7 +198,7 @@ async function sendTipManual (integratedAddress, moneroUri, amountPiconeros) {
 // =============================================================================
 // The exit gate. Skipped unless RUN_STAGENET_INTEGRATION=1.
 // =============================================================================
-;(STAGENET_ENABLED ? describe : describe.skip)('Phase 2 stagenet exit gate (webhook flow)', () => {
+;(STAGENET_ENABLED ? describe : describe.skip)('stagenet exit gate (webhook flow)', () => {
   const run = { postId: null, accountId: null, userId: null, tipperId: null, paymentId: null, tipHash: null }
 
   beforeAll(() => {

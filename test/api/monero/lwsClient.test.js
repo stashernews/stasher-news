@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Unit tests for the monero-lws REST client (Task 3).
+// Unit tests for the monero-lws REST client.
 //
 // Transport is dependency-injected: every test passes a fake `transport`
 // with the same contract the real (node:https-backed) transport honours —
@@ -11,7 +11,7 @@
 // intercept Node 22's undici-backed global fetch).
 //
 // The account row carries its own encrypted view-key envelope; the client
-// decrypts it in-process via decryptViewKey (Task 2). We build a real
+// decrypts it in-process via decryptViewKey. We build a real
 // envelope here so the decrypt path is exercised end-to-end.
 //
 // Run via the node:22.23.4 helper container:

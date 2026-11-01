@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-// Task 1 (rewards reconciliation): the authoritative scoped audit snapshot
+// Rewards reconciliation: the authoritative scoped audit snapshot
 // reader. Fake model objects are driven from the shared auditLedgerFixture so
 // the REAL #1 proof-store inventory path (safe metadata + integrity digest)
 // runs against synthetic proof rows; no real DB, wallet, key or network.
