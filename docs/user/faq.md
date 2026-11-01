@@ -8,7 +8,7 @@ sub: stasher
 
 _To quickly browse through this FAQ page, click the chapters icon in the top-right corner. This will let you scroll through all chapters or search for a particular topic within this page._
 
-last updated: September 27, 2026
+last updated: November 1, 2026
 
 ---
 
@@ -30,13 +30,13 @@ On Stasher News, all payments are denominated and delivered peer-to-peer on the 
 
 ### What happens if I don't attach a wallet?
 
-You can still use Stasher News without a wallet: you can browse, post and comment. However, tips are paid peer-to-peer, so if another stasher tips your content and you don't have a wallet attached, the tip goes to the platform rewards wallet instead of to you — you only receive tips once you [attach a wallet](#how-do-i-attach-a-wallet).
+You can still use Stasher News without a wallet: you can browse, post and comment. However, tips are paid peer-to-peer, so if another stasher tips your content and you don't have a wallet attached, the tip goes to the platform rewards wallet instead of to you. You only receive tips once you [attach a wallet](#how-do-i-attach-a-wallet).
 
 ---
 
 ### What are tips?
 
-Tips are peer-to-peer payments on the Monero network. When you tip a post or comment, you pay the author directly from your own wallet — the platform never holds or takes a cut of tips.
+Tips are peer-to-peer payments on the Monero network. When you tip a post or comment, you pay the author directly from your own wallet; the platform never holds or takes a cut of tips.
 
 ---
 
@@ -68,7 +68,7 @@ To earn XMR via [tips](#tips) from fellow stashers peer-to-peer, you need to [at
 
 **2. Weekly rewards**
 
-Stashers can also earn XMR via weekly rewards. Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, paid boosts and tips to wallet-less authors — plus all downvotes and donations — back to the stashers who curated the best content of the week: the tippers of the top-ranked posts and comments. Distribution happens every Monday at 00:00 UTC, and payouts are sent on-chain to your attached wallet. Curators as a group are paid about 1.5× what they tipped on average over the last 4 weeks, while the pool can afford it. When the reserve runs low, spending is limited to the pool's income plus 1/13 of its reserve each week, so payouts slide gradually toward income instead of stopping. Eligible tips leave out self-tips, exclude founder accounts or count them at half weight, and apply per-tipper limits. If the calculation cannot run, a fixed 0.2 XMR cap applies that week. Any unused pool funds roll over for future weeks. The [rewards page](/rewards) shows this week's projection and this week's spending limit.
+Stashers can also earn XMR via weekly rewards. Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, paid boosts and tips to wallet-less authors (plus all downvotes and donations) back to the stashers who curated the best content of the week: the tippers of the top-ranked posts and comments. Distribution happens every Monday at 00:00 UTC, and payouts are sent on-chain to your attached wallet.
 
 **3. Referrals**
 
@@ -82,6 +82,12 @@ Founding a turf is the last way to put XMR to work, though it is not a recommend
 
 ---
 
+### How is the weekly curator budget determined?
+
+The weekly curator budget is dynamic: it is determined by the real activity levels on the platform each week, so it rises and falls with how much stashers post, comment, tip, boost and donate. As a target, curators as a group are paid about 1.5× what they tipped on average over the last 4 weeks, while the pool has sufficient reserves. The 1.5× is a target, not a guarantee. When the reserve runs low, spending is limited to the pool's income plus 1/13 of its reserve each week, so payouts slide gradually toward income instead of stopping. Eligible tips leave out self-tips, exclude founder accounts or count them at half weight, and apply per-tipper limits. If the calculation cannot run, a fixed 0.2 XMR cap applies that week. Any unused pool funds roll over for future weeks. The [rewards page](/rewards) shows this week's projection and this week's spending limit.
+
+---
+
 ## Wallets
 
 Stasher News is non-custodial: the platform never holds your money, and all payments are sent directly on the Monero network. To send and receive XMR, you attach a single wallet by providing its address and private view key.
@@ -90,15 +96,7 @@ Stasher News is non-custodial: the platform never holds your money, and all paym
 
 ### How do I attach a wallet?
 
-Click [here](/settings/wallet) or click on your name and select 'wallets'. You'll be asked for your Monero address and your private view key. Use your wallet's primary address — integrated addresses (payment id embedded) and subaddresses are not supported. And it must be the *private* view key: wallets also show a public view key, and only the private one lets us watch for incoming tips.
-
----
-
-### I can't find my wallet. Can I not attach one?
-
-If you can't find your wallet, there is still a high chance that you can attach one — any Monero wallet with a receiving address and a view key works, including Cake Wallet, Monerujo, and Feather.
-
-You can also ask for help in the [saloon](/daily).
+Click [here](/settings/wallet) or click on your name and select 'wallets'. You'll be asked for your Monero address and your private view key. Use your wallet's primary address; integrated addresses (payment id embedded) and subaddresses are not supported. And it must be the *private* view key: wallets also show a public view key, and only the private one lets us watch for incoming tips.
 
 ---
 
@@ -106,13 +104,13 @@ You can also ask for help in the [saloon](/daily).
 
 Your Monero address tells others how to send you coins; it's public and carries no risk.
 
-We ask for a private view key so we can watch your address for incoming tips and credit them to your account as they confirm on-chain. A view key lets us see that coins arrive — it can never spend. Spending keys never touch our servers and always stay in your wallet.
+We ask for a private view key so we can watch your address for incoming tips and credit them to your account as they confirm on-chain. A view key lets us see that coins arrive; it can never spend. Spending keys never touch our servers and always stay in your wallet.
 
 ---
 
 ### Is my view key stored safely?
 
-Your view key is stored encrypted with a master key that only the Monero hosting environment holds, and it can only read incoming funds — never send. You keep full control of spending at all times.
+Your view key is stored encrypted with a master key that only the Monero hosting environment holds, and it can only read incoming funds, never send. You keep full control of spending at all times.
 
 ---
 
@@ -124,7 +122,7 @@ Fees and payments are always paid directly from your own wallet: the site shows 
 
 ### What happens to tips sent to me once my wallet is attached?
 
-Tips are paid peer-to-peer to your registered address and credited to your account once they confirm on-chain. There is no receiving threshold — every tip lands in your wallet in full.
+Tips are paid peer-to-peer to your registered address and credited to your account once they confirm on-chain. There is no receiving threshold: every tip lands in your wallet in full.
 
 ---
 
@@ -176,13 +174,13 @@ If you switch from monthly to yearly billing, you pay the yearly fee at the swit
 
 ### Do I earn XMR from turfs?
 
-Yes. As a turf founder, you receive 100% of the posting fees and comment fees paid in your turf — the standard fee plus any premium you set — paid directly to your registered Monero wallet. This applies when the payment is to your turf and you have a wallet attached — including the fee when someone reposts a post into your turf and comment fees on posts created in your turf; paid boosts and cases where the payer has no wallet attached still pay the platform rewards pool, which is distributed weekly to the best curators.
+Yes. As a turf founder, you receive 100% of the posting fees and comment fees paid in your turf, the standard fee plus any premium you set, paid directly to your registered Monero wallet. This applies when the payment is to your turf and you have a wallet attached, including the fee when someone reposts a post into your turf and comment fees on posts created in your turf; paid boosts and cases where the payer has no wallet attached still pay the platform rewards pool, which is distributed weekly to the best curators.
 
 ---
 
 ### Can I post to more than one turf?
 
-Every post starts in one turf. After it's posted, use the **repost** action in the post's ⋯ menu to add it to another turf — you pay that turf's posting fee (the owner receives it directly when they have a wallet attached), and the post joins the new turf's feed as soon as the fee is confirmed. A post can live in up to 5 turfs.
+Every post starts in one turf. After it's posted, use the **repost** action in the post's ⋯ menu to add it to another turf. You pay that turf's posting fee (the owner receives it directly when they have a wallet attached), and the post joins the new turf's feed as soon as the fee is confirmed. A post can live in up to 5 turfs.
 
 ---
 
@@ -206,7 +204,7 @@ Upload fees are applied when you submit your post or comment.
 
 ### Are media uploads stored forever?
 
-Yes, if it was used in a live post or comment — or is referenced by a live post/comment addendum whose upload fee is settled (or was never due). **Unattached uploads are deleted 24 hours after upload** (for accounts and anonymous uploads alike), and media from posts that were deleted or abandoned for non-payment is reaped with the next daily sweep. An addendum can reference any existing upload without a new fee, but it never keeps media alive whose own upload fee never settled — that media is eventually removed by the same sweep, and the addendum's text remains.
+Yes, if it was used in a live post or comment, or is referenced by a live post/comment addendum whose upload fee is settled (or was never due). **Unattached uploads are deleted 24 hours after upload** (for accounts and anonymous uploads alike), and media from posts that were deleted or abandoned for non-payment is reaped with the next daily sweep. An addendum can reference any existing upload without a new fee, but it never keeps media alive whose own upload fee never settled; that media is eventually removed by the same sweep, and the addendum's text remains.
 
 ---
 
@@ -313,7 +311,7 @@ You can earn XMR from the weekly rewards pool by tipping content that ends up pe
 
 ### Can I donate XMR to Stasher News?
 
-Yes. Every week, Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, paid boosts and tips to wallet-less authors — plus all downvotes and donations — back to the stashers who made the best contributions. Curator payouts are set by the dynamic weekly budget: about 1.5× recent eligible curator tips while the pool can afford it. When the reserve runs low, spending is limited to the pool's income plus 1/13 of its reserve each week, so payouts slide gradually toward income instead of stopping. A fixed 0.2 XMR cap applies if the calculation cannot run. Eligible tips leave out self-tips, exclude founder accounts or count them at half weight, and apply per-tipper limits. Referral payouts come on top, from what is left in the pool. All unused funds roll over to future weeks. Payouts depend on eligibility and minimum amounts, so the budget is not a guaranteed payout. Network fees are paid separately by platform operations, whose weekly sweep to cold storage is not capped by this limit.
+Yes. Every week, Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, paid boosts and tips to wallet-less authors (plus all downvotes and donations) back to the stashers who made the best contributions. Curator payouts are set by the dynamic weekly budget: about 1.5× recent eligible curator tips while the pool can afford it. When the reserve runs low, spending is limited to the pool's income plus 1/13 of its reserve each week, so payouts slide gradually toward income instead of stopping. A fixed 0.2 XMR cap applies if the calculation cannot run. Eligible tips leave out self-tips, exclude founder accounts or count them at half weight, and apply per-tipper limits. Referral payouts come on top, from what is left in the pool. All unused funds roll over to future weeks. Payouts depend on eligibility and minimum amounts, so the budget is not a guaranteed payout. Network fees are paid separately by platform operations, whose weekly sweep to cold storage is not capped by this limit.
 
 To donate XMR directly to the Stasher News rewards pool, or to see this week's projected curator budget and this week's spending limit, click [here](/rewards). Funds left after curator and referral payouts remain in the pool for future distributions. When you donate, you choose the split: 100% to the curator rewards pool, 100% to platform operations, or anywhere between (default 100% rewards).
 
@@ -321,11 +319,11 @@ To donate XMR directly to the Stasher News rewards pool, or to see this week's p
 
 ### Is there an equivalent to downvotes?
 
-Yes. If you see content that you think should not be on Stasher News, you can click the `...` next to the post or comment and select 'downvote', or use the downvote arrow next to the tip button. A modal lets you choose a downvote amount between 0.1 and 25 mXMR.
+Yes. If you see content that you think should not be on Stasher News, click the downvote button next to the post or comment. A modal lets you choose a downvote amount between 0.1 and 25 mXMR.
 
 Downvoting content is a form of negative feedback that reduces the visibility of the specific item. Downvote payments fund the weekly curator rewards pool.
 
-By default, your posts and comments filters start at -25 mXMR: a post or comment whose net investment (cost + tips + boost - downvotes) sinks below that — roughly a dozen minimum downvotes — becomes outlawed: posts drop out of your feeds and comments collapse to the bottom. The 'posts xmr filter' and 'comments xmr filter' sliders in your [settings](/settings) set your own threshold, from 'wild west' at the far left (-100 mXMR, show everything, even heavily downvoted content) up to 10 mXMR at the right. Turfs use their own filter floors, and outlawed items always remain reachable by direct link.
+By default, your posts and comments filters start at -25 mXMR: a post or comment whose net investment (cost + tips + boost - downvotes) sinks below that, roughly a dozen minimum downvotes, becomes outlawed: posts drop out of your feeds and comments collapse to the bottom. The 'posts xmr filter' and 'comments xmr filter' sliders in your [settings](/settings) set your own threshold, from 'wild west' at the far left (-100 mXMR, show everything, even heavily downvoted content) up to 10 mXMR at the right. Turfs use their own filter floors, and outlawed items always remain reachable by direct link.
 
 ---
 
@@ -341,7 +339,7 @@ A bounty is a post that puts a reward of XMR on solving a problem or completing 
 
 ### How do I fund a bounty?
 
-When you create a bounty, you set an amount of at least 10 mXMR. To fund it, you pay the monero: URI shown after posting — an integrated address on the platform's dedicated bounty escrow wallet — including the platform fee (the greater of 10 mXMR or 1% of the bounty, capped at 20% of the bounty) in the same payment. The bounty is only visible to you until the funding payment confirms on-chain.
+When you create a bounty, you set an amount of at least 10 mXMR. To fund it, you pay the monero: URI shown after posting, an integrated address on the platform's dedicated bounty escrow wallet, including the platform fee (the greater of 10 mXMR or 1% of the bounty, capped at 20% of the bounty) in the same payment. The bounty is only visible to you until the funding payment confirms on-chain.
 
 ---
 
@@ -392,7 +390,7 @@ Two things to know:
 - The phrase is NOT a wallet seed. It holds no funds and unlocks nothing but this account. Never type a real wallet seed into any website, including this one.
 - If you lose the phrase and have no other login linked (email or GitHub), the account is unrecoverable. There is no reset and no backup. The void keeps it.
 
-Already have an account? Add a phrase in [Settings → Logins](/settings/logins) with 'Add recovery phrase'. You can 'Replace phrase' or 'Unlink phrase' there too. Removing your last way in asks you to type a confirmation first, and the server enforces that step — it cannot happen by accident or through the API.
+Already have an account? Add a phrase in [Settings → Logins](/settings/logins) with 'Add recovery phrase'. You can 'Replace phrase' or 'Unlink phrase' there too. Removing your last way in asks you to type a confirmation first, and the server enforces that step; it cannot happen by accident or through the API.
 
 ---
 
