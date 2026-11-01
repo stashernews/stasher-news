@@ -12,8 +12,9 @@ const createJestConfig = nextJest({ dir: './' })
 // The webhook load test under `test/load/` needs the LIVE compose stack (it
 // POSTs to http://app:3000 and consumes real PENDING tips from the DB) —
 // opt-in via RUN_WEBHOOK_LOAD=1, mirroring the stagenet gate.
-// In-repo git worktrees (`.worktrees/<name>`, `.claude/worktrees/<name>`) and
-// archived superpowers artifacts (`.superpowers/sdd/**/archive/**`) hold copies
+// In-repo git worktrees (`.worktrees/<name>`, dot-prefixed agent-tool
+// worktree dirs like `<tool>/worktrees/<name>`) and archived sdd
+// artifacts (`.superpowers/sdd/**/archive/**`) hold copies
 // or broken-import strays of the suite; running jest from the main tree must
 // not collect them (worktrees doubled the suite count and produced ~80 phantom
 // "suite failed to run" failures, and eventually an OOM crash; the archived
@@ -24,7 +25,7 @@ const testPathIgnorePatterns = process.env.RUN_STAGENET_INTEGRATION === '1'
   : process.env.RUN_WEBHOOK_LOAD === '1'
     ? ['<rootDir>/test/integration/']
     : ['<rootDir>/test/integration/', '<rootDir>/test/load/']
-testPathIgnorePatterns.push('<rootDir>/.worktrees/', '<rootDir>/.claude/worktrees/', '<rootDir>/.superpowers/')
+testPathIgnorePatterns.push('<rootDir>/.worktrees/', '<rootDir>/\\.[a-z0-9-]+/worktrees/', '<rootDir>/.superpowers/')
 
 module.exports = createJestConfig({
   testPathIgnorePatterns,
