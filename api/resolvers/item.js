@@ -4,8 +4,8 @@ import { decodeCursor, nextCursorEncoded } from '@/lib/cursor'
 import { getMetadata, metadataRuleSets } from 'page-metadata-parser'
 import { ruleSet as publicationDateRuleSet } from '@/lib/timedate-scraper'
 import domino from 'domino'
+import { getSiteSettings } from '@/lib/siteSettings'
 import {
-  ITEM_SPAM_INTERVAL,
   COMMENT_TYPE_QUERY,
   USER_ID, POLL_COST, ADMIN_ITEMS,
   NOFOLLOW_LIMIT, UNKNOWN_LINK_REL, SN_ADMIN_IDS,
@@ -511,8 +511,10 @@ export default {
     itemRepetition: async (parent, { parentId }, { me, models }) => {
       if (!me) return 0
       // how many of the parents starting at parentId belong to me
-      const [{ item_spam: count }] = await models.$queryRawUnsafe(`SELECT item_spam($1::INTEGER, $2::INTEGER, '${ITEM_SPAM_INTERVAL}')`,
-        Number(parentId), Number(me.id))
+      const settings = await getSiteSettings(models)
+      const [{ item_spam: count }] = await models.$queryRaw`
+        SELECT item_spam(${Number(parentId)}::INTEGER, ${Number(me.id)}::INTEGER,
+          make_interval(mins => ${settings.itemSpamIntervalMinutes}::INTEGER))`
 
       return count
     },

@@ -1,4 +1,5 @@
-import { ANON_COMMENT_FEE_MULTIPLIER, ANON_ITEM_SPAM_INTERVAL, ANON_POST_FEE_MULTIPLIER, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, ITEM_SPAM_INTERVAL, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
+import { ANON_COMMENT_FEE_MULTIPLIER, ANON_POST_FEE_MULTIPLIER, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
+import { getSiteSettings } from '@/lib/siteSettings'
 import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
 import { getItemMentions, getMentions, performBotBehavior, getSubs, getRootPrimarySub, countNonOwnedSubs } from '../lib/item'
 import { extractMentions } from '@/lib/lexical/server/mentions'
@@ -32,9 +33,10 @@ export const paymentMethods = [
 // flat multiplier handled in the anon branch).
 export async function escalatedFeePiconeros (models, { parentId, userId, basePiconeros }) {
   if (basePiconeros <= 0n) return basePiconeros
-  const within = userId === USER_ID.anon ? ANON_ITEM_SPAM_INTERVAL : ITEM_SPAM_INTERVAL
+  const settings = await getSiteSettings(models)
+  const within = userId === USER_ID.anon ? 0 : settings.itemSpamIntervalMinutes
   const [{ n }] = await models.$queryRaw`
-    SELECT item_spam(${parentId ? parseInt(parentId) : null}::INTEGER, ${userId}::INTEGER, ${within}::INTERVAL)::INTEGER AS n`
+    SELECT item_spam(${parentId ? parseInt(parentId) : null}::INTEGER, ${userId}::INTEGER, make_interval(mins => ${within}::INTEGER))::INTEGER AS n`
   const multiplier = ITEM_SPAM_FEE_ESCALATION_NUMERATOR ** BigInt(n)
   const divisor = ITEM_SPAM_FEE_ESCALATION_DENOMINATOR ** BigInt(n)
   return (basePiconeros * multiplier + divisor / 2n) / divisor
