@@ -54,6 +54,111 @@ export function Overview ({ data }) {
   )
 }
 
+const xmr = value => value == null ? '—' : `${formatXmr(BigInt(value))} XMR`
+
+function Amounts ({ rows }) {
+  return <div className={styles.stats}>{rows.map(([label, value, note]) => <article key={label}><small>{label}</small><strong>{value}</strong>{note && <small>{note}</small>}</article>)}</div>
+}
+
+const INFLOW_ROWS = [
+  ['Downvotes', 'downvotePiconeros', 'downvoteRewardsPct'],
+  ['Posting fees', 'postingFeePiconeros', 'postingFeeRewardsPct'],
+  ['Turf fees', 'territoryFeePiconeros', 'territoryFeeRewardsPct'],
+  ['Wallet-less tips', 'walletlessTipPiconeros', 'walletlessTipRewardsPct']
+]
+
+const LOG_COLUMNS = [
+  { key: 'id', label: '#' },
+  { key: 'period', label: 'Period / UTC', render: row => `${row.periodStart.slice(0, 10)} → ${row.periodEnd.slice(0, 10)}` },
+  { key: 'status', label: 'Status' },
+  { key: 'poolPiconeros', label: 'Pool', render: row => xmr(row.poolPiconeros) },
+  { key: 'distributedPiconeros', label: 'Distributed', render: row => xmr(row.distributedPiconeros) },
+  { key: 'rolledOverPiconeros', label: 'Rolled over', render: row => xmr(row.rolledOverPiconeros) },
+  { key: 'reservePiconeros', label: 'Reserve', render: row => xmr(row.reservePiconeros) },
+  { key: 'spendLimitPiconeros', label: 'Spend limit', render: row => xmr(row.spendLimitPiconeros) },
+  { key: 'opsSweptPiconeros', label: 'Ops swept', render: row => xmr(row.opsSweptPiconeros) },
+  { key: 'opsSweepState', label: 'Sweep' }
+]
+
+function DistributionDetail ({ row }) {
+  const multiple = row.multBps == null ? '—' : `${row.multBps / 10000}×`
+  return (
+    <details>
+      <summary>#{row.id} · budget, ops and payouts</summary>
+      <Amounts rows={[
+        ['Raw tips', xmr(row.rawTipPiconeros)], ['Eligible T (final)', xmr(row.trustedTipPiconeros)], ['Tippers', row.tipperCount ?? '—'],
+        ['T4', xmr(row.tipT4Piconeros)], ['I4', xmr(row.incomeF4Piconeros)], ['Income F', xmr(row.incomePiconeros)], ['m', multiple],
+        ['Dynamic budget', xmr(row.dynamicBudgetPiconeros), row.dynamicBudgetMode], ['Applied budget', xmr(row.appliedCuratorBudgetPiconeros), row.curatorBudgetMode],
+        ['Make-up', xmr(row.makeupPiconeros)], ['Breaker', row.breakerTripped ? `tripped · raw ${xmr(row.breakerRawTPiconeros)}` : 'not tripped']
+      ]}
+      />
+      <Amounts rows={[
+        ['Ops inflow', xmr(row.opsInflowPiconeros)], ['Ops available', xmr(row.opsAvailablePiconeros)], ['Ops swept', xmr(row.opsSweptPiconeros), row.opsSweepState],
+        ['Fees accounted', xmr(row.opsNetworkFeesAccountedPiconeros)], ['Pending ops (adjusted)', xmr(row.correctedPendingOpsPiconeros)]
+      ]}
+      />
+      {row.opsSweepTxHash && <p className={styles.help}>Sweep tx: {row.opsSweepTxHash.split(',').join(', ')}</p>}
+      <Table rows={row.payouts} columns={[{ key: 'curatorNym', label: 'Curator', render: payout => payout.curatorNym || `user #${payout.curatorId}` }, { key: 'piconeros', label: 'Amount', render: payout => xmr(payout.piconeros) }, { key: 'state', label: 'State' }, { key: 'txHash', label: 'Tx' }]} />
+    </details>
+  )
+}
+
+// The exact rewards-wallet ledger. Private: /transparency publishes none of it.
+export function Treasury ({ data }) {
+  if (!data) return <p>Treasury unavailable. No balance is assumed.</p>
+  const { wallet, distributions } = data
+  const inflow = wallet.inflowBreakdown
+  const warnings = [
+    wallet.balanceNeedsReconciliation && 'Wallet balance needs reconciliation. Do not treat it as verified.',
+    BigInt(wallet.opsDeficitPiconeros) > 0n && `Ops debt is unfunded by ${xmr(wallet.opsDeficitPiconeros)}: hot-wallet fees and sweeps exceed the ops earmark.`,
+    wallet.accountingUncertain && 'Accounting is uncertain: unresolved journal attempts or conflicting ledger facts. Figures may be incomplete.'
+  ].filter(Boolean)
+  return (
+    <>
+      <p>Exact figures from the database ledger. None of this is published; /transparency shows only trends, shares and counts.</p>
+      <section className={styles.card}>
+        <h2>Live balance · database ledger</h2>
+        <Amounts rows={[
+          ['Balance', xmr(wallet.balancePiconeros), 'received − principal − fees'], ['Total received', xmr(wallet.totalReceivedPiconeros)],
+          ['Total sent', xmr(wallet.totalSentPiconeros), 'payouts + ops sweeps'], ['Network fees', xmr(wallet.totalNetworkFeesPiconeros), 'paid by ops'],
+          ['Rewards owed', xmr(wallet.outstandingRewardsPiconeros), 'allocated, not delivered']
+        ]}
+        />
+        {warnings.map(warning => <p className={styles.warning} key={warning}>{warning}</p>)}
+        <p className={styles.help}>{wallet.reconciliationEvidenceCurrent
+          ? `Ledger matches the latest reconciliation check (${wallet.reconciliationCheckedAt}).`
+          : wallet.reconciliationCheckedAt
+            ? `The latest reconciliation check (${wallet.reconciliationCheckedAt}) no longer matches the ledger.`
+            : 'No full-wallet reconciliation check has been published yet.'}
+        </p>
+      </section>
+      <section className={styles.card}>
+        <h2>Current allocation</h2>
+        <Amounts rows={[
+          ['Rewards pool', xmr(wallet.nextPoolPiconeros), 'next run, incl. future weeks'], ['Ops awaiting sweep', xmr(wallet.pendingSweepPiconeros), 'negative is unfunded debt'],
+          ['Paid to curators · all-time', xmr(wallet.payoutSentPiconeros)], ['Swept to ops · all-time', xmr(wallet.sweptToOpsPiconeros)]
+        ]}
+        />
+      </section>
+      <section className={styles.card}>
+        <h2>Confirmed inflow by source · all-time</h2>
+        <Table
+          rows={[
+            ...INFLOW_ROWS.map(([label, key, pct]) => ({ key: label, source: label, amount: xmr(inflow[key]), split: `${inflow[pct]}% to rewards` })),
+            { key: 'total', source: 'Total', amount: xmr(inflow.totalPiconeros), split: `rewards ${xmr(inflow.rewardsPiconeros)} · ops ${xmr(inflow.opsPiconeros)}` }
+          ]}
+          columns={[{ key: 'source', label: 'Source' }, { key: 'amount', label: 'Amount' }, { key: 'split', label: 'Allocation' }]}
+        />
+      </section>
+      <section className={styles.card}>
+        <h2>Distribution log · last {distributions.length}</h2>
+        <div className={styles.ledgerTable}><Table rows={distributions} columns={LOG_COLUMNS} /></div>
+        {distributions.map(row => <DistributionDetail key={row.id} row={row} />)}
+      </section>
+    </>
+  )
+}
+
 export function AuditLog ({ initial, client }) {
   const [extra, setExtra] = useState([])
   const [cursor, setCursor] = useState(initial.nextCursor)

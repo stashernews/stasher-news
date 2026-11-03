@@ -12,6 +12,7 @@ export const DASHBOARD = gql`
   query AdminDashboard {
     adminSections { id label order kind groups fields { key store section group label type min max help takesEffect options unit value effectiveValue source locked lockReason effectiveReason rolloutMode experimental } }
     adminOverview
+    adminTreasury
     adminAccess { key label pass detail checkedAt }
     adminEnvironment { key value kind source help }
     adminInviteCodes { id label createdAt revokedAt source }

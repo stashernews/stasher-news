@@ -90,7 +90,7 @@ const isolated = (() => {
   test('unconfigured alerts, empty reasons and duplicate keys refuse before writes', async () => {
     const changes = [{ key: 'maxItemTurfs', expected: '5', value: '6' }]
     delete process.env.ALERT_WEBHOOK_URL
-    await expect(apply(changes)).rejects.toThrow(/alerts are not configured/)
+    await expect(apply(changes)).rejects.toThrow(/alert channel isn't configured/)
     process.env.ALERT_WEBHOOK_URL = 'https://alerts.invalid/test'
     await expect(adminApply({ models, changes, reason: '   ' })).rejects.toThrow(/reason/i)
     await expect(apply([...changes, ...changes])).rejects.toThrow(/duplicate/i)

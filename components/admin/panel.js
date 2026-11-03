@@ -3,7 +3,8 @@ import { createAdminClient, DASHBOARD, APPLY } from './client'
 import { FieldRow } from './field-row'
 import { pendingChanges, reconcileDrafts, fieldError } from './drafts'
 import { ReviewDialog } from './review-dialog'
-import { Overview, Table, MaintenanceBanner, InviteCodes, AuditLog } from './read-only'
+import { currentHash, readDrafts, sectionFromHash, sessionStore, writeDrafts } from './persist'
+import { Overview, Table, MaintenanceBanner, InviteCodes, AuditLog, Treasury } from './read-only'
 import styles from '@/styles/admin.module.css'
 
 export function Sidebar ({ sections, active, onSelect, changes }) {
@@ -32,8 +33,11 @@ export function PendingBar ({ changes, invalid, errors = [], busy, onDiscard, on
 export function AdminPanel () {
   const client = useMemo(() => createAdminClient(), [])
   const [data, setData] = useState(null)
-  const [active, setActive] = useState('overview')
-  const [drafts, setDrafts] = useState({})
+  // Read lazily from the URL hash and sessionStorage: nothing renders from
+  // either until the dashboard loads, so server and client markup still match.
+  const [hash, setHash] = useState(() => typeof window === 'undefined' ? '' : currentHash())
+  const [drafts, setDrafts] = useState(() => typeof window === 'undefined' ? {} : readDrafts(sessionStore()))
+  useEffect(() => writeDrafts(sessionStore(), drafts), [drafts])
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -44,14 +48,21 @@ export function AdminPanel () {
     setData(result.data)
     return result.data
   }, [client])
+  // No client.stop() cleanup: Strict Mode runs this effect twice in
+  // development, and a stopped client never delivers the second, real load.
+  // The client does not poll, so there is nothing to stop.
   useEffect(() => {
     refresh().catch(() => setMessage('Could not load the private API. Check the tunnel and Refresh.'))
-    return () => client.stop()
-  }, [client, refresh])
+  }, [refresh])
   const fields = data?.adminSections.flatMap(section => section.fields) ?? []
   const changes = pendingChanges(fields, drafts)
   const crossErrors = [...new Set(changes.filter(change => change.error && !fieldError(change.field, change.value)).map(change => change.error))]
   const invalid = changes.filter(change => fieldError(change.field, change.value)).length + crossErrors.length
+  const active = sectionFromHash(hash, data?.adminSections ?? []) ?? 'overview'
+  const setActive = id => {
+    setHash(`#${id}`)
+    try { window.history?.replaceState(null, '', `#${id}`) } catch {}
+  }
   const section = data?.adminSections.find(section => section.id === active)
   const maintenance = fields.find(field => field.key === 'maintenance')?.value === 'true'
   const edit = (field, value) => setDrafts(current => {
@@ -96,6 +107,7 @@ export function AdminPanel () {
             <label className={styles.mobileNav}>Section<select value={active} onChange={event => setActive(event.target.value)}>{data.adminSections.map(row => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
             <div className={styles.heading}><div><small>CONTROL ROOM / {section?.id.toUpperCase()}</small><h1>{section?.label}</h1></div><small>{data.adminOverview?.fetchedAt ? `As of ${new Date(data.adminOverview.fetchedAt).toLocaleTimeString()}` : 'Manual refresh only'}</small></div>
             {active === 'overview' && <Overview data={data.adminOverview} />}
+            {active === 'treasury' && <Treasury data={data.adminTreasury} />}
             {section?.kind === 'settings' && section.groups.map(group => <section className={styles.card} key={group}><h2>{group}</h2>{section.fields.filter(field => field.group === group).map(field => <FieldRow key={field.key} field={field} draft={drafts[field.key]} onChange={value => edit(field, value)} onRevert={() => edit(field, field.value)} />)}{group === 'Invite codes' && <InviteCodes rows={data.adminInviteCodes} client={client} onRefresh={refresh} />}</section>)}
             {active === 'access' && <><Table rows={data.adminAccess} columns={[{ key: 'label', label: 'Check' }, { key: 'pass', label: 'Result', render: row => row.pass ? 'PASS' : 'FAIL / UNKNOWN' }, { key: 'detail', label: 'Detail' }, { key: 'checkedAt', label: 'Last check / UTC' }]} /><p>SSH hardening: key-only authentication, a passphrase or hardware-backed key, and no root login. Change account login methods separately, never through this panel.</p></>}
             {active === 'environment' && <Table rows={data.adminEnvironment} columns={[{ key: 'key', label: 'Name' }, { key: 'value', label: 'Effective value / presence' }, { key: 'source', label: 'Source' }, { key: 'help', label: 'Why read-only' }]} />}

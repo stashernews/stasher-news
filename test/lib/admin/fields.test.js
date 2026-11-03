@@ -19,7 +19,7 @@ test('every editable Prisma column is registered or explicitly excluded', () => 
 })
 
 test('registry sections, bounds and units support form generation and exact round trips', () => {
-  expect(SECTIONS.map(section => section.id)).toEqual(['overview', 'fees', 'trust', 'rewards', 'content', 'site', 'access', 'environment', 'audit'])
+  expect(SECTIONS.map(section => section.id)).toEqual(['overview', 'treasury', 'fees', 'trust', 'rewards', 'content', 'site', 'access', 'environment', 'audit'])
   for (const field of FIELDS) {
     const section = SECTIONS.find(section => section.id === field.section)
     expect(section.groups).toContain(field.group)

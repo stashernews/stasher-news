@@ -55,6 +55,7 @@
 .tableScroll table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
 .tableScroll th { color: var(--rt-sec); font-weight: 500; white-space: nowrap; }
 .tableScroll td, .tableScroll th { padding: 13px 10px; border-bottom: 1px solid var(--rt-line); vertical-align: top; max-width: 380px; overflow-wrap: anywhere; }
+.ledgerTable td { white-space: nowrap; overflow-wrap: normal; }
 .sparkline { display: block; max-height: 120px; width: 100%; color: var(--rt-ember); margin-top: 16px; }
 .oneTimeCode { display: block; padding: 14px 0; color: var(--rt-title); overflow-wrap: anywhere; user-select: all; }
 .empty { padding: 16px 0; color: var(--rt-sec); }

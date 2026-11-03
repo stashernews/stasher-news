@@ -107,6 +107,10 @@ export async function readRewardsWalletInfo (models) {
       network,
       totalReceivedPiconeros: inflow.totalPiconeros,
       totalSentPiconeros: ledger.totalSentPiconeros,
+      // The principal split of totalSent: curator payouts and the all-time,
+      // de-duplicated ops sweeps.
+      payoutSentPiconeros: ledger.payoutSentPiconeros,
+      sweptToOpsPiconeros: ledger.sweepSentPiconeros,
       totalNetworkFeesPiconeros: ledger.totalNetworkFeesPiconeros,
       balancePiconeros: balance,
       balanceXmr: piconerosToXmrDecimal(balance),

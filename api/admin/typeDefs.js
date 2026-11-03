@@ -20,6 +20,7 @@ export default gql`
   input AdminChangeInput { key: String!, expected: String!, value: String!, confirmedJump: Boolean }
   type Query {
     adminOverview: AdminOverviewData!
+    adminTreasury: AdminOverviewData!
     adminSections: [AdminSection!]!
     adminAudit(cursor: String): AdminAuditPage!
     adminAccess: [AdminAccessRow!]!
