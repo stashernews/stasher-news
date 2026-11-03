@@ -1,6 +1,7 @@
 /* eslint-env jest */
 import { Prisma } from '@prisma/client'
 import { incrementFreeCommentCount, incrementFreePostCount, getNextWeekStart, consumeQuotaForFlippedItem, consumeStreakReward } from '@/api/payIn/lib/freebie'
+import { USER_ID } from '@/lib/constants'
 
 // A mock tx whose user.update is a jest.fn; config always resolves so the helpers
 // proceed to the quota/branch logic. $queryRaw dispatches on the SQL text: the
@@ -144,6 +145,31 @@ test('incrementFreePostCount is a no-op for paid posts (PENDING_FEE)', async () 
   const tx = mkTx({ freePostCount: 0, freePostResetAt: null, stackedPiconeros: 10_000_000_000n, createdAt: new Date(Date.now() - 8 * 86_400_000) })
   await incrementFreePostCount(tx, { item: { freebie: false, parentId: null, feeStatus: 'PENDING_FEE' }, userId: 5 })
   expect(tx.user.update).not.toHaveBeenCalled()
+})
+
+test('incrementFreePostCount is a no-op for the deaddrop system user past the quota (daily dead-drop thread)', async () => {
+  // The bot's observed day-2 state: day 1 consumed its 1/month slot
+  // (freePostCount=1, reset at the next month) and it holds no banked POST
+  // credit. Its posts are platform-generated (getInitial already exempts
+  // them from the posting fee), so the consumption side must exempt them
+  // too — otherwise incrementFreePostCount throws 'no free posts left',
+  // rolls back the whole ITEM_CREATE payIn, and fails the daily job.
+  const user = { freePostCount: 1, freePostResetAt: new Date(Date.now() + 30 * 86_400_000), stackedPiconeros: 0n, createdAt: new Date(), streak: null }
+  const tx = mkTx(user, { credits: [] })
+  await expect(incrementFreePostCount(tx, { item: { freebie: false, parentId: null, feeStatus: 'FEE_NOT_REQUIRED', id: 779 }, userId: USER_ID.deadDrop }))
+    .resolves.toBeUndefined()
+  expect(tx.user.update).not.toHaveBeenCalled()
+  expect(streakRewardSql(tx)).toHaveLength(0)
+})
+
+test('incrementFreePostCount never consumes the deaddrop bot\'s monthly slot, even on a fresh window', async () => {
+  // Day-1 half of the same exemption: a system post is not a user freebie,
+  // so it must not take the slot either (day 1 currently burns the bot's
+  // 1/month quota, which is what strands day 2 onward).
+  const tx = mkTx({ freePostCount: 0, freePostResetAt: null, stackedPiconeros: 0n, createdAt: new Date() })
+  await incrementFreePostCount(tx, { item: { freebie: false, parentId: null, feeStatus: 'FEE_NOT_REQUIRED' }, userId: USER_ID.deadDrop })
+  expect(tx.user.update).not.toHaveBeenCalled()
+  expect(streakRewardSql(tx)).toHaveLength(0)
 })
 
 test('incrementFreePostCount increments for a low-rep user within the 1-post quota', async () => {

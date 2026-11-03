@@ -136,7 +136,10 @@ export async function consumeStreakReward (prisma, userId, type = 'POST', itemId
 /**
  * Increment user's free post counter after creating a free top-level post.
  * Self-guarding: no-op for comments, bios (freebie=true), paid posts
- * (feeStatus !== 'FEE_NOT_REQUIRED'), anon, or low-rep users (quota 0).
+ * (feeStatus !== 'FEE_NOT_REQUIRED'), anon, the deaddrop system user (its
+ * daily threads are platform-generated and exempt from the posting fee at
+ * creation — getInitial — so they are not metered against a user freebie
+ * quota here either), or low-rep users (quota 0).
  * Base-first: once the monthly quota is exhausted, a banked flame post credit
  * is consumed instead (soonest-expiring first).
  * @param {Object} tx - Prisma transaction
@@ -145,7 +148,7 @@ export async function consumeStreakReward (prisma, userId, type = 'POST', itemId
 export async function incrementFreePostCount (tx, { item, userId }) {
   // item.freebie is true for free comments/bios, false for (free or paid) posts.
   // A free post is a top-level, non-freebie item with no reserved fee subaddress.
-  if (item.parentId || item.freebie || userId === USER_ID.anon) return
+  if (item.parentId || item.freebie || userId === USER_ID.anon || userId === USER_ID.deadDrop) return
   if (item.feeStatus !== 'FEE_NOT_REQUIRED') return
 
   const user = await tx.user.findUnique({ where: { id: userId } })
