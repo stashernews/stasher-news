@@ -16,5 +16,10 @@ jobs:
       - name: Install
         run: npm install
 
+      - name: Validate Caddy configs
+        run: |
+          docker run --rm -v "$PWD:/src:ro" caddy:2.11.7-alpine caddy validate --config /src/docker/caddy/Caddyfile --adapter caddyfile
+          docker run --rm -v "$PWD:/src:ro" caddy:2.11.7-alpine caddy validate --config /src/docker/caddy/Caddyfile.prod --adapter caddyfile
+
       - name: Lint
         run: npm run lint

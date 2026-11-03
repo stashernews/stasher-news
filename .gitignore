@@ -120,3 +120,5 @@ docs/presentation/
 
 # maintenance switch runtime flag (created/removed by the operator; see docker/caddy/maintenance)
 docker/caddy/maintenance/enabled
+# Runtime maintenance state is never committed.
+/docker/caddy/maintenance-flag/enabled

@@ -12,17 +12,22 @@
 	email security@stasher.news
 }
 
+(deny_admin) {
+	@admin path /admin /admin/* /api/admin /api/admin/*
+	handle @admin {
+		respond 404
+	}
+}
+
 stasher.news {
 	encode zstd gzip
+	import deny_admin
 
-	# Maintenance switch: while the flag file exists, the site serves the static
-	# maintenance page (503 + Retry-After) for every path — even when the app and
-	# db are down. Toggling is instant; no caddy reload or restart is needed:
-	#   ON:  touch docker/caddy/maintenance/enabled
-	#   OFF: rm docker/caddy/maintenance/enabled
-	# Try-paths resolve against Caddy's working directory (/srv in the official
-	# image), where docker-compose.yml mounts ./docker/caddy/maintenance.
-	@maintenance file maintenance/enabled
+	# Flag state is separate from the read-only static maintenance page.
+	@maintenance file {
+		root /srv/maintenance-flag
+		try_files enabled
+	}
 	handle @maintenance {
 		root * /srv/maintenance
 		rewrite * /index.html
@@ -46,7 +51,9 @@ stasher.news {
 	# correct on both sides of the cutover.
 	@uploads path /uploads /uploads/*
 	handle @uploads {
-		reverse_proxy minio:9000
+		reverse_proxy minio:9000 {
+			header_up -X-Admin-Gate
+		}
 	}
 
 	# lws confirmation webhook: internal-only. lws delivers container-to-container
@@ -59,6 +66,7 @@ stasher.news {
 
 	handle {
 		reverse_proxy app:3000 {
+			header_up -X-Admin-Gate
 			# preserve the original Host so proxy.js's getDomainMapping(host) sees
 			# the user-facing domain, not "app:3000"
 			header_up Host {host}
@@ -76,11 +84,15 @@ stasher.news {
 # onto this host. Cert is issued via the global Let's Encrypt automation above.
 media.stasher.news {
 	encode zstd gzip
-	reverse_proxy imgproxy:8080 {
-		# imgproxy trusts these headers for client_ip logging; keep visitor IPs out.
-		header_up -X-Forwarded-For
-		header_up -CF-Connecting-IP
-		header_up -X-Real-IP
+	import deny_admin
+	handle {
+		reverse_proxy imgproxy:8080 {
+			header_up -X-Admin-Gate
+			# imgproxy trusts these headers for client_ip logging; keep visitor IPs out.
+			header_up -X-Forwarded-For
+			header_up -CF-Connecting-IP
+			header_up -X-Real-IP
+		}
 	}
 }
 
@@ -89,13 +101,43 @@ media.stasher.news {
 # above. The XFF overwrite mirrors the app block (audit B-2).
 capture.stasher.news {
 	encode zstd gzip
-	reverse_proxy capture:5678 {
-		header_up X-Forwarded-For {remote_host}
+	import deny_admin
+	handle {
+		reverse_proxy capture:5678 {
+			header_up -X-Admin-Gate
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
 }
 
 # www -> apex. www.stasher.news resolves in DNS but had no site block, so
 # www visitors got no certificate and no serve path. 301 preserves path+query.
 www.stasher.news {
-	redir https://stasher.news{uri} permanent
+	import deny_admin
+	handle {
+		redir https://stasher.news{uri} permanent
+	}
+}
+
+# Restricted operational listener. Host publishing is loopback-only in compose.
+http://:9443 {
+	# Only loopback names reach the app. Any other Host is a DNS-rebinding
+	# page riding the operator's open tunnel; it must not receive the gate.
+	@foreign not host 127.0.0.1 localhost
+	handle @foreign {
+		respond 404
+	}
+	@adminpaths path /admin /admin/* /api/admin /api/admin/* /_next/* /fonts/* /icons/*
+	handle @adminpaths {
+		reverse_proxy app:3000 {
+			header_up Host stasher.news
+			header_up X-Forwarded-Proto http
+			header_up X-Admin-Gate {env.ADMIN_GATE_SECRET}
+			# Next also sets HSTS outside middleware; the SSH listener is HTTP.
+			header_down -Strict-Transport-Security
+		}
+	}
+	handle {
+		respond 404
+	}
 }

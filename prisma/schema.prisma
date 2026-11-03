@@ -2375,8 +2375,8 @@ model SiteSettings {
   anonCommentFeeMultiplier      Int      @default(3)
   trustSeedWeight               Float    @default(0.83)
   trustMaxDepth                 Int      @default(40)
-  trustPicoMin                  Int      @default(1001)
-  trustAgainstPicoMin           Int      @default(1000)
+  trustPicoMin                  BigInt   @default(1001)
+  trustAgainstPicoMin           BigInt   @default(1000)
   trustIrrelevantCumulative     Float    @default(0.001)
   verifiedBadgeEnabled          Boolean  @default(false)
   nostrSocialPosting            Boolean?

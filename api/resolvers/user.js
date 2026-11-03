@@ -20,6 +20,7 @@ import { processCrop } from '@/lib/imgproxy'
 import { payInTypesSql } from '../payIn/lib/sql'
 import { Prisma } from '@prisma/client'
 import { enabledAuthMethods } from '@/lib/authProviderEnv'
+import { authMethodLinks } from '@/lib/authMethods'
 import { phraseFingerprint } from '@/lib/recoveryPhrase'
 import { isVerifiedBadgeEnabled } from '@/lib/verified-badge-flag'
 import { checkNewsletterConfig, enrollContact, unsubscribeContact } from '@/lib/newsletter'
@@ -86,16 +87,7 @@ function clampNameSimilarity (similarity = DEFAULT_NAME_SIMILARITY) {
 // linked-login booleans shared by the authMethods resolver and unlinkAuth's
 // last-method guard. Keep the key set in sync with AUTH_METHOD_KEYS in
 // lib/authMethods.js and the AuthMethods GraphQL type.
-function authMethodLinks (user, oauthProviders) {
-  return {
-    lightning: !!user.pubkey,
-    email: !!(user.emailVerified && user.emailHash),
-    twitter: oauthProviders.indexOf('twitter') >= 0,
-    github: oauthProviders.indexOf('github') >= 0,
-    nostr: !!user.nostrAuthPubkey,
-    phrase: !!user.phrasePubkey
-  }
-}
+// Login-method interpretation is shared with the private access checks.
 
 export async function authMethods (user, args, { models, me }) {
   const enabled = enabledAuthMethods()

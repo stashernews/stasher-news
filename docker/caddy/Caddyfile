@@ -34,11 +34,31 @@ http://127.0.0.1:5555 {
 }
 
 # HTTPS catch-all: terminate TLS with the local CA, reverse-proxy to Next.js.
+(deny_admin) {
+	@admin path /admin /admin/* /api/admin /api/admin/*
+	handle @admin {
+		respond 404
+	}
+}
+
 :443 {
 	tls internal {
 		on_demand
 	}
 	encode zstd gzip
+	import deny_admin
+	@maintenance file {
+		root /srv/maintenance-flag
+		try_files enabled
+	}
+	handle @maintenance {
+		root * /srv/maintenance
+		rewrite * /index.html
+		file_server {
+			status 503
+		}
+		header Retry-After 3600
+	}
 
 	# lws confirmation webhook: internal-only. lws delivers container-to-container
 	# (direct to app:3000), never through the edge, so any public hit is a probe or
@@ -48,21 +68,50 @@ http://127.0.0.1:5555 {
 		respond 404
 	}
 
-	reverse_proxy app:3000 {
-		# preserve the original Host so proxy.js's getDomainMapping(host) sees
-		# the user-facing custom domain, not "app:3000"
-		header_up Host {host}
-		# Tell Next.js the browser-facing request was HTTPS so dev cookies that
-		# depend on Secure, like sn_referrer, match the TLS-terminated origin.
-		header_up X-Forwarded-Proto https
-		# overwrite (not append) the client-supplied X-Forwarded-For: without
-		# this, Caddy appends the real IP AFTER any spoofed entries the client
-		# sent, and the app's rightmost-entry parser is the only defense
-		header_up X-Forwarded-For {remote_host}
+	handle {
+		reverse_proxy app:3000 {
+			header_up -X-Admin-Gate
+			# preserve the original Host so proxy.js's getDomainMapping(host) sees
+			# the user-facing custom domain, not "app:3000"
+			header_up Host {host}
+			# Tell Next.js the browser-facing request was HTTPS so dev cookies that
+			# depend on Secure, like sn_referrer, match the TLS-terminated origin.
+			header_up X-Forwarded-Proto https
+			# overwrite (not append) the client-supplied X-Forwarded-For: without
+			# this, Caddy appends the real IP AFTER any spoofed entries the client
+			# sent, and the app's rightmost-entry parser is the only defense
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
 }
 
 # HTTP -> HTTPS, mirroring the prod ALB redirect.
 :80 {
-	redir https://{host}{uri} 308
+	import deny_admin
+	handle {
+		redir https://{host}{uri} 308
+	}
+}
+
+# Restricted operational listener. Host publishing is loopback-only in compose.
+http://:9443 {
+	# Only loopback names reach the app. Any other Host is a DNS-rebinding
+	# page riding the operator's open tunnel; it must not receive the gate.
+	@foreign not host 127.0.0.1 localhost
+	handle @foreign {
+		respond 404
+	}
+	@adminpaths path /admin /admin/* /api/admin /api/admin/* /_next/* /fonts/* /icons/*
+	handle @adminpaths {
+		reverse_proxy app:3000 {
+			header_up Host stasher.news
+			header_up X-Forwarded-Proto http
+			header_up X-Admin-Gate {env.ADMIN_GATE_SECRET}
+			# Next also sets HSTS outside middleware; the SSH listener is HTTP.
+			header_down -Strict-Transport-Security
+		}
+	}
+	handle {
+		respond 404
+	}
 }

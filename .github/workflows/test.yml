@@ -9,6 +9,7 @@ jobs:
     env:
       DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stashernews"
       NODE_ENV: test
+      RUN_STAGENET_INTEGRATION: '0'
       # createPresignedPost signs locally and never touches the network, but the
       # AWS SDK's credential chain must still resolve — without any creds the
       # upload.test.js getSignedPOST suite fails with CredentialsProviderError
@@ -66,6 +67,22 @@ jobs:
 
       - name: Seed
         run: npx prisma db seed
+
+      - name: Prepare pinned Caddy routing tests
+        run: |
+          docker create --name caddy-test caddy:2.11.7-alpine
+          docker cp caddy-test:/usr/bin/caddy "$RUNNER_TEMP/caddy"
+          docker rm caddy-test
+          echo "CADDY_BINARY=$RUNNER_TEMP/caddy" >> "$GITHUB_ENV"
+
+      - name: Test admin database contracts in isolation
+        env:
+          DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stasher_rewards_dynamic_test"
+        run: |
+          docker exec db createdb -U stasher stasher_rewards_dynamic_test
+          npx prisma migrate deploy
+          npx prisma db seed
+          npm test -- --runInBand --runTestsByPath test/prisma/adminPanel.migration.test.js test/prisma/adminEdge.test.js test/prisma/adminTrustBounds.test.js test/api/gate-db.test.js test/lib/admin/apply.test.js test/api/admin/queries.test.js
 
       - name: Run tests
         # --runInBand: the DB-backed suites share one database and assume they

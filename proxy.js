@@ -10,6 +10,7 @@ import {
 } from '@/lib/domains/auth'
 import { getDomainMapping, createDomainsDebugLogger } from '@/lib/domains'
 import { GATE_COOKIE, shouldGateRequest } from '@/lib/invite-gate'
+import { isAdminPath, isAdminRequest } from '@/lib/admin/guard'
 
 const REFERRER_TTL_S = 60 * 60 * 24
 
@@ -197,7 +198,7 @@ function applyReferrerCookies (response, referrer) {
   return response
 }
 
-function applySecurityHeaders (resp) {
+function applySecurityHeaders (resp, { admin = false } = {}) {
   const isDev = process.env.NODE_ENV === 'development'
 
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
@@ -228,7 +229,7 @@ function applySecurityHeaders (resp) {
     // blocks injection of <base> tags
     "base-uri 'none'",
     // tell user agents to replace HTTP with HTTPS
-    isDev ? '' : 'upgrade-insecure-requests',
+    isDev || admin ? '' : 'upgrade-insecure-requests',
     // prevents any domain from framing the content (defense against clickjacking attacks)
     "frame-ancestors 'none'"
   ].join('; ')
@@ -239,7 +240,7 @@ function applySecurityHeaders (resp) {
   // more useful headers
   resp.headers.set('X-Content-Type-Options', 'nosniff')
   resp.headers.set('Referrer-Policy', 'origin-when-cross-origin')
-  resp.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload')
+  if (!admin) resp.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload')
 
   return resp
 }
@@ -250,6 +251,11 @@ export async function proxy (req) {
   headers.delete('x-stacker-news-subname')
   headers.delete('x-stacker-news-domain')
   const request = new NextRequest(req, { headers })
+
+  if (isAdminPath(request.nextUrl.pathname)) {
+    if (!isAdminRequest(request)) return new NextResponse(null, { status: 404 })
+    return applySecurityHeaders(NextResponse.next({ request: { headers } }), { admin: true })
+  }
 
   // invite gate (closed beta): gate everything except the gate page itself,
   // static assets, and the explicit exempt paths. Gate-off ('pass') is a no-op.
@@ -308,6 +314,7 @@ export async function proxy (req) {
 
 export const config = {
   matcher: [
+    { source: '/api/admin/:path*' },
     // NextJS recommends to not add the CSP header to prefetches and static assets
     // prefetches are handled separately in the middleware for custom domain rewrites
     // See https://nextjs.org/docs/app/building-your-application/configuring/content-security-policy

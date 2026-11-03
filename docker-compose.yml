@@ -378,11 +378,15 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "127.0.0.1:9443:9443"
+    environment:
+      ADMIN_GATE_SECRET: "${ADMIN_GATE_SECRET:-}"
     volumes:
       # dev default; prod deploys set CADDYFILE=./docker/caddy/Caddyfile.prod
       - ${CADDYFILE:-./docker/caddy/Caddyfile}:/etc/caddy/Caddyfile:ro
-      # maintenance switch: static page + flag file (see docker/caddy/maintenance)
+      # Static maintenance HTML and independently writable flag state.
       - ./docker/caddy/maintenance:/srv/maintenance:ro
+      - ./docker/caddy/maintenance-flag:/srv/maintenance-flag:ro
       - caddy_data:/data
       - caddy_config:/config
     cpu_shares: "${CPU_SHARES_LOW}"
