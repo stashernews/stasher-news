@@ -48,6 +48,11 @@ test.each(['/admin', '/admin/settings', '/api/admin', '/api/admin/graphql'])('%s
   expect(await response.text()).toBe('')
 })
 
+test.each(['/live', '/live/', '/_next/data/build-id/live.json'])('retired live route %s returns 404 rather than falling through to the user-profile route', async path => {
+  const response = await proxy(new NextRequest(`http://localhost${path}`))
+  expect(response.status).toBe(404)
+})
+
 test('a valid admin request skips invite/custom-domain logic but retains CSP nonce over plain HTTP', async () => {
   process.env.NODE_ENV = 'production'
   const response = await proxy(new NextRequest('http://custom.example/admin', { headers: { host: 'custom.example', 'x-admin-gate': secret } }))

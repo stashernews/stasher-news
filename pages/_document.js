@@ -23,8 +23,9 @@ class MyDocument extends Document {
     const nonce = csp ? /nonce-([a-zA-Z0-9]{48})/.exec(csp)?.[1] : undefined
 
     const host = ctx.req?.headers?.host
+    const admin = ctx.pathname === '/admin' || ctx.pathname?.startsWith('/admin/')
     let domainBranding = null
-    if (host) {
+    if (host && !admin) {
       try {
         domainBranding = await getDomainBranding(host)
       } catch (error) {
@@ -35,11 +36,11 @@ class MyDocument extends Document {
 
     const initialProps = await Document.getInitialProps(ctx)
 
-    return { ...initialProps, nonce, branding: domainBranding }
+    return { ...initialProps, nonce, branding: domainBranding, admin }
   }
 
   render () {
-    const { nonce, branding } = this.props
+    const { nonce, branding, admin } = this.props
 
     // custom domain SEO and territory theme
     const themeCss = buildSubBrandingCSS(branding)
@@ -57,7 +58,8 @@ class MyDocument extends Document {
     return (
       <Html lang='en' data-scroll-behavior='smooth' className='stealth-rebrand'>
         <Head nonce={nonce}>
-          <link rel='manifest' href={manifestHref} />
+          {!admin && <link rel='manifest' href={manifestHref} />}
+          {admin && <link rel='icon' href='/icons/icon_x192.png' />}
           <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-500.woff2`} as='font' type='font/woff2' crossOrigin='' />
           <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/chakra-petch-600.woff2`} as='font' type='font/woff2' crossOrigin='' />
           <link rel='preload' href={`${process.env.NEXT_PUBLIC_ASSET_PREFIX}/fonts/jetbrains-mono-500.woff2`} as='font' type='font/woff2' crossOrigin='' />
@@ -166,7 +168,7 @@ class MyDocument extends Document {
                 }
               } catch (e) {}`}
           </Script>
-          {!branding && (
+          {!branding && !admin && (
             <>
               {/* light-theme splash screen links */}
               <link rel='apple-touch-startup-image' media='screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)' href='/splash/iPhone_14_Pro_Max_landscape.png' />

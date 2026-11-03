@@ -48,7 +48,12 @@ function writeQuery (client, apollo, data) {
   }
 }
 
-export default function MyApp ({ Component, pageProps: { ...props } }) {
+export default function MyApp (props) {
+  if (props.Component.adminPage) return <><Head><meta name='viewport' content='initial-scale=1.0, width=device-width, viewport-fit=cover' /></Head><ErrorBoundary><props.Component {...props.pageProps} /></ErrorBoundary></>
+  return <PublicApp {...props} />
+}
+
+function PublicApp ({ Component, pageProps: { ...props } }) {
   const client = getApolloClient()
   const router = useRouter()
 

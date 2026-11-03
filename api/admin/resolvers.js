@@ -8,6 +8,8 @@ import { adminApply, adminCreateInviteCode, adminRevokeInviteCode } from '@/lib/
 import { AdminError } from '@/lib/admin/validate'
 import { adminEnvironment } from '@/lib/admin/environment'
 import { adminAccess } from '@/lib/admin/access'
+import { adminOverview } from '@/lib/admin/overview'
+import { GraphQLScalarType } from 'graphql'
 
 export { adminEnvironment }
 
@@ -27,7 +29,9 @@ function fieldView (field, state) {
 }
 
 export default {
+  AdminOverviewData: new GraphQLScalarType({ name: 'AdminOverviewData', serialize: value => value, parseValue: () => { throw new Error('output only') }, parseLiteral: () => { throw new Error('output only') } }),
   Query: {
+    adminOverview: (_, args, { models }) => adminOverview(models),
     adminSections: async (_, args, { models }) => {
       const { state } = await readAdminState(models)
       const fields = FIELDS.map(field => fieldView(field, state))

@@ -139,6 +139,53 @@ const isolated = (() => {
     expect(await readMaintenance(directory)).toBe(true)
   })
 
+  test('a coordinator release failure after commit still announces the committed maintenance change', async () => {
+    const wrapped = { adminConfigChange: models.adminConfigChange }
+    wrapped.$transaction = async (operation, options) => {
+      const result = await models.$transaction(operation, options)
+      if (!options?.isolationLevel) throw Object.assign(new Error('coordinator ended'), { code: 'P2028' })
+      return result
+    }
+    const result = await adminApply({ models: wrapped, changes: [{ key: 'maintenance', expected: 'false', value: 'true' }], reason: 'coordinator release test', maintenanceDirectory: directory })
+    expect(result.applied).toBe(true)
+    expect(await readMaintenance(directory)).toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(await models.adminConfigChange.findMany({ where: { applyId: result.applyId } })).toEqual([expect.objectContaining({ applied: true })])
+  })
+
+  test('missing live-banner row handles concurrent first writes with a stale loser, not an internal error', async () => {
+    const rows = await models.snl.findMany()
+    try {
+      await models.snl.deleteMany()
+      const results = await Promise.allSettled([
+        apply([{ key: 'snl.live', expected: 'false', value: 'true' }]),
+        apply([{ key: 'snl.live', expected: 'false', value: 'true' }])
+      ])
+      expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+      expect(results.find(result => result.status === 'rejected').reason.code).toBe('STALE_VALUE')
+      await apply([{ key: 'snl.live', expected: 'true', value: 'false' }])
+      expect((await models.snl.findFirst()).live).toBe(false)
+    } finally {
+      await models.snl.deleteMany()
+      if (rows.length) await models.snl.createMany({ data: rows })
+    }
+  })
+
+  test('mixed apply preserves successful DB audit rows when only the file change fails', async () => {
+    const result = await adminApply({ models, changes: [{ key: 'maxItemTurfs', expected: '5', value: '6' }, { key: 'maintenance', expected: 'false', value: 'true' }], reason: 'mixed apply failure test', maintenanceDirectory: join(directory, 'nonexistent') })
+    expect((await models.siteSettings.findUnique({ where: { id: 1 } })).maxItemTurfs).toBe(6)
+    expect(await models.adminConfigChange.findMany({ where: { applyId: result.applyId }, orderBy: { id: 'asc' } })).toEqual([
+      expect.objectContaining({ field: 'maxItemTurfs', applied: true }),
+      expect.objectContaining({ field: 'maintenance', applied: false })
+    ])
+  })
+
+  test('unknown keys are rejected and content-only applies announce info severity', async () => {
+    await expect(apply([{ key: 'notASetting', expected: '0', value: '1' }])).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    await apply([{ key: 'maxItemTurfs', expected: '5', value: '6' }])
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).text).toContain('[INFO]')
+  })
+
   test('invite codes are shown once, stored only as hashes, audited and revoked with cache invalidation', async () => {
     const result = await adminCreateInviteCode({ models, label: 'isolated new code', reason: 'test invitation' })
     try {

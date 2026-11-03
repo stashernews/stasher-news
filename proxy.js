@@ -252,6 +252,13 @@ export async function proxy (req) {
   headers.delete('x-stacker-news-domain')
   const request = new NextRequest(req, { headers })
 
+  // Removing the old page would otherwise fall through to /[name] and
+  // redirect to /404 (or even serve a future user named "live").
+  if (request.nextUrl.pathname === '/live' || request.nextUrl.pathname === '/live/' ||
+      /^\/_next\/data\/[^/]+\/live\.json$/.test(request.nextUrl.pathname)) {
+    return new NextResponse(null, { status: 404 })
+  }
+
   if (isAdminPath(request.nextUrl.pathname)) {
     if (!isAdminRequest(request)) return new NextResponse(null, { status: 404 })
     return applySecurityHeaders(NextResponse.next({ request: { headers } }), { admin: true })

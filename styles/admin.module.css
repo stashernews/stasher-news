@@ -1,0 +1,77 @@
+.shell { min-height: 100vh; padding-bottom: 100px; color: var(--rt-text); background: var(--rt-bg); font: 13px/1.6 var(--rt-mono); }
+.shell * { box-sizing: border-box; }
+.shell button, .shell input, .shell select, .shell textarea { font: inherit; border: 1px solid var(--rt-line-2); border-radius: var(--rt-radius); background: var(--rt-panel-2); color: var(--rt-text); }
+.shell button { min-height: 44px; padding: 9px 14px; cursor: pointer; transition: border-color 120ms ease, background-color 120ms ease; }
+.shell button:hover { border-color: var(--rt-ember); }
+.shell button:disabled { opacity: .55; cursor: not-allowed; }
+.shell input, .shell select, .shell textarea { width: 100%; min-height: 44px; padding: 9px 12px; }
+.shell textarea { min-height: 92px; resize: vertical; }
+.shell :focus-visible { outline: 2px solid var(--rt-ember); outline-offset: 3px; }
+.shell label { display: block; font-weight: 600; color: var(--rt-title); }
+.shell h1, .shell h2, .shell h3 { font-family: var(--rt-display); }
+.shell h1 { margin: 4px 0 0; font-size: 30px; }
+.shell h2 { margin: 0 0 20px; font-size: 19px; }
+.shell h3 { font-size: 16px; }
+.shell small { display: block; color: var(--rt-sec); font-size: 11px; }
+.topbar { padding: 20px 28px; border-bottom: 1px solid var(--rt-line); display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.brand { font: 700 23px var(--rt-display); letter-spacing: .09em; color: var(--rt-title); }
+.brand span { color: var(--rt-ember); }
+.connection { color: var(--rt-ember); font-size: 10px; letter-spacing: .09em; }
+.layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); max-width: 1600px; margin: auto; }
+.sidebar { padding: 30px 18px; border-right: 1px solid var(--rt-line); min-height: calc(100vh - 100px); }
+.sidebar > small { padding: 0 12px; margin-bottom: 16px; letter-spacing: .1em; }
+.sidebar button { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; background: transparent; text-align: left; margin-bottom: 5px; color: var(--rt-sec); }
+.sidebar button[aria-current='page'] { color: var(--rt-ember); background: var(--rt-badge-tint); border-left: 2px solid var(--rt-accent); }
+.sidebar p { margin: 35px 12px 0; }
+.workspace { padding: 30px; min-width: 0; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+.card { padding: 22px; margin-bottom: 20px; background: var(--rt-panel); border: 1px solid var(--rt-line); border-radius: var(--rt-radius); min-width: 0; }
+.field { padding: 20px 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, .65fr); gap: 24px; border-top: 1px solid var(--rt-dash); }
+.modified { border-left: 2px solid var(--rt-accent); padding-left: 12px; }
+.help { margin: 6px 0; color: var(--rt-sec); font-size: 12px; }
+.control { min-width: 0; }
+.control small { margin-top: 6px; overflow-wrap: anywhere; }
+.inputUnit { display: flex; align-items: center; }
+.inputUnit input { min-width: 0; }
+.inputUnit > span { margin-left: 9px; color: var(--rt-ember); }
+.choices { display: flex; flex-wrap: wrap; gap: 4px; }
+.choices button[aria-pressed='true'] { color: var(--rt-ember); background: var(--rt-badge-tint); border-color: var(--rt-accent-muted); }
+.tag { display: inline-block; margin: 4px 0 0 9px; padding: 1px 6px; background: var(--rt-badge-tint); color: var(--rt-ember); font-size: 10px; }
+.shell .textButton { border: 0; padding: 0; background: none; color: var(--rt-ember); text-decoration: underline; }
+.warning { color: var(--rt-amber); font-size: 12px; margin-top: 8px; }
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.shell .primary { background: var(--rt-accent); color: var(--rt-on-primary); border-color: var(--rt-accent); font-weight: 700; }
+.banner, .notice { padding: 14px 28px; background: var(--rt-strip); border-bottom: 1px solid var(--rt-line-2); color: var(--rt-ember); overflow-wrap: anywhere; }
+.notice { color: var(--rt-text); }
+.pending { position: fixed; bottom: 0; left: 0; right: 0; z-index: 20; padding: 16px 28px; display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--rt-popover); border-top: 1px solid var(--rt-accent-muted); box-shadow: 0 -4px 20px #0003; }
+.overlay { position: fixed; inset: 0; background: #000b; display: grid; place-items: center; padding: 16px; z-index: 100; }
+.dialog { max-width: 720px; width: 100%; max-height: 90dvh; overflow-y: auto; background: var(--rt-popover); border: 1px solid var(--rt-line-2); padding: 26px; }
+.dialog .heading { margin-bottom: 12px; }
+.reviewChange { padding: 14px 0; border-top: 1px solid var(--rt-line); }
+.dialog .actions { margin-top: 20px; justify-content: flex-end; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.stats strong { display: block; color: var(--rt-title); overflow-wrap: anywhere; font-size: 17px; font-family: var(--rt-display); margin-top: 6px; }
+.tableScroll { overflow-x: auto; max-width: 100%; }
+.tableScroll table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+.tableScroll th { color: var(--rt-sec); font-weight: 500; white-space: nowrap; }
+.tableScroll td, .tableScroll th { padding: 13px 10px; border-bottom: 1px solid var(--rt-line); vertical-align: top; max-width: 380px; overflow-wrap: anywhere; }
+.sparkline { display: block; max-height: 120px; width: 100%; color: var(--rt-ember); margin-top: 16px; }
+.oneTimeCode { display: block; padding: 14px 0; color: var(--rt-title); overflow-wrap: anywhere; user-select: all; }
+.empty { padding: 16px 0; color: var(--rt-sec); }
+.mobileNav { display: none !important; }
+@media (max-width: 800px) {
+  .layout { display: block; }
+  .sidebar { display: none; }
+  .mobileNav { display: block !important; margin-bottom: 22px; }
+  .topbar { padding: 16px; flex-wrap: wrap; }
+  .brand { font-size: 20px; }
+  .workspace { padding: 22px 14px; }
+  .heading { align-items: flex-start; flex-wrap: wrap; }
+  .card { padding: 16px; }
+  .field { grid-template-columns: 1fr; gap: 12px; }
+  .pending { padding: 12px 14px; flex-wrap: wrap; }
+  .shell { padding-bottom: 150px; }
+  .dialog { padding: 18px; }
+  .stats { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .shell button { transition: none; } }

@@ -1,6 +1,7 @@
 import { gql } from 'graphql-tag'
 
 export default gql`
+  scalar AdminOverviewData
   type AdminField {
     key: String!, store: String!, section: String!, group: String!, label: String!
     type: String!, min: String, max: String, help: String!, takesEffect: String!
@@ -18,6 +19,7 @@ export default gql`
   type AdminCreateInviteResult { applyId: String!, applied: Boolean!, alertDelivered: Boolean!, id: Int!, code: String! }
   input AdminChangeInput { key: String!, expected: String!, value: String!, confirmedJump: Boolean }
   type Query {
+    adminOverview: AdminOverviewData!
     adminSections: [AdminSection!]!
     adminAudit(cursor: String): AdminAuditPage!
     adminAccess: [AdminAccessRow!]!

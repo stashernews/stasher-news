@@ -3,6 +3,34 @@ import { Prisma } from '@prisma/client'
 
 const ALL_SUB = 'all'
 
+// Private overview: the same observation/range semantics, with whole-piconero
+// results instead of the public growth charts' legacy millisat/JSON numbers.
+export async function readAdminGrowth (models, now = new Date()) {
+  const from = new Date(now.getTime() - 7 * 86400000)
+  const [totals, tips] = await Promise.all([
+    models.$queryRaw`
+      SELECT
+        (SELECT count(*)::int FROM users WHERE ${inRange(Prisma.sql`users.created_at`, from, now)}) AS registrations,
+        (SELECT count(*)::int FROM "Item" WHERE NOT bio AND "parentId" IS NULL AND ${inRange(Prisma.sql`"Item".created_at`, from, now)}) AS posts,
+        (SELECT count(*)::int FROM "Item" WHERE "parentId" IS NOT NULL AND ${inRange(Prisma.sql`"Item".created_at`, from, now)}) AS comments`,
+    models.$queryRaw`
+      WITH tips AS (
+        SELECT t.piconeros, t."confirmedAt" AT TIME ZONE 'UTC' AS at
+        FROM "ObservedTip" t
+        JOIN "MoneroAccount" ma ON ma.id = t."recipientAccountId"
+        WHERE t.state = 'CONFIRMED' AND ma."ownerUserId" IS NOT NULL
+          AND ${inRange(Prisma.sql`t."confirmedAt"`, from, now)}
+      )
+      SELECT ${from}::timestamptz + n * INTERVAL '1 day' AS time,
+        COALESCE(sum(tips.piconeros), 0)::bigint AS piconeros
+      FROM generate_series(0, 6) n
+      LEFT JOIN tips ON tips.at >= ${from}::timestamptz + n * INTERVAL '1 day'
+        AND tips.at < ${from}::timestamptz + (n + 1) * INTERVAL '1 day'
+      GROUP BY n ORDER BY n`
+  ])
+  return { ...totals[0], from: from.toISOString(), to: now.toISOString(), tips: tips.map(point => ({ time: point.time.toISOString(), piconeros: String(point.piconeros) })) }
+}
+
 // timeHelper builds the zero-filled generate_series buckets (kept from the
 // Agg-table era). `series` buckets are timestamptz truncated at America/Chicago
 // boundaries; every live aggregation below buckets observations the same way.

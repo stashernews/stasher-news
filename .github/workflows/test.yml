@@ -82,7 +82,7 @@ jobs:
           docker exec db createdb -U stasher stasher_rewards_dynamic_test
           npx prisma migrate deploy
           npx prisma db seed
-          npm test -- --runInBand --runTestsByPath test/prisma/adminPanel.migration.test.js test/prisma/adminEdge.test.js test/prisma/adminTrustBounds.test.js test/api/gate-db.test.js test/lib/admin/apply.test.js test/api/admin/queries.test.js
+          npm test -- --runInBand --runTestsByPath test/prisma/adminPanel.migration.test.js test/prisma/adminEdge.test.js test/prisma/adminTrustBounds.test.js test/api/gate-db.test.js test/lib/admin/apply.test.js test/api/admin/queries.test.js test/lib/admin/overview.test.js
 
       - name: Run tests
         # --runInBand: the DB-backed suites share one database and assume they

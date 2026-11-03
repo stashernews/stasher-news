@@ -45,3 +45,9 @@ test('jump check includes zero transitions and negative values, but not exactly 
   expect(needsJumpConfirmation(100000000000000000000n, 1000000000000000000001n)).toBe(true)
   expect(() => validateChanges({ state, changes: [change('trustPicoMin', '1000000000000', false)] })).toThrow(/confirm/i)
 })
+
+test('an existing SQL-written tiny float can be corrected without an opaque exponent parsing failure', () => {
+  expect(needsJumpConfirmation(0.0000001, 0.000001)).toBe(false)
+  expect(needsJumpConfirmation(0.0000001, 0)).toBe(true)
+  expect(needsJumpConfirmation(0.0000001, 0.000002)).toBe(true)
+})

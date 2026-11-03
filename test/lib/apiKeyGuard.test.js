@@ -56,7 +56,7 @@ const REVIEWED_NON_SENSITIVE = new Set([
   // uploads (quota-capped, paid on publish)
   'getSignedPOST',
   // notifications / preferences
-  'createMessage', 'onAirToggle', 'setWalkthrough', 'subscribeItem',
+  'createMessage', 'setWalkthrough', 'subscribeItem',
   'subscribeUserComments', 'subscribeUserPosts', 'toggleMute',
   'toggleMuteSub', 'toggleSubSubscription', 'updateCommentsViewAt'
 ])

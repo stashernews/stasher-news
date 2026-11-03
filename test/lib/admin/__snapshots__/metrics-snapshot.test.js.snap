@@ -1,0 +1,86 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`DB gauge exposition stays unchanged when overview shares its query readers 1`] = `
+"# HELP monero_pending_tips ObservedTip rows currently in PENDING state (awaiting 0-conf webhook or reconcilePendingTips recovery)
+# TYPE monero_pending_tips gauge
+monero_pending_tips{app="stashernews"} 13
+
+# HELP monero_rewards_wallet_balance_piconeros Platform rewards hot-wallet unlocked balance in piconeros (1e-12 XMR), refreshed by sendPayouts / sweepOpsEarmark (all signer accounts)
+# TYPE monero_rewards_wallet_balance_piconeros gauge
+monero_rewards_wallet_balance_piconeros{app="stashernews"} 0
+
+# HELP monero_distribution_status Latest RewardDistribution status: 0=PENDING, 1=SENDING, 2=COMPLETE, 3=FAILED
+# TYPE monero_distribution_status gauge
+monero_distribution_status{app="stashernews"} 2
+
+# HELP monero_webhooks_received_total lws tx-confirmation webhooks received at POST /api/monero/webhook
+# TYPE monero_webhooks_received_total counter
+monero_webhooks_received_total{app="stashernews"} 0
+
+# HELP monero_tips_recovered_total Tips recovered by reconcilePendingTips (each = a missed lws 0-conf webhook)
+# TYPE monero_tips_recovered_total counter
+monero_tips_recovered_total{app="stashernews"} 0
+
+# HELP monero_tips_expired_total Tips expired by reconcilePendingTips after PENDING_EXPIRY_MS (abandoned checkouts)
+# TYPE monero_tips_expired_total counter
+monero_tips_expired_total{app="stashernews"} 0
+
+# HELP monero_detection_level_total Webhook verification verdicts by level
+# TYPE monero_detection_level_total counter
+
+# HELP monero_tx_not_found_exclusions_total DETECTED rows terminally excluded as TX_NOT_FOUND (both lws and monerod absent)
+# TYPE monero_tx_not_found_exclusions_total counter
+monero_tx_not_found_exclusions_total{app="stashernews"} 0
+
+# HELP monero_job_duration_seconds pg-boss worker job execution duration in seconds (observed in the worker process)
+# TYPE monero_job_duration_seconds histogram
+
+# HELP monero_lws_up monero-lws wallet endpoint reachability (1=up, 0=down) from the healthProbe worker
+# TYPE monero_lws_up gauge
+monero_lws_up{app="stashernews"} 0
+
+# HELP monero_monerod_up monerod daemon reachability (1=up, 0=down) from the healthProbe worker
+# TYPE monero_monerod_up gauge
+monero_monerod_up{app="stashernews"} 0
+
+# HELP monero_monerod_height monerod chain height reported by the healthProbe worker
+# TYPE monero_monerod_height gauge
+monero_monerod_height{app="stashernews"} 0
+
+# HELP monero_reorgs_total Monero chain reorganizations detected (chain-height regression) by createReorgDetector
+# TYPE monero_reorgs_total counter
+monero_reorgs_total{app="stashernews"} 0
+
+# HELP monero_ops_pending_piconeros Pending ops earmark: fee-adjusted unswept carry on the latest RewardDistribution plus this cycle's ops-earmarked inflow (lib/rewardsPool.js pendingSweepPiconeros). SIGNED: negative = unfunded ops debt
+# TYPE monero_ops_pending_piconeros gauge
+monero_ops_pending_piconeros{app="stashernews"} 0
+
+# HELP monero_rewards_network_fees_piconeros Cumulative unique RELAYED rewards hot-wallet network fees in piconeros (1e-12 XMR) — actual costs, never principal (getNextRewardsPool)
+# TYPE monero_rewards_network_fees_piconeros gauge
+monero_rewards_network_fees_piconeros{app="stashernews"} 0
+
+# HELP monero_ops_deficit_piconeros Unfunded ops debt: absolute value of a negative pendingSweepPiconeros (network fees and sweeps exceeding the ops earmark); 0 when ops is funded
+# TYPE monero_ops_deficit_piconeros gauge
+monero_ops_deficit_piconeros{app="stashernews"} 0
+
+# HELP monero_rewards_accounting_uncertain Rewards wallet accounting uncertainty (1 = unresolved journal attempts/conflicting facts, or the accounting read failed; 0 = the ledger read cleanly)
+# TYPE monero_rewards_accounting_uncertain gauge
+monero_rewards_accounting_uncertain{app="stashernews"} 1
+
+# HELP worker_pgjobs_failed_total pg-boss jobs currently in the failed state (queried at scrape time; a failed-job snapshot, not a monotonic counter)
+# TYPE worker_pgjobs_failed_total gauge
+worker_pgjobs_failed_total{app="stashernews"} 2
+
+# HELP newsletter_configured Newsletter env fully configured (1) or missing required vars (0); refreshed by newsletterSync via the HealthSnapshot bridge. 0 = the newsletter cannot enroll or send — never a silent no-op.
+# TYPE newsletter_configured gauge
+newsletter_configured{app="stashernews"} 0
+
+# HELP newsletter_contacts_active Contacts successfully enrolled at Resend by the last newsletterSync run
+# TYPE newsletter_contacts_active gauge
+newsletter_contacts_active{app="stashernews"} 0
+
+# HELP newsletter_last_sent_timestamp_seconds Unix seconds of the last SENT NewsletterCampaign (0 = never)
+# TYPE newsletter_last_sent_timestamp_seconds gauge
+newsletter_last_sent_timestamp_seconds{app="stashernews"} 0
+"
+`;
