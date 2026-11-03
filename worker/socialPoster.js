@@ -1,5 +1,5 @@
 import Nostr, { getNostrProfile } from '@/lib/nostr'
-import { isNostrSocialPostingEnabled } from '@/lib/nostrFeatures'
+import { getSiteSettings, effectiveFlag, ENV_FLAG_PARSERS } from '@/lib/siteSettings'
 import { TwitterApi } from 'twitter-api-v2'
 import { numWithUnits } from '@/lib/format'
 
@@ -124,7 +124,8 @@ export async function postToSocial ({ models }) {
 
   // nostr deferred: the platform bot does not publish to nostr unless
   // NOSTR_SOCIAL_POSTING=1 (defaults off). code kept for future re-enable.
-  if (isNostrSocialPostingEnabled()) {
+  const settings = await getSiteSettings(models)
+  if (effectiveFlag(settings.nostrSocialPosting, 'NOSTR_SOCIAL_POSTING', ENV_FLAG_PARSERS.nostrSocialPosting).value) {
     await postToNostr({ message: nostrMessage })
   }
 }

@@ -21,7 +21,7 @@ import BookmarkDropdownItem from './bookmark'
 import SubscribeDropdownItem from './subscribe'
 import { CopyLinkDropdownItem, CrosspostDropdownItem } from './share'
 import Badges from './badge'
-import { DEFAULT_POSTS_PICONEROS_FILTER, DEFAULT_COMMENTS_PICONEROS_FILTER, MAX_ITEM_TURFS } from '@/lib/constants'
+import { useSiteSettings } from './site-settings'
 import { RepostDropdownItem } from './repost'
 import { isNostrEnabled } from '@/lib/nostrFeatures'
 import ActionDropdown from './action-dropdown'
@@ -84,6 +84,7 @@ export default function ItemInfo ({
 }) {
   const { me } = useMe()
   const branding = useBranding()
+  const siteSettings = useSiteSettings()
   const router = useRouter()
   const showModal = useShowModal()
   const [hasNewComments, setHasNewComments] = useState(false)
@@ -112,7 +113,7 @@ export default function ItemInfo ({
   const meSats = (me ? item.mePiconeros : item.meAnonPiconeros) || 0
   const satsFilter = me
     ? (isPost ? me.privates?.postsPiconerosFilter : me.privates?.commentsPiconerosFilter)
-    : (isPost ? DEFAULT_POSTS_PICONEROS_FILTER : DEFAULT_COMMENTS_PICONEROS_FILTER)
+    : (isPost ? siteSettings?.defaultPostsFilterPiconeros : siteSettings?.defaultCommentsFilterPiconeros)
   const isDesperado = !item.mine && item.downPiconeros > 0 &&
     satsFilter != null && (item.netInvestment ?? 0) < satsFilter
 
@@ -230,7 +231,7 @@ export default function ItemInfo ({
               <InfoDropdownItem item={item} />
               {(item.parentId || item.text) && onQuoteReply &&
                 <Dropdown.Item onClick={onQuoteReply}>quote reply</Dropdown.Item>}
-              {me && item.mine && !item.parentId && !item.bio && !item.isJob && !item.deletedAt && (item.subNames?.length ?? 0) < MAX_ITEM_TURFS &&
+              {me && item.mine && !item.parentId && !item.bio && !item.isJob && !item.deletedAt && (item.subNames?.length ?? 0) < siteSettings?.maxItemTurfs &&
                 <RepostDropdownItem item={item} />}
               {me && <BookmarkDropdownItem item={item} />}
               {me && <SubscribeDropdownItem item={item} />}

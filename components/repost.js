@@ -10,7 +10,8 @@ import { useToast } from './toast'
 import usePayInMutation from '@/components/payIn/hooks/use-pay-in-mutation'
 import { REPOST_ITEM } from '@/fragments/payIn'
 import { ACTIVE_SUBS } from '@/fragments/subs'
-import { MAX_ITEM_TURFS, SSR } from '@/lib/constants'
+import { SSR } from '@/lib/constants'
+import { useSiteSettings } from './site-settings'
 import { itemPostType } from '@/lib/subs'
 import { piconerosToMXmr } from '@/lib/format'
 import { getPayIn, isPostingFeeSubmit } from '@/lib/pay-in'
@@ -41,6 +42,7 @@ export function filterRepostCandidates (candidates, query) {
 // turfs, and turfs that don't accept the item's post type are excluded.
 export function RepostModal ({ item, onClose }) {
   const { me } = useMe()
+  const siteSettings = useSiteSettings()
   const showModal = useShowModal()
   const toaster = useToast()
   const router = useRouter()
@@ -107,7 +109,7 @@ export function RepostModal ({ item, onClose }) {
       {candidates.length === 0
         ? (
           <p className='text-muted text-center my-3'>
-            no more turfs available ({MAX_ITEM_TURFS} max)
+            no more turfs available ({siteSettings?.maxItemTurfs ?? '…'} max)
           </p>
           )
         : (

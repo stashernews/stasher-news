@@ -1,4 +1,5 @@
 import JobForm from './job-form'
+import { useSiteSettings } from './site-settings'
 import Button from 'react-bootstrap/Button'
 import { useMe } from './me'
 import { useRouter } from 'next/router'
@@ -27,6 +28,7 @@ const POST_TYPE_FORMS = {
 
 export function PostForm ({ type, subs, children }) {
   const { me } = useMe()
+  const siteSettings = useSiteSettings()
   const router = useRouter()
 
   const formType = postFormType(type, subs) ?? fallbackPostType(subs)
@@ -86,7 +88,7 @@ export function PostForm ({ type, subs, children }) {
 
   return (
     <FeeButtonProvider
-      baseLineItems={postCommentBaseLineItems({ me, subs: estimateSubs })}
+      baseLineItems={postCommentBaseLineItems({ me, subs: estimateSubs, siteSettings })}
       useRemoteLineItems={postCommentUseRemoteLineItems({ subs: estimateSubs })}
     >
       <PostTypeSwitcher value={formType} subs={subs} onSelect={switchType} />

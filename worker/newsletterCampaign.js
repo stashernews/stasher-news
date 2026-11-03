@@ -1,4 +1,5 @@
 import { alert } from '@/lib/alert'
+import { getSiteSettings, effectiveFlag, ENV_FLAG_PARSERS } from '@/lib/siteSettings'
 import { logInfo } from '@/lib/logger'
 import { gatherNewsletterContent } from '@/lib/newsletterContent'
 import { renderNewsletter } from '@/lib/newsletterTemplate'
@@ -117,7 +118,8 @@ export async function newsletterCampaign ({ models, now = new Date() }) {
     }
   }
 
-  if (process.env.NEWSLETTER_AUTO_SEND !== 'true') {
+  const settings = await getSiteSettings(models)
+  if (!effectiveFlag(settings.newsletterAutoSend, 'NEWSLETTER_AUTO_SEND', ENV_FLAG_PARSERS.newsletterAutoSend).value) {
     logInfo('newsletterCampaign: draft awaiting operator approval', { broadcastId: campaign.resendBroadcastId })
     await releaseClaim(models, campaign.id)
     return

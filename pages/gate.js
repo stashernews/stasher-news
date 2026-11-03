@@ -6,7 +6,7 @@ import { isGateEnabled, sanitizeNext } from '@/lib/invite-gate'
 export async function getServerSideProps ({ query }) {
   const next = sanitizeNext(query.next)
   // gate off -> the gate page is inert; send everyone home
-  if (!isGateEnabled()) {
+  if (!await isGateEnabled()) {
     return { redirect: { destination: next, permanent: false } }
   }
   return { props: { next } }

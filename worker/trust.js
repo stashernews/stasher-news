@@ -3,22 +3,20 @@ import { META_SUB, USER_ID } from '@/lib/constants'
 import { Prisma } from '@prisma/client'
 import { initialTrust, GLOBAL_SEEDS } from '@/api/payIn/lib/territory'
 import { resolveTrustSeeds } from '@/lib/founderNyms'
+import { TRUST_DEFAULTS } from '@/lib/trust-defaults'
+import { getSiteSettings } from '@/lib/siteSettings'
 
-const MAX_DEPTH = 40
 const MAX_TRUST = 1
 const MIN_SUCCESS = 0
 // https://en.wikipedia.org/wiki/Normal_distribution#Quantile_function
 const Z_CONFIDENCE = 1.959963984540 // 95% confidence
-const SEED_WEIGHT = 0.83
-const AGAINST_PICO_MIN = 1000
-const PICO_MIN = 1001 // 20001 is the minimum for a tip to be counted in trust
-const IRRELEVANT_CUMULATIVE_TRUST = 0.001 // if a user has less than this amount of cumulative trust, they are irrelevant
 
 // for each subName, we'll need to get two graphs
 // one for comments and one for posts
 // then we'll need to do two trust calculations on each graph
 // one with global seeds and one with subName seeds
 export async function trust ({ boss, models }) {
+  const params = await getSiteSettings(models, { fresh: true })
   console.time('trust')
   let failedTerritories = 0
   // Founder nyms -> ids once per run (nightly); missing nyms resolve away.
@@ -32,17 +30,17 @@ export async function trust ({ boss, models }) {
     const seeds = globalSeeds.includes(territory.userId) ? globalSeeds : globalSeeds.concat(territory.userId)
     try {
       console.timeLog('trust', `getting post graph for ${territory.name}`)
-      const postGraph = await getGraph(models, territory.name, true, seeds)
+      const postGraph = await getGraph(models, territory.name, true, seeds, params)
       console.timeLog('trust', `getting comment graph for ${territory.name}`)
-      const commentGraph = await getGraph(models, territory.name, false, seeds)
+      const commentGraph = await getGraph(models, territory.name, false, seeds, params)
       console.timeLog('trust', `computing global post trust for ${territory.name}`)
-      const vGlobalPost = await trustGivenGraph(postGraph, globalSeeds)
+      const vGlobalPost = await trustGivenGraph(postGraph, globalSeeds, params)
       console.timeLog('trust', `computing global comment trust for ${territory.name}`)
-      const vGlobalComment = await trustGivenGraph(commentGraph, globalSeeds)
+      const vGlobalComment = await trustGivenGraph(commentGraph, globalSeeds, params)
       console.timeLog('trust', `computing sub post trust for ${territory.name}`)
-      const vSubPost = await trustGivenGraph(postGraph, [territory.userId])
+      const vSubPost = await trustGivenGraph(postGraph, [territory.userId], params)
       console.timeLog('trust', `computing sub comment trust for ${territory.name}`)
-      const vSubComment = await trustGivenGraph(commentGraph, [territory.userId])
+      const vSubComment = await trustGivenGraph(commentGraph, [territory.userId], params)
       console.timeLog('trust', `storing trust for ${territory.name}`)
       let results = reduceVectors(territory.name, {
         zapPostTrust: {
@@ -61,7 +59,7 @@ export async function trust ({ boss, models }) {
           graph: commentGraph,
           vector: vSubComment
         }
-      })
+      }, params)
 
       if (results.length === 0) {
         console.timeLog('trust', `no results for ${territory.name} - adding seeds`)
@@ -96,7 +94,7 @@ export async function trust ({ boss, models }) {
  the keys are the node id and their value is the trust of that node
 */
 // I'm going to need to send subName, and multiply by a vector instead of a matrix
-function trustGivenGraph (graph, seeds = GLOBAL_SEEDS) {
+export function trustGivenGraph (graph, seeds = GLOBAL_SEEDS, params = TRUST_DEFAULTS) {
   console.timeLog('trust', `creating matrix of size ${graph.length} x ${graph.length}`)
   // empty matrix of proper size nstackers x nstackers
   const mat = math.zeros(graph.length, graph.length, 'sparse')
@@ -128,9 +126,9 @@ function trustGivenGraph (graph, seeds = GLOBAL_SEEDS) {
   }
   let result = vTrust.clone()
   console.timeLog('trust', 'matrix multiply')
-  for (let i = 0; i < MAX_DEPTH; i++) {
+  for (let i = 0; i < params.trustMaxDepth; i++) {
     result = math.multiply(matT, result)
-    result = math.add(math.multiply(1 - SEED_WEIGHT, result), math.multiply(SEED_WEIGHT, vTrust))
+    result = math.add(math.multiply(1 - params.trustSeedWeight, result), math.multiply(params.trustSeedWeight, vTrust))
   }
   result = math.squeeze(result)
   // squeeze collapses a 1x1 matrix to a bare number (no .size()/forEach);
@@ -209,7 +207,7 @@ function subMatchClause (subName, postTrust) {
         OR (COALESCE(cardinality(root."subNames"), cardinality("Item"."subNames"), 0) = 0 AND ${subName}::CITEXT = ${META_SUB}::CITEXT)
       )`
 }
-async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS) {
+export async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS, params = TRUST_DEFAULTS) {
   return await models.$queryRaw`
     SELECT id, json_agg(json_build_object(
       'node', oid,
@@ -233,7 +231,7 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
         JOIN users ON tips."tipperId" = users.id AND users.id <> ${USER_ID.anon}
         WHERE tips.state = 'CONFIRMED'
         GROUP BY user_id, users.name, item_id, user_at, against
-        HAVING sum(tips."piconeros") > ${PICO_MIN}
+        HAVING sum(tips."piconeros") > ${params.trustPicoMin}
         UNION ALL
         SELECT burns."downvoterId" AS user_id, users.name AS name, burns."postId" AS item_id,
             max(COALESCE(burns."confirmedAt", burns."detectedAt")) AS act_at,
@@ -252,7 +250,7 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
         JOIN users ON burns."downvoterId" = users.id AND users.id <> ${USER_ID.anon}
         WHERE burns.state IN ('DETECTED', 'CONFIRMED')
         GROUP BY user_id, users.name, item_id, user_at, against
-        HAVING sum(burns."piconeros") > ${AGAINST_PICO_MIN}
+        HAVING sum(burns."piconeros") > ${params.trustAgainstPicoMin}
       ),
       user_pair AS (
         SELECT a.user_id AS a_id, b.user_id AS b_id,
@@ -284,7 +282,7 @@ async function getGraph (models, subName, postTrust = true, seeds = GLOBAL_SEEDS
     ORDER BY id ASC`
 }
 
-function reduceVectors (subName, fieldGraphVectors) {
+function reduceVectors (subName, fieldGraphVectors, params = TRUST_DEFAULTS) {
   function reduceVector (field, graph, vector, result = {}) {
     vector.forEach((val, [idx]) => {
       if (isNaN(val) || val <= 0) return
@@ -308,7 +306,7 @@ function reduceVectors (subName, fieldGraphVectors) {
     Object.keys(fieldGraphVectors).reduce(
       (acc, key) => acc + (s[key] ?? 0),
       0
-    ) > IRRELEVANT_CUMULATIVE_TRUST
+    ) > params.trustIrrelevantCumulative
   )
 }
 

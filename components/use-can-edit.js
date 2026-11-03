@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { datePivot } from '@/lib/time'
 import { useMe } from '@/components/me'
-import { ITEM_EDIT_SECONDS } from '@/lib/constants'
+import { useSiteSettings } from './site-settings'
 import { getItemEditMode, nextExpiryLatch } from '@/lib/item-addendum'
 
 // Which editor an author gets for this item, computed live on the client from
@@ -26,7 +26,9 @@ import { getItemEditMode, nextExpiryLatch } from '@/lib/item-addendum'
 // deadline — a latch stuck true would never re-arm its timer and the UI would
 // offer the FULL editor past the new window with only a generic server error.
 export default function useCanEdit (item) {
-  const editThreshold = datePivot(new Date(item.payIn?.payInStateChangedAt ?? item.createdAt), { seconds: ITEM_EDIT_SECONDS })
+  const siteSettings = useSiteSettings()
+  const itemEditSeconds = siteSettings?.itemEditSeconds ?? 0
+  const editThreshold = datePivot(new Date(item.payIn?.payInStateChangedAt ?? item.createdAt), { seconds: itemEditSeconds })
   // stable primitive for effect deps: a fresh Date identity every render would
   // re-run the timer/listener effects on every render
   const editThresholdMs = +editThreshold
@@ -59,8 +61,8 @@ export default function useCanEdit (item) {
   // wall clock); identity churn of `item` recomputes on cache updates, which
   // keeps account switches and fee-state changes honest
   const editMode = useMemo(
-    () => getItemEditMode(item, { meId: me?.id, myBio: false, adminEdit: false }),
-    [me?.id, item, expired]
+    () => getItemEditMode(item, { meId: me?.id, myBio: false, adminEdit: false, itemEditSeconds }),
+    [me?.id, item, expired, itemEditSeconds]
   )
 
   const [override, setOverride] = useState(undefined)

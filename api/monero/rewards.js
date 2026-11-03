@@ -1,4 +1,5 @@
 import { daemonClient } from '@/api/monero/daemonClient'
+import { getSiteSettings, effectiveFlag, ENV_FLAG_PARSERS } from '@/lib/siteSettings'
 import { logInfo, logWarn, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
 import { moneroRewardsWalletBalancePiconeros } from '@/lib/metrics'
@@ -1996,7 +1997,8 @@ export async function sweepOpsEarmark ({ distribution, models, wallet } = {}) {
   }
 
   const coldAddress = process.env.REWARDS_COLD_STORAGE_ADDRESS
-  const sweepEnabled = String(process.env.REWARDS_OPS_SWEEP_ENABLED ?? 'true') !== 'false'
+  const settings = await getSiteSettings(models)
+  const sweepEnabled = effectiveFlag(settings.opsSweepEnabled, 'REWARDS_OPS_SWEEP_ENABLED', ENV_FLAG_PARSERS.opsSweepEnabled).value
   if (!sweepEnabled || !coldAddress) {
     return { state: 'DISABLED' }
   }

@@ -1,4 +1,5 @@
 import { decodeCursor, LIMIT, nextNoteCursorEncoded } from '@/lib/cursor'
+import { sqlValueBinder } from '@/lib/sql-parameters'
 import { getItem, filterClause, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
 import { pushSubscriptionSchema, validateSchema } from '@/lib/validate'
 import { sendPushSubscriptionReply } from '@/lib/webPush'
@@ -170,6 +171,7 @@ export default {
             LIMIT ${LIMIT}`
         )
       }
+      const filters = sqlValueBinder(2)
       // Inner union to de-dupe item-driven notifications
       queries.push(
         // Only record per item ID
@@ -182,7 +184,7 @@ export default {
           ${whereClause(
             '"Item".created_at < $2',
             '"Item"."deletedAt" IS NULL',
-            await filterClause(null, null, null, ctx),
+            await filterClause(null, null, null, { ...ctx, bind: filters.bind }),
             muteClause(me),
             activeOrMine(me))}
           ORDER BY id ASC, CASE
@@ -401,7 +403,7 @@ export default {
         FROM
         (${queries.join(' UNION ALL ')}) u
         ORDER BY "sortTime" DESC
-        LIMIT ${LIMIT}`, me.id, decodedCursor.time)
+        LIMIT ${LIMIT}`, me.id, decodedCursor.time, ...filters.values)
 
       if (decodedCursor.offset === 0) {
         models.user.update({ where: { id: me.id }, data: { checkedNotesAt: new Date() } }).catch(console.error)

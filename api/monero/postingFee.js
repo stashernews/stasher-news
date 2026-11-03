@@ -20,7 +20,7 @@
 import { buildMoneroUri } from '@/api/monero/uri'
 import { moneroUriAddress, moneroUriAmountPiconeros } from '@/lib/format'
 import { reentryQuote } from '@/lib/pay-in'
-import { FREE_COMMENTS_PER_WEEK, FREE_POSTS_PER_MONTH } from '@/lib/constants'
+import { getSiteSettings, SITE_SETTINGS_DEFAULTS } from '@/lib/siteSettings'
 
 const DAY_MS = 86_400_000
 
@@ -50,14 +50,14 @@ export function commentFeePiconeros (config) {
  * StreakReward REPLY rows instead of extending this. */
 export function freeCommentsQuota (user, config) {
   if (!user) return 0
-  return FREE_COMMENTS_PER_WEEK
+  return config?.freeCommentsPerWeek ?? SITE_SETTINGS_DEFAULTS.freeCommentsPerWeek
 }
 
 /** Monthly free-post quota: flat one tier, resets monthly, never accumulates
  * (an unused window grants exactly 1 again, not 1 + unused). */
 export function freePostsQuota (user, config) {
   if (!user) return 0
-  return FREE_POSTS_PER_MONTH
+  return config?.freePostsPerMonth ?? SITE_SETTINGS_DEFAULTS.freePostsPerMonth
 }
 
 /**
@@ -93,8 +93,9 @@ const EMPTY_POST_QUOTA = { baseQuota: 0, baseLeft: 0, credits: 0, left: 0, nextE
  * (partial GraphQL parents), mirroring the hasWallet resolver. */
 export async function commentQuotaFor (prisma, user) {
   if (!user) return { ...EMPTY_COMMENT_QUOTA }
-  const config = await getCachedPlatformFeeConfig(prisma)
-  if (!config) return { ...EMPTY_COMMENT_QUOTA }
+  const feeConfig = await getCachedPlatformFeeConfig(prisma)
+  if (!feeConfig) return { ...EMPTY_COMMENT_QUOTA }
+  const config = { ...feeConfig, ...await getSiteSettings(prisma) }
   const u = (user.createdAt != null && user.stackedPiconeros != null && user.freeCommentCount !== undefined)
     ? user
     : await prisma.user.findUnique({
@@ -105,7 +106,8 @@ export async function commentQuotaFor (prisma, user) {
   const baseLeft = commentsFreeLeft(u, config)
   const { credits, nextExpiresAt } = await bankedReplyCredits(prisma, u.id)
   const reserved = (await pendingQuotaReservations(prisma, u.id)).comments
-  return { base: FREE_COMMENTS_PER_WEEK, baseLeft, credits, quota: FREE_COMMENTS_PER_WEEK, left: Math.max(0, baseLeft + credits - reserved), nextExpiresAt }
+  const quota = freeCommentsQuota(u, config)
+  return { base: quota, baseLeft, credits, quota, left: Math.max(0, baseLeft + credits - reserved), nextExpiresAt }
 }
 
 /** Unconsumed, unexpired banked REPLY rewards for a user. */
@@ -157,8 +159,9 @@ export async function pendingQuotaReservations (prisma, userId) {
  * reservations (PENDING_FEE upload-fee posts already hold a unit). */
 export async function postQuotaFor (prisma, user, config) {
   if (!user) return { ...EMPTY_POST_QUOTA }
-  const cfg = config || await getCachedPlatformFeeConfig(prisma)
-  if (!cfg) return { ...EMPTY_POST_QUOTA }
+  const feeConfig = config || await getCachedPlatformFeeConfig(prisma)
+  if (!feeConfig) return { ...EMPTY_POST_QUOTA }
+  const cfg = { ...feeConfig, ...await getSiteSettings(prisma) }
   const baseLeft = postsFreeLeft(user, cfg)
   const { credits, nextExpiresAt } = await bankedPostCredits(prisma, user.id)
   const reserved = (await pendingQuotaReservations(prisma, user.id)).posts
@@ -173,20 +176,30 @@ export async function postQuotaFor (prisma, user, config) {
 const FEE_CONFIG_TTL_MS = 60_000
 let cachedFeeConfig = null
 let cachedFeeConfigAt = 0
+let feeConfigCacheGeneration = 0
 
 export async function getCachedPlatformFeeConfig (models) {
   const now = Date.now()
   if (cachedFeeConfig && now - cachedFeeConfigAt < FEE_CONFIG_TTL_MS) return cachedFeeConfig
-  cachedFeeConfig = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
-  cachedFeeConfigAt = now
-  return cachedFeeConfig
+  const generation = feeConfigCacheGeneration
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  // An in-flight read must not repopulate a cache cleared by an admin apply.
+  if (generation === feeConfigCacheGeneration) {
+    cachedFeeConfig = config
+    cachedFeeConfigAt = now
+  }
+  return config
 }
 
-// Test-only: clears the cache so unit tests with different model mocks don't leak.
-export function __resetFeeConfigCacheForTests () {
+// Clears the cache after an admin apply (and between unit tests with different
+// model mocks).
+export function clearFeeConfigCache () {
   cachedFeeConfig = null
   cachedFeeConfigAt = 0
+  feeConfigCacheGeneration += 1
 }
+
+export const __resetFeeConfigCacheForTests = clearFeeConfigCache
 
 // Resolver-facing bundle for UserPrivates.postingFeeRequired /
 // postingFeePiconeros / postingFeeFloorPiconeros / freePostThresholdPiconeros /

@@ -1,5 +1,8 @@
 /* eslint-env jest */
-import { getItemEditMode, itemEditDeadline, normalizeAddendumText, nextExpiryLatch } from '@/lib/item-addendum'
+import { getItemEditMode, itemEditDeadline as configuredEditDeadline, normalizeAddendumText, nextExpiryLatch } from '@/lib/item-addendum'
+import { SITE_SETTINGS_DEFAULTS } from '@/lib/siteSettings'
+
+const itemEditDeadline = item => configuredEditDeadline(item, SITE_SETTINGS_DEFAULTS.itemEditSeconds)
 
 const anchor = new Date('2026-10-04T12:00:00.000Z')
 const paidItem = {
@@ -11,7 +14,7 @@ const paidItem = {
 }
 
 describe('getItemEditMode', () => {
-  const options = { meId: 42, myBio: false, adminEdit: false }
+  const options = { meId: 42, myBio: false, adminEdit: false, itemEditSeconds: SITE_SETTINGS_DEFAULTS.itemEditSeconds }
 
   test('treats NULL subNames as not-a-job (legacy rows) instead of crashing', () => {
     expect(getItemEditMode({ ...paidItem, subNames: null }, { ...options, now: +anchor + 600000 })).toBe('ADDENDUM')

@@ -1,6 +1,12 @@
 /* eslint-env jest */
-import { postCommentBaseLineItems, legacySatsToPiconeros, payableFeeTotal } from '@/components/fee-button'
+import { postCommentBaseLineItems as buildBaseLineItems, legacySatsToPiconeros, payableFeeTotal } from '@/components/fee-button'
 import { piconerosToMXmr } from '@/lib/format'
+
+// Existing assertions exercise the same server-default query fixture.
+const postCommentBaseLineItems = args => buildBaseLineItems({
+  ...args,
+  siteSettings: { postingFeeFloorPiconeros: '1000000000', commentFeePiconeros: '600000000', anonPostFeeMultiplier: 10, anonCommentFeeMultiplier: 3 }
+})
 
 // components/fee-button imports ./form, which pulls in the lexical editor whose
 // node_modules deps (github-slugger, the mdast chain) are ESM-only and

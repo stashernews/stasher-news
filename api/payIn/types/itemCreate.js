@@ -1,4 +1,4 @@
-import { ANON_COMMENT_FEE_MULTIPLIER, ANON_POST_FEE_MULTIPLIER, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
+import { PAID_ACTION_PAYMENT_METHODS, USER_ID } from '@/lib/constants'
 import { getSiteSettings } from '@/lib/siteSettings'
 import { denormalizeComment, runItemLiveSideEffects } from '@/lib/itemLiveEffects'
 import { getItemMentions, getMentions, performBotBehavior, getSubs, getRootPrimarySub, countNonOwnedSubs } from '../lib/item'
@@ -37,8 +37,8 @@ export async function escalatedFeePiconeros (models, { parentId, userId, basePic
   const within = userId === USER_ID.anon ? 0 : settings.itemSpamIntervalMinutes
   const [{ n }] = await models.$queryRaw`
     SELECT item_spam(${parentId ? parseInt(parentId) : null}::INTEGER, ${userId}::INTEGER, make_interval(mins => ${within}::INTEGER))::INTEGER AS n`
-  const multiplier = ITEM_SPAM_FEE_ESCALATION_NUMERATOR ** BigInt(n)
-  const divisor = ITEM_SPAM_FEE_ESCALATION_DENOMINATOR ** BigInt(n)
+  const multiplier = BigInt(settings.spamEscalationNumerator) ** BigInt(n)
+  const divisor = BigInt(settings.spamEscalationDenominator) ** BigInt(n)
   return (basePiconeros * multiplier + divisor / 2n) / divisor
 }
 
@@ -105,6 +105,7 @@ async function uploadFeeLeg (models, { me, uploadFeesPiconeros, beneficiaries })
 }
 
 export async function getInitial (models, args, { me }) {
+  const settings = await getSiteSettings(models)
   // StasherNews posting-fee gate. Posting is free within the
   // monthly quota (established 5/month: stacked >= 1e10 piconeros AND age >= 7d;
   // low-rep 1/month); past the quota the user pays a posting fee to the platform
@@ -188,8 +189,8 @@ export async function getInitial (models, args, { me }) {
       const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
       if (!config) throw new GqlInputError('fee config not initialized')
       const nonOwned = feeSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
-      const base = commentFloorPiconerosForSubs(config, nonOwned) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
-      const premium = (commentFeePiconerosForSubs(config, nonOwned) - commentFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_COMMENT_FEE_MULTIPLIER)
+      const base = commentFloorPiconerosForSubs(config, nonOwned) * BigInt(settings.anonCommentFeeMultiplier)
+      const premium = (commentFeePiconerosForSubs(config, nonOwned) - commentFloorPiconerosForSubs(config, nonOwned)) * BigInt(settings.anonCommentFeeMultiplier)
       return await itemFeeLeg(models, {
         subs: feeSubs,
         userId: me.id,
@@ -242,8 +243,8 @@ export async function getInitial (models, args, { me }) {
     // that leg scaled by the same anon multiplier — the platform fallback
     // charges floor-only x multiplier.
     const nonOwned = feeSubs.filter(s => Number(s.userId) !== Number(USER_ID.anon))
-    const base = (feeSubs.length === 0 ? postingFeePiconeros(config) : postFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_POST_FEE_MULTIPLIER)
-    const premium = (postFeePiconerosForSubs(config, nonOwned) - postFloorPiconerosForSubs(config, nonOwned)) * BigInt(ANON_POST_FEE_MULTIPLIER)
+    const base = (feeSubs.length === 0 ? postingFeePiconeros(config) : postFloorPiconerosForSubs(config, nonOwned)) * BigInt(settings.anonPostFeeMultiplier)
+    const premium = (postFeePiconerosForSubs(config, nonOwned) - postFloorPiconerosForSubs(config, nonOwned)) * BigInt(settings.anonPostFeeMultiplier)
     return await itemFeeLeg(models, {
       subs: feeSubs,
       userId: me.id,

@@ -2,6 +2,7 @@ import { USER_ID } from '@/lib/constants'
 import { freeCommentsQuota, freePostsQuota } from '@/api/monero/postingFee'
 import { lockRewardUser } from '@/api/quests/boost-credit'
 import { Prisma } from '@prisma/client'
+import { getSiteSettings } from '@/lib/siteSettings'
 
 // Get the first day of next month at midnight UTC
 export function getNextMonthStart () {
@@ -37,11 +38,11 @@ export function getNextWeekStart () {
  * @param {Object} params - { user, userId, itemId, config }
  */
 async function spendCommentQuota (tx, { user, userId, itemId, config = null }) {
-  const quota = freeCommentsQuota(user, config)
+  const quota = freeCommentsQuota(user, await getSiteSettings(tx))
   const now = new Date()
   const needsReset = user.freeCommentResetAt && now >= new Date(user.freeCommentResetAt)
 
-  if (needsReset || !user.freeCommentResetAt) {
+  if (quota > 0 && (needsReset || !user.freeCommentResetAt)) {
     await tx.user.update({
       where: {
         id: userId,
@@ -154,14 +155,13 @@ export async function incrementFreePostCount (tx, { item, userId }) {
   const user = await tx.user.findUnique({ where: { id: userId } })
   const config = await tx.platformFeeConfig.findUnique({ where: { id: 1 } })
   if (!config) return
-  const quota = freePostsQuota(user, config)
-  if (quota <= 0) return
+  const quota = freePostsQuota(user, await getSiteSettings(tx))
   const now = new Date()
   const needsReset = user.freePostResetAt && now >= new Date(user.freePostResetAt)
 
   try {
     // Base-first, then banked credits (soonest-expiring first).
-    if (needsReset || !user.freePostResetAt) {
+    if (quota > 0 && (needsReset || !user.freePostResetAt)) {
       await tx.user.update({
         where: {
           id: userId,
@@ -254,9 +254,9 @@ export async function consumeQuotaForFlippedItem (tx, { item, userId }) {
   // POST branch semantics unchanged: base-first, then a banked POST credit,
   // and a missing credit is a no-op (never rejects the already-paid flip).
   const config = await tx.platformFeeConfig.findUnique({ where: { id: 1 } }).catch(() => null)
-  const quota = config ? freePostsQuota(user, config) : 0
+  const quota = config ? freePostsQuota(user, await getSiteSettings(tx)) : 0
   const now = new Date()
-  if (user.freePostResetAt && now < new Date(user.freePostResetAt)) {
+  if (quota === 0 || (user.freePostResetAt && now < new Date(user.freePostResetAt))) {
     if ((user.freePostCount || 0) < quota) {
       await tx.user.update({ where: { id: userId }, data: { freePostCount: { increment: 1 } } })
     } else {

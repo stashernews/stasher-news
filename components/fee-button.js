@@ -5,7 +5,8 @@ import Info from './info'
 import styles from './fee-button.module.css'
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
-import { ANON_COMMENT_FEE_MULTIPLIER, ANON_POST_FEE_MULTIPLIER, DEFAULT_COMMENT_FEE_PICONEROS, DEFAULT_POSTING_FEE_PICONEROS, FAST_POLL_INTERVAL_MS, ITEM_SPAM_FEE_ESCALATION_NUMERATOR, ITEM_SPAM_FEE_ESCALATION_DENOMINATOR, SSR } from '@/lib/constants'
+import { FAST_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
+import { useSiteSettings } from './site-settings'
 import { piconerosToMXmr } from '@/lib/format'
 import { useMe } from './me'
 import AnonIcon from '@/svgs/spy-fill.svg'
@@ -15,10 +16,10 @@ import { SubmitButton } from './form'
 
 const FeeButtonContext = createContext()
 
-export function postCommentBaseLineItems ({ comment = false, bio = false, me, subs = [] }) {
-  // anon multiplier is context-dependent: comments x ANON_COMMENT_FEE_MULTIPLIER (3),
-  // posts/bios x ANON_POST_FEE_MULTIPLIER (10).
-  const anonMultiplier = comment ? ANON_COMMENT_FEE_MULTIPLIER : ANON_POST_FEE_MULTIPLIER
+export function postCommentBaseLineItems ({ comment = false, bio = false, me, subs = [], siteSettings }) {
+  if (!siteSettings) return {}
+  // Anonymous post and reply multipliers come from the server's public settings.
+  const anonMultiplier = comment ? siteSettings.anonCommentFeeMultiplier : siteSettings.anonPostFeeMultiplier
   const anonCharge = me
     ? {}
     : {
@@ -39,7 +40,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
     const freebie = ownerFree || !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
     const commentFee = me?.privates?.commentFeePiconeros
       ? BigInt(me.privates.commentFeePiconeros)
-      : (me ? 0n : DEFAULT_COMMENT_FEE_PICONEROS)
+      : (me ? 0n : BigInt(siteSettings.commentFeePiconeros))
     if (freebie) {
       return {
         baseCost: {
@@ -97,7 +98,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
 
   const feePiconeros = me
     ? (me.privates?.postingFeeRequired ? BigInt(me.privates.postingFeePiconeros || 0) : 0n)
-    : DEFAULT_POSTING_FEE_PICONEROS
+    : BigInt(siteSettings.postingFeeFloorPiconeros)
   const freePostsLeft = me?.privates?.freePostsLeft ?? 0
   if (me && !me.privates?.postingFeeRequired && freePostsLeft > 0) {
     return {
@@ -169,6 +170,7 @@ export function postCommentUseRemoteLineItems ({ parentId, subs = [] } = {}) {
 
   return function useRemoteLineItems () {
     const { me } = useMe()
+    const siteSettings = useSiteSettings()
     const [line, setLine] = useState({})
 
     const { data } = useQuery(query, SSR ? {} : { pollInterval: FAST_POLL_INTERVAL_MS, nextFetchPolicy: 'cache-and-network' })
@@ -184,19 +186,20 @@ export function postCommentUseRemoteLineItems ({ parentId, subs = [] } = {}) {
       const feeApplies = multiplier > 0 && (parentId
         ? (me?.privates?.freeCommentsLeft ?? 0) <= 0
         : !!me?.privates?.postingFeeRequired)
-      if (!repetition || !feeApplies) return setLine({})
+      if (!repetition || !feeApplies || !siteSettings) return setLine({})
+      const factor = siteSettings.spamEscalationNumerator / siteSettings.spamEscalationDenominator
       setLine({
         itemRepetition: {
-          term: <>x 1.5<sup>{repetition}</sup></>,
-          label: <>{repetition} {parentId ? 'repeat or self replies' : 'posts'} in 10m</>,
+          term: <>x {factor}<sup>{repetition}</sup></>,
+          label: <>{repetition} {parentId ? 'repeat or self replies' : 'posts'} in {siteSettings.itemSpamIntervalMinutes}m</>,
           op: '*',
           modifier: (cost) => cost * Math.pow(
-            Number(ITEM_SPAM_FEE_ESCALATION_NUMERATOR) / Number(ITEM_SPAM_FEE_ESCALATION_DENOMINATOR),
+            factor,
             repetition
           )
         }
       })
-    }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.postingFeeRequired, multiplier])
+    }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.postingFeeRequired, multiplier, siteSettings])
 
     return line
   }

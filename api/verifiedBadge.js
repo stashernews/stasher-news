@@ -15,7 +15,7 @@ import { isVerifiedBadgeEnabled } from '@/lib/verified-badge-flag'
  * @returns {Promise<boolean>} true if a new VERIFIED streak was inserted this call
  */
 export async function maybeGrantVerifiedBadge (models, userId) {
-  if (!isVerifiedBadgeEnabled()) return false
+  if (!await isVerifiedBadgeEnabled(models)) return false
   if (!userId) return false
   const account = await models.moneroAccount.findFirst({ where: { ownerUserId: userId } })
   if (!account) return false

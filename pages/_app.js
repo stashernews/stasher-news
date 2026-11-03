@@ -1,4 +1,5 @@
 import '@/styles/globals.scss'
+import { SiteSettingsProvider } from '@/components/site-settings'
 import '@/styles/text.scss'
 import '@/styles/stealth-theme.scss'
 import '@/styles/retro-theme.scss'
@@ -104,7 +105,7 @@ export default function MyApp ({ Component, pageProps: { ...props } }) {
     If we are on the client, we populate the apollo cache with the
     ssr data
   */
-  const { apollo, ssrData, ssrPublicCookies, me, price, blockHeight, branding, ...otherProps } = props
+  const { apollo, ssrData, ssrPublicCookies, me, price, blockHeight, siteSettings, branding, ...otherProps } = props
   useEffect(() => {
     writeQuery(client, apollo, ssrData)
   }, [client, apollo, ssrData])
@@ -129,10 +130,12 @@ export default function MyApp ({ Component, pageProps: { ...props } }) {
                               <ToastProvider>
                                 <ShowModalProvider>
                                   <BlockHeightProvider blockHeight={blockHeight}>
-                                    <ErrorBoundary>
-                                      <Component ssrData={ssrData} {...otherProps} />
-                                      {!router?.query?.disablePrompt && <PWAPrompt copyBody='This website has app functionality. Add it to your home screen to use it in fullscreen and receive notifications. In Safari:' promptOnVisit={2} />}
-                                    </ErrorBoundary>
+                                    <SiteSettingsProvider settings={siteSettings}>
+                                      <ErrorBoundary>
+                                        <Component ssrData={ssrData} {...otherProps} />
+                                        {!router?.query?.disablePrompt && <PWAPrompt copyBody='This website has app functionality. Add it to your home screen to use it in fullscreen and receive notifications. In Safari:' promptOnVisit={2} />}
+                                      </ErrorBoundary>
+                                    </SiteSettingsProvider>
                                   </BlockHeightProvider>
                                 </ShowModalProvider>
                               </ToastProvider>

@@ -80,3 +80,12 @@ test('notifyMention pushes walled items fully public after removal, minus the ma
   expect(body).toContain('now public body')
   expect(body).not.toContain('[monerowall]')
 })
+
+test('missing-user push filters follow promoted settings, including the batch path', async () => {
+  models.user.findUnique.mockResolvedValue(null)
+  models.user.findMany = jest.fn(async () => [])
+  models.siteSettings = { findUnique: async () => ({ defaultPostsFilterPiconeros: 0n, defaultCommentsFilterPiconeros: 0n }) }
+  const post = item({ title: 'post', netInvestment: -1n })
+  expect(await webPushLib.meetsUserSatFilter(99, post)).toBe(false)
+  expect(await webPushLib.getUsersPassingSatFilter([99], post)).toEqual(new Set())
+})

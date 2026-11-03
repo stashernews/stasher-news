@@ -23,7 +23,8 @@ import { piconerosToMXmr } from '@/lib/format'
 import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
 import BountyActions from './bounty-actions'
 import { useQuoteReply } from './use-quote-reply'
-import { UNKNOWN_LINK_REL, DEFAULT_POSTS_PICONEROS_FILTER } from '@/lib/constants'
+import { UNKNOWN_LINK_REL } from '@/lib/constants'
+import { useSiteSettings } from './site-settings'
 import { moneroWallTeaserFadeClass } from '@/lib/monero-wall'
 import classNames from 'classnames'
 import { CarouselProvider } from './carousel'
@@ -92,7 +93,8 @@ function TopLevelItem ({ item, noReply, ...props }) {
   const { ref: readerRef, onRef: onReaderRef } = useCallbackRef()
   const { ref: addendumReaderRef, onRef: onAddendumReaderRef } = useCallbackRef()
   const { ref: textRef, quote, quoteReply, cancelQuote } = useQuoteReply({ text: item.text, readerRef, additionalReaderRefs: [addendumReaderRef] })
-  const postsPiconerosFilter = me ? me.privates?.postsPiconerosFilter : DEFAULT_POSTS_PICONEROS_FILTER
+  const siteSettings = useSiteSettings()
+  const postsPiconerosFilter = me ? me.privates?.postsPiconerosFilter : siteSettings?.defaultPostsFilterPiconeros
   const isBelowFilter = !item.mine && postsPiconerosFilter != null && (item.netInvestment ?? 0) < postsPiconerosFilter
 
   return (

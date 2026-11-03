@@ -16,6 +16,7 @@
 import { getInitial } from '@/api/payIn/types/itemCreate'
 import { reserveFeeSubaddress } from '@/api/monero/feePool'
 import { moneroUriAmountPiconeros } from '@/lib/format'
+import { SITE_SETTINGS_DEFAULTS, __resetSiteSettingsForTests } from '@/lib/siteSettings'
 
 jest.mock('../../../lib/lexical/server/mentions', () => ({
   __esModule: true, extractMentions: () => ({ userNames: [], itemIds: [] })
@@ -49,7 +50,7 @@ const config = { postingFeeFloorPiconeros: 1_000_000_000n, commentFeePiconeros: 
 
 // 'turf' is owned by userId 42 (with optional premiums); 'other' is owned by
 // userId 99 with no premiums (the cross-post test's second turf).
-function models ({ subOwnerHasWallet = true, premium = {}, parentSubs = null, homeSubRows = null, commenter = null } = {}) {
+function models ({ subOwnerHasWallet = true, premium = {}, parentSubs = null, homeSubRows = null, commenter = null, settings = {} } = {}) {
   const mapCreated = []
   const subRow = name => ({
     name,
@@ -59,6 +60,7 @@ function models ({ subOwnerHasWallet = true, premium = {}, parentSubs = null, ho
   })
   return {
     mapCreated,
+    siteSettings: { findUnique: async () => ({ ...SITE_SETTINGS_DEFAULTS, ...settings }) },
     platformFeeConfig: { findUnique: async () => config },
     // $queryRaw serves the three raw shapes itemCreate issues: getSubs' parent
     // thread lookup (Sub rows), getRootPrimarySub's home-turf lookup (the
@@ -107,6 +109,20 @@ function expectPlatformLeg (r, m) {
 }
 
 const subArgs = { subNames: ['turf'], parentId: null }
+
+test('anonymous posting uses the promoted multiplier', async () => {
+  __resetSiteSettingsForTests()
+  const m = models({ settings: { anonPostFeeMultiplier: 4 } })
+  const result = await getInitial(m, { subNames: ['turf'], text: 'anon post' }, { me: { id: 27 } })
+  expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(4_000_000_000n)
+})
+
+test('anonymous replies use the promoted multiplier', async () => {
+  __resetSiteSettingsForTests()
+  const m = models({ settings: { anonCommentFeeMultiplier: 5 }, parentSubs: [{ name: 'turf', userId: 42, commentPremiumPiconeros: 0n }] })
+  const result = await getInitial(m, { parentId: 123, text: 'anon reply' }, { me: { id: 27 } })
+  expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(3_000_000_000n)
+})
 const lowRepMe = { id: 7 } // never the owner (42) of any mocked turf
 
 beforeEach(() => {

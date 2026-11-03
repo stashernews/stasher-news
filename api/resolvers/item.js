@@ -4,16 +4,12 @@ import { decodeCursor, nextCursorEncoded } from '@/lib/cursor'
 import { getMetadata, metadataRuleSets } from 'page-metadata-parser'
 import { ruleSet as publicationDateRuleSet } from '@/lib/timedate-scraper'
 import domino from 'domino'
-import { getSiteSettings } from '@/lib/siteSettings'
+import { getSiteSettings, SITE_SETTINGS_DEFAULTS } from '@/lib/siteSettings'
+import { sqlValueBinder } from '@/lib/sql-parameters'
 import {
   COMMENT_TYPE_QUERY,
   USER_ID, POLL_COST, ADMIN_ITEMS,
-  NOFOLLOW_LIMIT, UNKNOWN_LINK_REL, SN_ADMIN_IDS,
-  ITEM_EDIT_SECONDS,
-  DEFAULT_POSTS_PICONEROS_FILTER,
-  DEFAULT_COMMENTS_PICONEROS_FILTER,
-  HOMEPAGE_POSTS_PICONEROS_FILTER,
-  MAX_ITEM_TURFS
+  NOFOLLOW_LIMIT, UNKNOWN_LINK_REL, SN_ADMIN_IDS
 } from '@/lib/constants'
 import { unshorten } from '@/lib/unshorten'
 import { actSchema, bountySchema, commentSchema, discussionSchema, jobSchema, linkSchema, pollSchema, repostSchema, validateSchema } from '@/lib/validate'
@@ -425,15 +421,16 @@ function investmentClause (postsPiconerosFilter, commentsPiconerosFilter, meId, 
   )`
 }
 
-export async function filterClause (type, sub, sort, { me, userLoader, subLoader }, by) {
+export async function filterClause (type, sub, sort, { me, models, userLoader, subLoader, bind = String }, by) {
   if (type === 'freebies' || type === 'bios' || by === 'downsats') {
     return ''
   }
 
   const isDesperados = type === 'desperados'
 
-  let postsPiconerosFilter = DEFAULT_POSTS_PICONEROS_FILTER
-  let commentsPiconerosFilter = DEFAULT_COMMENTS_PICONEROS_FILTER
+  const settings = models ? await getSiteSettings(models) : SITE_SETTINGS_DEFAULTS
+  let postsPiconerosFilter = settings.defaultPostsFilterPiconeros
+  let commentsPiconerosFilter = settings.defaultCommentsFilterPiconeros
   const isCurated = sort === 'lit' || sort === 'top'
 
   if (me) {
@@ -465,12 +462,14 @@ export async function filterClause (type, sub, sort, { me, userLoader, subLoader
     // filter — including "-∞ (show all)", i.e. null — must win so heavily
     // downvoted posts are reachable; matches the top/logged-in branch above.
     if (!me) {
-      postsPiconerosFilter = HOMEPAGE_POSTS_PICONEROS_FILTER
+      postsPiconerosFilter = settings.homepagePostsFilterPiconeros
     }
   }
 
   // On curated feeds (lit/top), your own items are filtered like everyone else's.
   // On new/notifications, your own items always pass the filter.
+  if (postsPiconerosFilter != null) postsPiconerosFilter = bind(postsPiconerosFilter)
+  if (commentsPiconerosFilter != null) commentsPiconerosFilter = bind(commentsPiconerosFilter)
   if (isDesperados) {
     return invertedInvestmentClause(postsPiconerosFilter, commentsPiconerosFilter)
   }
@@ -544,6 +543,8 @@ export default {
       // HACK we want to optionally include the subName in the query
       // but the query planner doesn't like unused parameters
       const subArr = sub ? [sub] : []
+      const filters = sqlValueBinder((sort === 'new' ? 3 : sort === 'top' ? 4 : 2) + subArr.length)
+      const filterContext = { ...ctx, bind: filters.bind }
 
       const currentUser = me ? await userLoader.load(me.id) : null
       const showNsfw = currentUser ? currentUser.nsfwMode : false
@@ -592,7 +593,7 @@ export default {
                 '"Item"."deletedAt" IS NULL',
                 subClause(sub, 4, subClauseTable(type), me, showNsfw),
                 activeOrMine(me),
-                await filterClause(type, sub, 'new', ctx),
+                await filterClause(type, sub, 'new', filterContext),
                 typeClause(type),
                 muteClause(me)
               )}
@@ -600,7 +601,7 @@ export default {
               OFFSET $2
               LIMIT $3`,
             orderBy: 'ORDER BY "PayIn"."payInStateChangedAt" DESC'
-          }, decodedCursor.time, decodedCursor.offset, limit, ...subArr)
+          }, decodedCursor.time, decodedCursor.offset, limit, ...subArr, ...filters.values)
           break
         case 'top':
           items = await itemQueryWithMeta({
@@ -619,13 +620,13 @@ export default {
                 activeOrMine(me),
                 '"Item".status = \'ACTIVE\'',
                 by === 'downsats' && '"Item"."downPiconeros" > 0',
-                await filterClause(type, sub, 'top', ctx, by),
+                await filterClause(type, sub, 'top', filterContext, by),
                 muteClause(me))}
               ${orderByClause(by || 'sats', me, models, type, sub)}
               OFFSET $3
               LIMIT $4`,
             orderBy: orderByClause(by || 'sats', me, models, type, sub)
-          }, ...whenRange(when, from, to || decodedCursor.time), decodedCursor.offset, limit, ...subArr)
+          }, ...whenRange(when, from, to || decodedCursor.time), decodedCursor.offset, limit, ...subArr, ...filters.values)
           break
         default:
           if (decodedCursor.offset === 0) {
@@ -670,14 +671,14 @@ export default {
                   '"Item".bio = false',
                   activeOrMine(me),
                   '"Item".status = \'ACTIVE\'',
-                  await filterClause(type, sub, 'lit', ctx),
+                  await filterClause(type, sub, 'lit', filterContext),
                   subClause(sub, 3, 'Item', me, showNsfw),
                   muteClause(me))}
                 ORDER BY ranklit DESC, "Item".id DESC
                 OFFSET $1
                 LIMIT $2`,
             orderBy: 'ORDER BY ranklit DESC, "Item".id DESC'
-          }, decodedCursor.offset, limit, ...subArr)
+          }, decodedCursor.offset, limit, ...subArr, ...filters.values)
           break
       }
       return {
@@ -1712,7 +1713,8 @@ export const updateItem = async (parent, { hash, hmac, sendProtocolId, ...item }
   // edits are only allowed for own items within 10 minutes
   // but forever if an admin is editing an "admin item", it's their bio or a job
   const myBio = user.bioId === old.id
-  const timer = Date.now() < datePivot(new Date(payIn?.payInStateChangedAt ?? old.createdAt), { seconds: ITEM_EDIT_SECONDS })
+  const settings = await getSiteSettings(models)
+  const timer = Date.now() < datePivot(new Date(payIn?.payInStateChangedAt ?? old.createdAt), { seconds: settings.itemEditSeconds })
   const canEdit = payIn?.payInState !== 'PAID' || (timer && ownerEdit) || adminEdit || myBio || isJob(old)
   if (!canEdit) {
     throw new GqlInputError('item can no longer be edited')
@@ -1771,8 +1773,9 @@ export const repostItem = async (parent, { id, subName }, { me, models }) => {
   if (current.some(name => String(name).toLowerCase() === subName.toLowerCase())) {
     throw new GqlInputError('item is already in this territory')
   }
-  if (current.length >= MAX_ITEM_TURFS) {
-    throw new GqlInputError(`items can be in at most ${MAX_ITEM_TURFS} territories`)
+  const settings = await getSiteSettings(models)
+  if (current.length >= settings.maxItemTurfs) {
+    throw new GqlInputError(`items can be in at most ${settings.maxItemTurfs} territories`)
   }
 
   await validateSchema(repostSchema(postType, { models, me }), { subNames: [subName] }, { models, me })

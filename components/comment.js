@@ -13,7 +13,8 @@ import CommentEdit from './comment-edit'
 import ItemAddendumForm, { ExpiredFullEditNotice } from './item-addendum-form'
 import ItemAddendum from './item-addendum'
 import useCanEdit from './use-can-edit'
-import { USER_ID, COMMENT_DEPTH_LIMIT, UNKNOWN_LINK_REL, DEFAULT_COMMENTS_PICONEROS_FILTER } from '@/lib/constants'
+import { USER_ID, COMMENT_DEPTH_LIMIT, UNKNOWN_LINK_REL } from '@/lib/constants'
+import { useSiteSettings } from './site-settings'
 import AwardBounty from './award-bounty'
 
 import Share from './share'
@@ -111,7 +112,8 @@ export default function Comment ({
   const [editModeAtOpen, setEditModeAtOpen] = useState()
   const { me } = useMe()
   // Collapse comments that don't meet the viewer's commentsPiconerosFilter threshold
-  const commentsPiconerosFilter = me ? me.privates?.commentsPiconerosFilter : DEFAULT_COMMENTS_PICONEROS_FILTER
+  const siteSettings = useSiteSettings()
+  const commentsPiconerosFilter = me ? me.privates?.commentsPiconerosFilter : siteSettings?.defaultCommentsFilterPiconeros
   const isBelowFilter = !item.mine && commentsPiconerosFilter != null && item.netInvestment < commentsPiconerosFilter
   const isDeletedChildless = item?.ncomments === 0 && item?.deletedAt
   const [collapse, setCollapse] = useState(

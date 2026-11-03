@@ -1,4 +1,5 @@
 import { readFile } from 'fs/promises'
+import { sqlValueBinder } from '@/lib/sql-parameters'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
 import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentQuotaFor, postQuotaFor, bankedReplyCredits } from '@/api/monero/postingFee'
@@ -365,6 +366,8 @@ export default {
         }
       }
 
+      const filters = sqlValueBinder(2)
+      const investmentFilter = await filterClause(null, null, null, { ...ctx, bind: filters.bind })
       // break out thread subscription to decrease the search space of the already expensive reply query
       const [newThreadSubReply] = await models.$queryRawUnsafe(`
         SELECT EXISTS(
@@ -379,10 +382,10 @@ export default {
             'r."userId" <> $1',
             '"Item"."deletedAt" IS NULL',
             activeOrMine(me),
-            await filterClause(null, null, null, ctx),
+            investmentFilter,
             muteClause(me),
             ...(user.noteAllDescendants ? [] : ['r.level = 1'])
-          )})`, me.id, lastChecked)
+          )})`, me.id, lastChecked, ...filters.values)
       if (newThreadSubReply.exists) {
         foundNotes()
         return true
@@ -402,8 +405,8 @@ export default {
               OR ("Item"."parentId" IS NOT NULL AND "UserSubscription"."commentsSubscribedAt" IS NOT NULL AND "Item".created_at >= "UserSubscription"."commentsSubscribedAt")
             )`,
             activeOrMine(me),
-            await filterClause(null, null, null, ctx),
-            muteClause(me))})`, me.id, lastChecked)
+            investmentFilter,
+            muteClause(me))})`, me.id, lastChecked, ...filters.values)
       if (newUserSubs.exists) {
         foundNotes()
         return true
@@ -421,8 +424,8 @@ export default {
             '"Item"."parentId" IS NULL',
             '"Item"."userId" <> $1',
             activeOrMine(me),
-            await filterClause(null, null, null, ctx),
-            muteClause(me))})`, me.id, lastChecked)
+            investmentFilter,
+            muteClause(me))})`, me.id, lastChecked, ...filters.values)
       if (newSubPost.exists) {
         foundNotes()
         return true
@@ -440,9 +443,9 @@ export default {
             '"Mention".created_at > $2',
             '"Item"."userId" <> $1',
             activeOrMine(me),
-            await filterClause(null, null, null, ctx),
+            investmentFilter,
             muteClause(me)
-          )})`, me.id, lastChecked)
+          )})`, me.id, lastChecked, ...filters.values)
         if (newMentions.exists) {
           foundNotes()
           return true
@@ -461,9 +464,9 @@ export default {
             '"Item"."userId" <> $1',
             '"Referee"."userId" = $1',
             activeOrMine(me),
-            await filterClause(null, null, null, ctx),
+            investmentFilter,
             muteClause(me)
-          )})`, me.id, lastChecked)
+          )})`, me.id, lastChecked, ...filters.values)
         if (newMentions.exists) {
           foundNotes()
           return true
@@ -1175,7 +1178,7 @@ export default {
       return streak?.goldActive ?? false
     },
     hasWallet: async (user, args, { models, me }) => {
-      if (!isVerifiedBadgeEnabled()) return false
+      if (!await isVerifiedBadgeEnabled(models)) return false
 
       if (user.hideBadges && (!me || me.id !== user.id)) {
         return false

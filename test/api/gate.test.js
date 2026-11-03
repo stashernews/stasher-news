@@ -1,7 +1,9 @@
 /* eslint-env jest */
 import * as cookie from 'cookie'
 import handler, { handleGate, handleGateCheck } from '@/pages/api/gate'
-import { issueGateToken } from '@/lib/invite-gate'
+import { issueGateToken, gateTokenHash, clearGateCache } from '@/lib/invite-gate'
+
+jest.mock(`${process.cwd()}/api/models`, () => ({ __esModule: true, default: { inviteGateCode: { findMany: async () => [] } } }))
 
 // Same lib/auth module mock as test/api/monero/webhook.test.js:14-18; here the
 // handler also needs cookieOptions (kept pure so serialize produces a cookie
@@ -22,6 +24,7 @@ function mockRes () {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  clearGateCache()
   process.env.NEXTAUTH_SECRET = 'test-secret'
   process.env.SITE_INVITE_CODES = 'alpha,beta'
 })
@@ -102,4 +105,18 @@ test('check returns 404 when the gate is disabled', async () => {
   const res = mockRes()
   await handleGateCheck({ cookies: {} }, res)
   expect(res.status).toHaveBeenCalledWith(404)
+})
+
+test('DB-backed invite entry issues the original HMAC cookie, never its stored hash', async () => {
+  delete process.env.SITE_INVITE_CODES
+  const token = issueGateToken('new-db-code')
+  const hash = gateTokenHash(token)
+  const models = { inviteGateCode: { findMany: async () => [{ tokenHash: hash }] } }
+  const res = mockRes()
+  await handleGate({ body: { code: 'new-db-code', next: '/items/3' } }, res, models)
+  expect(res.status).toHaveBeenCalledWith(200)
+  expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', expect.stringContaining(`sn_gate=${token};`))
+  const rejected = mockRes()
+  await handleGateCheck({ cookies: { sn_gate: hash } }, rejected, models)
+  expect(rejected.json).toHaveBeenCalledWith({ ok: false })
 })

@@ -253,7 +253,7 @@ export async function proxy (req) {
 
   // invite gate (closed beta): gate everything except the gate page itself,
   // static assets, and the explicit exempt paths. Gate-off ('pass') is a no-op.
-  const gate = shouldGateRequest({
+  const gate = await shouldGateRequest({
     pathname: request.nextUrl.pathname,
     cookie: request.cookies.get(GATE_COOKIE)?.value
   })

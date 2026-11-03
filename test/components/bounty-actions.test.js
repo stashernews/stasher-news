@@ -83,11 +83,13 @@ jest.mock(`${process.cwd()}/components/toast`, () => ({
 jest.mock(`${process.cwd()}/components/animation`, () => ({ useAnimation: () => jest.fn() }))
 // submitFn is swappable per test so the error path can reject.
 jest.mock('@apollo/client/react', () => ({
+  useQuery: () => ({ data: { siteSettings: mockSiteSettings } }),
   useApolloClient: () => ({ cache: { modify: jest.fn(), readFragment: () => null } }),
   useMutation: () => [submitFn, { loading: false }]
 }))
 
 let mockMe = null
+let mockSiteSettings = { defaultCommentsFilterPiconeros: -25000000000 }
 let mockRoot = null
 const mockRouter = { query: {}, push: jest.fn() }
 let submitFn = jest.fn()
@@ -164,6 +166,7 @@ beforeEach(() => {
   container.innerHTML = ''
   showModal = null
   mockMe = AUTHOR
+  mockSiteSettings = { defaultCommentsFilterPiconeros: -25000000000 }
   mockRoot = fundedRoot()
   submitFn = jest.fn()
   mockDanger.mockClear()
@@ -190,6 +193,13 @@ async function renderAwardTrigger ({ item } = {}) {
 }
 
 describe('award trigger visibility on comments', () => {
+  it('anonymous comments collapse at the live siteSettings filter instead of a client constant', async () => {
+    mockMe = null
+    mockSiteSettings = { defaultCommentsFilterPiconeros: 0 }
+    const root = await renderComment({ item: commentItem({ id: 'live-filter-test', netInvestment: -1 }) })
+    expect(container.querySelector('[aria-label="expand comment"]')).toBeTruthy()
+    await act(async () => { root.unmount() })
+  })
   it('renders once on an ordinary comment (reply row present, no duplicate controls)', async () => {
     const root = await renderComment()
     const controls = [...container.querySelectorAll('[role="button"]')]

@@ -10,6 +10,7 @@ import search from './search'
 import { ME } from '@/fragments/users'
 import { PRICE } from '@/fragments/price'
 import { BLOCK_HEIGHT } from '@/fragments/blockHeight'
+import { SITE_SETTINGS } from '@/fragments/siteSettings'
 import { getServerSession } from 'next-auth/next'
 import { getAuthOptions } from '@/pages/api/auth/[...nextauth]'
 import { NOFOLLOW_LIMIT } from '@/lib/constants'
@@ -50,7 +51,7 @@ export default async function getSSRApolloClient ({ req, res, me = null }) {
           userLoader,
           subLoader,
           monero: lwsClient,
-          lexicalStateLoader: lexicalStateLoader({ me: viewer, userLoader }),
+          lexicalStateLoader: lexicalStateLoader({ me: viewer, userLoader, models }),
           moneroWallLoader,
           rootItemLoader: createRootItemLoader({ models }),
           moneroWallRatingLoader: createMoneroWallRatingLoader({ models, me: viewer, moneroWallLoader })
@@ -184,6 +185,8 @@ export function getGetServerSideProps (
     brandingPromise.catch(() => {})
     const blockHeightPromise = client.query({ query: BLOCK_HEIGHT, variables: {} })
     blockHeightPromise.catch(() => {})
+    const siteSettingsPromise = client.query({ query: SITE_SETTINGS, fetchPolicy: 'cache-first' })
+    siteSettingsPromise.catch(() => {})
 
     let { data: { me } } = await client.query({ query: ME })
 
@@ -254,6 +257,10 @@ export function getGetServerSideProps (
     const branding = await brandingPromise
     const { data: { price } } = await pricePromise
     const { data: { blockHeight } } = await blockHeightPromise
+    // An unavailable display-settings prefetch must not take down the page;
+    // the client query can recover, while server-side enforcement stays intact.
+    const settingsResult = await siteSettingsPromise.catch(() => null)
+    const siteSettings = settingsResult?.data?.siteSettings ?? null
 
     oneDayReferral(req, { me })
 
@@ -264,6 +271,7 @@ export function getGetServerSideProps (
         me,
         price,
         blockHeight,
+        siteSettings,
         ssrData: data,
         // only non-httpOnly cookies should be passed here
         // passing httpOnly cookies would expose them to client JavaScript

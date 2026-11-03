@@ -3,7 +3,7 @@ import { whenToFrom } from '@/lib/time'
 import { getItem, itemQueryWithMeta, SELECT } from './item'
 import { parse } from 'tldts'
 import { searchSchema, validateSchema } from '@/lib/validate'
-import { DEFAULT_POSTS_PICONEROS_FILTER, DEFAULT_COMMENTS_PICONEROS_FILTER, HOMEPAGE_POSTS_PICONEROS_FILTER } from '@/lib/constants'
+import { getSiteSettings } from '@/lib/siteSettings'
 import { resolveOpensearchModelId } from '../search/model-id'
 import removeMd from 'remove-markdown'
 
@@ -172,9 +172,10 @@ function piconerosInvestmentFilter ({ what, postsPiconerosFilter, commentsPicone
   }
 }
 
-async function loadPiconerosFilters (me, userLoader) {
-  let postsPiconerosFilter = DEFAULT_POSTS_PICONEROS_FILTER
-  let commentsPiconerosFilter = DEFAULT_COMMENTS_PICONEROS_FILTER
+async function loadPiconerosFilters (me, userLoader, models) {
+  const settings = await getSiteSettings(models)
+  let postsPiconerosFilter = Number(settings.defaultPostsFilterPiconeros)
+  let commentsPiconerosFilter = Number(settings.defaultCommentsFilterPiconeros)
   if (me) {
     const user = await userLoader.load(me.id)
     // stale session (deleted user row): fall back to the logged-out defaults
@@ -798,7 +799,7 @@ export default {
         return { items: [], cursor: null }
       }
 
-      const postsPiconerosFilter = HOMEPAGE_POSTS_PICONEROS_FILTER
+      const postsPiconerosFilter = Number((await getSiteSettings(models)).homepagePostsFilterPiconeros)
       const like = id ? [{ _index: process.env.OPENSEARCH_INDEX, _id: id }] : [title]
 
       const mustNot = [{ exists: { field: 'parentId' } }]
@@ -860,7 +861,7 @@ export default {
       const spellCorrected = await spellCheckQuery(search, query)
       const neuralText = [(spellCorrected || query), ...quotes].filter(Boolean).join(' ').trim().slice(0, MAX_NEURAL_TEXT_LENGTH)
 
-      const { postsPiconerosFilter, commentsPiconerosFilter } = await loadPiconerosFilters(me, userLoader)
+      const { postsPiconerosFilter, commentsPiconerosFilter } = await loadPiconerosFilters(me, userLoader, models)
       const nymParts = nymClauses(nym)
       const territoryParts = territoryClauses(territory)
       const quoteParts = quoteClauses(quotes)

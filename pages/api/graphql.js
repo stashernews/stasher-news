@@ -101,7 +101,7 @@ const apolloHandler = startServerAndCreateNextHandler(apolloServer, {
       userLoader,
       subLoader,
       monero: lwsClient,
-      lexicalStateLoader: lexicalStateLoader({ me, userLoader }),
+      lexicalStateLoader: lexicalStateLoader({ me, userLoader, models }),
       moneroWallLoader,
       rootItemLoader: createRootItemLoader({ models }),
       moneroWallRatingLoader: createMoneroWallRatingLoader({ models, me, moneroWallLoader })

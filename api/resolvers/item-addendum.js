@@ -10,6 +10,7 @@ import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 import { rateLimit } from '@/lib/rate-limit'
 import { ADMIN_ITEMS, SN_ADMIN_IDS } from '@/lib/constants'
 import { getItemEditMode, itemEditDeadline, normalizeAddendumText } from '@/lib/item-addendum'
+import { getSiteSettings } from '@/lib/siteSettings'
 import { isJob } from '@/lib/item'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { getItem, moneroWallStateFor, rootWallStateFor } from './item'
@@ -87,6 +88,7 @@ export default {
         })
         const user = await tx.user.findUnique({ where: { id: Number(me.id) }, select: { bioId: true } })
         const mode = getItemEditMode({ ...old, payIn }, {
+          itemEditSeconds: (await getSiteSettings(tx)).itemEditSeconds,
           meId: me.id,
           myBio: user?.bioId != null && Number(user.bioId) === old.id,
           adminEdit: ADMIN_ITEMS.includes(old.id) && SN_ADMIN_IDS.includes(Number(me.id))
@@ -147,7 +149,8 @@ export default {
     editMode: async (item, args, ctx) => {
       if (!ctx.me) return 'NONE'
       const { payIn, myBio, adminEdit } = await editInputs(item, ctx)
-      return getItemEditMode(item, { meId: ctx.me.id, payIn, myBio, adminEdit })
+      const { itemEditSeconds } = await getSiteSettings(ctx.models)
+      return getItemEditMode(item, { meId: ctx.me.id, payIn, myBio, adminEdit, itemEditSeconds })
     },
     editExpiresAt: async (item, args, ctx) => {
       if (!ctx.me) return null
@@ -155,10 +158,11 @@ export default {
       // surface the deadline exactly where the author sees a countdown (timed
       // FULL) or holds the addendum editor; forever-edit exceptions and the
       // unpaid first-stage flow keep it null, as today
-      const mode = getItemEditMode(item, { meId: ctx.me.id, payIn, myBio, adminEdit })
+      const { itemEditSeconds } = await getSiteSettings(ctx.models)
+      const mode = getItemEditMode(item, { meId: ctx.me.id, payIn, myBio, adminEdit, itemEditSeconds })
       if (mode === 'NONE') return null
       if (payIn?.payInState !== 'PAID' || myBio || adminEdit || isJob(item)) return null
-      return itemEditDeadline(item)
+      return itemEditDeadline(item, itemEditSeconds)
     },
     addendumText: async (item, args, ctx) => (await addendumVisible(item, ctx)) ? item.addendumText : null,
     addendumUpdatedAt: async (item, args, ctx) => (await addendumVisible(item, ctx)) ? item.addendumUpdatedAt : null,

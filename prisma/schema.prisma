@@ -2153,6 +2153,8 @@ model RewardsWalletReconciliation {
 // creates id=1 (fixed default, no serial sequence involved).
 model HealthSnapshot {
   id               Int       @id @default(1)
+  adminEdgeCheckedAt DateTime?
+  adminEdgeOk        Boolean?
   lws              Boolean?
   monerod          Boolean?
   height           Int       @default(0)
@@ -2355,4 +2357,54 @@ model ChainState {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("chain_state")
+}
+
+model SiteSettings {
+  id                            Int      @id @default(1)
+  itemSpamIntervalMinutes       Int      @default(10)
+  spamEscalationNumerator       Int      @default(3)
+  spamEscalationDenominator     Int      @default(2)
+  freePostsPerMonth             Int      @default(1)
+  freeCommentsPerWeek           Int      @default(1)
+  homepagePostsFilterPiconeros   BigInt   @default(-25000000000)
+  defaultPostsFilterPiconeros    BigInt   @default(-25000000000)
+  defaultCommentsFilterPiconeros BigInt   @default(-25000000000)
+  maxItemTurfs                  Int      @default(5)
+  itemEditSeconds               Int      @default(600)
+  anonPostFeeMultiplier         Int      @default(10)
+  anonCommentFeeMultiplier      Int      @default(3)
+  trustSeedWeight               Float    @default(0.83)
+  trustMaxDepth                 Int      @default(40)
+  trustPicoMin                  Int      @default(1001)
+  trustAgainstPicoMin           Int      @default(1000)
+  trustIrrelevantCumulative     Float    @default(0.001)
+  verifiedBadgeEnabled          Boolean  @default(false)
+  nostrSocialPosting            Boolean?
+  opsSweepEnabled               Boolean?
+  newsletterAutoSend            Boolean?
+  updatedAt                     DateTime @updatedAt
+}
+
+model InviteGateCode {
+  id        Int       @id @default(autoincrement())
+  label     String
+  tokenHash String    @unique
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+}
+
+model AdminConfigChange {
+  id        BigInt   @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  applyId   String
+  actor     String
+  store     String
+  field     String
+  targetId  String?
+  oldValue  String
+  newValue  String
+  reason    String
+  applied   Boolean @default(true)
+
+  @@index([createdAt])
 }

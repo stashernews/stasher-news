@@ -2,10 +2,11 @@ import {
   COMMENT_DEPTH_LIMIT,
   COMMENTS_LIMIT,
   COMMENTS_OF_COMMENT_LIMIT,
-  DEFAULT_COMMENTS_PICONEROS_FILTER,
   FULL_COMMENTS_THRESHOLD
 } from '@/lib/constants'
 import { decodeCursor, nextCursorEncoded } from '@/lib/cursor'
+import { getSiteSettings } from '@/lib/siteSettings'
+import { sqlValueBinder } from '@/lib/sql-parameters'
 
 const LIMITED_COMMENT_DEPTH = Math.min(COMMENT_DEPTH_LIMIT, COMMENTS_OF_COMMENT_LIMIT + 1)
 
@@ -39,7 +40,7 @@ export function buildCommentTree (rows, { rootId }) {
   return comments
 }
 
-function commentsSortClause (sort, commentsPiconerosFilter = DEFAULT_COMMENTS_PICONEROS_FILTER) {
+function commentsSortClause (sort, commentsPiconerosFilter) {
   const sharedSorts = [
     '("Item"."pinId" IS NOT NULL) DESC',
     '("Item"."deletedAt" IS NULL) DESC',
@@ -56,7 +57,7 @@ function commentsSortClause (sort, commentsPiconerosFilter = DEFAULT_COMMENTS_PI
   return `${sharedSorts}, ${sortExpr}, "Item".id DESC`
 }
 
-async function fetchFullCommentRows ({ itemId, me, models, sortClause, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select }) {
+async function fetchFullCommentRows ({ itemId, me, models, sortClause, sortValues, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select }) {
   const query = `
     WITH root AS (
       SELECT path, nlevel(path) AS depth
@@ -78,11 +79,12 @@ async function fetchFullCommentRows ({ itemId, me, models, sortClause, decodedCu
     { me, models, query, orderBy: `ORDER BY ${sortClause}` },
     itemId,
     decodedCursor.time,
-    COMMENT_DEPTH_LIMIT
+    COMMENT_DEPTH_LIMIT,
+    ...sortValues
   )
 }
 
-async function fetchLimitedCommentRows ({ itemId, me, models, sortClause, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select }) {
+async function fetchLimitedCommentRows ({ itemId, me, models, sortClause, sortValues, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select }) {
   const query = `
     WITH RECURSIVE base AS (
       (
@@ -130,26 +132,28 @@ async function fetchLimitedCommentRows ({ itemId, me, models, sortClause, decode
     COMMENTS_LIMIT,
     decodedCursor.offset,
     COMMENTS_OF_COMMENT_LIMIT,
-    LIMITED_COMMENT_DEPTH
+    LIMITED_COMMENT_DEPTH,
+    ...sortValues
   )
 }
 
-async function fetchComments ({ item, me, models, sortClause, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select }) {
+async function fetchComments ({ item, me, models, sortClause, sortValues, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select }) {
   const rows = item.ncomments > FULL_COMMENTS_THRESHOLD
-    ? await fetchLimitedCommentRows({ itemId: Number(item.id), me, models, sortClause, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select })
-    : await fetchFullCommentRows({ itemId: Number(item.id), me, models, sortClause, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select })
+    ? await fetchLimitedCommentRows({ itemId: Number(item.id), me, models, sortClause, sortValues, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select })
+    : await fetchFullCommentRows({ itemId: Number(item.id), me, models, sortClause, sortValues, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select })
 
   return buildCommentTree(rows, { rootId: Number(item.id) })
 }
 
 export async function resolveItemComments (item, sort, cursor, { me, models, userLoader, itemQueryWithMeta, payInJoinFilter, activeOrMine, select }) {
-  let commentsPiconerosFilter = DEFAULT_COMMENTS_PICONEROS_FILTER
+  let commentsPiconerosFilter = (await getSiteSettings(models)).defaultCommentsFilterPiconeros
   if (me) {
     const user = await userLoader.load(me.id)
     if (user) commentsPiconerosFilter = user.commentsPiconerosFilter
   }
 
-  const sortClause = commentsSortClause(sort, commentsPiconerosFilter)
+  const parameters = sqlValueBinder(item.ncomments > FULL_COMMENTS_THRESHOLD ? 6 : 3)
+  const sortClause = commentsSortClause(sort, commentsPiconerosFilter == null ? null : parameters.bind(commentsPiconerosFilter))
 
   if (!me && item.nDirectComments === 0) {
     return {
@@ -159,7 +163,7 @@ export async function resolveItemComments (item, sort, cursor, { me, models, use
   }
 
   const decodedCursor = decodeCursor(cursor)
-  const comments = await fetchComments({ item, me, models, sortClause, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select })
+  const comments = await fetchComments({ item, me, models, sortClause, sortValues: parameters.values, decodedCursor, itemQueryWithMeta, payInJoinFilter, activeOrMine, select })
 
   return {
     comments,

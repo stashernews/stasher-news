@@ -1,4 +1,5 @@
 import { Form, SNInput } from '@/components/form'
+import { useSiteSettings } from './site-settings'
 import styles from './reply.module.css'
 import { useMe } from './me'
 import { forwardRef, useCallback, useEffect, useState, useMemo } from 'react'
@@ -29,6 +30,7 @@ export default forwardRef(function Reply ({
 }, ref) {
   const [reply, setReply] = useState(replyOpen || quote)
   const { me } = useMe()
+  const siteSettings = useSiteSettings()
   const parentId = item.id
   const { ref: replyEditorRef, onRef: onReplyEditorRef } = useCallbackRef()
   const showModal = useShowModal()
@@ -152,7 +154,7 @@ export default forwardRef(function Reply ({
       {reply &&
         <div className={styles.reply}>
           <FeeButtonProvider
-            baseLineItems={postCommentBaseLineItems({ comment: true, me, subs: subsData?.subs ?? [] })}
+            baseLineItems={postCommentBaseLineItems({ comment: true, me, subs: subsData?.subs ?? [], siteSettings })}
             useRemoteLineItems={postCommentUseRemoteLineItems({ parentId: item.id, subs: subsData?.subs ?? [] })}
           >
             <Form

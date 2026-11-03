@@ -21,6 +21,7 @@ import bounty from './bounty'
 import phrase from './phrase'
 import draft from './draft'
 import itemAddendum from './item-addendum'
+import siteSettings from './siteSettings'
 
 const common = gql`
   type Query {
@@ -42,4 +43,4 @@ const common = gql`
 `
 
 export default [common, user, item, message, notifications, invite,
-  sub, upload, growth, rewards, referrals, price, admin, blockHeight, domain, payIn, monero, rewardsWallet, bounty, phrase, draft, itemAddendum]
+  sub, upload, growth, rewards, referrals, price, admin, blockHeight, domain, payIn, monero, rewardsWallet, bounty, phrase, draft, itemAddendum, siteSettings]

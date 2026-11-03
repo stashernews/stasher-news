@@ -1,7 +1,7 @@
 /* eslint-env jest */
 import { escalatedFeePiconeros } from '@/api/payIn/types/itemCreate'
 import itemResolvers from '@/api/resolvers/item'
-import { __resetSiteSettingsForTests } from '@/lib/siteSettings'
+import { SITE_SETTINGS_DEFAULTS, __resetSiteSettingsForTests } from '@/lib/siteSettings'
 
 jest.mock('../../../lib/lexical/server/mentions', () => ({ extractMentions: () => ({ userNames: [], itemIds: [] }) }))
 jest.mock('../../../lib/lexical/server/html', () => ({ lexicalHTMLGenerator: jest.fn() }))
@@ -15,7 +15,7 @@ test.each([17, 53, 1439])('both spam queries bind %i minutes instead of interpol
     return [{ item_spam: 2, n: 2 }]
   }
   const models = {
-    siteSettings: { findUnique: async () => ({ itemSpamIntervalMinutes: minutes }) },
+    siteSettings: { findUnique: async () => ({ ...SITE_SETTINGS_DEFAULTS, itemSpamIntervalMinutes: minutes }) },
     $queryRaw: capture,
     $queryRawUnsafe: capture
   }
@@ -31,7 +31,7 @@ test.each([17, 53, 1439])('both spam queries bind %i minutes instead of interpol
 test('anonymous escalation binds zero minutes and a zero fee avoids SQL', async () => {
   const calls = []
   const models = {
-    siteSettings: { findUnique: async () => ({ itemSpamIntervalMinutes: 17 }) },
+    siteSettings: { findUnique: async () => ({ ...SITE_SETTINGS_DEFAULTS, itemSpamIntervalMinutes: 17 }) },
     $queryRaw: async (sql, ...values) => { calls.push(values); return [{ n: 0 }] }
   }
   expect(await escalatedFeePiconeros(models, { parentId: null, userId: 27, basePiconeros: 100n })).toBe(100n)
