@@ -7,18 +7,23 @@ import { LONG_POLL_INTERVAL_MS, SSR } from '@/lib/constants'
 const REWARDS = gql`
 {
   rewards {
-    total
     time
+  }
+  curatorBudget {
+    mode
+    fallbackBudgetPiconeros
+    projectedPiconeros
   }
 }`
 
 export default function Rewards () {
   const { data } = useQuery(REWARDS, SSR ? { ssr: false } : { pollInterval: LONG_POLL_INTERVAL_MS, nextFetchPolicy: 'cache-and-network' })
-  const total = data?.rewards?.[0]?.total
-  const time = data?.rewards?.[0]?.time
+  const budget = data?.curatorBudget
   return (
     <Link href='/rewards' className='nav-link p-0 p-0 d-inline-flex'>
-      {total ? <span><RewardLine total={total} time={time} xmr /></span> : 'rewards'}
+      {budget
+        ? <RewardLine budget={budget} time={data?.rewards?.[0]?.time} />
+        : 'rewards'}
     </Link>
   )
 }

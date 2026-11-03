@@ -7,9 +7,10 @@ import PageLoading from '@/components/page-loading'
 import { useQuery } from '@apollo/client/react'
 import { useData } from '@/components/use-data'
 import { SSR, FAST_POLL_INTERVAL_MS } from '@/lib/constants'
-import { piconerosToXmr } from '@/lib/format'
+import { formatShare, piconerosToXmr } from '@/lib/format'
 import { copyDrawdownWeeks, formatMultiple } from '@/lib/curatorBudgetCopy'
 import { CURATOR_FALLBACK_CAP_PICONEROS } from '@/lib/rewardsAccounting'
+import { poolStatusClass, runwayLabel } from '@/components/pool-health'
 
 const REWARDS_WALLET = gql`
   query rewardsWalletInfo {
@@ -17,27 +18,19 @@ const REWARDS_WALLET = gql`
       address
       viewKey
       network
-      totalReceivedPiconeros
-      totalSentPiconeros
-      totalNetworkFeesPiconeros
-      balancePiconeros
-      balanceXmr
       balanceNeedsReconciliation
       accountingUncertain
       reconciliationCheckedAt
       reconciliationEvidenceCurrent
-      outstandingRewardsPiconeros
-      opsDeficitPiconeros
-      nextPoolPiconeros
-      pendingSweepPiconeros
-      inflowBreakdown {
-        downvotePiconeros
-        postingFeePiconeros
-        territoryFeePiconeros
-        walletlessTipPiconeros
-        totalPiconeros
-        rewardsPiconeros
-        opsPiconeros
+      opsUnderfunded
+      outstandingRewards
+      inflowMix {
+        downvoteBps
+        postingFeeBps
+        territoryFeeBps
+        walletlessTipBps
+        otherBps
+        rewardsShareBps
         downvoteRewardsPct
         postingFeeRewardsPct
         territoryFeeRewardsPct
@@ -46,25 +39,27 @@ const REWARDS_WALLET = gql`
     }
     curatorBudget {
       mode
-      fallbackBudgetPiconeros
       targetMultBps
       drawdownWeeks
+    }
+    rewardsPoolHealth {
+      status
+      runway
+      curatorShareBps
+      distributionCount
+      payoutCount
+      curatorCount
+      deliveredPayoutBps
+      medianPayoutPiconeros
     }
     rewardDistributions(limit: 10) {
       id
       periodStart
       periodEnd
-      poolPiconeros
       distributedPiconeros
-      rolledOverPiconeros
       payoutCount
       status
       completedAt
-      opsInflowPiconeros
-      opsAvailablePiconeros
-      opsSweptPiconeros
-      opsNetworkFeesAccountedPiconeros
-      correctedPendingOpsPiconeros
       opsSweepTxHash
       opsSweepState
       rawTipPiconeros
@@ -73,11 +68,7 @@ const REWARDS_WALLET = gql`
       breakerTripped
       breakerRawTPiconeros
       makeupPiconeros
-      incomePiconeros
       tipT4Piconeros
-      incomeF4Piconeros
-      reservePiconeros
-      spendLimitPiconeros
       multBps
       dynamicBudgetPiconeros
       dynamicBudgetMode
@@ -124,11 +115,56 @@ function formatMultipleOrDash (multBps) {
 
 export { DEFAULT_DRAWDOWN_WEEKS } from '@/lib/curatorBudgetCopy'
 
-// The per-run spending limit. Backfilled history (and pre-feature rows) never
-// recorded budget fields — show that plainly instead of inventing a figure.
-export function spendLimitLabel (spendLimitPiconeros, hasRecordedBudget) {
-  if (!hasRecordedBudget) return 'not recorded'
-  return xmrOrDash(spendLimitPiconeros)
+function shareOrDash (bps) {
+  return bps == null ? '—' : formatShare(bps)
+}
+
+// One decimal, rounded down, so 99.6% never reads as a clean 100%.
+function deliveredShare (bps) {
+  return bps == null ? '—' : `${Math.floor(bps / 10) / 10}%`
+}
+
+const OUTSTANDING_LABELS = {
+  NONE: { text: 'none owed', className: 'text-success' },
+  COVERED: { text: 'covered', className: 'text-success' },
+  UNCOVERED: { text: 'not covered', className: 'text-danger' }
+}
+
+// The pie palette from components/charts.js, without pulling in recharts.
+const MIX_COLORS = ['var(--bs-secondary)', 'var(--bs-info)', 'var(--bs-success)', 'var(--bs-boost)', 'var(--theme-grey)']
+
+const MIX_ROWS = [
+  ['downvoteBps', 'downvotes', 'downvoteRewardsPct'],
+  ['postingFeeBps', 'posting fees', 'postingFeeRewardsPct'],
+  ['territoryFeeBps', 'turf fees', 'territoryFeeRewardsPct'],
+  ['walletlessTipBps', 'wallet-less tips', 'walletlessTipRewardsPct'],
+  ['otherBps', 'other', null]
+]
+
+function InflowMix ({ mix }) {
+  const rows = MIX_ROWS.filter(([key]) => mix[key] > 0)
+  if (rows.length === 0) {
+    return <Stat label='No confirmed inflow yet' value='—' />
+  }
+  return (
+    <>
+      <div className='d-flex rounded overflow-hidden my-2' style={{ height: 10 }}>
+        {rows.map(([key], i) => (
+          <div key={key} style={{ width: `${mix[key] / 100}%`, background: MIX_COLORS[i] }} />
+        ))}
+      </div>
+      <div className='d-flex flex-wrap justify-content-between'>
+        {rows.map(([key, label, pctKey], i) => (
+          <Stat
+            key={key}
+            label={<><span style={{ color: MIX_COLORS[i] }}>■</span> {label}</>}
+            value={formatShare(mix[key])}
+            sub={pctKey ? `${mix[pctKey]}% to rewards` : undefined}
+          />
+        ))}
+      </div>
+    </>
+  )
 }
 
 function stageXmr (stages, key) {
@@ -186,11 +222,12 @@ export default function Transparency ({ ssrData }) {
 
   if (!dat) return <PageLoading />
   const w = dat.rewardsWalletInfo
-  const pi = w.inflowBreakdown
+  const health = dat.rewardsPoolHealth
   const dists = dat.rewardDistributions || []
   const budget = dat.curatorBudget
   const isDynamicBudget = budget?.mode === 'ACTIVE'
   const targetMultiple = budget?.targetMultBps == null ? '1.5×' : formatMultipleOrDash(budget.targetMultBps)
+  const outstanding = OUTSTANDING_LABELS[w.outstandingRewards] ?? OUTSTANDING_LABELS.NONE
 
   return (
     <Layout footerLinks>
@@ -200,7 +237,9 @@ export default function Transparency ({ ssrData }) {
           <p className='text-center text-muted pb-4'>
             The platform rewards wallet is StasherNews's only custodial component.
             Downvotes, posting fees, and territory fees land here and fund weekly
-            curator payouts. Audit it independently — the public view key is published by design.
+            curator payouts. Every payout is an on-chain transaction you can look up,
+            and the public view key is published by design. The wallet's balance
+            is not published: an advertised reserve is a target.
           </p>
 
           <div className='mb-4'>
@@ -209,41 +248,43 @@ export default function Transparency ({ ssrData }) {
             <Stat label='Network' value={w.network} />
           </div>
 
-          <h4 className='text-muted'>Live balance</h4>
+          <h4 className='text-muted'>Pool health</h4>
           <p className='text-muted'>
             <small>
-              Received, external principal, network fees, and balance are
-              ledger-derived from the platform's own records: confirmed eligible
-              receipts in, recorded payout and ops-sweep principal out, and the
-              actual hot-wallet transaction fees as their own cost line.
-              Balance = received − external principal − network fees. The public
-              view key is the wallet address's embedded key and is shown for
-              reference; it cannot decode transaction amounts, so on-chain
-              totals are reconciled against the address.
+              The trend compares income with payouts over the last four weekly
+              distributions: growing or draining when the average weekly change is
+              more than 10% of average weekly payouts, stable otherwise. The runway
+              is the reserve divided by the current weekly drain, shown as a range.
             </small>
           </p>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
-            <Stat label='Balance' value={`${w.balanceXmr} XMR`} sub={`${w.balancePiconeros} piconeros — received minus principal minus network fees`} />
-            <Stat label='Total received' value={piconerosToXmr(toBigInt(w.totalReceivedPiconeros))} sub='confirmed eligible receipts (ledger)' />
-            <Stat label='Total sent' value={piconerosToXmr(toBigInt(w.totalSentPiconeros))} sub='external principal — payouts + ops sweeps' />
-            <Stat label='Network fees' value={piconerosToXmr(toBigInt(w.totalNetworkFeesPiconeros))} sub='actual hot-wallet costs; paid by ops' />
-            <Stat label='Rewards still owed' value={piconerosToXmr(toBigInt(w.outstandingRewardsPiconeros))} sub='allocated full rewards not yet delivered' />
+            <Stat
+              label='Status'
+              value={<span className={`fw-bold ${poolStatusClass(health.status)}`}>{health.status ?? '—'}</span>}
+              sub={health.status ? '4-week average' : 'after the second distribution'}
+            />
+            <Stat label='Runway' value={runwayLabel(health.runway) ?? '—'} sub='at the current 4-week rate' />
+            <Stat label='Paid to curators' value={shareOrDash(health.curatorShareBps)} sub='of 4-week rewards income' />
+            <Stat
+              label='Rewards owed'
+              value={<span className={outstanding.className}>{outstanding.text}</span>}
+              sub='undelivered payouts vs. the ledger balance'
+            />
           </div>
           {w.balanceNeedsReconciliation && (
             <div className='alert alert-warning mt-3 mb-0'>
               Wallet balance needs reconciliation
             </div>
           )}
-          {toBigInt(w.opsDeficitPiconeros) > 0n && (
+          {w.opsUnderfunded && (
             <div className='alert alert-warning mt-3 mb-0'>
-              Ops debt is unfunded by {piconerosToXmr(toBigInt(w.opsDeficitPiconeros))} — hot-wallet
-              network fees and sweeps exceed the ops earmark
+              Ops debt is unfunded: hot-wallet network fees and sweeps exceed the ops earmark
             </div>
           )}
           {w.accountingUncertain && (
             <div className='alert alert-warning mt-3 mb-0'>
               Rewards wallet accounting is uncertain: unresolved journal attempts or
-              conflicting ledger facts. The figures above may be incomplete.
+              conflicting ledger facts. The figures on this page may be incomplete.
             </div>
           )}
           <small className='text-muted d-block mt-2'>
@@ -254,16 +295,9 @@ export default function Transparency ({ ssrData }) {
                 : 'No full-wallet reconciliation check has been published yet.'}
           </small>
 
-          <h4 className='text-muted mt-4'>Current allocation</h4>
+          <h4 className='text-muted mt-4'>How payouts are budgeted</h4>
           <p className='text-muted'>
             <small>
-              The wallet holds one consolidated balance. The two figures below are
-              what it is literally allocated to right now: the full rewards pool,
-              including funds held for future weeks, and the platform's share — unswept from
-              the last distribution (after proven sweeps and real network fees) plus
-              this week's accrual — awaiting its sweep to the ops wallet. They are
-              literal allocations, not a pro-rata slice of the balance; a negative
-              ops figure is unfunded debt, not free cash.{' '}
               {isDynamicBudget
                 ? (
                   <>
@@ -282,39 +316,30 @@ export default function Transparency ({ ssrData }) {
                     All unused rewards roll over.
                   </>
                   )}
-              {' '}The ops sweep has no weekly amount cap; network fees are paid by ops.
+              {' '}The platform's share is swept to the ops wallet after each distribution;
+              network fees are paid by ops.
             </small>
           </p>
+
+          <h4 className='text-muted mt-4'>Activity</h4>
           <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
-            <Stat
-              label='Rewards allocation'
-              value={piconerosToXmr(toBigInt(w.nextPoolPiconeros))}
-              sub={isDynamicBudget
-                ? 'full pool — weekly dynamic curator budget applies; excess rolls over'
-                : 'full pool — weekly curator cap applies; excess rolls over'}
-            />
-            <Stat label='Ops allocation' value={piconerosToXmr(toBigInt(w.pendingSweepPiconeros))} sub='unswept from the last distribution + accruing this week' />
+            <Stat label='Distributions' value={health.distributionCount} sub='completed weekly runs' />
+            <Stat label='Payouts' value={health.payoutCount} sub={`${health.curatorCount} unique curator${health.curatorCount === 1 ? '' : 's'}, all-time`} />
+            <Stat label='Median payout' value={xmrOrDash(health.medianPayoutPiconeros)} sub='last 4 weeks' />
+            <Stat label='Payouts delivered' value={deliveredShare(health.deliveredPayoutBps)} sub='relayed on chain, of all attempted' />
           </div>
 
-          <h4 className='text-muted mt-4'>Confirmed inflow by source (all-time)</h4>
+          <h4 className='text-muted mt-4'>Income mix (all-time)</h4>
           <p className='text-muted'>
             <small>
-              Every confirmed inflow since the wallet opened, split by its
-              allocation percentage. The rewards and ops shares below are cumulative
-              splits of that all-time inflow — not the current allocations shown
-              above.
+              Where every confirmed inflow since the wallet opened came from, as a share
+              of the total, with the allocation percentage each source sends to rewards
+              (the rest goes to ops). Overall {formatShare(w.inflowMix.rewardsShareBps)} of
+              income has gone to rewards.
             </small>
           </p>
-          <div className='d-flex flex-wrap justify-content-between border-bottom border-top py-3 my-2'>
-            <Stat label='Downvotes' value={piconerosToXmr(toBigInt(pi.downvotePiconeros))} sub={`${pi.downvoteRewardsPct}% to rewards`} />
-            <Stat label='Posting fees' value={piconerosToXmr(toBigInt(pi.postingFeePiconeros))} sub={`${pi.postingFeeRewardsPct}% to rewards`} />
-            <Stat label='Turf fees' value={piconerosToXmr(toBigInt(pi.territoryFeePiconeros))} sub={`${pi.territoryFeeRewardsPct}% to rewards`} />
-            <Stat label='Wallet-less tips' value={piconerosToXmr(toBigInt(pi.walletlessTipPiconeros))} sub={`${pi.walletlessTipRewardsPct}% to rewards`} />
-          </div>
-          <div className='d-flex flex-wrap justify-content-between py-3 my-2'>
-            <Stat label='Total inflow' value={piconerosToXmr(toBigInt(pi.totalPiconeros))} sub='all-time' />
-            <Stat label='Rewards share' value={piconerosToXmr(toBigInt(pi.rewardsPiconeros))} sub='all-time cumulative split' />
-            <Stat label='Ops share' value={piconerosToXmr(toBigInt(pi.opsPiconeros))} sub='all-time cumulative split' />
+          <div className='border-bottom border-top py-3 my-2'>
+            <InflowMix mix={w.inflowMix} />
           </div>
 
           <h4 className='text-muted mt-4'>Distribution log</h4>
@@ -323,16 +348,10 @@ export default function Transparency ({ ssrData }) {
               Recent weekly curator distributions. Each payout is a real on-chain
               Monero transaction from the rewards wallet — verify any tx hash on
               the explorer. Curator handles are shown as nyms; sub-threshold
-              shares and {isDynamicBudget ? 'unused dynamic budget' : 'funds above the weekly curator cap'} roll over (less any
-              additional referral payouts). The ops allocation is swept to
-              the ops wallet when the hot wallet has enough unlocked change; when
-              it doesn't (recent incoming outputs are still locked), the sweep is
-              deferred and the unswept amount rolls into next week's opsAvailable
-              — adjusted for proven sweeps and the real network fees paid in that
-              period, bounded by the next period's fee checkpoint (only the active
-              period uses the cumulative total). The adjusted carry is an updated
-              snapshot of each period, while the "Ops allocation" figure above is
-              the one current allocation.
+              shares and {isDynamicBudget ? 'unused dynamic budget' : 'funds above the weekly curator cap'} roll
+              over (less any additional referral payouts). The ops sweep is made when
+              the hot wallet has enough unlocked change; otherwise it is deferred to
+              the next week.
             </small>
           </p>
           {dists.length === 0
@@ -346,11 +365,6 @@ export default function Transparency ({ ssrData }) {
                 {dists.map((d, di) => {
                   const stages = d.eligibleTipStages
                   const backfilled = stages?.backfilled === true
-                  // Backfill never writes budget fields, so a recorded spending
-                  // limit marks a live run. multBps alone cannot gate this: a
-                  // T4 = 0 run legitimately records a NULL (0÷0) effective
-                  // multiple next to a real limit.
-                  const hasRecordedBudget = !backfilled && d.spendLimitPiconeros != null
                   const makeup = d.makeupPiconeros == null ? 0n : toBigInt(d.makeupPiconeros)
                   return (
                     <div key={d.id} className={di < dists.length - 1 ? 'mb-4 pb-3 border-bottom' : ''}>
@@ -360,9 +374,7 @@ export default function Transparency ({ ssrData }) {
                           value={`${d.payoutCount} payout${d.payoutCount === 1 ? '' : 's'}`}
                           sub={`${new Date(d.periodStart).toLocaleDateString()} → ${new Date(d.periodEnd).toLocaleDateString()}`}
                         />
-                        <Stat label='Pool' value={piconerosToXmr(toBigInt(d.poolPiconeros))} />
                         <Stat label='Distributed' value={piconerosToXmr(toBigInt(d.distributedPiconeros))} />
-                        <Stat label='Rolled over' value={piconerosToXmr(toBigInt(d.rolledOverPiconeros))} />
                       </div>
                       {d.trustedTipPiconeros != null && (
                         <>
@@ -375,12 +387,6 @@ export default function Transparency ({ ssrData }) {
                             />
                             <Stat label='Tippers' value={d.tipperCount ?? '—'} />
                             <Stat label='T4' value={xmrOrDash(d.tipT4Piconeros)} sub='four-week average eligible tips' />
-                            <Stat label='I4' value={xmrOrDash(d.incomeF4Piconeros)} sub='four-week median pool income' />
-                            <Stat
-                              label='Spend limit'
-                              value={spendLimitLabel(d.spendLimitPiconeros, hasRecordedBudget)}
-                              sub={hasRecordedBudget ? `reserve ${xmrOrDash(d.reservePiconeros)} at this run` : 'not recorded'}
-                            />
                             <Stat label='m' value={formatMultipleOrDash(d.multBps)} sub='this run' />
                             <Stat label='Dynamic budget' value={xmrOrDash(d.dynamicBudgetPiconeros)} />
                             <Stat label='Applied budget' value={xmrOrDash(d.appliedCuratorBudgetPiconeros)} sub={d.curatorBudgetMode ?? '—'} />
@@ -425,31 +431,16 @@ export default function Transparency ({ ssrData }) {
                           )}
                         </>
                       )}
-                      <div className='d-flex flex-wrap justify-content-between align-items-start ms-2 mt-1'>
-                        <Stat label='Ops inflow' value={piconerosToXmr(toBigInt(d.opsInflowPiconeros))} sub="this period's ops share" />
-                        <Stat label='Ops swept' value={piconerosToXmr(toBigInt(d.opsSweptPiconeros))} sub={`ops sweep: ${opsSweepLabel(d.opsSweepState)}`} />
-                        <Stat label='Fees accounted' value={piconerosToXmr(toBigInt(d.opsNetworkFeesAccountedPiconeros))} sub='hot-wallet fees inside this snapshot' />
-                        <Stat
-                          label='Pending ops (adjusted)'
-                          value={piconerosToXmr(toBigInt(d.correctedPendingOpsPiconeros))}
-                          sub={toBigInt(d.correctedPendingOpsPiconeros) < 0n
-                            ? "unfunded — fees and sweeps exceed this period's ops earmark"
-                            : d.opsSweepState === 'SKIPPED_LOCKED'
-                              ? 'deferred — locked change, lands next period'
-                              : 'after proven sweeps and network fees'}
-                        />
+                      <div className='ms-2 mt-1'>
+                        <small className='text-muted d-block'>ops sweep: {opsSweepLabel(d.opsSweepState)}</small>
+                        {d.opsSweepTxHash && d.opsSweepTxHash.split(',').map((h, i) => (
+                          <a key={h} href={`${explorerTxUrl(w.network)}${h}`} target='_blank' rel='noreferrer' className='d-block'>
+                            <small className='text-monospace text-break text-decoration-none'>
+                              {i === 0 ? 'ops sweep' : 'sweep'} tx: {h.slice(0, 24)}…
+                            </small>
+                          </a>
+                        ))}
                       </div>
-                      {d.opsSweepTxHash && (
-                        <div className='ms-2 mt-1'>
-                          {d.opsSweepTxHash.split(',').map((h, i) => (
-                            <a key={h} href={`${explorerTxUrl(w.network)}${h}`} target='_blank' rel='noreferrer' className='d-block'>
-                              <small className='text-monospace text-break text-decoration-none'>
-                                {i === 0 ? 'ops sweep' : 'sweep'} tx: {h.slice(0, 24)}…
-                              </small>
-                            </a>
-                          ))}
-                        </div>
-                      )}
                       {di === 0 && d.payouts.length > 0 && (
                         <div className='ms-2 mt-2'>
                           <small className='text-muted fw-bold d-block mb-1'>Payouts (latest distribution):</small>
@@ -476,11 +467,11 @@ export default function Transparency ({ ssrData }) {
           <div className='alert alert-light mt-4'>
             <h6>Verify independently</h6>
             <p className='mb-1'>
-              The wallet address is public and totals can be checked against the
-              chain. The public view key above is embedded in that address and
-              cannot decode incoming transaction amounts; independent
-              transaction-level auditing would require the private view key,
-              which the platform does not publish.
+              The wallet address is public and every payout and sweep tx hash above
+              can be looked up on the chain. The public view key above is embedded
+              in that address and cannot decode incoming transaction amounts;
+              transaction-level auditing would require the private view key, which
+              the platform does not publish.
             </p>
             <p className='mb-0'>
               <a href={explorerFor(w.network)} target='_blank' rel='noreferrer'>

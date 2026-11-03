@@ -1,7 +1,9 @@
 /* eslint-env jest */
 
-// Unit tests for Query.rewardsWalletInfo / Query.rewardDistributions — the
-// public transparency surface for the platform rewards wallet.
+// Unit tests for the rewards wallet report (api/monero/rewardsWalletReport.js:
+// the exact ledger, operator-only) and its public projection through
+// Query.rewardsWalletInfo / Query.rewardDistributions, which must never
+// publish the balance, the reserve or ops sweep amounts.
 //
 // Every monetary fact comes from the SHARED readers, read in one Serializable
 // snapshot:
@@ -23,7 +25,8 @@
 // is not leaked.
 
 import { readFileSync } from 'node:fs'
-import resolvers from '@/api/resolvers/rewardsWallet'
+import resolvers, { publicWalletInfo } from '@/api/resolvers/rewardsWallet'
+import { readRewardDistributions, readRewardsWalletInfo } from '@/api/monero/rewardsWalletReport'
 import { encryptViewKey } from '@/api/monero/viewkey'
 import { publicViewKeyFromAddress } from '@/api/monero/viewKeyCheck'
 import { readRewardsWalletLedger } from '@/api/monero/rewardsLedger'
@@ -256,11 +259,11 @@ function audit (overrides = {}) {
   }
 }
 
-describe('Query.rewardsWalletInfo', () => {
+describe('readRewardsWalletInfo', () => {
   test('derives received, principal, network fees and balance from the shared readers (100 - 70 - 7 = 23)', async () => {
     const models = makeModels(mainFixture())
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info).toMatchObject({
       totalReceivedPiconeros: 100n,
@@ -297,7 +300,7 @@ describe('Query.rewardsWalletInfo', () => {
   test('publishes the address-embedded public view key, never the stored private one', async () => {
     const models = makeModels(mainFixture())
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info.address).toBe(STAGENET_ADDR)
     expect(info.address).toMatch(/^[1-9A-HJ-NP-Za-km-z]{95}$/)
@@ -313,7 +316,7 @@ describe('Query.rewardsWalletInfo', () => {
       allTime: { downvote: 100n, posting: 200n, territory: 300n }
     })
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info.inflowBreakdown).toMatchObject({
       downvotePiconeros: 100n,
@@ -341,7 +344,7 @@ describe('Query.rewardsWalletInfo', () => {
       }
     })
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info.inflowBreakdown.walletlessTipPiconeros).toBe(4_000n)
     expect(info.inflowBreakdown.territoryFeePiconeros).toBe(0n) // NOT mislabeled as turf
@@ -409,7 +412,7 @@ describe('Query.rewardsWalletInfo', () => {
       transactions: [payout, sweep]
     })
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info.totalSentPiconeros).toBe(70n)
     expect(info.totalNetworkFeesPiconeros).toBe(3n)
@@ -443,7 +446,7 @@ describe('Query.rewardsWalletInfo', () => {
     }
     const models = makeModels({ allTime: { downvote: 100n }, transactions: [attempt] })
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info.accountingUncertain).toBe(true)
     expect(info.balanceNeedsReconciliation).toBe(true)
@@ -468,7 +471,7 @@ describe('Query.rewardsWalletInfo', () => {
       }]
     })
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info.balancePiconeros).toBe(-50n)
     expect(info.balanceXmr).toBe('-0.00000000005')
@@ -482,7 +485,7 @@ describe('Query.rewardsWalletInfo', () => {
     models.rewardsWalletReconciliation.findMany.mockResolvedValue([published])
     models.rewardsWalletReconciliation.findFirst.mockResolvedValue(published)
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info.accountingUncertain).toBe(false) // drift is separate from uncertainty
     expect(info.balanceNeedsReconciliation).toBe(true)
@@ -496,7 +499,7 @@ describe('Query.rewardsWalletInfo', () => {
     models.rewardsWalletReconciliation.findMany.mockResolvedValue([stale])
     models.rewardsWalletReconciliation.findFirst.mockResolvedValue(stale)
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info.accountingUncertain).toBe(false)
     expect(info.balanceNeedsReconciliation).toBe(false)
@@ -515,7 +518,7 @@ describe('Query.rewardsWalletInfo', () => {
     models.rewardsWalletReconciliation.findMany.mockResolvedValue([stalePositive])
     models.rewardsWalletReconciliation.findFirst.mockResolvedValue(stalePositive)
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
     expect(info.balanceNeedsReconciliation).toBe(true)
     expect(info.reconciliationEvidenceCurrent).toBe(false)
 
@@ -523,7 +526,7 @@ describe('Query.rewardsWalletInfo', () => {
     models.rewardsWalletReconciliation.findMany.mockResolvedValue([freshClean, stalePositive])
     models.rewardsWalletReconciliation.findFirst.mockResolvedValue(freshClean)
 
-    const cleared = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const cleared = await readRewardsWalletInfo(models)
     expect(cleared.balanceNeedsReconciliation).toBe(false)
     expect(cleared.reconciliationEvidenceCurrent).toBe(true)
     expect(cleared.reconciliationCheckedAt).toEqual(freshClean.checkedAt)
@@ -548,7 +551,7 @@ describe('Query.rewardsWalletInfo', () => {
     models.rewardsWalletReconciliation.findMany.mockResolvedValue([issueMatch, stalePositive])
     models.rewardsWalletReconciliation.findFirst.mockResolvedValue(issueMatch)
 
-    const stillWarned = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const stillWarned = await readRewardsWalletInfo(models)
     expect(stillWarned.balanceNeedsReconciliation).toBe(true)
 
     // Only a clean check of the same facts clears it.
@@ -556,7 +559,7 @@ describe('Query.rewardsWalletInfo', () => {
     models.rewardsWalletReconciliation.findMany.mockResolvedValue([freshClean, stalePositive])
     models.rewardsWalletReconciliation.findFirst.mockResolvedValue(freshClean)
 
-    const cleared = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const cleared = await readRewardsWalletInfo(models)
     expect(cleared.balanceNeedsReconciliation).toBe(false)
   })
 
@@ -579,19 +582,19 @@ describe('Query.rewardsWalletInfo', () => {
       confirmedAt: new Date('2026-10-01T00:00:00.000Z')
     }]
     const models = makeModels({ ...mainFixture(), receipts })
-    const before = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const before = await readRewardsWalletInfo(models)
     const { fingerprint } = await readRewardsWalletLedger(models, { scope: SCOPE })
     const published = audit({ ledgerFingerprint: fingerprint })
     models.rewardsWalletReconciliation.findMany.mockResolvedValue([published])
     models.rewardsWalletReconciliation.findFirst.mockResolvedValue(published)
 
-    const current = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const current = await readRewardsWalletInfo(models)
     expect(current.reconciliationEvidenceCurrent).toBe(true)
 
     // One audited receipt input changes: the published CHECK is stale even
     // though no delivery fact (principal, fees, commitments) moved.
     receipts[0].walletReceipt = !receipts[0].walletReceipt
-    const after = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const after = await readRewardsWalletInfo(models)
     expect(after.reconciliationEvidenceCurrent).toBe(false)
     expect(after.totalSentPiconeros).toBe(before.totalSentPiconeros)
     expect(after.totalNetworkFeesPiconeros).toBe(before.totalNetworkFeesPiconeros)
@@ -613,7 +616,7 @@ describe('Query.rewardsWalletInfo', () => {
     models.rewardsWalletReconciliation.findMany.mockResolvedValue([old])
     models.rewardsWalletReconciliation.findFirst.mockResolvedValue(old)
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(info.reconciliationCheckedAt).toEqual(old.checkedAt)
     expect(info.reconciliationEvidenceCurrent).toBe(false)
@@ -624,7 +627,7 @@ describe('Query.rewardsWalletInfo', () => {
   test('throws when the platform rewards wallet is not registered', async () => {
     const models = makeModels({ account: null })
 
-    await expect(resolvers.Query.rewardsWalletInfo(null, null, { models }))
+    await expect(readRewardsWalletInfo(models))
       .rejects.toThrow(/rewards wallet/i)
   })
 
@@ -632,7 +635,7 @@ describe('Query.rewardsWalletInfo', () => {
     __resetMetricsForTests()
     const models = makeModels(mainFixture())
 
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
     await collectDBBackedMetrics(models)
 
     expect(info.pendingSweepPiconeros).toBe(-3n)
@@ -644,14 +647,14 @@ describe('Query.rewardsWalletInfo', () => {
 
   test('renders an adjusted reward amount for direct display', async () => {
     const models = makeModels(mainFixture())
-    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+    const info = await readRewardsWalletInfo(models)
 
     expect(piconerosToXmr(info.nextPoolPiconeros)).toBe('0.000000000096 XMR')
     expect(piconerosToXmr(info.totalNetworkFeesPiconeros)).toBe('0.000000000007 XMR')
   })
 })
 
-describe('Query.rewardDistributions', () => {
+describe('readRewardDistributions', () => {
   test('passes the recorded ops-sweep fields through unchanged', async () => {
     const dist = makeDistribution({
       id: 1,
@@ -667,7 +670,7 @@ describe('Query.rewardDistributions', () => {
       transactions: [feeFact(5n, 'ff'.repeat(32))]
     })
 
-    const result = await resolvers.Query.rewardDistributions(null, {}, { models })
+    const result = await readRewardDistributions(models)
 
     expect(result).toHaveLength(1)
     expect(result[0].opsInflowPiconeros).toBe(1_500n)
@@ -691,7 +694,7 @@ describe('Query.rewardDistributions', () => {
       transactions: [feeFact(9n, 'dd'.repeat(32))]
     })
 
-    const result = await resolvers.Query.rewardDistributions(null, {}, { models })
+    const result = await readRewardDistributions(models)
 
     // 100 - 40 proven swept - (9 cumulative fees - 7 already accounted) = 58,
     // NOT the old opsAvailable - opsSwept = 60.
@@ -727,7 +730,7 @@ describe('Query.rewardDistributions', () => {
       transactions: [feeFact(50n, 'aa'.repeat(32))]
     })
 
-    const result = await resolvers.Query.rewardDistributions(null, {}, { models })
+    const result = await readRewardDistributions(models)
 
     expect(result.map(d => d.id)).toEqual([2, 1])
     const displayedOlder = result[1]
@@ -743,7 +746,7 @@ describe('Query.rewardDistributions', () => {
       feeFact(50n, 'aa'.repeat(32)),
       feeFact(10n, 'bb'.repeat(32))
     ])
-    const grown = await resolvers.Query.rewardDistributions(null, {}, { models })
+    const grown = await readRewardDistributions(models)
     expect(grown[1].correctedPendingOpsPiconeros).toBe(1n)
     expect(grown[0].correctedPendingOpsPiconeros).toBe(141n)
   })
@@ -762,7 +765,7 @@ describe('Query.rewardDistributions', () => {
       transactions: [feeFact(8n, 'ee'.repeat(32))]
     })
 
-    const result = await resolvers.Query.rewardDistributions(null, {}, { models })
+    const result = await readRewardDistributions(models)
 
     expect(result[0].opsSweepState).toBe('SKIPPED_LOCKED')
     expect(result[0].opsSweepTxHash).toBeNull()
@@ -782,19 +785,101 @@ describe('Query.rewardDistributions', () => {
     })
     const models = makeModels({ distributions: [dist] })
 
-    const result = await resolvers.Query.rewardDistributions(null, {}, { models })
+    const result = await readRewardDistributions(models)
 
     expect(result[0].payouts[0].curatorNym).toBe('satoshi')
     expect(result[0].payouts[0].amountXmr).toBe('1')
   })
 })
 
+describe('public projection', () => {
+  test('Query.rewardsWalletInfo publishes flags and shares, never an amount', async () => {
+    const models = makeModels(mainFixture())
+
+    const info = await resolvers.Query.rewardsWalletInfo(null, null, { models })
+
+    expect(Object.keys(info).sort()).toEqual([
+      'accountingUncertain', 'address', 'balanceNeedsReconciliation', 'inflowMix', 'network',
+      'opsUnderfunded', 'outstandingRewards', 'reconciliationCheckedAt',
+      'reconciliationEvidenceCurrent', 'viewKey'
+    ])
+    // the fixture's pending ops is -3: unfunded ops debt, reported as a flag
+    expect(info.opsUnderfunded).toBe(true)
+    expect(info.outstandingRewards).toBe('NONE')
+    // downvote 96 + bounty fee 4 of 100; the bounty fee is "other"
+    expect(info.inflowMix).toMatchObject({
+      downvoteBps: 9600,
+      postingFeeBps: 0,
+      territoryFeeBps: 0,
+      walletlessTipBps: 0,
+      otherBps: 400,
+      rewardsShareBps: 9600,
+      downvoteRewardsPct: 100
+    })
+    const values = [...Object.values(info), ...Object.values(info.inflowMix)]
+    expect(values.some(v => typeof v === 'bigint')).toBe(false)
+  })
+
+  test('outstanding rewards report coverage against the ledger balance', () => {
+    const base = { opsDeficitPiconeros: 0n, inflowBreakdown: { totalPiconeros: 0n } }
+    expect(publicWalletInfo({ ...base, outstandingRewardsPiconeros: 5n, balancePiconeros: 5n }).outstandingRewards).toBe('COVERED')
+    expect(publicWalletInfo({ ...base, outstandingRewardsPiconeros: 6n, balancePiconeros: 5n }).outstandingRewards).toBe('UNCOVERED')
+    expect(publicWalletInfo({ ...base, outstandingRewardsPiconeros: 0n, balancePiconeros: 0n }).inflowMix.otherBps).toBe(0)
+  })
+
+  test('Query.rewardDistributions drops the pool, rollover, reserve, income and ops amounts', async () => {
+    const dist = makeDistribution({
+      opsSweepTxHash: 'ab'.repeat(32),
+      opsSweepState: 'SWEPT',
+      incomePiconeros: 3_000n,
+      incomeF4Piconeros: 2_500n,
+      reservePiconeros: 900n,
+      spendLimitPiconeros: 1_200n,
+      payouts: [{
+        id: 7,
+        curatorId: 42,
+        curator: { name: 'satoshi' },
+        recipientAddress: STAGENET_ADDR,
+        piconeros: 4_000n,
+        txHash: 'cd'.repeat(32),
+        state: 'SENT'
+      }]
+    })
+    const models = makeModels({ distributions: [dist] })
+
+    const [row] = await resolvers.Query.rewardDistributions(null, {}, { models })
+
+    for (const key of [
+      'poolPiconeros', 'rolledOverPiconeros', 'opsInflowPiconeros', 'opsAvailablePiconeros',
+      'opsSweptPiconeros', 'opsNetworkFeesAccountedPiconeros', 'correctedPendingOpsPiconeros',
+      'incomePiconeros', 'incomeF4Piconeros', 'reservePiconeros', 'spendLimitPiconeros'
+    ]) {
+      expect(row).not.toHaveProperty(key)
+    }
+    expect(row.distributedPiconeros).toBe(4_000n)
+    expect(row.opsSweepState).toBe('SWEPT')
+    expect(row.opsSweepTxHash).toBe('ab'.repeat(32))
+    expect(row.payouts[0]).toEqual({
+      id: 7,
+      curatorId: 42,
+      curatorNym: 'satoshi',
+      piconeros: 4_000n,
+      amountXmr: '0.000000004',
+      txHash: 'cd'.repeat(32),
+      state: 'SENT'
+    })
+  })
+})
+
 describe('wallet-free transparency surface', () => {
-  test('the resolver and metrics never import a wallet or lws module', () => {
+  test('the report and metrics never import a wallet or lws module', () => {
     const walletImport = /from\s+['"][^'"]*(?:wallet|lws)[^'"]*['"]/i
-    for (const file of ['api/resolvers/rewardsWallet.js', 'lib/metrics.js']) {
+    for (const file of ['api/monero/rewardsWalletReport.js', 'lib/metrics.js']) {
       expect(readFileSync(file, 'utf8')).not.toMatch(walletImport)
     }
+    // the public resolver reads only through the report
+    const imports = readFileSync('api/resolvers/rewardsWallet.js', 'utf8').match(/from\s+['"][^'"]+['"]/g)
+    expect(imports).toEqual(["from '../monero/rewardsWalletReport'"])
   })
 })
 

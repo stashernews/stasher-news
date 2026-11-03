@@ -4,8 +4,8 @@ import { getGetServerSideProps } from '@/api/ssrApollo'
 import Layout from '@/components/layout'
 import { useQuery } from '@apollo/client/react'
 import Link from 'next/link'
-import { piconerosToXmr, piconerosToMXmr } from '@/lib/format'
-import { copyDrawdownWeeks, formatMultiple } from '@/lib/curatorBudgetCopy'
+import { piconerosToXmr } from '@/lib/format'
+import { formatMultiple } from '@/lib/curatorBudgetCopy'
 import PageLoading from '@/components/page-loading'
 import { useShowModal } from '@/components/modal'
 import dynamic from 'next/dynamic'
@@ -17,6 +17,7 @@ import { useMemo } from 'react'
 import { CompactLongCountdown } from '@/components/countdown'
 import { payTypeShortName } from '@/lib/pay-in'
 import DonateModal from '@/components/donate-modal'
+import { curatorBudgetHeadline } from '@/components/pool-health'
 
 const GrowthPieChart = dynamic(() => import('@/components/charts').then(mod => mod.GrowthPieChart), {
   loading: () => <GrowthPieChartSkeleton />
@@ -25,7 +26,6 @@ const GrowthPieChart = dynamic(() => import('@/components/charts').then(mod => m
 const REWARDS_FULL = gql`
 {
   rewards {
-    total
     time
     sources {
       name
@@ -37,35 +37,22 @@ const REWARDS_FULL = gql`
     fallbackBudgetPiconeros
     projectedPiconeros
     multBps
-    targetMultBps
-    t4Piconeros
-    targetPiconeros
-    reservePiconeros
-    spendLimitPiconeros
-    drawdownWeeks
-    dynamicBudgetMode
     windingDown
-    breakerTripped
   }
 }
 `
 
 export const getServerSideProps = getGetServerSideProps({ query: REWARDS_FULL })
 
-export function RewardLine ({ total, time, xmr }) {
+// Footer line: the next distribution's curator budget and its countdown.
+// The reserve itself is never shown.
+export function RewardLine ({ budget, time }) {
+  const headline = curatorBudgetHeadline(budget)
   return (
-    <>
-      <span style={{ whiteSpace: 'nowrap' }}>
-        {xmr ? piconerosToXmr(BigInt(total), 3) : piconerosToMXmr(BigInt(total), 0)} in rewards pool
-      </span>
-      {time &&
-        <small style={{ whiteSpace: 'nowrap' }}>
-          <CompactLongCountdown
-            className='text-monospace'
-            date={time}
-          />
-        </small>}
-    </>
+    <span style={{ whiteSpace: 'nowrap' }}>
+      Next rewards distribution: {headline?.amount ?? '—'}
+      {time && <> in <CompactLongCountdown className='text-monospace' date={time} /></>}
+    </span>
   )
 }
 
@@ -75,69 +62,41 @@ function toBigInt (value) {
 
 export { DEFAULT_DRAWDOWN_WEEKS } from '@/lib/curatorBudgetCopy'
 
-// This week's spending-limit sentence. The
-// projection's outcome names the binding cap: FULL — the limit
-// sits above the target; DRAWDOWN — the limit binds and sets the effective
-// multiple; POOL_SHORT — the pool itself, not the drawdown, is the binding cap.
-export function limitSentence (budget) {
-  if (budget?.spendLimitPiconeros == null || budget?.projectedPiconeros == null) return null
-  const limit = piconerosToXmr(toBigInt(budget.spendLimitPiconeros))
-  if (budget.dynamicBudgetMode === 'POOL_SHORT') {
-    return `the pool itself bounds this week's spending to ${piconerosToXmr(toBigInt(budget.projectedPiconeros))}`
-  }
-  if (budget.dynamicBudgetMode === 'DRAWDOWN') {
-    return `the pool can spend up to ${limit} this week (income plus 1/${copyDrawdownWeeks(budget)} of its reserve), ` +
-      `so the multiple is ${formatMultiple(budget.multBps) ?? '0×'}`
-  }
-  return `the pool can spend up to ${limit} this week, more than the budget needs`
-}
-
-export function CuratorBudgetCopy ({ budget }) {
+// The budget headline and the notes under it, per curator budget mode.
+export function CuratorBudgetCopy ({ budget, time }) {
   const mode = budget?.mode ?? 'LEGACY'
-  const fallback = toBigInt(budget?.fallbackBudgetPiconeros ?? 0)
-  const projected = budget?.projectedPiconeros
+  const headline = curatorBudgetHeadline(budget)
+  const projected = mode === 'ACTIVE' ? budget?.projectedPiconeros : null
   // The EFFECTIVE multiple only. When T4 = 0 the budget is 0 and no effective
   // multiple exists (0/0) — render 0×, never the configured target k.
   const multiple = formatMultiple(budget?.multBps) ?? '0×'
 
-  if (mode === 'ACTIVE' && projected != null) {
-    const multipleText = budget.windingDown ? `${multiple}: pool winding down` : null
-    return (
-      <>
-        <p className='text-center text-muted mb-0'>
-          Projected curator budget this week: {piconerosToXmr(toBigInt(projected))}
-          {multipleText && <span> ({multipleText})</span>}
-        </p>
-        <p className='text-center text-muted'>
-          <small><small>This is a projection; it is final at Monday 00:00 UTC.</small></small>
-        </p>
-      </>
-    )
-  }
-
   let shadowLine = null
-  if (mode === 'SHADOW' && projected != null) {
-    shadowLine = `Under the proposed dynamic budget this would be about ${piconerosToXmr(toBigInt(projected))}` +
+  if (mode === 'SHADOW' && budget?.projectedPiconeros != null) {
+    shadowLine = `Under the proposed dynamic budget this would be about ${piconerosToXmr(toBigInt(budget.projectedPiconeros))}` +
       ` (${multiple} recent curator tips).`
   }
 
   return (
-    <>
-      <p className='text-center text-muted'>
-        Up to {piconerosToXmr(fallback)} for curators at the next weekly distribution.
-        Remaining funds roll over to the following week.
-      </p>
-      {shadowLine && (
-        <p className='text-center text-muted fst-italic mb-0'>
-          <small>{shadowLine}</small>
-        </p>
-      )}
-      {mode === 'ACTIVE' && (
-        <p className='text-center text-muted mb-0'>
+    <div className='text-center text-muted'>
+      <div><small>{projected != null ? 'Projected curator budget this week' : 'Curator budget this week'}</small></div>
+      <div className='fs-2 fw-bold text-body'>{headline ? `${headline.upTo ? 'up to ' : ''}${headline.amount}` : '—'}</div>
+      {time &&
+        <div><small><CompactLongCountdown className='text-monospace' date={time} /></small></div>}
+      <div className='small'>
+        <small>
+          {projected != null
+            ? <>This is a projection; it is final at Monday 00:00 UTC.{budget.windingDown && ` (${multiple}: pool winding down)`}</>
+            : 'Remaining funds roll over to the following week.'}
+        </small>
+      </div>
+      {shadowLine && <div className='fst-italic'><small>{shadowLine}</small></div>}
+      {mode === 'ACTIVE' && projected == null && (
+        <div>
           <small>The live projection is temporarily unavailable, please check back shortly. Payouts are unaffected: curators receive the dynamic budget calculated at Monday's distribution, or the fallback cap above only if that calculation cannot run.</small>
-        </p>
+        </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -148,14 +107,13 @@ export default function Rewards ({ ssrData }) {
     SSR ? {} : { pollInterval: FAST_POLL_INTERVAL_MS, nextFetchPolicy: 'cache-and-network' })
   const dat = useData(data, ssrData)
 
-  const { rewards: [{ total, sources, time }] } = useMemo(() => {
-    if (!dat || !dat.rewards[0]) return { rewards: [{ total: 0, sources: [], time: '0' }] }
+  const { sources, time } = useMemo(() => {
+    const active = dat?.rewards?.[0]
+    if (!active) return { sources: [], time: null }
     return {
-      rewards: [{
-        total: dat.rewards[0].total,
-        sources: dat.rewards[0].sources.map(source => ({ name: payTypeShortName(source.name), value: Number(source.value) })),
-        time: dat.rewards[0].time
-      }]
+      // this cycle's income by source; the rollover is never a source
+      sources: active.sources.map(source => ({ name: payTypeShortName(source.name), value: Number(source.value) })),
+      time: active.time
     }
   }, [dat])
 
@@ -168,23 +126,22 @@ export default function Rewards ({ ssrData }) {
           <div
             className='d-flex flex-column sticky-lg-top py-5'
           >
-            <h3 className='text-center text-muted'>
-              <div>
-                <RewardLine total={total} time={time} />
-              </div>
+            <CuratorBudgetCopy budget={dat.curatorBudget} time={time} />
+            <div className='text-center mt-2'>
               <Link href='/faq#how-do-i-earn-xmr-on-stasher-news' className='text-info fw-normal'>
-                <small><small><small>learn about rewards</small></small></small>
+                <small>learn about rewards</small>
               </Link>
               <span className='text-muted mx-2'>·</span>
               <Link href='/transparency' className='text-info fw-normal'>
-                <small><small><small>wallet transparency</small></small></small>
+                <small>wallet transparency</small>
               </Link>
-            </h3>
-            <CuratorBudgetCopy budget={dat.curatorBudget} />
-            {sources?.length > 0 &&
-              <div className='my-3 w-100'>
-                <GrowthPieChart data={sources} />
-              </div>}
+            </div>
+            <div className='my-3 w-100'>
+              <div className='text-center text-muted'><small>This week's income</small></div>
+              {sources?.length > 0
+                ? <GrowthPieChart data={sources} />
+                : <div className='text-center text-muted'><small><small>No income yet this week.</small></small></div>}
+            </div>
             <DonateButton />
           </div>
         </Col>

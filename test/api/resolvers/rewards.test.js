@@ -106,12 +106,13 @@ function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null, le
 }
 
 describe('Query.rewards', () => {
-  test('returns the rewards earmark (post-split) by source', async () => {
+  test('returns the rewards earmark (post-split) by source, with no total', async () => {
     const models = makeModels()
     const [reward] = await resolvers.Query.rewards(null, {}, { models })
 
-    // downvote 1e9 * 100% + posting 1e9 * 70% + territory 2e11 * 30%
-    expect(reward.total).toBe(1000000000n + 700000000n + 60000000000n)
+    // downvote 1e9 * 100% + posting 1e9 * 70% + territory 2e11 * 30%; the
+    // pool total is never published
+    expect(reward.total).toBeNull()
     expect(reward.sources).toEqual([
       { name: 'downvote', value: '1000000000' },
       { name: 'posting fee', value: '700000000' },
@@ -120,18 +121,15 @@ describe('Query.rewards', () => {
     expect(reward.time).toBeInstanceOf(Date)
   })
 
-  test('active view adds the prior distribution rollover to the pool', async () => {
-    // A distribution with a rolled-over pool (no eligible curators) must be
-    // reflected in the pending pool — the next run's pool = this cycle's
-    // earmark + rolledOverPiconeros (mirrors rewardsDistributor).
+  test('active view never publishes the rollover (the reserve)', async () => {
     const periodEnd = new Date(Date.now() - 2 * DAY_MS)
     const models = makeModels({
       lastDistribution: { periodEnd, rolledOverPiconeros: 6_800_000_000n }
     })
     const [reward] = await resolvers.Query.rewards(null, {}, { models })
 
-    expect(reward.total).toBe(1000000000n + 700000000n + 60000000000n + 6_800_000_000n)
-    expect(reward.sources).toContainEqual({ name: 'rolled over', value: '6800000000' })
+    expect(reward.total).toBeNull()
+    expect(reward.sources.map(s => s.name)).not.toContain('rolled over')
   })
 
   test('active view pools inflow since the last distribution through the shared reader', async () => {
@@ -184,12 +182,11 @@ describe('Query.rewards', () => {
     const [reward] = await resolvers.Query.rewards(null, {}, { models })
 
     expect(reward.sources).toEqual([{ name: 'donations', value: '3000000000' }])
-    expect(reward.total).toBe(3_000_000_000n)
   })
 
   test('a donation with donationRewardsPct=50 funds the pool at 50%', async () => {
     const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, donate: 1_500_000_000n, boost: 0n, walletlesstip: 0n } })
-    const [reward] = await resolvers.Query.rewards(null, {}, { models })
+    const [reward] = await resolvers.Query.rewards(null, { when: ['2026-08-05'] }, { models })
 
     expect(reward.sources).toEqual([{ name: 'donations', value: '1500000000' }])
     expect(reward.total).toBe(1_500_000_000n)
@@ -199,7 +196,7 @@ describe('Query.rewards', () => {
     // A seeded BOOST observation flows in as the "boosts" inflow term, added at
     // boostRewardsPct (30); the other 70% is the ops share.
     const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, donate: 0n, boost: 4_000_000_000n, walletlesstip: 0n } })
-    const [reward] = await resolvers.Query.rewards(null, {}, { models })
+    const [reward] = await resolvers.Query.rewards(null, { when: ['2026-08-05'] }, { models })
 
     expect(reward.sources).toEqual([{ name: 'boosts', value: '1200000000' }])
     expect(reward.total).toBe(1_200_000_000n) // 30% of 4e9
@@ -207,7 +204,7 @@ describe('Query.rewards', () => {
 
   test('wallet-less tips (TIP_UNWALLETED) fund the pool at walletlessTipRewardsPct%', async () => {
     const models = makeModels({ inflow: { downvote: 0n, posting: 0n, territory: 0n, donate: 0n, boost: 0n, walletlesstip: 2_000_000_000n } })
-    const [reward] = await resolvers.Query.rewards(null, {}, { models })
+    const [reward] = await resolvers.Query.rewards(null, { when: ['2026-08-05'] }, { models })
 
     expect(reward.sources).toEqual([{ name: 'wallet-less tips', value: '1400000000' }])
     expect(reward.total).toBe(1_400_000_000n) // 70% of 2e9
@@ -285,6 +282,51 @@ describe('Query.rewards', () => {
       .rejects.toThrow(/rewardsPct/)
     await expect(resolvers.Mutation.donateToRewards(null, { piconeros: 3_000_000_000n, rewardsPct: -1 }, { me: { id: 1 }, models: {} }))
       .rejects.toThrow(/rewardsPct/)
+  })
+})
+
+describe('Query.rewardsPoolHealth', () => {
+  test('publishes the trend, runway range and activity counts, never the pool', async () => {
+    const models = makeModels({ lastDistribution: { periodEnd: new Date(Date.now() - DAY_MS), rolledOverPiconeros: 600n } })
+    // five COMPLETE runs, newest first, each paying 400 while the rollover
+    // falls by 100 a week: DRAINING
+    const runs = [600n, 700n, 800n, 900n, 1000n].map((rolledOverPiconeros, i) => ({
+      id: 5 - i,
+      distributedPiconeros: 400n,
+      rolledOverPiconeros,
+      poolPiconeros: rolledOverPiconeros + 400n
+    }))
+    models.rewardDistribution.findMany = jest.fn(async args => (args?.where?.status === 'COMPLETE' ? runs : []))
+    models.rewardDistribution.count = jest.fn(async () => 5)
+    models.rewardPayout.groupBy = jest.fn(async () => [
+      { state: 'CONFIRMED', _count: { _all: 9 } },
+      { state: 'SENT', _count: { _all: 1 } },
+      { state: 'FAILED', _count: { _all: 1 } },
+      { state: 'QUEUED', _count: { _all: 2 } }
+    ])
+    models.rewardPayout.findMany = jest.fn(async args => {
+      if (args?.distinct) return [{ curatorId: 1 }, { curatorId: 2 }, { curatorId: 3 }]
+      if (args?.where?.distributionId) return [{ piconeros: 30n }, { piconeros: 10n }, { piconeros: 20n }]
+      return []
+    })
+
+    const health = await resolvers.Query.rewardsPoolHealth(null, {}, { models })
+
+    expect(health).toEqual({
+      status: 'DRAINING',
+      // the open-cycle pool is the 600 rollover plus this cycle's 61.7e9
+      // earmark from the stub inflow: a year or more at 100 a week
+      runway: 'YEAR_PLUS',
+      curatorShareBps: 13333, // 400 paid / 300 income per week
+      distributionCount: 5,
+      payoutCount: 10,
+      curatorCount: 3,
+      deliveredPayoutBps: 9090, // 10 paid of 11 attempted; QUEUED is not yet attempted
+      medianPayoutPiconeros: 20n
+    })
+    // the four newest runs bound the median payout window
+    const window = models.rewardPayout.findMany.mock.calls.find(([args]) => args?.where?.distributionId)[0]
+    expect(window.where.distributionId.in).toEqual([5, 4, 3, 2])
   })
 })
 

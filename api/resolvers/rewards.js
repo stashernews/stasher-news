@@ -3,6 +3,7 @@ import { getItem } from './item'
 import { GqlInputError } from '@/lib/error'
 import pay from '../payIn'
 import { getNextRewardsPool, readNextRewardsPool, rewardsFromInflow } from '@/lib/rewardsPool'
+import { POOL_HEALTH_WEEKS, poolHealth } from '@/lib/rewardsPoolHealth'
 import { readRewardsInflow } from '../monero/rewardsInflow'
 import { resolveCuratorBudgetConfig, DRAWDOWN_WEEKS_MIN, DRAWDOWN_WEEKS_MAX } from '@/lib/curatorBudget'
 import { CURATOR_FALLBACK_CAP_PICONEROS } from '@/lib/rewardsAccounting'
@@ -19,6 +20,7 @@ const DEFAULT_TARGET_MULT_BPS = 15000
 
 let rewardCache
 let curatorBudgetCache
+let poolHealthCache
 
 async function updateCachedRewards (models) {
   const rewards = await getActiveRewards(models)
@@ -74,8 +76,6 @@ function fallbackCuratorBudget ({
     targetMultBps,
     t4Piconeros: null,
     targetPiconeros: null,
-    reservePiconeros: null,
-    spendLimitPiconeros: null,
     drawdownWeeks,
     dynamicBudgetMode: null,
     windingDown: false,
@@ -166,8 +166,6 @@ async function getLiveCuratorBudget (models) {
         targetMultBps,
         t4Piconeros: record.tipT4Piconeros ?? null,
         targetPiconeros,
-        reservePiconeros: record.reservePiconeros ?? null,
-        spendLimitPiconeros: record.spendLimitPiconeros ?? null,
         drawdownWeeks,
         dynamicBudgetMode: record.dynamicBudgetMode ?? null,
         windingDown,
@@ -199,21 +197,14 @@ async function getCachedCuratorBudget (staleIn, models) {
   return await updateCachedCuratorBudget(models)
 }
 
-// Sum CONFIRMED platform-wallet inflow by source over [periodStart, periodEnd)
-// through the shared reader (api/monero/rewardsInflow.js), so the covering
-// distribution's source pie can never drift from the distributor's settlement
-// window, walletReceipt eligibility or the exact mixed-rollover reward field.
+// The active cycle publishes this cycle's income by source and the next
+// distribution slot, but no total: the pool total (and the rollover it
+// contains) is the reserve, which is never advertised. The rollover is
+// therefore never a source either; the footer and /rewards show the curator
+// budget and pool health instead.
 async function getActiveRewards (models) {
-  const { poolPiconeros, rewardsInflowPiconeros, rolledOverPiconeros, time, sources } = await getNextRewardsPool(models)
-  // The next distribution's pool = this cycle's rewards earmark + the prior
-  // cycle's rollover (rewardsDistributor: poolPiconeros = rewardsInflow +
-  // lastDistribution.rolledOverPiconeros). Surface the rollover as a source so
-  // the pool shown on /rewards and transparency reflects the FULL rewards
-  // reserve, including funds held for future capped weekly distributions.
-  if (rolledOverPiconeros > 0n) {
-    return [{ total: poolPiconeros, time, sources: [...sources, { name: 'rolled over', value: rolledOverPiconeros.toString() }] }]
-  }
-  return [{ total: rewardsInflowPiconeros, time, sources }]
+  const { time, sources } = await getNextRewardsPool(models)
+  return [{ total: null, time, sources }]
 }
 
 async function getRewards (when, models) {
@@ -258,12 +249,82 @@ async function getRewards (when, models) {
   return [rewardsFromInflow(inflow.raw, d, config)]
 }
 
+// Trend, runway range and activity totals over COMPLETE distributions. Every
+// figure is a label, a share, a count or a single payout size: nothing here
+// can be multiplied back into the reserve (lib/rewardsPoolHealth.js).
+async function getPoolHealth (models) {
+  return await models.$transaction(async tx => {
+    const config = await tx.platformFeeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })
+    const rows = await tx.rewardDistribution.findMany({
+      where: { status: 'COMPLETE' },
+      orderBy: [{ periodEnd: 'desc' }, { id: 'desc' }],
+      take: POOL_HEALTH_WEEKS + 1,
+      select: { id: true, poolPiconeros: true, distributedPiconeros: true, rolledOverPiconeros: true }
+    })
+    const pool = await readNextRewardsPool(tx, config)
+    const health = poolHealth({ rows, poolPiconeros: pool.poolPiconeros })
+
+    const distributionCount = await tx.rewardDistribution.count({ where: { status: 'COMPLETE' } })
+    const byState = await tx.rewardPayout.groupBy({ by: ['state'], _count: { _all: true } })
+    const countOf = state => byState.find(row => row.state === state)?._count?._all ?? 0
+    const paid = countOf('SENT') + countOf('CONFIRMED')
+    const settled = paid + countOf('FAILED')
+    const curators = await tx.rewardPayout.findMany({
+      where: { state: { in: ['SENT', 'CONFIRMED'] } },
+      distinct: ['curatorId'],
+      select: { curatorId: true }
+    })
+    const recent = await tx.rewardPayout.findMany({
+      where: {
+        distributionId: { in: rows.slice(0, POOL_HEALTH_WEEKS).map(row => row.id) },
+        state: { in: ['SENT', 'CONFIRMED'] }
+      },
+      select: { piconeros: true }
+    })
+
+    return {
+      ...health,
+      distributionCount,
+      payoutCount: paid,
+      curatorCount: curators.length,
+      // SENT is the settled state (CONFIRMED is never set today), so delivery
+      // is paid over paid + failed.
+      deliveredPayoutBps: settled > 0 ? Math.floor(paid * 10000 / settled) : null,
+      medianPayoutPiconeros: median(recent.map(row => BigInt(row.piconeros)))
+    }
+  }, { isolationLevel: 'Serializable', timeout: 10000 })
+}
+
+function median (values) {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2n
+}
+
+async function updateCachedPoolHealth (models) {
+  const health = await getPoolHealth(models)
+  poolHealthCache = { health, createdAt: Date.now() }
+  return health
+}
+
+async function getCachedPoolHealth (staleIn, models) {
+  if (poolHealthCache) {
+    const { health, createdAt } = poolHealthCache
+    if (createdAt + staleIn < Date.now()) updateCachedPoolHealth(models).catch(console.error)
+    return health
+  }
+  return await updateCachedPoolHealth(models)
+}
+
 export default {
   Query: {
     rewards: async (parent, { when }, { models }) =>
       when ? await getRewards(when, models) : await getCachedActiveRewards(10000, models),
     curatorBudget: async (parent, args, { models }) =>
       await getCachedCuratorBudget(10000, models),
+    rewardsPoolHealth: async (parent, args, { models }) =>
+      await getCachedPoolHealth(60000, models),
     meRewards: async (parent, { when }, { me, models }) => {
       if (!me) {
         return null
@@ -296,12 +357,8 @@ export default {
     }
   },
   Rewards: {
-    total: async (parent, args, { models }) => {
-      if (!parent.total) {
-        return 0
-      }
-      return parent.total
-    },
+    // null for the active cycle: its pool total is never published
+    total: (parent) => parent.total ?? null,
     // array_agg over an empty result set yields NULL; default to [] for the non-null schema field
     sources: (parent) => parent.sources ?? []
   },
