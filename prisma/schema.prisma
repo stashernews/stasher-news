@@ -7,9 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// The site-wide announcement banner (historically the "SNL" live banner):
+// shown on every public page while live is on.
 model Snl {
-  id   Int     @id @default(autoincrement())
-  live Boolean @default(false)
+  id      Int     @id @default(autoincrement())
+  live    Boolean @default(false)
+  message String  @default("")
 }
 
 model User {

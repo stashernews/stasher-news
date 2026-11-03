@@ -14,7 +14,11 @@ test('the public on-air mutation is removed while the banner query remains reada
   const schema = makeExecutableSchema({ typeDefs: publicTypeDefs })
   const result = await graphql({ schema, source: 'mutation { onAirToggle }' })
   expect(result.errors?.[0].message).toContain('Cannot query field "onAirToggle"')
-  expect(await publicAdmin.Query.snl(null, {}, { models: { snl: { findFirst: async () => ({ live: true }) } } })).toBe(true)
+  const models = row => ({ models: { snl: { findFirst: async () => row } } })
+  expect(await publicAdmin.Query.announcement(null, {}, models({ live: true, message: 'hello' }))).toBe('hello')
+  // deprecated alias for already-loaded clients: true only while a message shows
+  expect(await publicAdmin.Query.snl(null, {}, models({ live: true, message: 'hello' }))).toBe(true)
+  expect(await publicAdmin.Query.snl(null, {}, models({ live: true, message: '' }))).toBe(false)
 })
 
 test('only @stasher keeps the special-item admin edit privilege; domain beta access is separate', async () => {

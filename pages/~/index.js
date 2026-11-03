@@ -3,7 +3,6 @@ import { getGetServerSideProps } from '@/api/ssrApollo'
 import Items from '@/components/items'
 import Layout from '@/components/layout'
 import { SUB_FULL, SUB_ITEMS } from '@/fragments/subs'
-import Snl from '@/components/snl'
 import FrontpageHeader from '@/components/frontpage-header'
 import { useQuery } from '@apollo/client/react'
 import PageLoading from '@/components/page-loading'
@@ -33,12 +32,7 @@ export default function Sub ({ ssrData }) {
 
   return (
     <Layout sub={sub?.name}>
-      {sub
-        ? <TerritoryHeader sub={sub} />
-        : (
-          <>
-            <Snl />
-          </>)}
+      {sub && <TerritoryHeader sub={sub} />}
       {!sub && !variables.sub && <FrontpageHeader />}
       <Items ssrData={ssrData} variables={variables} rank />
     </Layout>

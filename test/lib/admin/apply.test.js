@@ -157,14 +157,35 @@ const isolated = (() => {
     const rows = await models.snl.findMany()
     try {
       await models.snl.deleteMany()
-      const results = await Promise.allSettled([
-        apply([{ key: 'snl.live', expected: 'false', value: 'true' }]),
-        apply([{ key: 'snl.live', expected: 'false', value: 'true' }])
+      const turnOn = () => apply([
+        { key: 'snl.live', expected: 'false', value: 'true' },
+        { key: 'snl.message', expected: '', value: 'banner is live' }
       ])
+      const results = await Promise.allSettled([turnOn(), turnOn()])
       expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
       expect(results.find(result => result.status === 'rejected').reason.code).toBe('STALE_VALUE')
+      const winner = await models.snl.findFirst()
+      expect(winner.live).toBe(true)
+      expect(winner.message).toBe('banner is live')
       await apply([{ key: 'snl.live', expected: 'true', value: 'false' }])
       expect((await models.snl.findFirst()).live).toBe(false)
+    } finally {
+      await models.snl.deleteMany()
+      if (rows.length) await models.snl.createMany({ data: rows })
+    }
+  })
+
+  test('turning the banner on from a missing row succeeds when a message is provided', async () => {
+    const rows = await models.snl.findMany()
+    try {
+      await models.snl.deleteMany()
+      await apply([
+        { key: 'snl.live', expected: 'false', value: 'true' },
+        { key: 'snl.message', expected: '', value: 'banner is live' }
+      ])
+      const row = await models.snl.findFirst()
+      expect(row.live).toBe(true)
+      expect(row.message).toBe('banner is live')
     } finally {
       await models.snl.deleteMany()
       if (rows.length) await models.snl.createMany({ data: rows })

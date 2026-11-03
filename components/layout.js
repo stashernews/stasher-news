@@ -8,6 +8,7 @@ import Search from './search'
 import styles from './layout.module.css'
 import PullToRefresh from './pull-to-refresh'
 import WalletWarning from './wallet-warning'
+import AnnouncementBanner from './announcement-banner'
 
 export default function Layout ({
   sub, contain = true, footer = true, footerLinks = true,
@@ -21,10 +22,11 @@ export default function Layout ({
       {contain
         ? (
           <Container as={PullToRefresh} className={`px-sm-0 ${styles.contain} ${containClassName}`}>
+            <AnnouncementBanner />
             {children}
           </Container>
           )
-        : children}
+        : <><AnnouncementBanner />{children}</>}
       {footer && <Footer links={footerLinks} />}
       {!hideMobileNav && <NavFooter sub={sub} />}
     </>

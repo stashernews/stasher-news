@@ -5,7 +5,7 @@ export default gql`
   type AdminField {
     key: String!, store: String!, section: String!, group: String!, label: String!
     type: String!, min: String, max: String, help: String!, takesEffect: String!
-    options: [String!], unit: String, value: String!, effectiveValue: String!
+    options: [String!], unit: String, maxLength: Int, value: String!, effectiveValue: String!
     source: String!, locked: Boolean!, lockReason: String, effectiveReason: String
     rolloutMode: Boolean!, experimental: Boolean!
   }

@@ -10,7 +10,7 @@ export function createAdminClient (fetch) {
 
 export const DASHBOARD = gql`
   query AdminDashboard {
-    adminSections { id label order kind groups fields { key store section group label type min max help takesEffect options unit value effectiveValue source locked lockReason effectiveReason rolloutMode experimental } }
+    adminSections { id label order kind groups fields { key store section group label type min max help takesEffect options unit maxLength value effectiveValue source locked lockReason effectiveReason rolloutMode experimental } }
     adminOverview
     adminTreasury
     adminAccess { key label pass detail checkedAt }
