@@ -23,7 +23,6 @@ const REWARDS_WALLET = gql`
       reconciliationCheckedAt
       reconciliationEvidenceCurrent
       opsUnderfunded
-      outstandingRewards
       inflowMix {
         downvoteBps
         postingFeeBps
@@ -45,7 +44,6 @@ const REWARDS_WALLET = gql`
     rewardsPoolHealth {
       status
       runway
-      curatorShareBps
       distributionCount
       payoutCount
       curatorCount
@@ -115,19 +113,9 @@ function formatMultipleOrDash (multBps) {
 
 export { DEFAULT_DRAWDOWN_WEEKS } from '@/lib/curatorBudgetCopy'
 
-function shareOrDash (bps) {
-  return bps == null ? '—' : formatShare(bps)
-}
-
 // One decimal, rounded down, so 99.6% never reads as a clean 100%.
 function deliveredShare (bps) {
   return bps == null ? '—' : `${Math.floor(bps / 10) / 10}%`
-}
-
-const OUTSTANDING_LABELS = {
-  NONE: { text: 'none owed', className: 'text-success' },
-  COVERED: { text: 'covered', className: 'text-success' },
-  UNCOVERED: { text: 'not covered', className: 'text-danger' }
 }
 
 // The pie palette from components/charts.js, without pulling in recharts.
@@ -227,7 +215,6 @@ export default function Transparency ({ ssrData }) {
   const budget = dat.curatorBudget
   const isDynamicBudget = budget?.mode === 'ACTIVE'
   const targetMultiple = budget?.targetMultBps == null ? '1.5×' : formatMultipleOrDash(budget.targetMultBps)
-  const outstanding = OUTSTANDING_LABELS[w.outstandingRewards] ?? OUTSTANDING_LABELS.NONE
 
   return (
     <Layout footerLinks>
@@ -264,12 +251,6 @@ export default function Transparency ({ ssrData }) {
               sub={health.status ? '4-week average' : 'after the second distribution'}
             />
             <Stat label='Runway' value={runwayLabel(health.runway) ?? '—'} sub='at the current 4-week rate' />
-            <Stat label='Paid to curators' value={shareOrDash(health.curatorShareBps)} sub='of 4-week rewards income' />
-            <Stat
-              label='Rewards owed'
-              value={<span className={outstanding.className}>{outstanding.text}</span>}
-              sub='undelivered payouts vs. the ledger balance'
-            />
           </div>
           {w.balanceNeedsReconciliation && (
             <div className='alert alert-warning mt-3 mb-0'>
