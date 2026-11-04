@@ -26,6 +26,7 @@
 }
 
 .linkBoxParent :global(.upvoteParent),
+.linkBoxParent :global(.downvoteArrow),
 .linkBoxParent :global(.pointer),
 .linkBoxParent a,
 .linkBoxParent form,

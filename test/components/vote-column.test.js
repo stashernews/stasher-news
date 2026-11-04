@@ -16,6 +16,7 @@ import { act } from 'react'
 import { parseHTML } from 'linkedom'
 import fs from 'fs'
 import path from 'path'
+import postcss from 'postcss'
 import VoteColumn from '@/components/vote-column'
 import DownvoteModal from '@/components/downvote-modal'
 
@@ -115,6 +116,24 @@ describe('VoteColumn', () => {
     expect(node.type).toBe(DownvoteModal)
     expect(node.props.item).toEqual({ id: '1', mine: false })
 
+    await act(async () => { root.unmount() })
+  })
+
+  it('allows pointer interaction with the downvote inside a clickable feed row', async () => {
+    const root = await renderVoteColumn()
+    container.className = 'linkBoxParent'
+    const downvote = container.querySelector('[aria-label="downvote"]')
+    const css = fs.readFileSync(path.join(process.cwd(), 'components/link-to-context.module.css'), 'utf8')
+    let pointerEventsEnabled = false
+
+    postcss.parse(css).walkRules(rule => {
+      if (!rule.nodes.some(node => node.prop === 'pointer-events' && node.value === 'auto')) return
+      const selectors = rule.selector.replace(/:global\(([^)]+)\)/g, '$1')
+      if (downvote.matches(selectors)) pointerEventsEnabled = true
+    })
+
+    expect(pointerEventsEnabled).toBe(true)
+    container.className = ''
     await act(async () => { root.unmount() })
   })
 
