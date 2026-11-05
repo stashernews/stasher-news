@@ -206,7 +206,7 @@ function parseAddressTxs (raw) {
  *
  * `options.addressTxsMode` is a LOCAL contract statement, never derived from
  * remote JSON: 'full' means /get_address_txs returns complete history in one
- * response (pinned v1.0.4), so callers may skip the second full-history fetch;
+ * response (pinned v1.0.5), so callers may skip the second full-history fetch;
  * 'unknown' (default) keeps that fallback. Revisit when changing the backend.
  *
  * @param {object} [options]
@@ -292,7 +292,7 @@ export function createLwsClient (options = {}) {
   /**
    * Primary indexer poll (reorg-safe incremental fetch).
    * `account` is a MoneroAccount row with its viewKey relation included.
-   * The since_* fields are sent for forward compatibility; pinned v1.0.4
+   * The since_* fields are sent for forward compatibility; pinned v1.0.5
    * ignores them and returns full history (see addressTxsMode).
    * @returns {Promise<{blockchain_height: number, total_received: BigInt, transactions: object[]}>}
    */
@@ -358,13 +358,11 @@ export function createLwsClient (options = {}) {
   /** Admin: roll the given accounts back to `height` and re-scan them.
    * Rolls back the accounts' stored output/spend rows above `height`
    * (storage::rescan -> change_height -> rollback_outputs/spends) so the
-   * next scan pass re-inserts them from the chain. WRONG-PID REPAIR
-   * procedure: rescan the RECIPIENT address
-   * ONLY — during the re-scan just that account is below tip, so IT
-   * decrypts the tx's encrypted payment id with its own derivation and
-   * the re-stored row carries the CORRECT pid (webhooks + get_address_txs
-   * agree again). Rescanning sender AND recipient TOGETHER replays the
-   * shared-derivation bug: whichever account scans first wins again. */
+   * next scan pass re-inserts them from the chain. On v1.0.4 and earlier,
+   * wrong-PID repair must rescan the RECIPIENT ONLY: scanning sender and
+   * recipient together can replay the shared-derivation bug. v1.0.5 fixes
+   * that scan-order dependency, but upgrading does not repair previously
+   * stored payment IDs. Historical repair requires a separate rescan. */
   async function rescanAccounts (addresses, height) {
     return request(`${adminUrl}/rescan`, { height, addresses }, { admin: true })
   }
@@ -418,5 +416,5 @@ export function createLwsClient (options = {}) {
 
 // Singleton: constructed once at module load from env config. The web layer
 // receives it via Apollo context; the worker imports it directly. 'full'
-// records the pinned v1.0.4 contract — revisit on a backend change.
+// records the pinned v1.0.5 contract — revisit on a backend change.
 export const lwsClient = createLwsClient({ addressTxsMode: 'full' })

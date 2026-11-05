@@ -4,7 +4,7 @@ import { keccak256 } from 'js-sha3'
 // Encrypted payment-id decryption with the RECIPIENT's view key (lws
 // decrypt_payment_id parity) — the wrong-pid recovery fallback.
 //
-// monero-lws (0.3 and 1.0.x alike) scans every tx against ALL registered
+// monero-lws through v1.0.4 scans every tx against ALL registered
 // accounts in ONE pass and shares a single `payment_id` variable across the
 // account loop: the FIRST account whose output matches the tx decrypts the
 // 8-byte encrypted payment id with ITS derivation, and those bytes are stored
@@ -15,6 +15,9 @@ import { keccak256 } from 'js-sha3'
 // reset re-orders into (the reset re-sorts accounts at the rolled-back height)
 // — lws serves the SENDER-side decryption to the recipient: webhooks keyed on
 // the issued pid never fire and get_address_txs rows carry the wrong pid.
+// v1.0.5 decrypts independently per account for new scans; upgrading alone
+// does not rewrite historical output rows. Keep recovery for those rows and
+// the cryptographic helpers used by receipt verification.
 //
 // This module recomputes the pid OUR side: fetch the raw tx from monerod,
 // parse the tx-extra, derive Hs(8·a·R) with the recipient's PRIVATE view key

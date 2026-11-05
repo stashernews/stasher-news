@@ -1,4 +1,4 @@
-FROM ghcr.io/vtnerd/monero-lws:v1.0.4@sha256:1f9a7eceb84b8a681a58378800e251a2356f9fb7947632bf0e7f0a2fa2e3348b
+FROM ghcr.io/vtnerd/monero-lws:v1.0.5@sha256:00ec69a43c6efc1d074e7d618363f08c163463054e1629db3145dca772b23dc3
 
 USER root
 
