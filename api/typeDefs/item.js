@@ -51,7 +51,7 @@ export default gql`
     act(id: ID!, piconeros: BigInt, act: String): PayIn!
     # Exact-credit boost redemption: spends the caller's held boost
     # credit on one of their own live posts (rank-only promo weight).
-    useBoostCredit(itemId: ID!, rewardId: ID!): Item!
+    useBoostCredit(itemId: ID!, rewardIds: [ID!], rewardId: ID @deprecated(reason: "use rewardIds")): Item!
     pollVote(id: ID!, sendProtocolId: Int): PayIn!
     updateCommentsViewAt(id: ID!, meCommentsViewedAt: Date!): Date
   }

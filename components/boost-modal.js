@@ -11,7 +11,7 @@ import { useAnimation } from './animation'
 import { useToast } from './toast'
 import { useMe } from './me'
 import { canUseBoostCreditOnItem } from '@/lib/boost-credit'
-import { BOOST_CREDIT_PICONEROS } from '@/lib/quests'
+import { BOOST_CREDIT_PICONEROS, MAX_BANKED_BOOSTS } from '@/lib/quests'
 import { piconerosToMXmr, piconerosToMXmrDual, piconerosToXmr, xmrToPiconeros } from '@/lib/format'
 import { BOOST_MIN } from '@/lib/constants'
 import BoostIcon from '@/svgs/arrow-up-double-line.svg'
@@ -30,8 +30,8 @@ const MAX_TIMER_MS = 2 ** 31 - 5
 // only the fields we claim (never applying every cached ItemFieldType) keeps the
 // write small and safe. The paid path keeps its own FeeObservation poll.
 export const USE_BOOST_CREDIT_MUTATION = gql`
-  mutation useBoostCredit($itemId: ID!, $rewardId: ID!) {
-    useBoostCredit(itemId: $itemId, rewardId: $rewardId) {
+  mutation useBoostCredit($itemId: ID!, $rewardIds: [ID!]!) {
+    useBoostCredit(itemId: $itemId, rewardIds: $rewardIds) {
       id
       promoBoostPiconeros
       status
@@ -51,15 +51,13 @@ const PAY_IN_QUERY = gql`
 export const BOOST_CREDIT_SUCCESS_TITLE = 'boost credit applied'
 export const PROMO_RANKING_DISCLAIMER = 'promotional ranking only; no XMR payment and no rewards-pool contribution'
 
-// Pure credit-availability predicate for the modal's offer: one unconsumed,
-// unexpired credit, and the item must be the viewer's own eligible live post.
-// `now` is passed in so expiry can be re-checked against the modal's clock.
-export const isCreditUsable = (item, me, now) => {
-  if (!item || !me) return false
-  const creditId = me?.privates?.boostCreditId
-  const expiresAt = me?.privates?.boostCreditExpiresAt
-  return creditId != null && Number.isFinite(Date.parse(expiresAt)) &&
-    Date.parse(expiresAt) > now && canUseBoostCreditOnItem(item, me?.id)
+// Pure credit-availability read for the modal's offer: the unconsumed, unexpired
+// credits, earliest expiry first, when the item is the viewer's own eligible
+// live post. `now` is passed in so expiry can be re-checked against the modal's
+// clock.
+export const usableCredits = (item, me, now) => {
+  if (!item || !me || !canUseBoostCreditOnItem(item, me?.id)) return []
+  return (me?.privates?.boostCredits ?? []).filter(({ expiresAt }) => Date.parse(expiresAt) > now)
 }
 
 // Pure expiry-timer delay: milliseconds until the credit expires, clamped to
@@ -88,9 +86,10 @@ export default function BoostModal ({ item, onClose }) {
   const [submitting, setSubmitting] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [creditApplied, setCreditApplied] = useState(false)
+  const [creditCount, setCreditCount] = useState(1)
 
   // the redemption an earlier attempt may have consumed without this client
-  // ever seeing the response: only an explicit retry re-uses that exact id —
+  // ever seeing the response: only an explicit retry re-uses those exact ids —
   // a refreshed ME must never silently swap in a newly earned credit
   const lostCreditRef = useRef(null)
   const [lostCredit, setLostCredit] = useState(null)
@@ -125,7 +124,9 @@ export default function BoostModal ({ item, onClose }) {
     }
   }, [])
 
-  const expiresAt = me?.privates?.boostCreditExpiresAt
+  const credits = usableCredits(item, me, now)
+  const selectedCount = Math.min(creditCount, credits.length)
+  const expiresAt = credits[0]?.expiresAt
 
   // one clamped timer per computed delay: a future expiry hides the offer on
   // its own; visibilitychange/focus above re-loop it after background stalls
@@ -172,14 +173,14 @@ export default function BoostModal ({ item, onClose }) {
     }
   }, [actor, item.id, amount, toaster])
 
-  // shared credit submission; called with the exact reward id captured BEFORE
-  // any await so a ME refresh landing mid-request cannot change it
-  const submitCredit = useCallback(async (rewardId) => {
+  // shared credit submission; called with the exact reward ids captured BEFORE
+  // any await so a ME refresh landing mid-request cannot change them
+  const submitCredit = useCallback(async (rewardIds) => {
     if (submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
     try {
-      await redeemCredit({ variables: { itemId: item.id, rewardId } })
+      await redeemCredit({ variables: { itemId: item.id, rewardIds } })
       setLostCreditLocked(null)
       setCreditApplied(true)
       animate()
@@ -197,9 +198,9 @@ export default function BoostModal ({ item, onClose }) {
         refreshMe?.()?.catch?.(() => {})
       } else {
         // no server verdict: the redemption may still have committed. lock new
-        // credit and paid submissions behind an explicit retry of THIS id
+        // credit and paid submissions behind an explicit retry of THESE ids
         // (refresh ME so the offer reflects state, but never auto-substitute)
-        setLostCreditLocked({ rewardId, message })
+        setLostCreditLocked({ rewardIds, message })
         refreshMe?.()?.catch?.(() => {})
       }
     } finally {
@@ -212,19 +213,19 @@ export default function BoostModal ({ item, onClose }) {
     if (submittingRef.current || lostCreditRef.current) return
     // re-check eligibility at click time (the offer may be stale); the server
     // remains authoritative either way
-    const creditId = me?.privates?.boostCreditId
-    if (creditId == null || !isCreditUsable(item, me, Date.now())) {
+    const available = usableCredits(item, me, Date.now())
+    if (available.length === 0) {
       refreshMe?.()?.catch?.(() => {})
       return
     }
-    await submitCredit(creditId)
-  }, [me, item, submitCredit, refreshMe])
+    await submitCredit(available.slice(0, Math.min(creditCount, available.length)).map(({ id }) => id))
+  }, [me, item, creditCount, submitCredit, refreshMe])
 
   const onRetryCredit = useCallback(async () => {
     if (submittingRef.current) return
-    const rewardId = lostCreditRef.current?.rewardId
-    if (rewardId == null) return
-    await submitCredit(rewardId)
+    const rewardIds = lostCreditRef.current?.rewardIds
+    if (rewardIds == null) return
+    await submitCredit(rewardIds)
   }, [submitCredit])
 
   // Poll the PayIn's feeObserved flag: the rewardsWalletObserver records the
@@ -275,7 +276,7 @@ export default function BoostModal ({ item, onClose }) {
                 <div className='border rounded p-2 mb-3'>
                   <p className='mb-2 text-warning'>
                     <small>
-                      no confirmation for your boost credit — the redemption may still have gone through.
+                      no confirmation for your boost credits — the redemption may still have gone through.
                       new credits and paid boosts stay locked until this exact attempt is retried.
                     </small>
                   </p>
@@ -284,18 +285,33 @@ export default function BoostModal ({ item, onClose }) {
                   </Button>
                 </div>
               )}
-            {isCreditUsable(item, me, now) && !lostCredit &&
+            {credits.length > 0 && !lostCredit &&
               (
                 <div className='border rounded p-2 mb-3'>
                   <div className='fw-bold'>
-                    boost credit
+                    {credits.length === 1 ? 'boost credit' : `${credits.length} boost credits`}
                   </div>
                   <div>
-                    worth {piconerosToMXmr(BigInt(BOOST_CREDIT_PICONEROS))}, expires {new Date(expiresAt).toLocaleString()}
+                    worth {piconerosToMXmr(BOOST_CREDIT_PICONEROS)} each, {credits.length === 1 ? 'expires' : 'next expires'} {new Date(expiresAt).toLocaleString()}
                   </div>
                   <div className='text-muted'><small>{PROMO_RANKING_DISCLAIMER}</small></div>
+                  {credits.length > 1 &&
+                    <div className='d-flex gap-2 mt-2' role='group' aria-label='boost credits to use'>
+                      {credits.map((credit, i) => (
+                        <Button
+                          key={credit.id}
+                          size='sm'
+                          type='button'
+                          variant={i + 1 === selectedCount ? 'success' : 'secondary'}
+                          aria-pressed={i + 1 === selectedCount}
+                          onClick={() => setCreditCount(i + 1)}
+                        >
+                          {i + 1}
+                        </Button>
+                      ))}
+                    </div>}
                   <Button variant='success' type='button' disabled={submitting} onClick={onUseCredit} className='mt-2'>
-                    use boost credit
+                    use {selectedCount === 1 ? 'boost credit' : `${selectedCount} boost credits`} · {piconerosToMXmr(BOOST_CREDIT_PICONEROS * BigInt(selectedCount))}
                   </Button>
                 </div>
               )}
@@ -347,8 +363,9 @@ export function BoostHelp () {
       <li>30% of boost funds the weekly curator rewards, 70% supports the platform</li>
       <li>Boosted items can be downvoted to reduce their rank</li>
       <li>
-        A quest boost credit buys paid-boost ranking on your own live post without
-        sending XMR: {PROMO_RANKING_DISCLAIMER}, and it expires
+        Quest boost credits buy paid-boost ranking on your own live post without
+        sending XMR: {PROMO_RANKING_DISCLAIMER}. You can spend up to {MAX_BANKED_BOOSTS} at
+        once, and each one expires
       </li>
     </ol>
   )

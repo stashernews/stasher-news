@@ -2,7 +2,9 @@ import { Fragment, useEffect, useState } from 'react'
 import classNames from 'classnames'
 import { useMe } from './me'
 import { BadgeTooltip } from './badge'
-import { ladderCopyFor, QUEST, QUEST_REPLY_REWARDS, questTitle } from '@/lib/quests'
+import FlameLevel from './flame-level'
+import { flameTierAccent } from '@/lib/flame-tiers'
+import { flameTierForWeek, isFlameUpWeek, ladderCopyFor, QUEST, QUEST_REPLY_REWARDS, questTitle } from '@/lib/quests'
 
 // Daily quests module. Rendered ONLY on the
 // viewer's own profile. Every flame day carries a
@@ -24,7 +26,9 @@ export default function QuestsModule () {
   // tooltip); the card only calls out the shield, which is invisible elsewhere.
   const shield = p.goldFlame
   const held = [shield && 'flame shield active'].filter(Boolean)
-  const boostCredit = p.boostCreditId != null
+  const boostCredits = p.boostCredits?.length ?? 0
+  const tier = p.flameTier
+  const markers = markersFor(week)
 
   return (
     <div className='quests-module'>
@@ -48,9 +52,9 @@ export default function QuestsModule () {
         </span>
       </div>
 
-      <div className={classNames('qm-flame', gold && 'gold')}>
+      <div className={classNames('qm-flame', gold && 'gold')} style={flameTierAccent(tier) ?? undefined}>
         <BadgeTooltip overlayText='the flame is earned by completing your daily ops. keep it alive to earn a perk every day.'>
-          <div className='qm-flab'><b>flame</b> · {day === 0 ? 'not started' : `day ${day}, week ${week}`}</div>
+          <div className='qm-flab'>{tier && <><FlameLevel tier={tier} height={18} /> </>}<b>flame</b> · {day === 0 ? 'not started' : `day ${day}, week ${week}`}</div>
         </BadgeTooltip>
         <div className='qm-days'>
           {DAYS.map((day, i) => (
@@ -58,7 +62,7 @@ export default function QuestsModule () {
               {i > 0 && <span className={classNames('qm-conn', day <= litThrough && 'on')} />}
               <BadgeTooltip overlayText={ladderCopyFor(day, week)}>
                 <span className={classNames('qm-dc', day <= litThrough && 'on', day === today && 'today')}>
-                  <span className={classNames('qm-mk', day <= litThrough && 'on')}>{markersFor(week)[day]}</span>
+                  <span className={classNames('qm-mk', day <= litThrough && 'on')}>{markers[day]}</span>
                   <span className='qm-dot'>{day}</span>
                 </span>
               </BadgeTooltip>
@@ -70,7 +74,7 @@ export default function QuestsModule () {
       <BadgeTooltip overlayText={<SuppliesTooltip p={p} />}>
         <div className='qm-sup'>
           <b>{p.freeCommentsLeft}</b> {p.freeCommentsLeft === 1 ? 'reply' : 'replies'} · <b>{p.freePostsLeft}</b> {p.freePostsLeft === 1 ? 'post' : 'posts'}
-          {boostCredit && <> · <b>1</b> boost</>}
+          {boostCredits > 0 && <> · <b>{boostCredits}</b> {boostCredits === 1 ? 'boost' : 'boosts'}</>}
           {held.length > 0 && <span className='qm-hl'> · {held.join(' · ')}</span>}
         </div>
       </BadgeTooltip>
@@ -89,22 +93,22 @@ const Chat = () => (
 const Flame = () => (
   <svg viewBox='0 0 12 12' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M6 1.2C7.4 3.4 9.2 4.6 9.2 7a3.2 3.2 0 0 1-6.4 0C2.8 5.6 3.9 4.6 4.7 3.7c.3 1 .8 1.6 1.4 2C6.2 4.5 6.2 2.6 6 1.2Z' /></svg>
 )
-// Day 5 (odd weeks) / day 2 (even weeks) is the boost-credit rung: same
+// Days 2 and 6 are the boost-credit rungs: same
 // double-chevron as the platform's boost glyph (BoostIcon /
 // svgs/arrow-up-double-line.svg), redrawn at marker scale — markers are
 // stroke-only (styles/stealth-theme.scss forces fill:none).
 const Boost = () => (
   <svg viewBox='0 0 12 12' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M2.5 6.75L6 3.25l3.5 3.5M2.5 10.5L6 7l3.5 3.5' /></svg>
 )
-// Week-parity markers, mirroring the ladder sets in lib/quests: even weeks
-// move the boost chevron to day 2, the post glyph to day 5, and a reply glyph
-// to day 6.
-const MARKERS_ODD = { 1: <Chat />, 2: <Doc />, 3: <Chat />, 4: <Flame />, 5: <Boost />, 6: <Doc />, 7: '%' }
-const MARKERS_EVEN = { 1: <Chat />, 2: <Boost />, 3: <Chat />, 4: <Flame />, 5: <Doc />, 6: <Chat />, 7: '%' }
+// Week-parity markers, mirroring the ladder sets in lib/quests: odd weeks
+// put a reply on day 3 and a post on day 7, even weeks a post on day 3 and the
+// turf discount on day 7, and level-up weeks that week's flame on day 7.
+const MARKERS_ODD = { 1: <Chat />, 2: <Boost />, 3: <Chat />, 4: <Flame />, 5: <Chat />, 6: <Boost />, 7: <Doc /> }
+const MARKERS_EVEN = { 1: <Chat />, 2: <Boost />, 3: <Doc />, 4: <Flame />, 5: <Chat />, 6: <Boost />, 7: '%' }
 
-/** The seven ladder markers for a 1-based flame week (odd weeks keep the
- * original set; even weeks swap the day-2/5/6 glyphs). */
+/** The seven ladder markers for a 1-based flame week. */
 export function markersFor (week) {
+  if (isFlameUpWeek(week)) return { ...MARKERS_EVEN, 7: <FlameLevel tier={flameTierForWeek(week)} height={15} /> }
   return week % 2 === 1 ? MARKERS_ODD : MARKERS_EVEN
 }
 
@@ -139,8 +143,10 @@ export function suppliesTooltip (p) {
   return [
     `${p.freeCommentsLeft} free ${p.freeCommentsLeft === 1 ? 'reply' : 'replies'} left.`,
     `${p.freePostsLeft} free ${p.freePostsLeft === 1 ? 'post' : 'posts'} left.`,
-    p.boostCreditId != null && '1 boost credit.',
-    p.goldFlame && 'your golden flame absorbs a missed day, keeping your streak alive.'
+    p.boostCredits?.length > 0 && `${p.boostCredits.length} boost ${p.boostCredits.length === 1 ? 'credit' : 'credits'}.`,
+    p.flameTier
+      ? 'your level two flame absorbs two missed days, keeping your streak alive.'
+      : p.goldFlame && 'your golden flame absorbs a missed day, keeping your streak alive.'
   ].filter(Boolean)
 }
 

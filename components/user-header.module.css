@@ -46,3 +46,14 @@
     color: var(--bs-light);
     border-radius: 0 .25rem 0 0;
 }
+.bestFlame {
+  margin: 8px 0 0 -7px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  gap: 4px;
+}
+.bestFlame small {
+  line-height: 1;
+}

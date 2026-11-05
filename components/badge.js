@@ -2,6 +2,7 @@ import { Fragment } from 'react'
 import OverlayTrigger from 'react-bootstrap/OverlayTrigger'
 import Tooltip from 'react-bootstrap/Tooltip'
 import FlameIcon from '@/svgs/flame.svg'
+import FlameLevel from './flame-level'
 import VerifiedIcon from '@/svgs/verified.svg'
 import AnonIcon from '@/svgs/spy-fill.svg'
 import BotIcon from '@/svgs/robot-2-fill.svg'
@@ -25,7 +26,7 @@ export default function Badges ({ user, badge, bot, className = 'ms-1', badgeCla
 
   return (
     <span className={classNames(className, 'd-inline-flex align-items-center justify-content-center')}>
-      {badges.map(({ icon, overlayText, sizeDelta, style }, i) => (
+      {badges.map(({ icon, iconProps, overlayText, sizeDelta, style }, i) => (
         <SNBadge
           key={i}
           user={user}
@@ -33,6 +34,7 @@ export default function Badges ({ user, badge, bot, className = 'ms-1', badgeCla
           overlayText={overlayText}
           badgeClassName={classNames(badgeClassName, i > 0 && spacingClassName)}
           IconForBadge={icon}
+          iconProps={iconProps}
           height={height}
           width={width}
           sizeDelta={sizeDelta}
@@ -53,10 +55,13 @@ export function buildBadges (user, { bot = false } = {}) {
   const streak = user.optional?.streak ?? null
   if (streak !== null) {
     const gold = !!user.optional?.goldFlame
+    const tier = user.optional?.flameTier ?? null
+    const flameName = tier ? ', level two flame' : gold ? ', golden flame' : ''
     badges.push({
-      icon: FlameIcon,
+      icon: tier ? FlameLevel : FlameIcon,
+      iconProps: tier ? { tier, quiet: true } : undefined,
       overlayText: streak
-        ? `${numWithUnits(streak, { abbreviate: false, unitSingular: 'day', unitPlural: 'days' })} quest streak${gold ? ', golden flame' : ''}`
+        ? `${numWithUnits(streak, { abbreviate: false, unitSingular: 'day', unitPlural: 'days' })} quest streak${flameName}`
         : 'new quest streak',
       style: { color: gold ? 'var(--gold, #ffd166)' : '#ff6e6e' }
     })
@@ -67,7 +72,7 @@ export function buildBadges (user, { bot = false } = {}) {
   return badges.length === 0 ? null : badges
 }
 
-function SNBadge ({ user, badge, overlayText, badgeClassName, IconForBadge, height = 16, width = 16, sizeDelta = 0, style }) {
+function SNBadge ({ user, badge, overlayText, badgeClassName, IconForBadge, iconProps, height = 16, width = 16, sizeDelta = 0, style }) {
   let Wrapper = Fragment
 
   if (overlayText) {
@@ -78,7 +83,7 @@ function SNBadge ({ user, badge, overlayText, badgeClassName, IconForBadge, heig
 
   return (
     <Wrapper>
-      <span className='d-inline-flex align-items-center justify-content-center' style={style}><IconForBadge className={badgeClassName} height={height + sizeDelta} width={width + sizeDelta} /></span>
+      <span className='d-inline-flex align-items-center justify-content-center' style={style}><IconForBadge className={badgeClassName} height={height + sizeDelta} width={width + sizeDelta} {...iconProps} /></span>
     </Wrapper>
   )
 }

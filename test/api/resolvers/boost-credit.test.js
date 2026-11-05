@@ -1,8 +1,8 @@
 /* eslint-env jest */
 import { PrismaClient } from '@prisma/client'
 import { canUseBoostCreditOnItem } from '@/lib/boost-credit'
-import { BOOST_CREDIT_PICONEROS } from '@/lib/quests'
-import { availableBoostCredit } from '@/api/quests/boost-credit'
+import { BOOST_CREDIT_PICONEROS, MAX_BANKED_BOOSTS } from '@/lib/quests'
+import { availableBoostCredits } from '@/api/quests/boost-credit'
 import { useBoostCredit } from '@/api/resolvers/boost-credit'
 import { getItemResult } from '@/api/payIn/lib/item'
 import { readRewardsInflow } from '@/api/monero/rewardsInflow'
@@ -131,7 +131,7 @@ async function makeItemCreatePayIn (itemId, payerId) {
 // The suite's resolver entry point: the exported resolver with the plain
 // getItemResult reader (the same raw shape pay-in writes return).
 const redeem = (userId, itemId, rewardId) =>
-  useBoostCredit(null, { itemId: String(itemId), rewardId: String(rewardId) }, {
+  useBoostCredit(null, { itemId: String(itemId), rewardIds: [].concat(rewardId).map(String) }, {
     me: { id: userId },
     models: prisma,
     headers: {},
@@ -263,7 +263,7 @@ describe('useBoostCredit (real DB redemption)', () => {
     const credit = await makeCredit(userId)
     const me = meOverrides.apiKey ? { id: userId, apiKey: true } : undefined
 
-    await expect(useBoostCredit(null, { itemId: String(post.id), rewardId: String(credit.id) }, {
+    await expect(useBoostCredit(null, { itemId: String(post.id), rewardIds: [String(credit.id)] }, {
       me,
       models: prisma,
       headers: {},
@@ -300,7 +300,7 @@ describe('useBoostCredit (real DB redemption)', () => {
 
     await expect(useBoostCredit(null, {
       itemId: field === 'itemId' ? value : '7',
-      rewardId: field === 'rewardId' ? value : '7'
+      rewardIds: [field === 'rewardId' ? value : '7']
     }, {
       me: { id: userId }, models, headers: {}, readItem: async () => null
     })).rejects.toThrow(new RegExp(`invalid ${field}`))
@@ -383,7 +383,7 @@ describe('useBoostCredit (real DB redemption)', () => {
     const credit = await makeCredit(userId)
     const wallBefore = await readPost(post.id)
 
-    const item = await itemResolvers.Mutation.useBoostCredit(null, { itemId: String(post.id), rewardId: String(credit.id) }, {
+    const item = await itemResolvers.Mutation.useBoostCredit(null, { itemId: String(post.id), rewardIds: [String(credit.id)] }, {
       me: { id: userId }, models: prisma, headers: {}
     })
     expect(item.id).toBe(post.id)
@@ -405,7 +405,7 @@ describe('useBoostCredit (real DB redemption)', () => {
     const second = await makeCredit(userId)
     await prisma.streakReward.update({ where: { id: first.id }, data: { expiresAt: new Date(0) } })
     await redeem(userId, post.id, first.id)
-    expect((await readPost(post.id)).promoBoostPiconeros).toBe(500_000_000n)
+    expect((await readPost(post.id)).promoBoostPiconeros).toBe(BOOST_CREDIT_PICONEROS)
     expect((await prisma.streakReward.findUnique({ where: { id: second.id } })).consumedAt).toBeNull()
   })
 
@@ -451,7 +451,7 @@ describe('useBoostCredit (real DB redemption)', () => {
       }
     })
 
-    await expect(useBoostCredit(null, { itemId: String(post.id), rewardId: String(credit.id) }, {
+    await expect(useBoostCredit(null, { itemId: String(post.id), rewardIds: [String(credit.id)] }, {
       me: { id: userId },
       models: faulty,
       headers: {},
@@ -505,15 +505,15 @@ describe('useBoostCredit (real DB redemption)', () => {
     expect([postA.id, postB.id]).toContain(reward.itemId)
   })
 
-  test('Promise.allSettled: a concurrent day-5 grant and redemption never leaves two available credits', async () => {
+  test('Promise.allSettled: a concurrent rung grant and redemption settle under one lock', async () => {
     const userId = await makeUser()
     const post = await makePost(userId)
     const held = await makeCredit(userId)
     const streak = await prisma.streak.create({
-      data: { userId, type: 'FLAME', startedAt: new Date('2026-01-01T00:00:00.000Z'), rewardLevel: 4 }
+      data: { userId, type: 'FLAME', startedAt: new Date('2026-01-01T00:00:00.000Z'), rewardLevel: 5 }
     })
     created.streakIds.push(streak.id)
-    await prisma.user.update({ where: { id: userId }, data: { streak: 4 } })
+    await prisma.user.update({ where: { id: userId }, data: { streak: 5 } })
 
     const settled = await Promise.allSettled([
       advanceQuestStreak({ models: prisma, userId, day: '2026-01-02' }),
@@ -526,11 +526,11 @@ describe('useBoostCredit (real DB redemption)', () => {
     const available = rows.filter(r => !r.consumedAt && r.expiresAt > new Date())
     expect(consumed).toHaveLength(1)
     expect(consumed[0].itemId).toBe(post.id)
-    // the banked cap of one is enforced under the same per-user lock in both orders:
-    // at most one credit is ever available, and the reader agrees with the rows
-    expect(available.length).toBeLessThanOrEqual(1)
-    const read = await availableBoostCredit(prisma, userId)
-    expect(read ? [read.id] : []).toEqual(available.map(r => r.id))
+    // the bank is written under the same per-user lock in both orders, and the
+    // reader agrees with the rows
+    expect(available.length).toBeLessThanOrEqual(MAX_BANKED_BOOSTS)
+    const read = await availableBoostCredits(prisma, userId)
+    expect(read.map(r => r.id).sort()).toEqual(available.map(r => r.id).sort())
   })
 
   // The property under test: expiry is adjudicated by the wall-clock read
@@ -580,7 +580,68 @@ describe('useBoostCredit (real DB redemption)', () => {
     expect(reward.consumedAt).toBeNull()
     expect(reward.itemId).toBeNull()
     expect((await readPost(post.id)).promoBoostPiconeros).toBe(0n)
-    expect(await availableBoostCredit(prisma, userId)).toBeNull()
+    expect(await availableBoostCredits(prisma, userId)).toEqual([])
+  })
+
+  describe('several credits', () => {
+    const credits = async (userId, count) => {
+      const rows = []
+      for (let i = 0; i < count; i++) rows.push(await makeCredit(userId))
+      return rows
+    }
+    const spent = async ids => prisma.streakReward.count({ where: { id: { in: ids }, consumedAt: { not: null } } })
+
+    test.each([1, 2, 3, 4])('redeeming %i credits adds that much weight in one step', async count => {
+      const userId = await makeUser()
+      const post = await makePost(userId)
+      const ids = (await credits(userId, count)).map(c => c.id)
+      await redeem(userId, post.id, ids)
+      expect((await readPost(post.id)).promoBoostPiconeros).toBe(BOOST_CREDIT_PICONEROS * BigInt(count))
+      expect(await spent(ids)).toBe(count)
+    })
+
+    test.each([
+      ['no ids', () => []],
+      ['more than a full bank', () => ['1', '2', '3', '4', '5']],
+      ['a repeated id', () => ['7', '7']]
+    ])('%s is rejected before any database access', async (_label, ids) => {
+      const models = new Proxy({}, { get: (_t, prop) => { throw new Error(`db probe reached: ${String(prop)}`) } })
+      await expect(useBoostCredit(null, { itemId: '7', rewardIds: ids() }, {
+        me: { id: await makeUser() }, models, headers: {}, readItem: async () => null
+      })).rejects.toThrow(/invalid rewardIds/)
+    })
+
+    test.each([
+      ['an expired credit', async userId => makeCredit(userId, { expiresAt: new Date(Date.now() - 1000), grantedAt: new Date(Date.now() - 86_400_000) })],
+      ['a foreign credit', async () => makeCredit(await makeUser())]
+    ])('%s in the set spends none of them', async (_label, bad) => {
+      const userId = await makeUser()
+      const post = await makePost(userId)
+      const good = await credits(userId, 2)
+      const ids = [...good.map(c => c.id), (await bad(userId)).id]
+      await expect(redeem(userId, post.id, ids)).rejects.toThrow(UNAVAILABLE)
+      expect(await spent(good.map(c => c.id))).toBe(0)
+      expect((await readPost(post.id)).promoBoostPiconeros).toBe(0n)
+    })
+
+    test('a full replay succeeds without adding weight again', async () => {
+      const userId = await makeUser()
+      const post = await makePost(userId)
+      const ids = (await credits(userId, 3)).map(c => c.id)
+      await redeem(userId, post.id, ids)
+      await redeem(userId, post.id, ids)
+      expect((await readPost(post.id)).promoBoostPiconeros).toBe(BOOST_CREDIT_PICONEROS * 3n)
+    })
+
+    test('a set only part spent is rejected and spends nothing more', async () => {
+      const userId = await makeUser()
+      const post = await makePost(userId)
+      const [first, second] = await credits(userId, 2)
+      await redeem(userId, post.id, first.id)
+      await expect(redeem(userId, post.id, [first.id, second.id])).rejects.toThrow(UNAVAILABLE)
+      expect(await spent([second.id])).toBe(0)
+      expect((await readPost(post.id)).promoBoostPiconeros).toBe(BOOST_CREDIT_PICONEROS)
+    })
   })
 
   test('rejects a valid but nonexistent item without touching the credit', async () => {
@@ -777,59 +838,49 @@ describe('redemption accounting invariants', () => {
 })
 
 describe('UserPrivates boost credit fields', () => {
-  const ROW = { id: 7, expiresAt: new Date('2026-11-04T05:00:00.000Z') }
-  const privatesModels = row => ({ $queryRaw: jest.fn(async () => (row ? [row] : [])) })
+  const ROWS = [{ id: 7, expiresAt: new Date('2026-11-04T05:00:00.000Z') }, { id: 8, expiresAt: new Date('2026-11-05T05:00:00.000Z') }]
+  const privatesModels = rows => ({ $queryRaw: jest.fn(async () => rows) })
   const user = { id: 5 }
 
-  test('both fields derive from the same available row', async () => {
-    const models = privatesModels(ROW)
-    expect(await userResolvers.UserPrivates.boostCreditId(user, {}, { models, me: { id: 5 } })).toBe(7)
-    expect(await userResolvers.UserPrivates.boostCreditExpiresAt(user, {}, { models, me: { id: 5 } }))
-      .toEqual(ROW.expiresAt)
+  test('lists every available credit for the owner', async () => {
+    const models = privatesModels(ROWS)
+    expect(await userResolvers.UserPrivates.boostCredits(user, {}, { models, me: { id: 5 } })).toEqual(ROWS)
   })
 
-  test('no credit reads as null on both fields', async () => {
-    const models = privatesModels(null)
-    expect(await userResolvers.UserPrivates.boostCreditId(user, {}, { models, me: { id: 5 } })).toBeNull()
-    expect(await userResolvers.UserPrivates.boostCreditExpiresAt(user, {}, { models, me: { id: 5 } })).toBeNull()
-  })
-
-  test('both fields await one memoized availability read per request', async () => {
-    // the context object is the per-request cache key (built fresh per request
-    // by pages/api/graphql.js): one read serves both fields
-    const models = privatesModels(ROW)
-    const ctx = { models, me: { id: 5 } }
-    expect(await userResolvers.UserPrivates.boostCreditId(user, {}, ctx)).toBe(7)
-    expect(await userResolvers.UserPrivates.boostCreditExpiresAt(user, {}, ctx)).toEqual(ROW.expiresAt)
-    expect(models.$queryRaw).toHaveBeenCalledTimes(1)
-  })
-
-  test('a grant landing between the two field resolutions cannot mix id and expiry', async () => {
-    // Both fields resolve from the SAME available-credit reader.
-    // The read is taken once at the first field's resolution; a credit landing
-    // after it — every LATER read returns the new row — can never surface as
-    // an id from the old row with an expiry from the new one.
-    const BEFORE = { id: 7, expiresAt: new Date('2026-11-04T05:00:00.000Z') }
-    const AFTER = { id: 8, expiresAt: new Date('2026-11-05T05:00:00.000Z') }
-    let granted = false
-    const models = { $queryRaw: jest.fn(async () => (granted ? [AFTER] : [BEFORE])) }
-    const ctx = { models, me: { id: 5 } }
-    const id = await userResolvers.UserPrivates.boostCreditId(user, {}, ctx)
-    granted = true // the credit lands between the two field resolutions
-    const expiry = await userResolvers.UserPrivates.boostCreditExpiresAt(user, {}, ctx)
-    expect(id).toBe(7)
-    // still the pre-grant row: the second field joined the same memoized read
-    expect(expiry).toEqual(BEFORE.expiresAt)
-    expect(models.$queryRaw).toHaveBeenCalledTimes(1)
+  test('no credit reads as an empty list', async () => {
+    const models = privatesModels([])
+    expect(await userResolvers.UserPrivates.boostCredits(user, {}, { models, me: { id: 5 } })).toEqual([])
   })
 
   test.each([
     ['anonymous', undefined],
     ['foreign', { id: 9 }]
   ])('%s privates never query the ledger', async (_label, me) => {
-    const models = privatesModels(ROW)
-    expect(await userResolvers.UserPrivates.boostCreditId(user, {}, { models, me })).toBeNull()
-    expect(await userResolvers.UserPrivates.boostCreditExpiresAt(user, {}, { models, me })).toBeNull()
+    const models = privatesModels(ROWS)
+    expect(await userResolvers.UserPrivates.boostCredits(user, {}, { models, me })).toEqual([])
     expect(models.$queryRaw).not.toHaveBeenCalled()
+  })
+})
+
+describe('flame fields', () => {
+  const FLAME = { goldActive: true, flameTier: 8 }
+  const flameModels = () => ({ streak: { findFirst: jest.fn(async () => FLAME) } })
+
+  test('gold and tier share one read per user per request', async () => {
+    const ctx = { models: flameModels(), me: null }
+    const user = { id: 5 }
+    expect(await userResolvers.UserOptional.goldFlame(user, {}, ctx)).toBe(true)
+    expect(await userResolvers.UserOptional.flameTier(user, {}, ctx)).toBe(8)
+    expect(ctx.models.streak.findFirst).toHaveBeenCalledTimes(1)
+  })
+
+  test('hideBadges hides the level and best flame from others, not from the owner', async () => {
+    const user = { id: 5, hideBadges: true, bestFlameTier: 12 }
+    const models = flameModels()
+    expect(await userResolvers.UserOptional.flameTier(user, {}, { models, me: { id: 9 } })).toBeNull()
+    expect(await userResolvers.UserOptional.bestFlameTier(user, {}, { models, me: { id: 9 } })).toBeNull()
+    expect(models.streak.findFirst).not.toHaveBeenCalled()
+    expect(await userResolvers.UserOptional.flameTier(user, {}, { models, me: { id: 5 } })).toBe(8)
+    expect(await userResolvers.UserOptional.bestFlameTier(user, {}, { models, me: { id: 5 } })).toBe(12)
   })
 })

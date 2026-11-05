@@ -261,7 +261,7 @@ describe('streak transaction timings', () => {
     expect(fields.transactionMs).toBeGreaterThanOrEqual(SLOW_MS)
     // notification dispatch stays outside the transaction, after commit
     expect(notifyShieldUsed).toHaveBeenCalledTimes(1)
-    expect(notifyShieldUsed).toHaveBeenCalledWith(userId)
+    expect(notifyShieldUsed).toHaveBeenCalledWith(userId, expect.objectContaining({ kind: 'shield' }))
   })
 
   test('a failing missed-day settle logs a failure without the exception text', async () => {

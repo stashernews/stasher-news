@@ -176,6 +176,7 @@ export default gql`
     id: ID!
     sortTime: Date!
     day: Int
+    flameTier: Int
   }
 
   union Notification = Reply | Votification | BountyPayment | Mention

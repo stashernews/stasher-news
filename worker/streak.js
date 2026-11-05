@@ -1,5 +1,5 @@
 import { notifyFlameAdvanced, notifyShieldUsed, notifyStreakLost } from '@/lib/webPush'
-import { cycleDay, ladderRewardForLevel, MAX_BANKED_BOOSTS, MAX_BANKED_POSTS, MAX_BANKED_REPLIES } from '@/lib/quests'
+import { cycleDay, flameTierForLevel, ladderRewardForLevel, MAX_BANKED_BOOSTS, MAX_BANKED_POSTS, MAX_BANKED_REPLIES } from '@/lib/quests'
 import { lockRewardUser, rewardNow } from '@/api/quests/boost-credit'
 import { questDay } from '@/lib/questClock'
 import { logInfo, logWarn } from '@/lib/logger'
@@ -131,7 +131,8 @@ export async function advanceQuestStreak ({ models, userId, day, requirePrevSett
  * simulate a day passing): clearing both quests advances the flame (normally
  * already done by the sweep — this is the backstop for a sweep that recorded
  * the completions but crashed before advancing); a missed day is absorbed by
- * the golden flame shield when it is armed, or ends the streak when it is not.
+ * the flame shield when one is held — a level 2 flame decays to golden, golden
+ * goes back to regular — or ends the streak when none is.
  * `Streak.lastEvaluatedDay` makes re-runs for the same day no-ops. Ladder
  * rewards are granted on advance, idempotently via `Streak.rewardLevel`.
  */
@@ -203,7 +204,10 @@ async function evaluateQuestStreakDay ({ models, day, userIds }) {
           }
 
           await tx.streak.update({ where: { id: streak.id }, data: { lastEvaluatedDay: dayDate } })
-          if (streak.goldActive) {
+          if (streak.flameTier != null) {
+            await tx.streak.update({ where: { id: streak.id }, data: { flameTier: null } })
+            notification = { kind: 'shield', day: cycleDay(current.streak), decayed: true }
+          } else if (streak.goldActive) {
             await tx.streak.update({ where: { id: streak.id }, data: { goldActive: false } })
             notification = { kind: 'shield', day: cycleDay(current.streak) }
           } else {
@@ -226,7 +230,7 @@ async function evaluateQuestStreakDay ({ models, day, userIds }) {
     }
 
     if (notification?.kind === 'advanced') notifyFlameAdvanced(userId, notification).catch(console.error)
-    else if (notification?.kind === 'shield') notifyShieldUsed(userId).catch(console.error)
+    else if (notification?.kind === 'shield') notifyShieldUsed(userId, notification).catch(console.error)
     else if (notification?.kind === 'lost') notifyStreakLost(userId, notification.streak).catch(console.error)
   }
 }
@@ -308,16 +312,28 @@ export async function runScheduledStreak ({ models, createdon, evaluate = evalua
 }
 
 /**
+ * The flame level-up rung. Whatever shield is held, the flame becomes (or
+ * stays) level 2 with the look of this level, and the user's best tier rises
+ * to match.
+ */
+async function grantFlameUp ({ models, userId, streakId, level }) {
+  const tier = flameTierForLevel(level)
+  await models.streak.update({ where: { id: streakId }, data: { goldActive: true, flameTier: tier } })
+  await models.$executeRaw`
+    UPDATE users SET "bestFlameTier" = GREATEST("bestFlameTier", ${tier}::INTEGER)
+    WHERE id = ${userId}::INTEGER`
+}
+
+/**
  * Grant every ungranted ladder level up to `to`. POST and REPLY bank capped
  * credits: grants stop at MAX_BANKED_POSTS / MAX_BANKED_REPLIES
- * (count-before-insert). BOOST banks at most one credit
- * (MAX_BANKED_BOOSTS): the rung — day 5 on odd weeks, day 2 on even weeks —
- * is suppressed while one is held WITHOUT refreshing the held row's expiry,
- * and it re-grants only once that row is consumed or expired; its expiry is
- * exactly 30 real days after granting —
+ * (count-before-insert). BOOST banks up to MAX_BANKED_BOOSTS credits: the
+ * rungs on days 2 and 6 are suppressed at the cap WITHOUT refreshing any held
+ * row's expiry, and re-grant only once a row is consumed or expired; each
+ * expiry is exactly 30 real days after granting —
  * never a calendar month, never a compressed quest day. TURF_DISCOUNT stays
- * non-stacking (suppressed while one is held). The goldflame rung arms the
- * golden flame shield instead of granting a ledger row. The marker advances
+ * non-stacking (suppressed while one is held). The goldflame and flameup rungs
+ * change the flame shield instead of granting a ledger row. The marker advances
  * even when a reward is suppressed, so the next cycle re-attempts on its own
  * day.
  *
@@ -337,13 +353,17 @@ export async function grantLadderRewards ({ models, userId, streak, from, to }) 
       await models.streak.update({ where: { id: streak.id }, data: { goldActive: true } })
       continue
     }
+    if (kind === 'flameup') {
+      await grantFlameUp({ models, userId, streakId: streak.id, level })
+      granted.push({ level, kind })
+      continue
+    }
     const type = REWARD_TYPE[kind]
     if (!type) continue // flame is cosmetic
     if (type === 'BOOST') {
-      // The boost-credit rung — day 5 on odd flame weeks, day 2 on even weeks:
-      // count available rows under the caller's user lock and stop at the
-      // cap of one — a held credit suppresses this rung without refreshing
-      // its expiry. Unlike POST/REPLY the grant timestamps come from the
+      // The boost-credit rung: count available rows under the caller's user
+      // lock and stop at the cap — a full bank suppresses this rung without
+      // refreshing any expiry. Unlike POST/REPLY the grant timestamps come from the
       // database wall clock, and must be sampled AFTER
       // acquiring locks: the caller's row lock may have parked through a
       // long wait, and now_utc() would stay frozen at the transaction's

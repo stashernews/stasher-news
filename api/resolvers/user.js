@@ -8,7 +8,7 @@ import { questDay, questResetsAt } from '@/lib/questClock'
 import { resolveDraw } from '@/api/quests/draw'
 import { completionsFor } from '@/api/quests/completions'
 import { territoryFeePrivatesFor } from '@/api/monero/territoryFee'
-import { resolveBoostCreditAvailability } from '@/api/quests/boost-credit'
+import { availableBoostCredits } from '@/api/quests/boost-credit'
 import { bioSchema, settingsSchema, validateSchema, userSchema } from '@/lib/validate'
 import { getItem, updateItem, filterClause, createItem, whereClause, muteClause, activeOrMine, payInJoinFilter } from './item'
 import { USER_ID, PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES, SN_SYSTEM_ONLY_IDS } from '@/lib/constants'
@@ -1088,31 +1088,24 @@ export default {
       user.streak == null ? 0 : flamePosition(user.streak, (await questStateFor(models, user)).questsCompleted === 2).day,
     flameWeek: async (user, args, { models }) =>
       user.streak == null ? 0 : flamePosition(user.streak, (await questStateFor(models, user)).questsCompleted === 2).week,
-    goldFlame: async (user, args, { models }) => {
-      const streak = await models.streak.findFirst({
-        where: { userId: user.id, type: 'FLAME', endedAt: null },
-        select: { goldActive: true }
-      })
-      return streak?.goldActive ?? false
-    },
+    goldFlame: async (user, args, ctx) => (await activeFlame(ctx, user.id))?.goldActive ?? false,
+    flameTier: async (user, args, ctx) => (await activeFlame(ctx, user.id))?.flameTier ?? null,
     turfDiscountHeld: async (user, args, { models }) => heldReward(models, user.id, 'TURF_DISCOUNT'),
-    // Day-5 boost credit view.
-    // Both fields await ONE per-request availability read: the context object
-    // is built fresh per request (pages/api/graphql.js), so it is a safe
-    // memoization key — unlike the process-wide `models` client — and
-    // resolveBoostCreditAvailability caches the promise on it. A grant landing
-    // between the two field resolutions can therefore never mix an id from one
-    // row with an expiry from another — both fields resolve from the same
-    // available-credit reader — and the read issues once per request. The
-    // explicit identity guard below is what keeps a foreign request from ever
+    // The explicit identity guard is what keeps a foreign request from ever
     // reaching the ledger (no foreign leakage).
-    boostCreditId: async (user, args, ctx) => {
-      if (String(ctx.me?.id) !== String(user.id)) return null
-      return (await resolveBoostCreditAvailability(ctx, user.id))?.id ?? null
+    boostCredits: async (user, args, { me, models }) => {
+      if (String(me?.id) !== String(user.id)) return []
+      return await availableBoostCredits(models, user.id)
     },
-    boostCreditExpiresAt: async (user, args, ctx) => {
-      if (String(ctx.me?.id) !== String(user.id)) return null
-      return (await resolveBoostCreditAvailability(ctx, user.id))?.expiresAt ?? null
+    // deprecated single-credit aliases over boostCredits: the earliest-expiring
+    // held credit, caller-owned only, null when the bank is empty
+    boostCreditId: async (user, args, { me, models }) => {
+      if (String(me?.id) !== String(user.id)) return null
+      return (await availableBoostCredits(models, user.id))[0]?.id ?? null
+    },
+    boostCreditExpiresAt: async (user, args, { me, models }) => {
+      if (String(me?.id) !== String(user.id)) return null
+      return (await availableBoostCredits(models, user.id))[0]?.expiresAt ?? null
     },
     questResetsAt: () => questResetsAt(),
     freePostCount: (user) => {
@@ -1158,16 +1151,26 @@ export default {
 
       return user.streak
     },
-    goldFlame: async (user, args, { models, me }) => {
-      if (user.hideBadges && (!me || me.id !== user.id)) {
+    goldFlame: async (user, args, ctx) => {
+      if (user.hideBadges && (!ctx.me || ctx.me.id !== user.id)) {
         return false
       }
 
-      const streak = await models.streak.findFirst({
-        where: { userId: user.id, type: 'FLAME', endedAt: null },
-        select: { goldActive: true }
-      })
-      return streak?.goldActive ?? false
+      return (await activeFlame(ctx, user.id))?.goldActive ?? false
+    },
+    flameTier: async (user, args, ctx) => {
+      if (user.hideBadges && (!ctx.me || ctx.me.id !== user.id)) {
+        return null
+      }
+
+      return (await activeFlame(ctx, user.id))?.flameTier ?? null
+    },
+    bestFlameTier: async (user, args, { me }) => {
+      if (user.hideBadges && (!me || me.id !== user.id)) {
+        return null
+      }
+
+      return user.bestFlameTier
     },
     hasWallet: async (user, args, { models, me }) => {
       if (!await isVerifiedBadgeEnabled(models)) return false
@@ -1315,6 +1318,21 @@ async function questStateFor (models, user) {
     drawnComplete: !!done[draw.drawn],
     questsCompleted: [draw.upvote, draw.drawn].filter(q => done[q]).length
   }
+}
+
+// One read per user per request serves every flame field, so a feed costs one
+// query per author however many fields it selects. The context object is built
+// fresh per request (pages/api/graphql.js), so it is a safe memoization key —
+// unlike the process-wide `models` client.
+function activeFlame (ctx, userId) {
+  ctx.activeFlames ??= new Map()
+  if (!ctx.activeFlames.has(userId)) {
+    ctx.activeFlames.set(userId, ctx.models.streak.findFirst({
+      where: { userId, type: 'FLAME', endedAt: null },
+      select: { goldActive: true, flameTier: true }
+    }))
+  }
+  return ctx.activeFlames.get(userId)
 }
 
 async function heldReward (models, userId, type) {

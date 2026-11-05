@@ -15,6 +15,7 @@ import HandCoin from '@/svgs/hand-coin-fill.svg'
 import UserAdd from '@/svgs/user-add-fill.svg'
 import { LOST_BLURBS, FOUND_BLURBS, PAY_IN_ACT_TYPES } from '@/lib/constants'
 import FlameIcon from '@/svgs/flame.svg'
+import FlameLevel from './flame-level'
 import VerifiedIcon from '@/svgs/verified.svg'
 import { RootProvider } from './root'
 import Alert from 'react-bootstrap/Alert'
@@ -29,7 +30,7 @@ import { LongCountdown } from './countdown'
 import { nextBillingWithGrace } from '@/lib/territory'
 import { commentSubTreeRootId } from '@/lib/item'
 import { COPY } from '@/lib/rebrand-copy'
-import { questTitle, QUEST_REPLY_REWARDS } from '@/lib/quests'
+import { FLAME_UP_COPY, questTitle, QUEST_REPLY_REWARDS } from '@/lib/quests'
 import LinkToContext from './link-to-context'
 import { Badge, Button } from 'react-bootstrap'
 import { useToast } from './toast'
@@ -253,10 +254,14 @@ function FlameDay ({ n }) {
   const gold = n.day >= 4
   return (
     <div className='d-flex'>
-      <div style={{ fontSize: '2rem' }}><FlameIcon style={{ color: gold ? 'var(--gold, #ffd166)' : '#ff6e6e' }} height={40} width={40} /></div>
+      <div style={{ fontSize: '2rem' }}>
+        {n.flameTier
+          ? <FlameLevel tier={n.flameTier} height={40} />
+          : <FlameIcon style={{ color: gold ? 'var(--gold, #ffd166)' : '#ff6e6e' }} height={40} width={40} />}
+      </div>
       <div className='ms-1 p-1'>
         <span className='fw-bold'>{n.day ? `flame · day ${n.day}` : 'flame advanced'}</span>
-        <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{FLAME_DAY_COPY[n.day] ?? 'you cleared both daily ops'}</small></div>
+        <div><small style={{ lineHeight: '140%', display: 'inline-block' }}>{n.flameTier ? FLAME_UP_COPY : FLAME_DAY_COPY[n.day] ?? 'you cleared both daily ops'}</small></div>
       </div>
     </div>
   )

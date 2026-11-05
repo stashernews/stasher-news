@@ -34,9 +34,12 @@ ${STREAK_FIELDS}
       flameCycleDay
       flameWeek
       goldFlame
+      flameTier
       turfDiscountHeld
-      boostCreditId
-      boostCreditExpiresAt
+      boostCredits {
+        id
+        expiresAt
+      }
       questResetsAt
       freePostCount
       freePostsLeft
@@ -190,6 +193,7 @@ export const USER_FIELDS = gql`
       stacked
       stashAmountHidden
       maxStreak
+      bestFlameTier
       isContributor
       githubId
       nostrAuthPubkey

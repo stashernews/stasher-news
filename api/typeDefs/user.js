@@ -121,6 +121,11 @@ export default gql`
     enabled: [String!]!
   }
 
+  type BoostCredit {
+    id: ID!
+    expiresAt: Date!
+  }
+
   type UserPrivates {
     """
     extremely sensitive
@@ -139,13 +144,21 @@ export default gql`
     flameCycleDay: Int!
     flameWeek: Int!
     goldFlame: Boolean!
+    flameTier: Int
     turfDiscountHeld: Boolean!
 
     """
-    the held flame boost credit, if one is available (unconsumed, unexpired)
+    the held flame boost credits (unconsumed, unexpired), earliest expiry first
     """
-    boostCreditId: ID
-    boostCreditExpiresAt: Date
+    boostCredits: [BoostCredit!]!
+
+    """
+    single-credit view of boostCredits, kept so clients built before the
+    multi-credit rework keep validating until they reload; resolves to the
+    earliest-expiring held credit, or null when the bank is empty
+    """
+    boostCreditId: ID @deprecated(reason: "use boostCredits")
+    boostCreditExpiresAt: Date @deprecated(reason: "use boostCredits")
     questResetsAt: Date!
     freePostCount: Int!
     freePostsLeft: Int!
@@ -223,6 +236,8 @@ export default gql`
     stashAmountHidden: Boolean!
     streak: Int
     goldFlame: Boolean!
+    flameTier: Int
+    bestFlameTier: Int
     hasWallet: Boolean
     maxStreak: Int
     isContributor: Boolean

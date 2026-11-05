@@ -34,44 +34,22 @@ export async function rewardNow (tx) {
 }
 
 /**
- * The user's single available BOOST credit, if one is held (pure read, no
- * lock): unconsumed and not yet expired. Deterministic ordering — earliest
- * expiry first, then lowest id — so callers cannot race over "which" credit
- * is available. Rows already consumed or expired do not count, which is what
- * lets a fresh boost rung re-grant after the held one is spent or runs out.
- * Does not open a transaction implicitly.
+ * The user's available BOOST credits (pure read, no lock): unconsumed and not
+ * yet expired. Deterministic ordering — earliest expiry first, then lowest id —
+ * so a partial spend always uses the credits closest to expiring. Rows already
+ * consumed or expired do not count, which is what lets a boost rung re-grant
+ * below the cap after a held credit is spent or runs out. Does not open a
+ * transaction implicitly.
  *
  * @param {Object} models - Prisma client or transaction client
  * @param {number} userId
- * @returns {Promise<{id: number, expiresAt: Date}|null>} available credit row, or null
+ * @returns {Promise<Array<{id: number, expiresAt: Date}>>} available credit rows
  */
-export async function availableBoostCredit (models, userId) {
-  const rows = await models.$queryRaw`
+export async function availableBoostCredits (models, userId) {
+  return await models.$queryRaw`
     SELECT id, "expiresAt" FROM "StreakReward"
     WHERE "userId" = ${userId}::INTEGER AND type = 'BOOST'::"StreakRewardType"
       AND "consumedAt" IS NULL
       AND "expiresAt" > (clock_timestamp() AT TIME ZONE 'UTC')
-    ORDER BY "expiresAt", id LIMIT 1`
-  return rows[0] ?? null
-}
-
-/**
- * Per-request memoized availability read for the two UserPrivates fields. Both
- * resolve from the same available-credit reader. The
- * GraphQL context object is built fresh per request by pages/api/graphql.js
- * (a plain object literal), so it is a safe cache key — unlike `models`,
- * which is a process-wide PrismaClient shared by every request. Memoizing
- * the PROMISE means both fields await one read, so a grant landing between
- * the two field resolutions can never surface an id from one row and an
- * expiry from another (or id without expiry). Callers must apply the
- * self-only identity guard BEFORE this helper runs, so at most one user id
- * per request can reach it.
- *
- * @param {Object} ctx - per-request GraphQL context ({ models, ... })
- * @param {number} userId
- * @returns {Promise<{id: number, expiresAt: Date}|null>} available credit row, or null
- */
-export function resolveBoostCreditAvailability (ctx, userId) {
-  ctx.boostCreditAvailability ??= availableBoostCredit(ctx.models, userId)
-  return ctx.boostCreditAvailability
+    ORDER BY "expiresAt", id`
 }

@@ -92,6 +92,7 @@ export const NOTIFICATIONS = gql`
           id
           sortTime
           day
+          flameTier
         }
         ... on Bulletinification {
           id

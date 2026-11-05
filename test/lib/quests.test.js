@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { QUEST, QUEST_POOL, BOOST_QUEST_LAST_DAY, utcDay, drawFor, cycleDay, flamePosition, ladderRewardForLevel, ladderCopyFor, questTitle, QUEST_REPLY_REWARDS, MAX_BANKED_REPLIES, BOOST_CREDIT_PICONEROS, BOOST_CREDIT_EXPIRY_DAYS, MAX_BANKED_BOOSTS } from '@/lib/quests'
+import { QUEST, QUEST_POOL, BOOST_QUEST_LAST_DAY, utcDay, drawFor, cycleDay, flamePosition, ladderRewardForLevel, flameTierForLevel, flameTierForWeek, flameUpTierForLevel, isFlameUpWeek, FLAME_TOP_TIER, ladderCopyFor, questTitle, QUEST_REPLY_REWARDS, MAX_BANKED_REPLIES, BOOST_CREDIT_PICONEROS, BOOST_CREDIT_EXPIRY_DAYS, MAX_BANKED_BOOSTS } from '@/lib/quests'
 
 // The first day the drawn quest can no longer be BOOST (the cutover itself).
 // Falls back to an ancient date so a missing constant fails assertions below
@@ -58,10 +58,10 @@ test('cycleDay wraps 1..7 and is null without a streak', () => {
   expect(cycleDay(9)).toBe(2)
 })
 
-test('the ladder pays a reply at day 3, the shield at day 4, and a boost at day 5', () => {
+test('the ladder pays a reply at day 3, the shield at day 4, and a reply at day 5', () => {
   expect(ladderRewardForLevel(3)).toBe('reply')
   expect(ladderRewardForLevel(4)).toBe('goldflame')
-  expect(ladderRewardForLevel(5)).toBe('boost')
+  expect(ladderRewardForLevel(5)).toBe('reply')
   expect(ladderRewardForLevel(11)).toBe('goldflame') // week 2 day 4 re-arms
 })
 
@@ -79,24 +79,45 @@ test('the card shows the current cycle day and week', () => {
 })
 
 test('ladderRewardForLevel maps total days through the cycle and the week parity', () => {
-  // week 1 (odd): the original set
-  expect(ladderRewardForLevel(1)).toBe('reply')
-  expect(ladderRewardForLevel(2)).toBe('post')
-  expect(ladderRewardForLevel(3)).toBe('reply')
-  expect(ladderRewardForLevel(4)).toBe('goldflame')
-  expect(ladderRewardForLevel(5)).toBe('boost')
-  expect(ladderRewardForLevel(6)).toBe('post')
-  expect(ladderRewardForLevel(7)).toBe('turfdiscount')
-  expect(ladderRewardForLevel(8)).toBe('reply') // cycle restarts
-  // week 2 (even): day 2 a boost credit, day 5 a post, day 6 a reply
-  expect(ladderRewardForLevel(9)).toBe('boost') // week 2 day 2
-  expect(ladderRewardForLevel(12)).toBe('post') // week 2 day 5
-  expect(ladderRewardForLevel(13)).toBe('reply') // week 2 day 6
-  // week 3 (odd): the original set returns
-  expect(ladderRewardForLevel(16)).toBe('post') // week 3 day 2
-  expect(ladderRewardForLevel(19)).toBe('boost') // week 3 day 5
-  // week 4 (even) swaps again
-  expect(ladderRewardForLevel(23)).toBe('boost') // week 4 day 2
+  const week = start => [1, 2, 3, 4, 5, 6, 7].map(d => ladderRewardForLevel(start + d))
+  const odd = ['reply', 'boost', 'reply', 'goldflame', 'reply', 'boost', 'post']
+  const even = ['reply', 'boost', 'post', 'goldflame', 'reply', 'boost', 'turfdiscount']
+  const fourth = ['reply', 'boost', 'post', 'goldflame', 'reply', 'boost', 'flameup']
+  expect(week(0)).toEqual(odd)
+  expect(week(7)).toEqual(even)
+  expect(week(14)).toEqual(odd)
+  expect(week(21)).toEqual(fourth)
+  expect(week(35)).toEqual(even) // week 6
+  expect(week(49)).toEqual(fourth) // week 8
+})
+
+test('a level-up earns its flame week, held at the top tier', () => {
+  expect(flameTierForLevel(28)).toBe(4)
+  expect(flameTierForLevel(56)).toBe(8)
+  expect(flameTierForLevel(364)).toBe(FLAME_TOP_TIER)
+  expect(flameTierForLevel(392)).toBe(FLAME_TOP_TIER)
+  expect(flameTierForWeek(4)).toBe(4)
+  expect(flameTierForWeek(56)).toBe(FLAME_TOP_TIER)
+})
+
+test('only level-up rungs carry a flame tier', () => {
+  expect(flameUpTierForLevel(28)).toBe(4)
+  expect(flameUpTierForLevel(56)).toBe(8)
+  expect(flameUpTierForLevel(392)).toBe(FLAME_TOP_TIER)
+  expect(flameUpTierForLevel(0)).toBeNull()
+  expect(flameUpTierForLevel(7)).toBeNull()
+  expect(flameUpTierForLevel(27)).toBeNull()
+  expect(flameUpTierForLevel(35)).toBeNull()
+})
+
+test('day 7 of a fourth week reads as the level-up, every other day as its rung', () => {
+  expect(ladderCopyFor(7, 4)).toBe('flame shield +1UP')
+  expect(ladderCopyFor(7, 8)).toBe('flame shield +1UP')
+  expect(ladderCopyFor(7, 1)).toBe('day 7 · +1 free post')
+  expect(ladderCopyFor(7, 2)).toBe('day 7 · turf creation discount')
+  expect(ladderCopyFor(3, 4)).toBe('day 3 · +1 free post')
+  expect(isFlameUpWeek(4)).toBe(true)
+  expect(isFlameUpWeek(6)).toBe(false)
 })
 
 test('quest copy keeps the drawn quests readable', () => {
@@ -139,23 +160,21 @@ test('rev 4 copy: the day 1 tooltip reads free reply, em-dash free', () => {
   }
 })
 
-test('the boost credit rung is day 5 on odd weeks and day 2 on even weeks: amount, exact expiry, cap, and tooltips', () => {
-  // The strength of the paid 0.5 mXMR boost, as rank-only promo units.
-  expect(BOOST_CREDIT_PICONEROS).toBe(500_000_000n)
+test('the boost credit rungs are days 2 and 6 every week: amount, exact expiry, cap, and tooltips', () => {
+  // The strength of a paid 0.25 mXMR boost, as rank-only promo units.
+  expect(BOOST_CREDIT_PICONEROS).toBe(250_000_000n)
   // Exactly 30 days after grant — never a calendar month, never a compressed
   // quest day (the expiry is pinned again against the DB in
   // test/api/quests/boost-credit.test.js).
   expect(BOOST_CREDIT_EXPIRY_DAYS).toBe(30)
-  // Non-stacking: a held credit suppresses the rung instead of refreshing.
-  expect(MAX_BANKED_BOOSTS).toBe(1)
-  expect(ladderCopyFor(5, 1)).toBe('day 5 · one boost credit')
-  expect(ladderCopyFor(5, 3)).toBe('day 5 · one boost credit') // odd weeks keep the set
-  expect(ladderCopyFor(2, 2)).toBe('day 2 · one boost credit')
-  // even weeks swap the day-5 and day-6 rungs too: a post, then a reply
-  expect(ladderCopyFor(5, 2)).toBe('day 5 · +1 free post')
-  expect(ladderCopyFor(6, 2)).toBe('day 6 · +1 free reply')
-  expect(ladderCopyFor(2, 1)).toBe('day 2 · +1 free post')
-  expect(ladderCopyFor(6, 1)).toBe('day 6 · +1 free post')
+  // A full bank spends 1 mXMR of rank weight.
+  expect(MAX_BANKED_BOOSTS).toBe(4)
+  expect(BOOST_CREDIT_PICONEROS * BigInt(MAX_BANKED_BOOSTS)).toBe(1_000_000_000n)
+  for (const week of [1, 2, 3, 4]) {
+    expect(ladderCopyFor(2, week)).toBe('day 2 · one boost credit')
+    expect(ladderCopyFor(6, week)).toBe('day 6 · one boost credit')
+    expect(ladderCopyFor(5, week)).toBe('day 5 · +1 free reply')
+  }
 })
 
 test('BOOST_CREDIT_EXPIRY_DAYS is exactly 30 spans of 24 real hours', () => {

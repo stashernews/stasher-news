@@ -69,6 +69,8 @@ model User {
   noteBadges              Boolean              @default(true)
   noteQuests              Boolean              @default(true)
   streak                  Int?
+  // The highest flame tier ever reached. Never decreases; outlives every run.
+  bestFlameTier           Int?
   infected                Boolean              @default(false)
   cured                   Boolean              @default(false)
   subs                    String[]
@@ -247,6 +249,10 @@ model Streak {
   // consumed by a missed day (the run holds at its level). Never carried
   // across runs.
   goldActive Boolean @default(false)
+  // The level 2 flame: the week whose look it earned, null when not level 2.
+  // Only set while goldActive is true. A missed day clears it and leaves
+  // goldActive set, so level 2 absorbs one more missed day than golden.
+  flameTier Int?
   // The last UTC day this run was evaluated for (the guard that makes the
   // daily evaluation idempotent: a re-run for the same day is a no-op).
   lastEvaluatedDay DateTime?

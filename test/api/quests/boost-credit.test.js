@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import { PrismaClient } from '@prisma/client'
-import { lockRewardUser, rewardNow, availableBoostCredit } from '@/api/quests/boost-credit'
+import { lockRewardUser, rewardNow, availableBoostCredits } from '@/api/quests/boost-credit'
 import { grantLadderRewards } from '@/worker/streak'
 import { __setQuestClockForTests } from '@/lib/questClock'
 
@@ -48,7 +48,7 @@ test('rewardNow reads the database wall clock', async () => {
   expect(now.getTime()).toBeLessThanOrEqual(after.getTime())
 })
 
-test('availableBoostCredit returns the earliest available row, ties by id', async () => {
+test('availableBoostCredits lists available rows by expiry, ties by id', async () => {
   const userId = await mkUser()
   await prisma.streakReward.createMany({
     data: [
@@ -62,21 +62,14 @@ test('availableBoostCredit returns the earliest available row, ties by id', asyn
   const tieHigh = await prisma.streakReward.create({ data: { userId, type: 'BOOST', expiresAt: new Date(Date.now() + 2 * 3_600_000) } })
   expect(tieLow.id).toBeLessThan(tieHigh.id)
 
-  const available = await availableBoostCredit(prisma, userId)
-  // ordering is (expiresAt, id): the lone +1h future row wins over the two
-  // later +2h rows
-  expect(available.id).toBe(earliest.id)
-  expect(available.expiresAt.getTime()).toBeGreaterThan(Date.now())
-  expect(available.consumedAt).toBeUndefined() // projection is id + expiresAt only
-
-  // consume it → the next-earliest future row becomes available
-  await prisma.streakReward.update({ where: { id: available.id }, data: { consumedAt: new Date() } })
-  const next = await availableBoostCredit(prisma, userId)
-  // equal expiry ties resolve by id: the earlier row
-  expect(next.id).toBe(tieLow.id)
+  const available = await availableBoostCredits(prisma, userId)
+  // ordering is (expiresAt, id): the lone +1h row first, then the +2h tie by id
+  expect(available.map(row => row.id)).toEqual([earliest.id, tieLow.id, tieHigh.id])
+  expect(available[0].expiresAt.getTime()).toBeGreaterThan(Date.now())
+  expect(available[0].consumedAt).toBeUndefined() // projection is id + expiresAt only
 })
 
-test('availableBoostCredit already excludes a row expiring exactly when read', async () => {
+test('availableBoostCredits already excludes a row expiring exactly when read', async () => {
   const userId = await mkUser()
   // The comparison instant cannot be frozen across two statements, so pin the
   // boundary instead: seed expiresAt = the DB timestamp sampled by the
@@ -87,7 +80,7 @@ test('availableBoostCredit already excludes a row expiring exactly when read', a
     INSERT INTO "StreakReward" ("userId", "grantedAt", "expiresAt", "type")
     VALUES (${userId}::int, now_utc(), now_utc() - interval '1 second', 'BOOST')
     RETURNING id::int AS id`
-  expect(await availableBoostCredit(prisma, userId)).toBeNull()
+  expect(await availableBoostCredits(prisma, userId)).toEqual([])
   expect(boundary.id).not.toBeNull()
 })
 
@@ -118,13 +111,13 @@ test('BOOST expiry stays 30 real days under the compressed quest clock', async (
   const userId = await mkUser()
   const streak = await prisma.streak.create({ data: { userId, type: 'FLAME', startedAt: new Date() } })
   created.streaks.push(streak.id)
-  await prisma.user.update({ where: { id: userId }, data: { streak: 4 } })
+  await prisma.user.update({ where: { id: userId }, data: { streak: 5 } })
   try {
     await prisma.$transaction(async tx => {
       expect(await lockRewardUser(tx, userId)).toBe(true)
-      granted = await grantLadderRewards({ models: tx, userId, streak, from: 4, to: 5 })
+      granted = await grantLadderRewards({ models: tx, userId, streak, from: 5, to: 6 })
     })
-    expect(granted).toEqual([{ level: 5, kind: 'boost' }])
+    expect(granted).toEqual([{ level: 6, kind: 'boost' }])
     const credit = await prisma.streakReward.findFirst({ where: { userId, type: 'BOOST' } })
     expect(credit.expiresAt.getTime() - credit.grantedAt.getTime()).toBe(30 * 86_400_000)
   } finally {
@@ -132,7 +125,7 @@ test('BOOST expiry stays 30 real days under the compressed quest clock', async (
   }
 })
 
-test('a held credit expiring during the user-row lock wait does not suppress the fresh day-5 grant', async () => {
+test('a held credit expiring during the user-row lock wait does not count toward the cap', async () => {
   // Grant-side mirror of the redemption lock-wait case (sample the
   // DB wall clock AFTER acquiring locks). The caller's row lock parks through
   // a long wait, and now_utc() stays frozen at the transaction's BEGIN —
@@ -145,7 +138,7 @@ test('a held credit expiring during the user-row lock wait does not suppress the
   const userId = await mkUser()
   const streak = await prisma.streak.create({ data: { userId, type: 'FLAME', startedAt: new Date() } })
   created.streaks.push(streak.id)
-  await prisma.user.update({ where: { id: userId }, data: { streak: 4 } })
+  await prisma.user.update({ where: { id: userId }, data: { streak: 5 } })
   // the credit is seeded BEFORE the blocker: the StreakReward INSERT takes
   // FOR KEY SHARE on the users row (FK), so seeding behind the held FOR
   // UPDATE would land it already expired and degenerate into the plain
@@ -171,14 +164,14 @@ test('a held credit expiring during the user-row lock wait does not suppress the
   // after the held credit's expiry has passed
   const grant = prisma.$transaction(async tx => {
     if (!await lockRewardUser(tx, userId)) throw new Error('lock lost')
-    return grantLadderRewards({ models: tx, userId, streak, from: 4, to: 5 })
+    return grantLadderRewards({ models: tx, userId, streak, from: 5, to: 6 })
   })
 
   const [blockerResult, grantResult] = await Promise.allSettled([blocker, grant])
   expect(blockerResult.status).toBe('fulfilled')
   expect(grantResult.status).toBe('fulfilled')
   // the rung was not suppressed: the held row expired while the lock parked
-  expect(grantResult.value).toEqual([{ level: 5, kind: 'boost' }])
+  expect(grantResult.value).toEqual([{ level: 6, kind: 'boost' }])
 
   const rows = await prisma.streakReward.findMany({
     where: { userId, type: 'BOOST' },
@@ -200,5 +193,5 @@ test('a held credit expiring during the user-row lock wait does not suppress the
   expect(fresh.grantedAt.getTime()).toBeGreaterThan(expiresAt.getTime())
   // the marker advanced with the grant (the reward is in `granted`, not lost)
   const settled = await prisma.streak.findUnique({ where: { id: streak.id } })
-  expect(settled.rewardLevel).toBe(5)
+  expect(settled.rewardLevel).toBe(6)
 })

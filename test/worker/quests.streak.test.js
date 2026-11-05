@@ -1,7 +1,7 @@
 /* eslint-env jest */
 import { PrismaClient } from '@prisma/client'
 import { advanceQuestStreak, evaluateQuestStreaks } from '@/worker/streak'
-import { utcDay, QUEST, drawFor } from '@/lib/quests'
+import { utcDay, QUEST, drawFor, FLAME_TOP_TIER, MAX_BANKED_BOOSTS } from '@/lib/quests'
 import { sweepQuestCompletions } from '@/worker/quests'
 import { notifyShieldUsed, notifyFlameAdvanced } from '@/lib/webPush'
 
@@ -81,7 +81,7 @@ test('clearing both quests advances and grants the ladder reward for the new lev
   const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
   expect(user.streak).toBe(2)
   const rewards = await prisma.streakReward.findMany({ where: { userId } })
-  expect(rewards.filter(r => r.type === 'POST')).toHaveLength(1)
+  expect(rewards.filter(r => r.type === 'BOOST')).toHaveLength(1)
   const [s] = await prisma.streak.findMany({ where: { userId } })
   expect(s.rewardLevel).toBe(2)
 })
@@ -162,8 +162,10 @@ test('a catch-up grant stops at the cap mid-loop and still advances the marker',
       userId, type: 'POST', expiresAt: new Date(Date.now() + 86_400_000)
     }))
   })
-  await prisma.streakReward.create({
-    data: { userId, type: 'BOOST', grantedAt: new Date(), expiresAt: new Date(Date.now() + 30 * 86_400_000) }
+  await prisma.streakReward.createMany({
+    data: Array.from({ length: MAX_BANKED_BOOSTS }, () => ({
+      userId, type: 'BOOST', grantedAt: new Date(), expiresAt: new Date(Date.now() + 30 * 86_400_000)
+    }))
   })
   await bothCleared(userId)
   await evaluateQuestStreaks({ models: prisma })
@@ -171,7 +173,7 @@ test('a catch-up grant stops at the cap mid-loop and still advances the marker',
   // every rung is suppressed, but the marker and the shield still move
   expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(10)
   expect(await prisma.streakReward.count({ where: { userId, type: 'POST' } })).toBe(5)
-  expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(1)
+  expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(MAX_BANKED_BOOSTS)
   const [s] = await prisma.streak.findMany({ where: { userId } })
   expect(s.rewardLevel).toBe(11)
   expect(s.goldActive).toBe(true)
@@ -342,7 +344,7 @@ test('one broken user does not prevent another user from settling', async () => 
 })
 
 test.each([true, false])('a completion committed after the missed-day snapshot advances without consuming shield=%s', async goldActive => {
-  const userId = await mkUser(4)
+  const userId = await mkUser(5)
   let day = null
   for (let i = 0; i < 30 && !day; i++) {
     const candidate = utcDay(new Date(Date.now() + i * 86_400_000))
@@ -351,7 +353,7 @@ test.each([true, false])('a completion committed after the missed-day snapshot a
   expect(day).not.toBeNull()
   const dayDate = new Date(`${day}T00:00:00Z`)
   const sweepNow = new Date(`${day}T12:00:00Z`)
-  const run = await mkStreak(userId, { rewardLevel: 4, goldActive, lastEvaluatedDay: new Date(dayDate.getTime() - 86_400_000) })
+  const run = await mkStreak(userId, { rewardLevel: 5, goldActive, lastEvaluatedDay: new Date(dayDate.getTime() - 86_400_000) })
   await prisma.streak.update({ where: { id: run.id }, data: { startedAt: new Date(dayDate.getTime() - 2 * 86_400_000) } })
   await prisma.questCompletion.create({ data: { userId, day: dayDate, quest: QUEST.UPVOTE } })
   const [root] = await prisma.$queryRaw`INSERT INTO "Item" ("userId", title, created_at) VALUES (${userId}::int, 'settlement race root', ${sweepNow}) RETURNING id::int AS id`
@@ -387,7 +389,7 @@ test.each([true, false])('a completion committed after the missed-day snapshot a
   await evaluateQuestStreaks(options)
   await evaluateQuestStreaks({ ...options, models: prisma })
   expect(raced).toBe(true)
-  expect((await prisma.user.findUnique({ where: { id: userId } })).streak).toBe(5)
+  expect((await prisma.user.findUnique({ where: { id: userId } })).streak).toBe(6)
   const after = await prisma.streak.findUnique({ where: { id: run.id } })
   expect(after.endedAt).toBeNull()
   expect(after.goldActive).toBe(goldActive)
@@ -397,52 +399,70 @@ test.each([true, false])('a completion committed after the missed-day snapshot a
   expect(notifyFlameAdvanced.mock.calls.filter(([id]) => id === userId)).toHaveLength(1)
 })
 
-// Day-5 boost credit:
-// exactly one held credit, exactly 30 days of expiry, suppression never
-// refreshes the held row, and the marker advances even when suppressed.
+// Boost credit rung: up to MAX_BANKED_BOOSTS held credits, exactly 30 days of
+// expiry, suppression never refreshes a held row, and the marker advances even
+// when suppressed.
 
-test('clearing day 5 grants exactly one BOOST credit expiring in 30 days', async () => {
-  const userId = await mkUser(4)
-  await mkStreak(userId, { rewardLevel: 4 })
+async function seedBoosts (userId, count, data = {}) {
+  const grantedAt = new Date(Date.now() - 3 * 86_400_000)
+  const expiresAt = new Date(grantedAt.getTime() + 30 * 86_400_000)
+  for (let i = 0; i < count; i++) {
+    await prisma.streakReward.create({ data: { userId, type: 'BOOST', grantedAt, expiresAt, ...data } })
+  }
+  return { grantedAt, expiresAt }
+}
+
+test('clearing day 6 grants exactly one BOOST credit expiring in 30 days', async () => {
+  const userId = await mkUser(5)
+  await mkStreak(userId, { rewardLevel: 5 })
   await bothCleared(userId)
   await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
 
   const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
-  expect(user.streak).toBe(5)
+  expect(user.streak).toBe(6)
   const credit = await prisma.streakReward.findFirst({ where: { userId, type: 'BOOST' } })
   expect(credit).not.toBeNull()
   // exact boost expiry: grantedAt-to-expiresAt is 30 spans of 24 real hours
   expect(credit.expiresAt.getTime() - credit.grantedAt.getTime()).toBe(30 * 86_400_000)
   const [s] = await prisma.streak.findMany({ where: { userId } })
-  expect(s.rewardLevel).toBe(5)
+  expect(s.rewardLevel).toBe(6)
   // the advanced notification names the banked boost
   const calls = notifyFlameAdvanced.mock.calls.filter(([id]) => id === userId)
   expect(calls).toHaveLength(1)
   const [, payload] = calls[0]
-  expect(payload.rewards).toEqual([{ level: 5, kind: 'boost' }])
+  expect(payload.rewards).toEqual([{ level: 6, kind: 'boost' }])
 })
 
-test('a held BOOST credit suppresses day 5 without refreshing its expiry', async () => {
-  const userId = await mkUser(4)
-  await mkStreak(userId, { rewardLevel: 4 })
-  const grantedAt = new Date(Date.now() - 3 * 86_400_000)
-  const expiresAt = new Date(grantedAt.getTime() + 30 * 86_400_000)
-  await prisma.streakReward.create({ data: { userId, type: 'BOOST', grantedAt, expiresAt } })
+test('credits below the cap stack: three held still grant a fourth', async () => {
+  const userId = await mkUser(5)
+  await mkStreak(userId, { rewardLevel: 5 })
+  await seedBoosts(userId, MAX_BANKED_BOOSTS - 1)
+  await bothCleared(userId)
+  await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
+  expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(MAX_BANKED_BOOSTS)
+})
+
+test('a full bank suppresses the rung without refreshing any expiry', async () => {
+  const userId = await mkUser(5)
+  await mkStreak(userId, { rewardLevel: 5 })
+  const { grantedAt, expiresAt } = await seedBoosts(userId, MAX_BANKED_BOOSTS)
   await bothCleared(userId)
   await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
 
-  // the rung is suppressed: at most one row, the held one, untouched
+  // the rung is suppressed: only the held rows, untouched
   const rows = await prisma.streakReward.findMany({ where: { userId, type: 'BOOST' } })
-  expect(rows).toHaveLength(1)
-  expect(rows[0].grantedAt.getTime()).toBe(grantedAt.getTime())
-  expect(rows[0].expiresAt.getTime()).toBe(expiresAt.getTime())
-  expect(rows[0].consumedAt).toBeNull()
+  expect(rows).toHaveLength(MAX_BANKED_BOOSTS)
+  for (const row of rows) {
+    expect(row.grantedAt.getTime()).toBe(grantedAt.getTime())
+    expect(row.expiresAt.getTime()).toBe(expiresAt.getTime())
+    expect(row.consumedAt).toBeNull()
+  }
 
   // level and marker still advance (a suppressed rung is not saved for later)
   const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
-  expect(user.streak).toBe(5)
+  expect(user.streak).toBe(6)
   const [s] = await prisma.streak.findMany({ where: { userId } })
-  expect(s.rewardLevel).toBe(5)
+  expect(s.rewardLevel).toBe(6)
   // the notification claims no boost was banked
   const calls = notifyFlameAdvanced.mock.calls.filter(([id]) => id === userId)
   expect(calls).toHaveLength(1)
@@ -450,7 +470,7 @@ test('a held BOOST credit suppresses day 5 without refreshing its expiry', async
   expect(payload.rewards).toEqual([])
 })
 
-test('consumed and expired BOOST rows permit a fresh day-5 grant', async () => {
+test('consumed and expired BOOST rows do not count toward the cap', async () => {
   const seeds = [
     // consumed: spent rows never suppress a future rung
     { expiresAt: new Date(Date.now() + 86_400_000), consumedAt: new Date() },
@@ -458,9 +478,9 @@ test('consumed and expired BOOST rows permit a fresh day-5 grant', async () => {
     { grantedAt: new Date(Date.now() - 40 * 86_400_000), expiresAt: new Date(Date.now() - 86_400_000) }
   ]
   for (const seed of seeds) {
-    const userId = await mkUser(4)
-    await mkStreak(userId, { rewardLevel: 4 })
-    await prisma.streakReward.create({ data: { userId, type: 'BOOST', ...seed } })
+    const userId = await mkUser(5)
+    await mkStreak(userId, { rewardLevel: 5 })
+    await seedBoosts(userId, MAX_BANKED_BOOSTS, seed)
     await bothCleared(userId)
     await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
 
@@ -468,8 +488,8 @@ test('consumed and expired BOOST rows permit a fresh day-5 grant', async () => {
       where: { userId, type: 'BOOST' },
       orderBy: { id: 'desc' }
     })
-    // the rung re-grants a fresh future row next to the spent/expired one
-    expect(rows).toHaveLength(2)
+    // the rung grants a fresh future row next to the spent/expired ones
+    expect(rows).toHaveLength(MAX_BANKED_BOOSTS + 1)
     const fresh = rows[0]
     expect(fresh.consumedAt).toBeNull()
     expect(fresh.expiresAt.getTime()).toBeGreaterThan(Date.now())
@@ -477,146 +497,72 @@ test('consumed and expired BOOST rows permit a fresh day-5 grant', async () => {
   }
 })
 
-// --- week-parity rungs (2026-10-06): odd weeks keep the original set; even
-// weeks swap day 2 (post -> boost), day 5 (boost -> post), day 6 (post -> reply) ---
+// --- week-parity rungs ---
 
-test('week 2 day 2 banks a BOOST credit with the same 30-day expiry', async () => {
-  const userId = await mkUser(8)
-  await mkStreak(userId, { rewardLevel: 8 })
+test('week 1 day 7 banks a post, not a turf discount', async () => {
+  const userId = await mkUser(6)
+  const run = await mkStreak(userId, { rewardLevel: 6 })
   await bothCleared(userId)
   await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
-
-  const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
-  expect(user.streak).toBe(9)
-  const credit = await prisma.streakReward.findFirst({ where: { userId, type: 'BOOST' } })
-  expect(credit).not.toBeNull()
-  // exact boost expiry: grantedAt-to-expiresAt is 30 spans of 24 real hours
-  expect(credit.expiresAt.getTime() - credit.grantedAt.getTime()).toBe(30 * 86_400_000)
-  const [s] = await prisma.streak.findMany({ where: { userId } })
-  expect(s.rewardLevel).toBe(9)
-  // the advanced notification names the banked boost
-  const calls = notifyFlameAdvanced.mock.calls.filter(([id]) => id === userId)
-  expect(calls).toHaveLength(1)
-  const [, payload] = calls[0]
-  expect(payload.rewards).toEqual([{ level: 9, kind: 'boost' }])
+  expect(await prisma.streakReward.count({ where: { userId, type: 'POST', streakId: run.id } })).toBe(1)
+  expect(await prisma.streakReward.count({ where: { userId, type: 'TURF_DISCOUNT' } })).toBe(0)
 })
 
-test('a held BOOST credit suppresses the week-2 day-2 rung without refreshing it', async () => {
-  const userId = await mkUser(8)
-  await mkStreak(userId, { rewardLevel: 8 })
-  const grantedAt = new Date(Date.now() - 3 * 86_400_000)
-  const expiresAt = new Date(grantedAt.getTime() + 30 * 86_400_000)
-  await prisma.streakReward.create({ data: { userId, type: 'BOOST', grantedAt, expiresAt } })
-  await bothCleared(userId)
-  await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
-
-  // the even-week boost rung suppresses exactly like day 5: one held row, untouched
-  const rows = await prisma.streakReward.findMany({ where: { userId, type: 'BOOST' } })
-  expect(rows).toHaveLength(1)
-  expect(rows[0].grantedAt.getTime()).toBe(grantedAt.getTime())
-  expect(rows[0].expiresAt.getTime()).toBe(expiresAt.getTime())
-  // the rung swapped away from post: nothing banked but the held credit
-  expect(await prisma.streakReward.count({ where: { userId, type: 'POST' } })).toBe(0)
-  const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
-  expect(user.streak).toBe(9)
-  const [s] = await prisma.streak.findMany({ where: { userId } })
-  expect(s.rewardLevel).toBe(9)
-})
-
-test('week 2 day 5 banks a post and week 2 day 6 banks a reply', async () => {
-  const userId = await mkUser(12) // marker lags one level: 12 and 13 grant together
-  const run = await mkStreak(userId, { rewardLevel: 11 })
+test('week 2 grants its full set: boost, post, shield, reply, boost, discount', async () => {
+  const userId = await mkUser(13) // marker lags six levels: 9..14 grant together
+  const run = await mkStreak(userId, { rewardLevel: 8 })
   await bothCleared(userId)
   await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
 
   const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
-  expect(user.streak).toBe(13)
-  // level 12 (week 2 day 5) is a post now, and level 13 (week 2 day 6) a reply
+  expect(user.streak).toBe(14)
+  expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST', streakId: run.id } })).toBe(2)
   expect(await prisma.streakReward.count({ where: { userId, type: 'POST', streakId: run.id } })).toBe(1)
   expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY', streakId: run.id } })).toBe(1)
-  expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(0)
+  expect(await prisma.streakReward.count({ where: { userId, type: 'TURF_DISCOUNT', streakId: run.id } })).toBe(1)
   const [s] = await prisma.streak.findMany({ where: { userId } })
-  expect(s.rewardLevel).toBe(13)
-})
-
-test('week 3 returns to the odd rungs: day 2 a post, day 5 a boost credit', async () => {
-  const userId = await mkUser(18) // marker lags four levels: 16..19 grant together
-  await mkStreak(userId, { rewardLevel: 15 })
-  await bothCleared(userId)
-  await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
-
-  const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
-  expect(user.streak).toBe(19)
-  // week 3 is odd again: level 16 (day 2) banks a post, level 17 (day 3) a
-  // reply, level 18 (day 4) arms the shield, level 19 (day 5) a boost credit
-  expect(await prisma.streakReward.count({ where: { userId, type: 'POST' } })).toBe(1)
-  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY' } })).toBe(1)
-  expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(1)
-  const [s] = await prisma.streak.findMany({ where: { userId } })
-  expect(s.rewardLevel).toBe(19)
+  expect(s.rewardLevel).toBe(14)
   expect(s.goldActive).toBe(true)
 })
 
-// --- retroactive safety (2026-10-06 concern): a rung already completed and
-// granted under the old single-set map must never be re-granted, revoked, or
-// re-evaluated when its day remaps — the marker is settled history ---
+// --- retroactive safety: a rung already completed and granted under an older
+// ladder must never be re-granted, revoked, or re-evaluated when its day
+// remaps — the marker is settled history ---
 
-test('an old-map day-5 week-2 BOOST (level 12) stays held when its rung becomes a post', async () => {
-  const userId = await mkUser(13) // the marker already covers 12: granted under the old map
-  const run = await mkStreak(userId, { rewardLevel: 12 })
+test('a settled rung that remaps is neither re-paid nor revoked', async () => {
+  const userId = await mkUser(5) // the marker already covers 5, once a boost, now a reply
+  const run = await mkStreak(userId, { rewardLevel: 5 })
   const grantedAt = new Date(Date.now() - 5 * 86_400_000)
   await prisma.streakReward.create({ data: { userId, type: 'BOOST', streakId: run.id, grantedAt, expiresAt: new Date(grantedAt.getTime() + 30 * 86_400_000) } })
   await bothCleared(userId)
   await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
 
-  // level 12 is settled history: the old grant is neither revoked, refreshed,
-  // duplicated, nor re-paid as a post; only levels 13 (reply) and 14 (turf
-  // discount) grant under the new map
-  const boosts = await prisma.streakReward.findMany({ where: { userId, type: 'BOOST' } })
-  expect(boosts).toHaveLength(1)
+  // level 5 is settled history; only level 6 (a boost) grants
+  const boosts = await prisma.streakReward.findMany({ where: { userId, type: 'BOOST' }, orderBy: { id: 'asc' } })
+  expect(boosts).toHaveLength(2)
   expect(boosts[0].grantedAt.getTime()).toBe(grantedAt.getTime())
-  expect(await prisma.streakReward.count({ where: { userId, type: 'POST', streakId: run.id } })).toBe(0)
-  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY', streakId: run.id } })).toBe(1)
-  expect(await prisma.streakReward.count({ where: { userId, type: 'TURF_DISCOUNT', streakId: run.id } })).toBe(1)
+  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY', streakId: run.id } })).toBe(0)
   const [s] = await prisma.streak.findMany({ where: { userId } })
-  expect(s.rewardLevel).toBe(14)
+  expect(s.rewardLevel).toBe(6)
 })
 
-test('an old-map day-2 week-2 post (level 9) stays banked when its rung becomes a boost', async () => {
-  const userId = await mkUser(10) // the marker already covers 9
-  const run = await mkStreak(userId, { rewardLevel: 9 })
-  await prisma.streakReward.create({ data: { userId, type: 'POST', streakId: run.id, grantedAt: new Date(Date.now() - 5 * 86_400_000), expiresAt: new Date(Date.now() + 25 * 86_400_000) } })
-  await bothCleared(userId)
-  await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
-
-  // level 9 is settled: no retroactive boost for the remapped rung, the old
-  // post stays, and levels 10 (reply) and 11 (day 4, arms the shield) process
-  expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(0)
-  const posts = await prisma.streakReward.findMany({ where: { userId, type: 'POST', streakId: run.id } })
-  expect(posts).toHaveLength(1)
-  expect(await prisma.streakReward.count({ where: { userId, type: 'REPLY', streakId: run.id } })).toBe(1)
-  const [s] = await prisma.streak.findMany({ where: { userId } })
-  expect(s.rewardLevel).toBe(11)
-})
-
-test('a catch-up advance spanning several cycles grants at most one BOOST credit', async () => {
-  const userId = await mkUser(12)
-  await mkStreak(userId, { rewardLevel: 0 }) // marker lags twelve levels back
+test('a catch-up advance spanning several cycles stops at the boost cap', async () => {
+  const userId = await mkUser(20)
+  await mkStreak(userId, { rewardLevel: 0 }) // marker lags twenty levels back
   await bothCleared(userId)
   await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
 
   const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
-  expect(user.streak).toBe(13)
-  // both boost rungs (levels 5 and 9 — week 1 day 5 and week 2 day 2) were
-  // crossed; the cap of one held credit suppresses the second
-  expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(1)
+  expect(user.streak).toBe(21)
+  // six boost rungs were crossed (levels 2, 6, 9, 13, 16, 20); the cap stops them
+  expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(MAX_BANKED_BOOSTS)
   const [s] = await prisma.streak.findMany({ where: { userId } })
-  expect(s.rewardLevel).toBe(13) // the marker advances regardless
+  expect(s.rewardLevel).toBe(21) // the marker advances regardless
 })
 
 test('ending the run does not revoke a banked BOOST credit', async () => {
-  const userId = await mkUser(4)
-  await mkStreak(userId, { rewardLevel: 4 })
+  const userId = await mkUser(5)
+  await mkStreak(userId, { rewardLevel: 5 })
   await bothCleared(userId)
   await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
   expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(1)
@@ -631,9 +577,9 @@ test('ending the run does not revoke a banked BOOST credit', async () => {
 })
 
 test('two concurrent advances for one cleared day grant one BOOST and one notification', async () => {
-  const userId = await mkUser(4)
+  const userId = await mkUser(5)
   const today = utcDay(new Date())
-  await mkStreak(userId, { rewardLevel: 4, lastEvaluatedDay: new Date(`${yesterday}T00:00:00.000Z`) })
+  await mkStreak(userId, { rewardLevel: 5, lastEvaluatedDay: new Date(`${yesterday}T00:00:00.000Z`) })
   await prisma.questCompletion.createMany({
     data: [
       { userId, day: new Date(`${today}T00:00:00.000Z`), quest: QUEST.UPVOTE },
@@ -648,17 +594,17 @@ test('two concurrent advances for one cleared day grant one BOOST and one notifi
   const notifications = [a, b].filter(Boolean)
   // the user lock serializes the writes: exactly one advance wins
   expect(notifications).toHaveLength(1)
-  expect(notifications[0].level).toBe(5)
+  expect(notifications[0].level).toBe(6)
   expect(await prisma.streakReward.count({ where: { userId, type: 'BOOST' } })).toBe(1)
   const [user] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${userId}::int`
-  expect(user.streak).toBe(5)
+  expect(user.streak).toBe(6)
 })
 
 test('concurrent advances for different users stay isolated', async () => {
-  const ids = [await mkUser(4), await mkUser(4)]
+  const ids = [await mkUser(5), await mkUser(5)]
   const today = utcDay(new Date())
   for (const userId of ids) {
-    await mkStreak(userId, { rewardLevel: 4, lastEvaluatedDay: new Date(`${yesterday}T00:00:00.000Z`) })
+    await mkStreak(userId, { rewardLevel: 5, lastEvaluatedDay: new Date(`${yesterday}T00:00:00.000Z`) })
     await prisma.questCompletion.createMany({
       data: [
         { userId, day: new Date(`${today}T00:00:00.000Z`), quest: QUEST.UPVOTE },
@@ -672,9 +618,90 @@ test('concurrent advances for different users stay isolated', async () => {
   )
   // one user's lock never blocks the other's rung
   for (let i = 0; i < ids.length; i++) {
-    expect(notifications[i]?.level).toBe(5)
+    expect(notifications[i]?.level).toBe(6)
     expect(await prisma.streakReward.count({ where: { userId: ids[i], type: 'BOOST' } })).toBe(1)
   }
+})
+
+// --- flame level-up rung and shield decay ---
+
+async function clearLevelUp (level, shield = {}) {
+  const userId = await mkUser(level - 1)
+  const run = await mkStreak(userId, { rewardLevel: level - 1, ...shield })
+  if (shield.flameTier) await prisma.streak.update({ where: { id: run.id }, data: { flameTier: shield.flameTier } })
+  await bothCleared(userId)
+  await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
+  return { userId, run: await prisma.streak.findUnique({ where: { id: run.id } }) }
+}
+
+const bestTier = async userId => (await prisma.user.findUnique({ where: { id: userId } })).bestFlameTier
+
+test('the level-up rung makes a flame with no shield level 2 with that week\'s look', async () => {
+  const { userId, run } = await clearLevelUp(28)
+  expect(run.goldActive).toBe(true)
+  expect(run.flameTier).toBe(4)
+  expect(await bestTier(userId)).toBe(4)
+  const [, payload] = notifyFlameAdvanced.mock.calls.find(([id]) => id === userId)
+  expect(payload.rewards).toEqual([{ level: 28, kind: 'flameup' }])
+})
+
+test('the level-up rung makes a golden flame level 2 with that week\'s look', async () => {
+  const { userId, run } = await clearLevelUp(28, { goldActive: true })
+  expect(run.goldActive).toBe(true)
+  expect(run.flameTier).toBe(4)
+  expect(await bestTier(userId)).toBe(4)
+  const [, payload] = notifyFlameAdvanced.mock.calls.find(([id]) => id === userId)
+  expect(payload.rewards).toEqual([{ level: 28, kind: 'flameup' }])
+})
+
+test('the level-up rung moves a level 2 flame to the new look', async () => {
+  const { userId, run } = await clearLevelUp(56, { goldActive: true, flameTier: 4 })
+  expect(run.flameTier).toBe(8)
+  expect(await bestTier(userId)).toBe(8)
+})
+
+test('a flame past the top tier keeps the top look', async () => {
+  const { run } = await clearLevelUp(392, { goldActive: true, flameTier: 52 })
+  expect(run.flameTier).toBe(FLAME_TOP_TIER)
+})
+
+test('the best tier never drops', async () => {
+  const userId = await mkUser(27)
+  await prisma.user.update({ where: { id: userId }, data: { bestFlameTier: 16 } })
+  await mkStreak(userId, { rewardLevel: 27, goldActive: true })
+  await bothCleared(userId)
+  await evaluateQuestStreaks({ models: prisma, userIds: [userId] })
+  expect(await bestTier(userId)).toBe(16)
+})
+
+test('day 4 leaves a level 2 flame alone', async () => {
+  const { run } = await clearLevelUp(32, { goldActive: true, flameTier: 4 })
+  expect(run.goldActive).toBe(true)
+  expect(run.flameTier).toBe(4)
+})
+
+test('level 2 absorbs two missed days, then the run ends, and the best tier survives', async () => {
+  notifyShieldUsed.mockClear()
+  const userId = await mkUser(30)
+  await prisma.user.update({ where: { id: userId }, data: { bestFlameTier: 4 } })
+  const run = await mkStreak(userId, { rewardLevel: 30, goldActive: true })
+  await prisma.streak.update({ where: { id: run.id }, data: { flameTier: 4 } })
+  const evaluate = days => evaluateQuestStreaks({ models: prisma, now: new Date(Date.now() + days * 86_400_000), userIds: [userId] })
+
+  await evaluate(0)
+  let row = await prisma.streak.findUnique({ where: { id: run.id } })
+  expect(row).toMatchObject({ goldActive: true, flameTier: null, endedAt: null })
+  expect(notifyShieldUsed).toHaveBeenLastCalledWith(userId, expect.objectContaining({ decayed: true }))
+
+  await evaluate(1)
+  row = await prisma.streak.findUnique({ where: { id: run.id } })
+  expect(row).toMatchObject({ goldActive: false, flameTier: null, endedAt: null })
+  expect(notifyShieldUsed.mock.lastCall[1].decayed).toBeUndefined()
+
+  await evaluate(2)
+  row = await prisma.streak.findUnique({ where: { id: run.id } })
+  expect(row.endedAt).not.toBeNull()
+  expect(await bestTier(userId)).toBe(4)
 })
 
 // --- scheduled-retry safety (2026-10-12 incident): pg-boss now
@@ -755,7 +782,7 @@ test('a partial run settles the committed user once and the rest on retry', asyn
   for (const id of [userA, userB]) {
     const [row] = await prisma.$queryRaw`SELECT streak FROM users WHERE id = ${id}::int`
     expect(row.streak).toBe(2)
-    expect(await prisma.streakReward.count({ where: { userId: id, type: 'POST' } })).toBe(1)
+    expect(await prisma.streakReward.count({ where: { userId: id, type: 'BOOST' } })).toBe(1)
     expect(notifyFlameAdvanced.mock.calls.filter(([callId]) => callId === id)).toHaveLength(1)
   }
   const after = await prisma.streak.findMany({ where: { id: { in: [streakA.id, streakB.id] } } })

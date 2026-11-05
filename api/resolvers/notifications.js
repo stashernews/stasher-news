@@ -8,7 +8,7 @@ import { GqlAuthenticationError, GqlInputError } from '@/lib/error'
 import { getPayIn } from './payIn'
 import { PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES } from '@/lib/constants'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
-import { cycleDay, utcDay } from '@/lib/quests'
+import { cycleDay, flameUpTierForLevel, utcDay } from '@/lib/quests'
 
 const PAY_IN_NOTIFICATION_TYPES_SQL = PAY_IN_NOTIFICATION_TYPES.map(type => `'${type}'`).join(', ')
 
@@ -435,7 +435,9 @@ export default {
           const run = day && runs.find(r => utcDay(r.startedAt) <= day && (!r.endedAt || utcDay(r.endedAt) > day))
           if (!run) { n.day = null; continue }
           const start = utcDay(run.startedAt)
-          n.day = cycleDay(clearedDays.filter(d => d >= start && d <= day).length)
+          const level = clearedDays.filter(d => d >= start && d <= day).length
+          n.day = cycleDay(level)
+          n.flameTier = flameUpTierForLevel(level)
         }
       }
 

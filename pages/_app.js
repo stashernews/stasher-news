@@ -23,6 +23,7 @@ import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 import dynamic from 'next/dynamic'
 import { HasNewNotesProvider } from '@/components/use-has-new-notes'
+import { FlameLevelDefs } from '@/components/flame-level'
 import { BrandingProvider } from '@/components/territory-branding'
 import { WalletsProvider } from '@/wallets/client/hooks'
 import FaviconProvider from '@/components/favicon'
@@ -120,6 +121,7 @@ function PublicApp ({ Component, pageProps: { ...props } }) {
       <Head>
         <meta name='viewport' content='initial-scale=1.0, width=device-width, viewport-fit=cover' />
       </Head>
+      <FlameLevelDefs />
       <ErrorBoundary>
         <PlausibleProvider>
           <ApolloProvider client={client}>

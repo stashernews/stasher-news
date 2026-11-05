@@ -343,20 +343,20 @@
 .stealth-rebrand .qm-flame { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--stealth-border); }
 .stealth-rebrand .qm-flab { font-size: 0.64rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--bs-body-color); margin-bottom: 22px; }
 .stealth-rebrand .qm-flab b { color: var(--bs-primary); }
-.stealth-rebrand .qm-flame.gold .qm-flab, .stealth-rebrand .qm-flame.gold .qm-flab b { color: #ffd166; }
+.stealth-rebrand .qm-flame.gold .qm-flab, .stealth-rebrand .qm-flame.gold .qm-flab b { color: var(--qm-tier, #ffd166); }
 .stealth-rebrand .qm-days { display: flex; align-items: center; }
 .stealth-rebrand .qm-conn { flex: 1; height: 2px; background: rgba(255, 255, 255, 0.12); margin: 0 3px; }
 .stealth-rebrand .qm-conn.on { background: linear-gradient(90deg, var(--bs-primary), #ff9440); }
-.stealth-rebrand .qm-flame.gold .qm-conn.on { background: linear-gradient(90deg, #ffd166, #ffc94d); }
+.stealth-rebrand .qm-flame.gold .qm-conn.on { background: linear-gradient(90deg, var(--qm-tier, #ffd166), var(--qm-tier2, #ffc94d)); }
 .stealth-rebrand .qm-dc { display: flex; flex-direction: column; align-items: center; position: relative; }
 .stealth-rebrand .qm-dot { width: 25px; height: 25px; border-radius: 50%; display: grid; place-items: center; background: #0b0c0f; border: 1px solid rgba(255, 255, 255, 0.13); color: var(--stealth-muted); font-size: 0.64rem; font-weight: 600; }
 .stealth-rebrand[data-bs-theme='light'] .qm-dot { background: #fff; border-color: rgba(0, 0, 0, 0.15); }
 .stealth-rebrand .qm-dc.on .qm-dot { background: linear-gradient(135deg, var(--bs-primary), #ff9440); border-color: transparent; color: #160c03; }
 .stealth-rebrand .qm-dc.today .qm-dot { box-shadow: 0 0 0 2px rgba(255, 102, 0, 0.2), 0 0 9px rgba(255, 140, 40, 0.5); }
-.stealth-rebrand .qm-flame.gold .qm-dc.on .qm-dot { background: linear-gradient(135deg, #ffd166, #ffc94d); }
-.stealth-rebrand .qm-flame.gold .qm-dc.today .qm-dot { border-color: #ffd166; box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.22), 0 0 10px rgba(255, 209, 102, 0.5); }
+.stealth-rebrand .qm-flame.gold .qm-dc.on .qm-dot { background: linear-gradient(135deg, var(--qm-tier, #ffd166), var(--qm-tier2, #ffc94d)); }
+.stealth-rebrand .qm-flame.gold .qm-dc.today .qm-dot { border-color: var(--qm-tier, #ffd166); box-shadow: 0 0 0 2px color-mix(in srgb, var(--qm-tier, #ffd166) 22%, transparent), 0 0 10px color-mix(in srgb, var(--qm-tier, #ffd166) 50%, transparent); }
 .stealth-rebrand .qm-mk { position: absolute; top: -15px; font-size: 0.72rem; line-height: 1; color: var(--stealth-muted); }
-.stealth-rebrand .qm-mk svg { width: 15px; height: 15px; display: block; fill: none; }
+.stealth-rebrand .qm-mk > svg { width: 15px; height: 15px; display: block; fill: none; }
 .stealth-rebrand .qm-mk.on { color: var(--bs-primary); }
 .stealth-rebrand .qm-sup { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--stealth-border); font-size: 0.64rem; color: var(--stealth-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stealth-rebrand .qm-sup b { color: #c9c9c9; font-weight: 600; }
@@ -526,4 +526,70 @@
       margin-bottom: 0.25rem;
     }
   }
+}
+
+// ---- flame levels ----
+.stealth-rebrand {
+  // f = flame body, k = soft core tint, h = bright second colour, e = edge
+  --fl-f-blue: #2f9bff; --fl-k-blue: #b5e2ff; --fl-h-blue: #74c8ff; --fl-e-blue: transparent;
+  --fl-f-green: #1fcf68; --fl-k-green: #b8ffd3; --fl-h-green: #63ffa6; --fl-e-green: transparent;
+  --fl-f-red: #e4122d; --fl-k-red: #ffb09c; --fl-h-red: #ff5a63; --fl-e-red: transparent;
+  --fl-f-indigo: #6f60ff; --fl-k-indigo: #cfcaff; --fl-h-indigo: #a79dff; --fl-e-indigo: transparent;
+  --fl-f-white: #eef2ff; --fl-k-white: #ffffff; --fl-h-white: #ffffff; --fl-e-white: transparent;
+  --fl-f-eclipse: #050507; --fl-k-eclipse: #ff5a00; --fl-h-eclipse: #050507; --fl-e-eclipse: transparent;
+  --fl-f-corona: #ff6a00; --fl-k-corona: #fff3d6; --fl-h-corona: #ff7a1a; --fl-e-corona: transparent;
+  --fl-f-rose: #f0407f; --fl-k-rose: #ffc2d6; --fl-h-rose: #ff85ad; --fl-e-rose: transparent;
+  --fl-f-mint: #2fd9a4; --fl-k-mint: #c8ffec; --fl-h-mint: #8affd6; --fl-e-mint: transparent;
+  --fl-p-white: #ffffff;
+}
+.stealth-rebrand[data-bs-theme='light'] { --fl-p-white: #8b96b5; --fl-f-white: #e4e9f7; --fl-e-white: rgba(30, 36, 58, 0.6); --fl-h-white: #e4e9f7; }
+
+.flame-level { --period: 6s; position: relative; display: inline-block; width: var(--s); height: var(--s); vertical-align: middle; line-height: 0; flex: none; }
+.flame-level svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.flame-level .fl-b { color: var(--flame); }
+.flame-level .fl-b .o { fill: currentColor; stroke: var(--edge, transparent); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.flame-level .fl-b .c { fill: var(--core, currentColor); fill-opacity: var(--core-o, 0.55); }
+.flame-level .fl-a { opacity: 0; fill: none; stroke: var(--arc); stroke-linecap: round; stroke-linejoin: round; animation: fl-jolt var(--period) step-end infinite; }
+.flame-level .fl-a path { stroke-width: var(--sw, 1px); vector-effect: non-scaling-stroke; }
+.flame-level .fl-a.a2 { animation-name: fl-jolt2; }
+.flame-level.glow .fl-a { filter: drop-shadow(0 0 calc(var(--s) * 0.04) var(--glow)); }
+@keyframes fl-jolt { 0% { opacity: 0; } 70% { opacity: 1; } 71.5% { opacity: 0.2; } 73% { opacity: 1; } 75% { opacity: 0; } }
+@keyframes fl-jolt2 { 0% { opacity: 0; } 73% { opacity: 1; } 74.5% { opacity: 0.25; } 76% { opacity: 1; } 78.5% { opacity: 0; } }
+
+// surge: the second colour floods up through the flame and small flames lift off the tips
+.flame-level .fl-s polygon { fill: var(--b); animation: fl-flood var(--period) ease-in-out infinite; }
+.flame-level .fl-p { opacity: 0; fill: var(--spark); animation: fl-rise var(--period) ease-out infinite; }
+.flame-level .fl-p.p2 { animation-name: fl-rise2; }
+.flame-level .fl-p.p3 { animation-name: fl-rise3; }
+@keyframes fl-rise { 0%, 60% { transform: translateY(0); opacity: 0; } 62%, 78% { opacity: 1; } 86%, 100% { transform: translateY(-36%); opacity: 0; } }
+@keyframes fl-rise2 { 0%, 64% { transform: translateY(0); opacity: 0; } 66%, 82% { opacity: 1; } 90%, 100% { transform: translateY(-36%); opacity: 0; } }
+@keyframes fl-rise3 { 0%, 68% { transform: translateY(0); opacity: 0; } 70%, 86% { opacity: 1; } 94%, 100% { transform: translateY(-36%); opacity: 0; } }
+@keyframes fl-flood { 0%, 58% { transform: translateY(0); } 72%, 78% { transform: translateY(-42px); } 92%, 100% { transform: translateY(-84px); } }
+
+// shift: the two colours trade places. At each changeover the core flashes, the badge kicks and a different pattern of side arcs fires in the inner flame's colour
+.flame-level.shift { animation: fl-pop var(--period) ease-out infinite; }
+.flame-level .fl-k { opacity: 0; fill: #fff; animation: fl-flash var(--period) ease-out infinite; }
+.flame-level.shift .fl-2 { color: var(--b); opacity: 0; animation: fl-shift var(--period) ease-in-out infinite; }
+.flame-level.shift .fl-2 .o { stroke: var(--edge2, transparent); }
+.flame-level.shift .fl-2 .c { fill: var(--core2); }
+.flame-level.shift .fl-a { stroke: var(--c1); animation-name: fl-swap; }
+.flame-level.shift .fl-a.a2 { stroke: var(--c2); animation-name: fl-swap2; }
+.stealth-rebrand[data-bs-theme='light'] .flame-level.shift .fl-a { --c1: var(--l1); --c2: var(--l2); }
+@keyframes fl-pop { 0%, 39% { transform: none; } 40% { transform: scale(1.12); } 50%, 89% { transform: none; } 90% { transform: scale(1.12); } 100% { transform: none; } }
+@keyframes fl-flash { 0%, 39% { opacity: 0; } 40% { opacity: 1; } 54%, 89% { opacity: 0; } 90% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes fl-shift { 0%, 38% { opacity: 0; } 46%, 88% { opacity: 1; } 96%, 100% { opacity: 0; } }
+@keyframes fl-swap { 0% { opacity: 0; } 40% { opacity: 1; } 42% { opacity: 0.2; } 44% { opacity: 1; } 47%, 100% { opacity: 0; } }
+@keyframes fl-swap2 { 0% { opacity: 0; } 90% { opacity: 1; } 92% { opacity: 0.2; } 94% { opacity: 1; } 97%, 100% { opacity: 0; } }
+
+// prism: always moving, stepped to 12 updates a second
+.flame-level.prism .fl-b { animation: fl-hue 5s steps(60) infinite; }
+.flame-level.prism .fl-b .o { fill: url(#flame-prism); }
+.flame-level.prism .fl-b .c { fill: #fff; fill-opacity: 0.3; }
+@keyframes fl-hue { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }
+
+// the look is all in the still frame, so stopping an animation loses no identity
+.flame-level.quiet:not(:hover):not(.prism), .flame-level.quiet:not(:hover):not(.prism) * { animation: none; }
+.flame-level.quiet:hover { --period: 1.8s; }
+@media (prefers-reduced-motion: reduce) {
+  .flame-level, .flame-level * { animation: none !important; }
 }

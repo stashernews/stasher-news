@@ -131,6 +131,7 @@ Tips are paid peer-to-peer to your registered address and credited to your accou
 Badges next to a stasher's name signal activity:
 
 - a flame means they have kept their daily ops streak alive, golden from day 4 of each cycle
+- a coloured or animated flame is a level two flame, earned on day 7 of every fourth week
 
 ---
 
@@ -139,6 +140,12 @@ Badges next to a stasher's name signal activity:
 Two quests are drawn every day at 00:00 UTC: the first is always "send an upvote" (the upvote arrow is a tip), and the second is one of: be the first responder to a post with no replies yet, or post or comment anywhere. Every completed daily quest banks one free reply credit. Clearing both quests advances your flame.
 
 Clearing both quests keeps your flame alive. The flame runs in 7-day cycles, and every day you keep your flame alive earns perks for your account. Miss a day and the run ends, dropping you back to day 1, unless the golden flame shield is armed: the shield absorbs one missed day, your flame holds on as a regular flame, and the shield is gone until it arms again on a future cycle's day 4.
+
+Day 7 of every fourth week is a special reward: it levels you up to a level two flame, with or without a shield. A level two flame has its own look for that week and absorbs up to two missed days: the first missed day takes it back to golden, and the second back to regular. The highest flame you ever reach stays on your profile for good.
+
+### What are boost credits?
+
+Days 2 and 6 of every week bank a boost credit worth 0.25 mXMR of ranking on your own live post. You can hold up to 4 at once and spend as many as you like in one boost, so a full bank is worth 1 mXMR. Credits don't send any XMR or add to the rewards pool, and each one expires 30 days after you earn it. Boost rungs are skipped while you hold 4.
 
 ---
 

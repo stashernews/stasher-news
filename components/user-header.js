@@ -16,6 +16,7 @@ import Avatar from './avatar'
 import { userSchema } from '@/lib/validate'
 import { numWithUnits, piconerosToMXmr } from '@/lib/format'
 import Badges from './badge'
+import FlameLevel from './flame-level'
 import QuestsModule from './quests-module'
 import SubscribeUserDropdownItem from './subscribeUser'
 import ActionDropdown from './action-dropdown'
@@ -271,7 +272,13 @@ function HeaderHeader ({ user }) {
             : <span>never</span>}
           </small>
           {user.optional.maxStreak !== null &&
-            <small className='text-muted d-flex-inline'>longest streak: {user.optional.maxStreak}</small>}
+            <div className={styles.bestFlame}>
+              {user.optional.bestFlameTier != null &&
+                <FlameLevel tier={user.optional.bestFlameTier} height={56} label='highest flame reached' />}
+              <small className='text-muted' title='longest streak'>
+                <b className='text-reset'>{user.optional.maxStreak}</b> {user.optional.maxStreak === 1 ? 'day' : 'days'}
+              </small>
+            </div>}
           {user.optional.isContributor &&
             <small className='text-muted d-flex align-items-center'>
               <CodeIcon className='me-1' height={16} width={16} /> verified stasher.news contributor
