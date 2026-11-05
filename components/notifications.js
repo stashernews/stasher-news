@@ -704,17 +704,18 @@ function Reminder ({ n }) {
 
 export function NotificationAlert () {
   const [showAlert, setShowAlert] = useState(false)
-  const [hasSubscription, setHasSubscription] = useState(false)
   const [error, setError] = useState(null)
   const [supported, setSupported] = useState(false)
   const sw = useServiceWorker()
+  const { hasSubscription } = sw
+
+  useEffect(() => { if (sw.pushError) setError(sw.pushError) }, [sw.pushError])
 
   useEffect(() => {
     const isSupported = sw.support.serviceWorker && sw.support.pushManager && sw.support.notification && sw.pushConfigured
     if (isSupported) {
       const isDefaultPermission = sw.permission.notification === 'default'
       setShowAlert(isDefaultPermission && !!sw.registration && !window.localStorage.getItem('hideNotifyPrompt'))
-      sw.registration?.pushManager?.getSubscription()?.then(subscription => setHasSubscription(!!subscription))?.catch(console.error)
       setSupported(!!sw.registration && sw.pushConfigured)
     }
   }, [sw])
@@ -745,6 +746,7 @@ export function NotificationAlert () {
                   .then(close)
                   .catch(setError)
               }}
+              disabled={sw.busy}
             >Yes
             </button>
             <button className={styles.alertBtn} onClick={close}>No</button>
@@ -755,7 +757,7 @@ export function NotificationAlert () {
             <Checkbox
               name='pushNotify' label={<span className='text-muted'>push notifications</span>}
               groupClassName={`${styles.subFormGroup} mb-1 me-sm-3 me-0`}
-              inline checked={hasSubscription} handleChange={async () => {
+              inline checked={hasSubscription} disabled={sw.busy} handleChange={async () => {
                 await sw.togglePushSubscription().catch(setError)
               }}
             />

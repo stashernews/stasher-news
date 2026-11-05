@@ -9,6 +9,7 @@ import { getPayIn } from './payIn'
 import { PAY_IN_NOTIFICATION_TYPES, WALLET_RETRY_BEFORE_MS, WALLET_MAX_RETRIES } from '@/lib/constants'
 import { lexicalHTMLGenerator } from '@/lib/lexical/server/html'
 import { cycleDay, flameUpTierForLevel, utcDay } from '@/lib/quests'
+import { saveSubscription, deleteSubscription } from '@/api/pushSubscriptions'
 
 const PAY_IN_NOTIFICATION_TYPES_SQL = PAY_IN_NOTIFICATION_TYPES.map(type => `'${type}'`).join(', ')
 
@@ -449,28 +450,18 @@ export default {
     }
   },
   Mutation: {
-    savePushSubscription: async (parent, { endpoint, p256dh, auth, oldEndpoint }, { me, models }) => {
+    savePushSubscription: async (parent, { endpoint, p256dh, auth, oldEndpoint, expectedUserId, sendConfirmation = true }, { me, models }) => {
       if (!me) {
         throw new GqlAuthenticationError()
       }
 
+      if (expectedUserId != null && Number(me.id) !== expectedUserId) {
+        throw new GqlInputError('active account changed; refresh and try again')
+      }
       await validateSchema(pushSubscriptionSchema, { endpoint, p256dh, auth })
 
-      let dbPushSubscription
-      if (oldEndpoint) {
-        dbPushSubscription = await models.pushSubscription.update({
-          data: { userId: me.id, endpoint, p256dh, auth }, where: { endpoint: oldEndpoint }
-        })
-        console.log(`[webPush] updated subscription of user ${me.id}: old=${oldEndpoint} new=${endpoint}`)
-      } else {
-        dbPushSubscription = await models.pushSubscription.create({
-          data: { userId: me.id, endpoint, p256dh, auth }
-        })
-        console.log(`[webPush] created subscription for user ${me.id}: endpoint=${endpoint}`)
-      }
-
-      await sendPushSubscriptionReply(dbPushSubscription)
-
+      const dbPushSubscription = await saveSubscription({ models, userId: Number(me.id), endpoint, p256dh, auth, oldEndpoint })
+      if (sendConfirmation) await sendPushSubscriptionReply(dbPushSubscription)
       return dbPushSubscription
     },
     deletePushSubscription: async (parent, { endpoint }, { me, models }) => {
@@ -478,14 +469,7 @@ export default {
         throw new GqlAuthenticationError()
       }
 
-      const subscription = await models.pushSubscription.findFirst({ where: { endpoint, userId: Number(me.id) } })
-      if (!subscription) {
-        throw new GqlInputError('endpoint not found')
-      }
-      const deletedSubscription = await models.pushSubscription.delete({ where: { id: subscription.id } })
-      console.log(`[webPush] deleted subscription ${deletedSubscription.id} of user ${deletedSubscription.userId} due to client request`)
-
-      return deletedSubscription
+      return await deleteSubscription({ models, userId: Number(me.id), endpoint })
     }
   },
   Notification: {

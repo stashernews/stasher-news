@@ -306,9 +306,21 @@ GITHUB_SECRET=<Client secret>
 
 ## Enabling web push notifications
 
-To enable Web Push, set the `VAPID_*` env vars in gitignored `.env.local` (never in tracked env files). `VAPID_MAILTO` needs to be an email address using the `mailto:` scheme. For `NEXT_PUBLIC_VAPID_PUBKEY` and `VAPID_PRIVKEY`, you can run `npx web-push generate-vapid-keys`.
+To enable Web Push, set the following in gitignored `.env.local` or your deployment's secret store (never in tracked env files). Generate a key pair once with `npx web-push generate-vapid-keys`, back it up securely, and reuse it across deploys:
 
-`NEXT_PUBLIC_VAPID_PUBKEY` is inlined into the client at build time — after adding or changing it on the VPS you must rebuild (`NODE_ENV=production npm run build`) before `docker compose ... up -d`. Without all three vars the site runs fine but push is disabled: no push UI is shown and the server logs `webPush not configured, skipping notification`.
+```dotenv
+VAPID_MAILTO=mailto:hello@stasher.news
+NEXT_PUBLIC_VAPID_PUBKEY=<public key>
+VAPID_PRIVKEY=<private key>
+```
+
+All three must reach both `app` and `worker`. `NEXT_PUBLIC_VAPID_PUBKEY` is inlined into the client at build time, so it must also be available to the production build. Rebuild and recreate both services after configuring them; a runtime-only restart cannot update the browser's key. Later env files must not override the configured keys with empty values. Without a public key the push controls stay hidden; incomplete server configuration or a rejected confirmation produces an activation error, not a successful opt-in.
+
+Push requires HTTPS (or localhost), permission granted by the user, and the production-built `/sw.js`. Service worker registration is skipped under `next dev`. On iOS/iPadOS 16.4 or later, add the site to the Home Screen and enable push from that installed web app. Brave may require enabling "Use Google services for push messaging" in its privacy settings. The server needs outbound HTTPS access to browser push providers. Supported endpoints are Google's `fcm.googleapis.com` and `jmt17.google.com`, and subdomains of Mozilla's `push.services.mozilla.com`, Apple's `push.apple.com`, and Windows' `notify.windows.com`; other providers require an explicit allowlist update.
+
+Push follows the active account in each browser profile. Switching accounts revokes the old browser subscription before changing accounts and resumes the browser's opt-in for the new account. Logout and explicit disable stop delivery; logout also clears the saved opt-in. Other devices remain subscribed independently.
+
+After deployment, enable push from `/notifications`, check for the activation notification, then test a reply or mention with the app backgrounded and verify the notification opens the right discussion. Test switching accounts, logout and disabling push on real devices before considering delivery verified. An accepted push-provider request is not proof that the device displayed it.
 
 <br>
 

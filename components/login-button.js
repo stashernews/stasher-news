@@ -12,6 +12,8 @@ import styles from '@/components/dropdown.module.css'
 import ArrowDownIcon from '@/svgs/editor/toolbar/arrow-down.svg'
 import classNames from 'classnames'
 import { useRouter } from 'next/router'
+import { useServiceWorker } from './serviceworker'
+import { useState } from 'react'
 
 export default function LoginButton ({ text, type, className, onClick, disabled }) {
   let Icon, variant
@@ -52,6 +54,8 @@ export function LoginWithNymButton ({ className, callbackUrl, disabled }) {
   const router = useRouter()
   const accounts = useAccounts()
   const [pointerCookie, setPointerCookie] = useCookie(MULTI_AUTH_POINTER)
+  const { prepareAccountSwitch } = useServiceWorker()
+  const [switchError, setSwitchError] = useState(null)
 
   const account = accounts.find(account => account.id === Number(pointerCookie))
   if (!accounts.length) return null
@@ -60,6 +64,7 @@ export function LoginWithNymButton ({ className, callbackUrl, disabled }) {
 
   return (
     <Dropdown className='mb-4 w-100' as={ButtonGroup}>
+      {switchError && <span role='alert'>{switchError}</span>}
       <Button
         variant='success'
         onClick={() => account && router.push(callbackUrl)}
@@ -86,8 +91,18 @@ export function LoginWithNymButton ({ className, callbackUrl, disabled }) {
             {accounts.map(account => (
               <Dropdown.Item
                 key={account.id}
-                onClick={() => {
-                  setPointerCookie(account.id, cookieOptions({ httpOnly: false }))
+                onClick={async () => {
+                  // re-selecting the active account is a no-op: revoking and
+                  // reloading for the same identity would leave push held by
+                  // a transition that nothing ever releases
+                  if (Number(account.id) === Number(pointerCookie)) return
+                  try {
+                    await prepareAccountSwitch()
+                    setPointerCookie(account.id, cookieOptions({ httpOnly: false }))
+                    router.reload()
+                  } catch {
+                    setSwitchError('Could not stop push notifications. Try switching accounts again.')
+                  }
                 }}
                 className={classNames(styles.dropdownExtraItem, Number(account.id) === Number(pointerCookie) && styles.active)}
               >

@@ -7,12 +7,24 @@ import { enable } from 'workbox-navigation-preload'
 
 import ServiceWorkerStorage from 'serviceworker-storage'
 import { CLEAR_NOTIFICATIONS, DELETE_SUBSCRIPTION, STORE_SUBSCRIPTION } from '@/lib/sw-messages'
+import { renewPushSubscription, flushPendingRenewal, PENDING_RENEWAL_KEY, RENEWAL_RETRY_TAG } from '@/lib/push-subscription'
 
 // we store existing push subscriptions for the onpushsubscriptionchange event
 const storage = new ServiceWorkerStorage('sw:storage', 1)
 
 // comment out to enable workbox console logs
 self.__WB_DISABLE_DEV_LOGS = true
+
+// Every storage mutation the service worker performs is serialized through
+// this queue: concurrent events (a background replay and an account switch, a
+// page-side subscription store and an in-flight replay) must not interleave
+// read-decide-write cycles and clobber each other's records.
+let storageQueue = Promise.resolve()
+const withStorage = operation => {
+  const next = storageQueue.catch(() => {}).then(operation)
+  storageQueue = next
+  return next
+}
 
 // preloading improves startup performance
 // https://developer.chrome.com/docs/workbox/modules/workbox-navigation-preload/
@@ -149,66 +161,27 @@ self.addEventListener('notificationclose', function (event) {
 })
 
 self.addEventListener('pushsubscriptionchange', function (event) {
-  // https://medium.com/@madridserginho/how-to-handle-webpush-api-pushsubscriptionchange-event-in-modern-browsers-6e47840d756f
-  // https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerGlobalScope/pushsubscriptionchange_event
-  const { oldSubscription, newSubscription } = event
+  event.waitUntil(withStorage(() =>
+    // replay a renewal the server never acknowledged before replacing again
+    flushPendingRenewal({ storage, fetch })
+      .catch(() => {})
+      .then(() => renewPushSubscription(event, { registration: self.registration, storage, fetch }))
+  ))
+})
 
-  return event.waitUntil(
-    Promise.all([
-      oldSubscription ?? storage.getItem('subscription'),
-      newSubscription ?? self.registration.pushManager.getSubscription()
-    ])
-      .then(([oldSubscription, newSubscription]) => {
-        if (!newSubscription || oldSubscription?.endpoint === newSubscription.endpoint) {
-        // no subscription exists at the moment or subscription did not change
-          return
-        }
-
-        // convert keys from ArrayBuffer to string
-        newSubscription = JSON.parse(JSON.stringify(newSubscription))
-
-        // save new subscription on server
-        return Promise.all([
-          newSubscription,
-          fetch('/api/graphql', {
-            method: 'POST',
-            headers: {
-              'Content-type': 'application/json'
-            },
-            body: JSON.stringify({
-              query: `
-                mutation savePushSubscription(
-                  $endpoint: String!,
-                  $p256dh: String!,
-                  $auth: String!,
-                  $oldEndpoint: String!
-                ) {
-                  savePushSubscription(
-                    endpoint: $endpoint,
-                    p256dh: $p256dh,
-                    auth: $auth,
-                    oldEndpoint: $oldEndpoint
-                  ) {
-                    id
-                  }
-                }`,
-              variables: {
-                endpoint: newSubscription.endpoint,
-                p256dh: newSubscription.keys.p256dh,
-                auth: newSubscription.keys.auth,
-                oldEndpoint: oldSubscription?.endpoint
-              }
-            })
-          })
-        ])
-      }).then(([newSubscription]) => storage.setItem('subscription', newSubscription))
-  )
+// Background Sync replays a renewal the server could not be told about while
+// no page is open (Chromium only; elsewhere the next pushsubscriptionchange or
+// the next site visit retries instead)
+self.addEventListener('sync', function (event) {
+  if (event.tag === RENEWAL_RETRY_TAG) {
+    event.waitUntil(withStorage(() => flushPendingRenewal({ storage, fetch })))
+  }
 })
 
 self.addEventListener('message', function (event) {
   switch (event.data.action) {
-    case STORE_SUBSCRIPTION: return event.waitUntil(storage.setItem('subscription', { ...event.data.subscription, swVersion: 2 }))
-    case DELETE_SUBSCRIPTION: return event.waitUntil(storage.removeItem('subscription'))
+    case STORE_SUBSCRIPTION: return event.waitUntil(withStorage(() => storage.setItem('subscription', { ...event.data.subscription, swVersion: 2 })))
+    case DELETE_SUBSCRIPTION: return event.waitUntil(withStorage(() => Promise.all([storage.removeItem('subscription'), storage.removeItem(PENDING_RENEWAL_KEY)])))
     case CLEAR_NOTIFICATIONS:
       return event.waitUntil(
         Promise.all([

@@ -16,6 +16,7 @@ import useCookie from './use-cookie'
 import { AccountChooser } from './account'
 import PhraseLoginForm from './phrase-login-form'
 import { COPY } from '@/lib/rebrand-copy'
+import { useServiceWorker } from './serviceworker'
 
 export function EmailLoginForm ({ text, callbackUrl, multiAuth }) {
   return (
@@ -82,16 +83,22 @@ export default function Login ({ providers, callbackUrl, multiAuth, error, text,
   const [errorMessage, setErrorMessage] = useState(authErrorMessage(error, signin))
   const router = useRouter()
   const [, setPointerCookie] = useCookie(MULTI_AUTH_POINTER)
+  const { prepareAccountSwitch, resumePushSubscription } = useServiceWorker()
+  const [pushReady, setPushReady] = useState(false)
+  multiAuth = typeof multiAuth === 'string' ? multiAuth === 'true' : !!multiAuth
 
   // we can't signup if we're already logged in to another account
   // for custom-domain signups, we first need to switch to anon.
   useEffect(() => {
-    if (!signin && domainData) {
-      setPointerCookie(MULTI_AUTH_ANON, cookieOptions({ httpOnly: false }))
-    }
-  }, [signin, domainData, setPointerCookie])
-
-  multiAuth = typeof multiAuth === 'string' ? multiAuth === 'true' : !!multiAuth
+    if (!multiAuth && (signin || !domainData)) return
+    setPushReady(false)
+    let canceled = false
+    prepareAccountSwitch().then(() => {
+      if (!canceled && !signin && domainData) setPointerCookie(MULTI_AUTH_ANON, cookieOptions({ httpOnly: false }))
+      if (!canceled) setPushReady(true)
+    }).catch(() => setErrorMessage('Could not stop push notifications. Refresh before changing accounts.'))
+    return () => { canceled = true; resumePushSubscription() }
+  }, [signin, domainData, multiAuth, setPointerCookie, prepareAccountSwitch, resumePushSubscription])
 
   // signup/signin awareness cookie
   useEffect(() => {
@@ -110,6 +117,10 @@ export default function Login ({ providers, callbackUrl, multiAuth, error, text,
 
   const nostrEnabled = Object.values(providers || {}).some(p => p.id === 'nostr')
   const phraseEnabled = Object.values(providers || {}).some(p => p.id === 'phrase')
+
+  if ((multiAuth || (!signin && domainData)) && !pushReady) {
+    return <div role='status'>{errorMessage || 'Preparing account change…'}</div>
+  }
 
   if (router.query.type === 'nostr' && nostrEnabled) {
     return <NostrAuthWithExplainer callbackUrl={callbackUrl} text={text} multiAuth={multiAuth} />

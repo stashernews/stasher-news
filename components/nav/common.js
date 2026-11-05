@@ -263,16 +263,20 @@ export default function LoginButton ({ className, width }) {
 }
 
 function LogoutObstacle ({ onClose }) {
-  const { registration: swRegistration, togglePushSubscription } = useServiceWorker()
+  const { prepareAccountSwitch } = useServiceWorker()
   const router = useRouter()
   const [, setPointerCookie] = useCookie(MULTI_AUTH_POINTER)
+  const [error, setError] = useState(null)
 
   const handleLogout = async () => {
     // order is important because we need to be logged in to delete push subscription on server
-    const pushSubscription = await swRegistration?.pushManager.getSubscription()
-    if (pushSubscription) {
-      await togglePushSubscription().catch(console.error)
+    try {
+      await prepareAccountSwitch()
+    } catch {
+      setError('Could not stop push notifications. Try logging out again.')
+      return
     }
+    window.localStorage.removeItem('pushEnabled')
 
     // switch to anon: we become unauthenticated but keep parked accounts
     // resumable via /login
@@ -285,6 +289,7 @@ function LogoutObstacle ({ onClose }) {
   return (
     <div className='text-center'>
       <h4 className='mb-3'>{COPY.logoutConfirm}</h4>
+      {error && <p role='alert'>{error}</p>}
       <ObstacleButtons
         onClose={onClose}
         onConfirm={handleLogout}

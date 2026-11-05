@@ -7,6 +7,8 @@ import Link from 'next/link'
 import AddIcon from '@/svgs/add-fill.svg'
 import { cookieOptions, MULTI_AUTH_LIST, MULTI_AUTH_POINTER, parseMultiAuthListCookie } from '@/lib/auth'
 import { useBranding } from '@/components/territory-branding'
+import { useServiceWorker } from '@/components/serviceworker'
+import { useState } from 'react'
 
 export const nextAccount = async () => {
   const { status } = await fetch('/api/next-account', { method: 'POST', credentials: 'include' })
@@ -18,6 +20,8 @@ export default function SwitchAccountList () {
   const router = useRouter()
   const accounts = useAccounts()
   const [pointerCookie] = useCookie(MULTI_AUTH_POINTER)
+  const { prepareAccountSwitch } = useServiceWorker()
+  const [switchError, setSwitchError] = useState(null)
 
   return (
     <>
@@ -40,9 +44,19 @@ export default function SwitchAccountList () {
             query: { callbackUrl: window.location.origin + router.asPath, multiAuth: true }
           }}
           className='text-reset fw-bold'
+          onClick={async event => {
+            event.preventDefault()
+            try {
+              await prepareAccountSwitch()
+              await router.push({ pathname: '/login', query: { callbackUrl: window.location.origin + router.asPath, multiAuth: true } })
+            } catch {
+              setSwitchError('Could not stop push notifications. Try again.')
+            }
+          }}
         >
           <AddIcon height={20} width={20} /> existing account
         </Link>
+        {switchError && <span role='alert'>{switchError}</span>}
       </div>
     </>
   )
@@ -51,6 +65,8 @@ export default function SwitchAccountList () {
 const AccountListRow = ({ account, selected, ...props }) => {
   const router = useRouter()
   const [, setPointerCookie] = useCookie(MULTI_AUTH_POINTER)
+  const { prepareAccountSwitch } = useServiceWorker()
+  const [switchError, setSwitchError] = useState(null)
 
   // fetch updated names and photo ids since they might have changed since we were issued the JWTs
   const { data, error } = useQuery(USER, { variables: { id: account.id } })
@@ -62,6 +78,13 @@ const AccountListRow = ({ account, selected, ...props }) => {
   const onClick = async (e) => {
     // prevent navigation
     e.preventDefault()
+    if (selected) return
+    try {
+      await prepareAccountSwitch()
+    } catch {
+      setSwitchError('Could not stop push notifications. Try switching accounts again.')
+      return
+    }
 
     // update pointer cookie
     const options = cookieOptions({ httpOnly: false })
@@ -73,6 +96,7 @@ const AccountListRow = ({ account, selected, ...props }) => {
 
   return (
     <div className='d-flex flex-row'>
+      {switchError && <span role='alert'>{switchError}</span>}
       <UserListRow
         user={{ ...account, photoId, name }}
         className='d-flex align-items-center me-2'

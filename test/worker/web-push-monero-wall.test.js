@@ -15,7 +15,7 @@ jest.mock('../../api/models', () => ({
     user: {
       findMany: jest.fn(async () => [{ id: 55, postsPiconerosFilter: null, commentsPiconerosFilter: null }])
     },
-    pushSubscription: { findMany: jest.fn(async () => [{ endpoint: 'https://push.test/1' }]) },
+    pushSubscription: { findMany: jest.fn(async () => [{ endpoint: 'https://fcm.googleapis.com/test/1' }]) },
     $queryRawUnsafe: jest.fn(async () => [{ id: '5' }])
   }
 }))
