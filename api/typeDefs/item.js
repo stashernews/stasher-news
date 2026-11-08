@@ -2,6 +2,13 @@ import { gql } from 'graphql-tag'
 import { LIMIT } from '@/lib/cursor'
 
 export default gql`
+  # A post's pin in one turf. Lives on the post–turf membership, so the same
+  # post can carry independent pins in every turf that has it.
+  type TurfPin {
+    subName: String!
+    position: Int!
+  }
+
   extend type Query {
     items(sub: String, sort: String, type: String, cursor: String, name: String, when: String, from: String, to: String, by: String, limit: Limit! = ${LIMIT}): Items
     item(id: ID!): Item
@@ -21,6 +28,10 @@ export default gql`
   extend type Mutation {
     bookmarkItem(id: ID): Item
     pinItem(id: ID): Item
+    # Desired-state per-turf pin write (idempotent). Authorization is the
+    # named turf's current owner; the post must belong to that turf.
+    # A successful unpin returns null if the item is no longer visible.
+    setTurfPin(id: ID!, subName: String!, pinned: Boolean!): Item
     subscribeItem(id: ID): Item
     deleteItem(id: ID): Item
     upsertLink(
@@ -181,6 +192,8 @@ export default gql`
     path: String
     position: Int
     prior: Int
+    # independent pins of this post in each turf that carries it
+    turfPins: [TurfPin!]!
     isJob: Boolean!
     pollCost: Int
     poll: Poll

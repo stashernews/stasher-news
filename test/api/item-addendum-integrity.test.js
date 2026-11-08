@@ -100,8 +100,7 @@ test('save then author-delete leaves no addendum; delete then save is rejected',
   const userId = await createUser()
   const savedFirst = await createExpiredOwnedItem(userId)
   await save(savedFirst, 'kept until deletion', 0, userId)
-  const item = await prisma.item.findUnique({ where: { id: savedFirst } })
-  await deleteItemByAuthor({ models: prisma, id: savedFirst, item })
+  await deleteItemByAuthor({ models: prisma, id: savedFirst })
   const deleted = await prisma.item.findUnique({ where: { id: savedFirst } })
   expect(deleted.addendumText).toBeNull()
   expect(deleted.addendumUpdatedAt).toBeNull()
@@ -110,7 +109,7 @@ test('save then author-delete leaves no addendum; delete then save is rejected',
   await expect(save(savedFirst, 'zombie', 1, userId)).rejects.toThrow(/item not found/)
 
   const deletedFirst = await createExpiredOwnedItem(userId)
-  await deleteItemByAuthor({ models: prisma, id: deletedFirst, item: null })
+  await deleteItemByAuthor({ models: prisma, id: deletedFirst })
   await expect(save(deletedFirst, 'late', 0, userId)).rejects.toThrow(/item not found/)
 })
 

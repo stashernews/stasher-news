@@ -8,6 +8,7 @@ import { Fragment, useCallback, useMemo } from 'react'
 import { CommentFlat } from './comment'
 import { SUB_ITEMS } from '@/fragments/subs'
 import { LIMIT } from '@/lib/cursor'
+import { turfPinPosition } from '@/lib/turf-pins'
 
 import { useData } from './use-data'
 
@@ -30,8 +31,21 @@ export default function Items ({ ssrData, variables = DEFAULT_VARIABLES, query, 
 
   const { items, pins, cursor } = destructured
 
+  // pin rendering is local to the feed that injected them: a post pinned in
+  // another turf is an ordinary card here. Sub is the bound feed variable.
+  const subName = variables?.sub
+  const pinnedIds = useMemo(() => new Set((pins ?? []).map(p => p.id)), [pins])
+
   const itemsWithPins = useMemo(() => {
-    if (!pins) return items
+    if (!pins?.length) return items
+
+    // turf feed: SQL returned the pins in this turf's position order and
+    // their legacy position field is null, so the positional merge below
+    // cannot apply — prepend the pin block consecutively and drop the ids
+    // from the ordinary list (defensive: the server already excludes them)
+    if (subName) {
+      return [...pins, ...(items ?? []).filter(i => !pinnedIds.has(i.id))]
+    }
 
     const res = [...items]
     pins?.forEach(p => {
@@ -42,7 +56,7 @@ export default function Items ({ ssrData, variables = DEFAULT_VARIABLES, query, 
       }
     })
     return res
-  }, [pins, items])
+  }, [pins, items, subName, pinnedIds])
 
   const Skeleton = useCallback(() =>
     <ItemsSkeleton rank={rank} startRank={items?.length} limit={variables.limit} Footer={Foooter} />, [rank, items])
@@ -51,14 +65,16 @@ export default function Items ({ ssrData, variables = DEFAULT_VARIABLES, query, 
     return <Skeleton />
   }
 
-  const isHome = !variables?.sub
-
   return (
     <>
       {Header && <Header data={destructured} />}
       <div className={styles.grid}>
         {itemsWithPins.filter(filter).map((item, i) => (
-          <ListItem key={`${item.id}-${i + 1}`} item={item} rank={rank && i + 1} itemClassName={variables.includeComments ? 'py-2' : ''} pinnable={isHome ? false : pins?.length > 0} />
+          <ListItem
+            key={`${item.id}-${i + 1}`} item={item} rank={rank && i + 1}
+            itemClassName={variables.includeComments ? 'py-2' : ''}
+            pinPosition={subName && pinnedIds.has(item.id) ? turfPinPosition(item, subName) : null}
+          />
         ))}
       </div>
       <Foooter

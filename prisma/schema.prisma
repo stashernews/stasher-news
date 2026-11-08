@@ -714,12 +714,19 @@ model ItemSub {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   itemId    Int
   subName   String   @db.Citext
+  // Per-turf pin: null when the post is not pinned in this turf, otherwise
+  // the 1-based position within the turf's pins (max 6, compacted on removal).
+  // Lives on the membership so the same post can be pinned independently in
+  // every turf that carries it. Legacy Item.pinId remains for reply and
+  // global (no-turf) pins.
+  pinPosition Int?
   item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
   sub       Sub      @relation(fields: [subName], references: [name], onDelete: Cascade, onUpdate: Cascade)
 
   @@id([itemId, subName])
   @@index([itemId])
   @@index([subName])
+  @@index([subName, pinPosition])
   @@index([createdAt])
 }
 

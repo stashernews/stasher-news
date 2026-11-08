@@ -99,7 +99,7 @@ function ItemLink ({ url, rel }) {
 
 export default function Item ({
   item, rank, belowTitle, right, full, children, itemClassName,
-  onQuoteReply, pinnable, excerpt, noMedia, ...props
+  onQuoteReply, pinPosition, excerpt, noMedia, ...props
 }) {
   const titleRef = useRef()
   const router = useRouter()
@@ -122,7 +122,9 @@ export default function Item ({
           </div>)
         : <div />}
       <div className={classNames(styles.item, itemClassName)}>
-        {item.position && (pinnable || !item.subNames)
+        {/* a turf pin icon only renders in the feed that injected this pin;
+            global no-turf pins (no subNames) keep the legacy position render */}
+        {((pinPosition != null) || (item.position && !item.subNames))
           ? <Pin width={24} height={24} className={styles.pin} />
           : item.mine
             ? item.bio ? null : <Boost item={item} className={styles.upvote} />
@@ -158,7 +160,7 @@ export default function Item ({
           <ItemInfo
             full={full} item={item}
             onQuoteReply={onQuoteReply}
-            pinnable={pinnable}
+            pinPosition={pinPosition}
             {...props}
           />
           {!full && embed?.provider === 'youtube' && <Embed src={item.url} {...embed} />}

@@ -29,6 +29,8 @@ import MuteDropdownItem from './mute'
 import { DropdownItemUpVote } from './upvote'
 import { useRoot } from './root'
 import { MuteSubDropdownItem, PinSubDropdownItem } from './territory-header'
+import { ownedPinTurfs, hasAnyPin } from '@/lib/turf-pins'
+import TurfPinDropdownItem from './turf-pin-dropdown-item'
 import UserPopover from './user-popover'
 import useQrPayIn from './payIn/hooks/use-qr-pay-in'
 import { useToast } from './toast'
@@ -79,7 +81,7 @@ function itemTitle (item) {
 export default function ItemInfo ({
   item, full, commentsText = 'comments',
   commentTextSingular = 'comment', className, embellishUser, extraInfo, edit, toggleEdit, editText,
-  onQuoteReply, extraBadges, nested, pinnable, showActionDropdown = true, showUser = true,
+  onQuoteReply, extraBadges, nested, pinPosition = null, showActionDropdown = true, showUser = true,
   setDisableRetry, disableRetry, updatePayIn
 }) {
   const { me } = useMe()
@@ -89,7 +91,7 @@ export default function ItemInfo ({
   const showModal = useShowModal()
   const [hasNewComments, setHasNewComments] = useState(false)
   const root = useRoot()
-  // XXX sub controls pinning options for territory founders
+  // XXX sub controls mute options for territory founders
   // so we only expose it if there's only one sub
   const subs = item?.subs || root?.subs
   const sub = subs?.length === 1 ? subs[0] : undefined
@@ -101,14 +103,16 @@ export default function ItemInfo ({
     }
   }, [item])
 
-  // territory founders can pin any post in their territory
-  // and OPs can pin any root reply in their post
+  // every owned turf this post belongs to gets its own explicit pin action;
+  // OPs pin root replies in their post through the legacy mutation
   const isPost = !item.parentId
-  const mySub = (me && sub && Number(me.id) === sub.userId)
+  const pinTurfs = isPost ? ownedPinTurfs(item, me) : []
   const myPost = (me && root && Number(me.id) === Number(root.user.id))
   const rootReply = item.path.split('.').length === 2
-  const canPin = (isPost && mySub) || (myPost && rootReply)
-  const isPinnedPost = isPost && item.position && (pinnable || !item.subNames)
+  const canPinReply = !isPost && myPost && rootReply
+  // the pin icon only shows for THIS feed's pin (passed down) or a global
+  // no-turf pin; a post pinned in another turf renders as an ordinary card
+  const isPinnedPost = isPost && (pinPosition != null || (!item.subNames && Boolean(item.position)))
   const isPinnedSubReply = !isPost && item.position && !item.subNames
   const meSats = (me ? item.mePiconeros : item.meAnonPiconeros) || 0
   const satsFilter = me
@@ -262,12 +266,18 @@ export default function ItemInfo ({
                   <hr className='dropdown-divider' />
                   <MuteSubDropdownItem item={item} sub={sub} />
                 </>}
-              {canPin &&
+              {canPinReply &&
                 <>
                   <hr className='dropdown-divider' />
                   <PinSubDropdownItem item={item} />
                 </>}
-              {item.mine && !item.position && !item.deletedAt && !item.bio &&
+              {pinTurfs.length > 0 &&
+                <>
+                  <hr className='dropdown-divider' />
+                  {pinTurfs.map(turf =>
+                    <TurfPinDropdownItem key={turf.name} item={item} turf={turf} />)}
+                </>}
+              {item.mine && !hasAnyPin(item) && !item.deletedAt && !item.bio &&
                 <>
                   <hr className='dropdown-divider' />
                   <DeleteDropdownItem itemId={item.id} type={item.title ? 'post' : 'comment'} />

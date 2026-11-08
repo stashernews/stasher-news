@@ -232,6 +232,10 @@ Generate the local copy of the prisma ORM client in `node_modules` after changes
 
 `./sndev prisma generate`
 
+Production turf-pin cutover requires a maintenance-window backfill in addition
+to the schema migration. Follow the [turf-pin cutover runbook](docs/ops/turf-pin-cutover.md)
+before restarting app and worker.
+
 <br>
 
 ## Connecting to the local database

@@ -18,6 +18,7 @@ import Check from '@/svgs/check-double-line.svg'
 import Share from './share'
 import Toc from './table-of-contents'
 import { RootProvider } from './root'
+import { hasAnyPin } from '@/lib/turf-pins'
 import { decodeProxyUrl, IMGPROXY_URL_REGEXP, parseEmbedUrl } from '@/lib/url'
 import { piconerosToMXmr } from '@/lib/format'
 import { bountyPiconerosOf, bountyStatusWord } from '@/lib/bounty'
@@ -160,8 +161,9 @@ function TopLevelItem ({ item, noReply, ...props }) {
               />
               )}
           {
-          // Don't show related items for global pins like the Daily Dead Drop (position is set but no subNames)
-          (!item.position && item.subNames?.length > 0) &&
+          // Don't show related items for pinned posts (global or any turf pin)
+          // or for global pins like the Daily Dead Drop (position is set but no subNames)
+          (!hasAnyPin(item) && item.subNames?.length > 0) &&
           // Don't show related items for jobs
           !item.isJob &&
           // Don't show related items for child items
@@ -215,7 +217,7 @@ export default function ItemFull ({ item, fetchMoreComments, bio, rank, ...props
               <div className={styles.comments}>
                 <Comments
                   parentId={item.id} parentCreatedAt={item.createdAt}
-                  pinned={item.position} bio={bio}
+                  pinned={hasAnyPin(item)} bio={bio}
                   commentSats={item.commentPiconeros} commentCost={item.commentCost} commentBoost={item.commentBoost}
                   ncomments={item.ncomments}
                   comments={item.comments.comments}

@@ -40,7 +40,7 @@ function schemaMutationNames () {
 // cases). Keep the two lists disjoint and both anchored to the schema.
 const REVIEWED_NON_SENSITIVE = new Set([
   // content creation / moderation
-  'bookmarkItem', 'deleteItem', 'deleteMessage', 'pinItem', 'removeMoneroWall',
+  'bookmarkItem', 'deleteItem', 'deleteMessage', 'pinItem', 'setTurfPin', 'removeMoneroWall',
   'openMoneroWallComments',
   'rateMoneroWallPost',
   'upsertBio', 'upsertBounty', 'upsertComment', 'upsertDiscussion', 'upsertJob',

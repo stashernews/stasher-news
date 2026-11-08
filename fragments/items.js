@@ -62,6 +62,10 @@ export const ITEM_FIELDS = gql`
     }
     otsHash
     position
+    turfPins {
+      subName
+      position
+    }
     piconeros
     meAnonPiconeros @client
     boost

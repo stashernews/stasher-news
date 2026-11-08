@@ -11,6 +11,7 @@ import { notifyItemMention, notifyMention } from '@/lib/webPush'
 import * as MEDIA_UPLOAD from './mediaUpload'
 import { getItem } from '@/api/resolvers/item'
 import { subsDiff } from '@/lib/subs'
+import { clearItemTurfPins, lockTurfRows } from '@/api/turf-pins'
 import { moneroWallEnabled } from '@/lib/monero-wall'
 import { getTempImgproxyUrls } from '../lib/upload'
 import { postFloorPiconerosForSubs, postFeePiconerosForSubs } from '@/api/monero/turfFeeRouting'
@@ -53,8 +54,8 @@ export async function getInitial (models, { id, uploadIds = [], bio, subNames },
   // case). The itemCreate posting-fee path keeps its escalation. Additions
   // only: removals and owned-turf additions are free. Top-level posts only —
   // the resolver strips comments and bios to text-only edits — and only when
-  // the client actually sent subNames (applyItemUpdate's [] default is
-  // deliberately untouched for callers that omit the field).
+  // the client actually sent subNames. applyItemUpdate preserves distribution
+  // when the field is omitted; only an explicit array changes memberships.
   //
   // Turf repost (2026-09-24): updateItem now rejects any turf change, so this
   // edit-adds-turf fee path is reached only through repostItem, which adds
@@ -146,10 +147,25 @@ export async function onBegin (tx, payInId, args) {
 // deferred edit's fee lands (applyPendingItemUpdate) and the free-edit path can
 // run it immediately.
 export async function applyItemUpdate (tx, payIn, args) {
-  const { id, uploadIds = [], options: pollOptions = [], subNames = [], ...data } = args
+  const { id, uploadIds = [], options: pollOptions = [], ...data } = args
+  // An omitted subNames list is "distribution unchanged" — never an
+  // instruction to clear every turf. Only an explicit array (including an
+  // explicit empty one) drives membership additions/removals. Reposts and
+  // the repost merge always provide the full list explicitly.
+  const subNamesProvided = Array.isArray(args.subNames)
+  const subNames = subNamesProvided ? args.subNames : undefined
   // never persist signed imgproxy preview urls: decode them to their embedded
   // source url (canonical https://<host>/uploads/N) so text survives key rotations
   if (data.text) data.text = canonicalizeItemText(data.text)
+
+  // Serialize against the turf-pin writers before reading the row: they hold
+  // the Item lock first, then affected turf rows, so this lock order matches.
+  // NO KEY UPDATE still serializes writers but permits ItemMention FK checks.
+  // Real Prisma clients always expose $queryRaw; stub clients in tests skip
+  // the lock (they cannot exercise concurrency anyway).
+  if (typeof tx.$queryRaw === 'function') {
+    await tx.$queryRaw`SELECT id FROM "Item" WHERE id = ${parseInt(id)} FOR NO KEY UPDATE`
+  }
 
   // M3 (2026-09-26 review): a text-less update — reposts carry only
   // id/userId/subNames; title-only edits carry no text — must NOT reconcile
@@ -230,6 +246,19 @@ export async function applyItemUpdate (tx, payIn, args) {
       delete data.moneroWallThresholdPiconeros
     }
   }
+  // turfs actually removed by this edit lose their pins under the same locks
+  // (Item already locked above; the union of added and removed turf rows is
+  // locked in canonical order first so two opposite swaps cannot deadlock).
+  // The removed set is computed from the same diff that drives the membership
+  // deletion below, so pins can never outlive — or precede — their membership.
+  // Stub clients (no raw query capability) skip pin cleanup: they cannot
+  // exercise concurrency, and their fixtures carry no pins.
+  if (typeof tx.$queryRaw === 'function') {
+    const removedSubNames = subNamesProvided ? subsDiff(old.subNames, subNames) : []
+    const addedSubNames = subNamesProvided ? subsDiff(subNames, old.subNames) : []
+    await lockTurfRows(tx, [...removedSubNames, ...addedSubNames])
+    await clearItemTurfPins(tx, { id: parseInt(id), subNames: removedSubNames })
+  }
   await tx.item.update({
     where: { id: parseInt(id) },
     data: {
@@ -244,14 +273,16 @@ export async function applyItemUpdate (tx, payIn, args) {
           data: pollOptions?.map(option => ({ option }))
         }
       },
-      subs: {
-        create: subsDiff(subNames, old.subNames).map(subName => ({ subName })),
-        deleteMany: {
-          subName: {
-            in: subsDiff(old.subNames, subNames)
+      subs: subNamesProvided
+        ? {
+            create: subsDiff(subNames, old.subNames).map(subName => ({ subName })),
+            deleteMany: {
+              subName: {
+                in: subsDiff(old.subNames, subNames)
+              }
+            }
           }
-        }
-      },
+        : undefined,
       itemUploads: textUnchanged
         ? undefined
         : {

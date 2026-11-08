@@ -37,6 +37,7 @@ import {
   moneroWallCommentsEnabled, moneroWallCommentsConfigError
 } from '@/lib/monero-wall'
 import { canonicalXStatus } from '@/lib/x-preview/status-url'
+import { setTurfPin as setTurfPinService, toggleSingleTurfPin, readTurfPins } from '@/api/turf-pins'
 
 export async function getItem (parent, { id }, { me, models }) {
   const [item] = await getItemsById([id], { me, models })
@@ -83,7 +84,7 @@ const orderByClause = (by, me, models, type, sub) => {
 export async function itemQueryWithMeta ({ me, models, query, orderBy = '' }, ...args) {
   if (!me) {
     return await models.$queryRawUnsafe(`
-      SELECT "Item".*, to_json(users.*) as user, "subs".subs as subs, to_jsonb("PayIn".*) as "payIn"
+      SELECT "Item".*, to_json(users.*) as user, "subs".subs as subs, "turfPinData"."turfPins", to_jsonb("PayIn".*) as "payIn"
       FROM (
         ${query}
       ) "Item"
@@ -93,6 +94,19 @@ export async function itemQueryWithMeta ({ me, models, query, orderBy = '' }, ..
         FROM "Sub"
         WHERE "Sub"."name" = ANY("Item"."subNames")
       ) "subs" ON true
+      -- independent turf pins carried by this post (empty for comments, bios,
+      -- and deleted posts — the surfaces that exclude pins)
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(jsonb_agg(
+          jsonb_build_object('subName', isp."subName", 'position', isp."pinPosition")
+          ORDER BY isp."subName"
+        ), '[]'::jsonb) AS "turfPins"
+        FROM "ItemSub" isp
+        WHERE isp."itemId" = "Item".id
+          AND isp."pinPosition" IS NOT NULL
+          AND "Item"."parentId" IS NULL
+          AND "Item"."deletedAt" IS NULL
+      ) "turfPinData" ON true
       LEFT JOIN LATERAL (
         SELECT "PayIn".*
         FROM "ItemPayIn"
@@ -110,7 +124,7 @@ export async function itemQueryWithMeta ({ me, models, query, orderBy = '' }, ..
         COALESCE("MeItemPayIn"."meDontLikeMsats", 0) as "meDontLikeMsats", COALESCE("MeItemPayIn"."mePendingDontLikeMsats", 0) as "mePendingDontLikeMsats",
         COALESCE("MeItemPayIn"."mePendingBoostMsats", 0) as "mePendingBoostMsats",
         b."itemId" IS NOT NULL AS "meBookmark", "ThreadSubscription"."itemId" IS NOT NULL AS "meSubscription",
-        "subs".subs as subs,
+        "subs".subs as subs, "turfPinData"."turfPins",
         to_jsonb("PayIn".*) || jsonb_build_object('payInStateChangedAt', "PayIn"."payInStateChangedAt" AT TIME ZONE 'UTC') as "payIn",
         "CommentsViewAt"."last_viewed_at" as "meCommentsViewedAt"
       FROM (
@@ -121,6 +135,17 @@ export async function itemQueryWithMeta ({ me, models, query, orderBy = '' }, ..
       LEFT JOIN "Bookmark" b ON b."itemId" = "Item".id AND b."userId" = ${me.id}
       LEFT JOIN "ThreadSubscription" ON "ThreadSubscription"."itemId" = "Item".id AND "ThreadSubscription"."userId" = ${me.id}
       LEFT JOIN "CommentsViewAt" ON "CommentsViewAt"."itemId" = "Item".id AND "CommentsViewAt"."userId" = ${me.id}
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(jsonb_agg(
+          jsonb_build_object('subName', isp."subName", 'position', isp."pinPosition")
+          ORDER BY isp."subName"
+        ), '[]'::jsonb) AS "turfPins"
+        FROM "ItemSub" isp
+        WHERE isp."itemId" = "Item".id
+          AND isp."pinPosition" IS NOT NULL
+          AND "Item"."parentId" IS NULL
+          AND "Item"."deletedAt" IS NULL
+      ) "turfPinData" ON true
       LEFT JOIN LATERAL (
         SELECT COALESCE(json_agg("Sub".*), '[]') as subs
         FROM (
@@ -631,10 +656,29 @@ export default {
         default:
           if (decodedCursor.offset === 0) {
             // get pins for the page and return those separately
-            pins = await itemQueryWithMeta({
-              me,
-              models,
-              query: `
+            pins = sub
+              ? await itemQueryWithMeta({
+                me,
+                models,
+                // turf pins: this turf's memberships in pin order ($1 = sub)
+                query: `
+              ${SELECT}, isp."pinPosition" AS position
+              FROM "Item"
+              JOIN "ItemSub" isp ON isp."itemId" = "Item".id AND isp."subName" = $1
+              ${payInJoinFilter(me)}
+              ${whereClause(
+                'isp."pinPosition" IS NOT NULL',
+                '"Item"."parentId" IS NULL',
+                '"Item"."deletedAt" IS NULL',
+                activeOrMine(me),
+                muteClause(me))}
+              ORDER BY isp."pinPosition" ASC`,
+                orderBy: 'ORDER BY position ASC'
+              }, ...subArr)
+              : await itemQueryWithMeta({
+                me,
+                models,
+                query: `
               SELECT rank_filter.*
                 FROM (
                   ${SELECT}, position,
@@ -648,12 +692,12 @@ export default {
                   ${whereClause(
                     '"pinId" IS NOT NULL',
                     '"parentId" IS NULL',
-                    sub ? '"Item"."subNames" @> ARRAY[$1]::CITEXT[]' : '"Item"."subNames" IS NULL',
+                    '"Item"."subNames" IS NULL',
                     muteClause(me))}
               ) rank_filter WHERE RANK = 1
               ORDER BY position ASC`,
-              orderBy: 'ORDER BY position ASC'
-            }, ...subArr)
+                orderBy: 'ORDER BY position ASC'
+              }, ...subArr)
           }
 
           items = await itemQueryWithMeta({
@@ -664,8 +708,15 @@ export default {
                 FROM "Item"
                 ${payInJoinFilter(me)}
                 ${whereClause(
-                  // in home (sub undefined), filter out global pinned items since we inject them later
-                  sub ? '"Item"."pinId" IS NULL' : 'NOT ("Item"."pinId" IS NOT NULL AND "Item"."subNames" IS NULL)',
+                  // in home (sub undefined), filter out global pinned items since we inject them later;
+                  // in a turf, exclude only posts pinned in THIS turf ($3 = the bound sub name)
+                  sub
+                    ? `NOT EXISTS (
+                        SELECT 1 FROM "ItemSub" isp
+                        WHERE isp."itemId" = "Item".id
+                          AND isp."subName" = $3
+                          AND isp."pinPosition" IS NOT NULL)`
+                    : 'NOT ("Item"."pinId" IS NOT NULL AND "Item"."subNames" IS NULL)',
                   '"Item"."deletedAt" IS NULL',
                   '"Item"."parentId" IS NULL',
                   '"Item".bio = false',
@@ -808,7 +859,7 @@ export default {
 
       const item = await models.item.findUnique({
         where: { id: Number(id) },
-        include: { pin: true, root: true, subs: { include: { sub: true } } }
+        include: { pin: true, root: true }
       })
 
       if (item.parentId) {
@@ -820,24 +871,15 @@ export default {
         if (item.root.userId !== Number(me.id)) {
           throw new GqlInputError('not your post')
         }
-      } else if (item.subs?.length === 1) {
-        // only territory founder can pin posts
-        const sub = item.subs[0].sub
-        if (Number(me.id) !== sub.userId) {
-          throw new GqlInputError('not your sub')
-        }
-      } else {
-        throw new GqlInputError('item must belong to a single sub or be a comment')
-      }
 
-      let pinId
-      if (item.pinId) {
-        // item is already pinned. remove pin
-        await models.$transaction([
-          models.item.update({ where: { id: item.id }, data: { pinId: null } }),
-          models.pin.delete({ where: { id: item.pinId } }),
-          // make sure that pins have no gaps
-          models.$queryRawUnsafe(`
+        let pinId
+        if (item.pinId) {
+          // item is already pinned. remove pin
+          await models.$transaction([
+            models.item.update({ where: { id: item.id }, data: { pinId: null } }),
+            models.pin.delete({ where: { id: item.pinId } }),
+            // make sure that pins have no gaps
+            models.$queryRawUnsafe(`
             UPDATE "Pin"
             SET position = position - 1
             WHERE position > $2 AND id IN (
@@ -846,12 +888,12 @@ export default {
                 '"pinId" IS NOT NULL',
                 item.parentId ? 'i."parentId" = $1' : 'i."subNames" @> ARRAY[$1]::CITEXT[]')}
             )`, item.parentId ?? item.subNames[0], item.pin.position)
-        ])
+          ])
 
-        pinId = null
-      } else {
-        // only max 6 pins allowed per territory and post
-        const [{ count: npins }] = await models.$queryRawUnsafe(`
+          pinId = null
+        } else {
+          // only max 6 pins allowed per territory and post
+          const [{ count: npins }] = await models.$queryRawUnsafe(`
           SELECT COUNT(p.id)
           FROM "Pin" p
           JOIN "Item" i ON i."pinId" = p.id
@@ -859,11 +901,11 @@ export default {
             item.parentId ? 'i."parentId" = $1' : 'i."subNames" @> ARRAY[$1]::CITEXT[]'
           )}`, item.parentId ?? item.subNames[0])
 
-        if (npins >= 6) {
-          throw new GqlInputError('max 6 pins allowed')
-        }
+          if (npins >= 6) {
+            throw new GqlInputError('max 6 pins allowed')
+          }
 
-        const [{ pinId: newPinId }] = await models.$queryRawUnsafe(`
+          const [{ pinId: newPinId }] = await models.$queryRawUnsafe(`
           WITH pin AS (
             INSERT INTO "Pin" (position)
             SELECT COALESCE(MAX(p.position), 0) + 1 AS position
@@ -880,10 +922,26 @@ export default {
           WHERE "Item".id = $2
           RETURNING "pinId"`, item.parentId ?? item.subNames[0], item.id)
 
-        pinId = newPinId
-      }
+          pinId = newPinId
+        }
 
-      return { id, pinId }
+        return { id, pinId }
+      } else if (item.bio) {
+        throw new GqlInputError('only turf posts can be pinned')
+      } else {
+        // top-level turf post: toggle the post's single membership pin under
+        // the turf-pin locks. Multi-turf posts are ambiguous here and rejected
+        // with the explicit-API error — use setTurfPin instead.
+        const result = await toggleSingleTurfPin({ id }, { me, models })
+        return await getItem(null, { id: result.id }, { me, models })
+      }
+    },
+    setTurfPin: async (parent, args, { me, models }) => {
+      if (!me) {
+        throw new GqlAuthenticationError()
+      }
+      const result = await setTurfPinService(args, { me, models })
+      return await getItem(null, { id: result.id }, { me, models })
     },
     subscribeItem: async (parent, { id }, { me, models }) => {
       if (!me) throw new GqlAuthenticationError()
@@ -911,7 +969,7 @@ export default {
         throw new GqlInputError('cannot delete bio')
       }
 
-      return await deleteItemByAuthor({ models, id, item: old })
+      return await deleteItemByAuthor({ models, id })
     },
     upsertLink: async (parent, { id, ...item }, ctx) => {
       const { me, models } = ctx
@@ -1344,6 +1402,15 @@ export default {
 
       return pin.position
     },
+    turfPins: async (item, args, { models }) => {
+      // attached by itemQueryWithMeta; fall back to the DB for callers that
+      // hand over raw rows (worker jobs, service calls). A client without raw
+      // query capability cannot load pins — treated as none.
+      if (Array.isArray(item.turfPins)) return item.turfPins
+      if (!item.id || item.parentId || item.bio || item.deletedAt) return []
+      if (typeof models?.$queryRaw !== 'function') return []
+      return await readTurfPins(models, item.id)
+    },
     prior: async (item, args, { models }) => {
       if (!item.pinId) {
         return null
@@ -1440,7 +1507,16 @@ export default {
         }
       }
 
-      return await resolveItemComments(item, sort || defaultCommentSort(item.pinId, item.bioId, item.createdAt), cursor, { ...ctx, itemQueryWithMeta, payInJoinFilter, activeOrMine, select: SELECT })
+      // pinned-thread default sort: legacy reply/global pins and ANY turf pin
+      // (never the viewer's current turf URL) both default to 'new'
+      let pinnedForSort = Boolean(item.pinId)
+      if (!pinnedForSort && !item.parentId && !item.bio &&
+        typeof ctx.models?.$queryRaw === 'function') {
+        const turfPins = Array.isArray(item.turfPins) ? item.turfPins : await readTurfPins(ctx.models, item.id)
+        pinnedForSort = turfPins.length > 0
+      }
+
+      return await resolveItemComments(item, sort || defaultCommentSort(pinnedForSort, item.bioId, item.createdAt), cursor, { ...ctx, itemQueryWithMeta, payInJoinFilter, activeOrMine, select: SELECT })
     },
     freedFreebie: async (item) => {
       return item.weightedVotes - item.weightedDownVotes > 0
