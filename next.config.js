@@ -59,6 +59,10 @@ const getAllowedDevOrigins = () => {
     devOrigins.push(new URL(process.env.NEXT_PUBLIC_URL).hostname)
   } catch {}
 
+  // the admin panel's SSH-tunnel listener serves the app at 127.0.0.1:9443;
+  // without this, hot reload is refused there and every reconnect reloads the page
+  devOrigins.push('127.0.0.1')
+
   // extra origins, comma separated, can be set in the environment variable ALLOWED_DEV_ORIGINS
   const extraOrigins = process.env.ALLOWED_DEV_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean) || []
   devOrigins.push(...extraOrigins)
