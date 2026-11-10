@@ -701,8 +701,24 @@ USAGE
   echo "$help"
 }
 
-__sndev_monero_ensure_up() {
-  docker__compose --profile monero up -d monerod monero-lws >/dev/null 2>&1
+# read-only guard, never an implicit `up`: sndev resolves only the repo's base
+# compose file, so an implicit `up` on a host deployed via a longer -f chain
+# detects config drift and silently recreates containers without their
+# overrides (2026-11-09 production incident). start the stack explicitly with
+# `sndev monero up` (or the deployment's own compose chain) instead.
+__sndev_monero_require_up() {
+  running=$(docker__compose --profile monero ps --quiet monerod monero-lws | wc -l)
+  if [ "$running" -lt 2 ]; then
+    echo "monerod and/or monero-lws are not running - start them with: sndev monero up" >&2
+    echo "(production: start them via the deployment's full compose chain, not this script)" >&2
+    return 1
+  fi
+}
+
+sndev__monero__up() {
+  # explicit + loud: output is never discarded, so a compose "Recreating ..."
+  # (config drift) is always visible; no -f is forced, so COMPOSE_FILE chains are honored
+  docker__compose --profile monero up -d monerod monero-lws
 }
 
 __sndev_monero_rpc_port() {
@@ -718,7 +734,7 @@ __sndev_monero_rpc_port() {
 }
 
 sndev__monero__status() {
-  __sndev_monero_ensure_up
+  # pure read path: never mutates the stack (safe to poll anywhere)
   rpc_port=$(__sndev_monero_rpc_port)
   echo "== monerod (get_height) =="
   docker__compose --profile monero exec -T monerod curl -sf "http://127.0.0.1:${rpc_port}/get_height" 2>/dev/null \
@@ -743,7 +759,8 @@ sndev__monero__status() {
 }
 
 sndev__monero__accounts() {
-  __sndev_monero_ensure_up
+  # pure read path: never mutates the stack (safe to poll anywhere)
+  __sndev_monero_require_up
   docker__compose --profile monero exec -T monero-lws curl -sk -X POST \
     -H 'Content-Type: application/json' \
     -d '{"params":{}}' \
@@ -757,7 +774,7 @@ sndev__monero__add_account() {
     echo "  <viewkey> = private view key (64 hex chars)" >&2
     return 1
   fi
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   address="$1" viewkey="$2"
   echo "Registering $address with monero-lws (active state)..."
   docker__compose --profile monero exec -T monero-lws curl -sk -X POST \
@@ -823,7 +840,7 @@ EOF
 }
 
 sndev__monero__register_rewards_wallet() {
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   if [ -z "$PLATFORM_REWARDS_ADDRESS" ] || [ -z "$PLATFORM_REWARDS_VIEW_KEY" ]; then
     echo "PLATFORM_REWARDS_ADDRESS and PLATFORM_REWARDS_VIEW_KEY must be set (use .env.local)" >&2
     return 1
@@ -833,7 +850,7 @@ sndev__monero__register_rewards_wallet() {
 }
 
 sndev__monero__register_bounty_escrow_wallet() {
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   if [ -z "$BOUNTY_ESCROW_ADDRESS" ] || [ -z "$BOUNTY_ESCROW_VIEW_KEY" ]; then
     echo "BOUNTY_ESCROW_ADDRESS and BOUNTY_ESCROW_VIEW_KEY must be set (use .env.local)" >&2
     return 1
@@ -843,7 +860,7 @@ sndev__monero__register_bounty_escrow_wallet() {
 }
 
 sndev__monero__derive_fee_pool() {
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   if [ -z "$PLATFORM_REWARDS_SPEND_KEY" ]; then
     echo "PLATFORM_REWARDS_SPEND_KEY must be set (use .env.local) — this is the only place the spend key is used" >&2
     return 1
@@ -858,7 +875,7 @@ sndev__monero__rescan() {
     echo "  <height> = block height to rescan from (0 = genesis)" >&2
     return 1
   fi
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   address="$1" height="$2"
   echo "Rescanning $address from height $height..."
   docker__compose --profile monero exec -T monero-lws curl -sk -X POST \
@@ -869,31 +886,31 @@ sndev__monero__rescan() {
 }
 
 sndev__monero__distribute() {
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   echo "Running one weekly rewards distribution..."
   docker__compose exec -T -u apprunner app npx tsx --tsconfig jsconfig.json scripts/run-rewards-distribution.js
 }
 
 sndev__monero__requeue() {
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   echo "Requeueing stranded FAILED payouts (dry-run unless --confirm)..."
   docker__compose exec -T -u apprunner app npx tsx --tsconfig jsconfig.json scripts/requeue-failed-payouts.js "$@"
 }
 
 sndev__monero__makeup() {
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   echo "Approving a breaker make-up (dry-run unless --confirm)..."
   docker__compose exec -T -u apprunner app npx tsx --tsconfig jsconfig.json scripts/approve-curator-makeup.js "$@"
 }
 
 sndev__monero__backfill_budget() {
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   echo "Backfilling curator budget history (dry-run unless --confirm)..."
   docker__compose exec -T -u apprunner app npx tsx --tsconfig jsconfig.json scripts/backfill-curator-budget-history.js "$@"
 }
 
 sndev__monero__rotate_master_key() {
-  __sndev_monero_ensure_up
+  __sndev_monero_require_up
   if [ -z "${VIEWKEY_NEW_MASTER_KEY:-}" ]; then
     echo "Set VIEWKEY_NEW_MASTER_KEY (base64, 32 bytes) in your env first." >&2
     echo "  1. NEW=\$(openssl rand -base64 32)" >&2
@@ -910,11 +927,12 @@ sndev__monero__rotate_master_key() {
 sndev__monero() {
   shift
   if [ $# -eq 0 ]; then
-    echo "Usage: sndev monero {status|accounts|add_account|faucet|rescan|register-rewards-wallet|register-bounty-escrow-wallet|derive-fee-pool|distribute|requeue|makeup|backfill-budget|rotate-master-key}" >&2
+    echo "Usage: sndev monero {status|up|accounts|add_account|faucet|rescan|register-rewards-wallet|register-bounty-escrow-wallet|derive-fee-pool|distribute|requeue|makeup|backfill-budget|rotate-master-key}" >&2
     return 1
   fi
   sub="$1"; shift
   case "$sub" in
+    up)          sndev__monero__up "$@" ;;
     status)      sndev__monero__status "$@" ;;
     accounts)    sndev__monero__accounts "$@" ;;
     add_account) sndev__monero__add_account "$@" ;;
@@ -940,7 +958,10 @@ USAGE
   $ sndev monero COMMAND [ARGS]
 
 COMMANDS
-  status                         monerod + lws health
+  up                             start monerod + monero-lws (compose output shown,
+                                 honors COMPOSE_FILE; on production prefer the
+                                 deployment's own compose chain)
+  status                         monerod + lws health (read-only, safe to poll)
   accounts                       list lws-watched accounts
   add_account <addr> <viewkey>   register an account with lws
   faucet <addr>                  print faucet/explorer URLs for <addr> (network-aware)
@@ -952,6 +973,9 @@ COMMANDS
                                 fill recent curator budget history (dry-run default; N defaults to 12)
   rotate-master-key             re-wrap MoneroViewKey rows under the new master key
                                 (set VIEWKEY_NEW_MASTER_KEY; see scripts/rotate-master-key.js)
+
+All commands other than 'up' and 'faucet' require the stack to be running;
+they fail fast with guidance instead of starting containers implicitly.
 "
   echo "$help"
 }

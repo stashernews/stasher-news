@@ -249,12 +249,15 @@ You can connect to the local database via `./sndev psql`. [psql](https://www.pos
 The local monero stack consists of a `monerod` daemon and a `monero-lws` light wallet server, on the network set by `MONERO_NETWORK` (stagenet by default). Manage them with:
 
 ```sh
-$ ./sndev monero status         # monerod + lws health
+$ ./sndev monero up             # bring up monerod + lws (explicit; compose output visible)
+$ ./sndev monero status         # monerod + lws health (read-only; safe to poll)
 $ ./sndev monero accounts       # list lws-watched accounts
 $ ./sndev monero add_account <address> <viewkey>
 $ ./sndev monero faucet <address>   # print faucet/explorer URLs (network-aware)
 $ ./sndev monero rescan <address> <height>
 ```
+
+Other than `up` and `faucet`, these commands require the stack to already be running and fail fast with guidance if it isn't — `sndev monero ...` never starts containers implicitly (on a production host an implicit `docker compose up` from this script's base-file-only resolution would recreate containers without the deployment's override files).
 
 For a raw shell on either service use `./sndev compose exec monerod bash` or `./sndev compose exec monero-lws bash`.
 
