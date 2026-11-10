@@ -52,7 +52,10 @@ const CONFIG = {
   walletlessTipRewardsPct: 70
 }
 
-function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null, ledger = {} } = {}) {
+// makeModels options:
+//   txnDelayMs — artificial latency inside $transaction so concurrent callers
+//                overlap in flight (single-flight regression tests).
+function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null, ledger = {}, txnDelayMs = 0 } = {}) {
   const calls = jest.fn(async () => [{
     downvote: 1000000000n,
     posting: 1000000000n,
@@ -72,9 +75,13 @@ function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null, le
     rewardDistribution: {
       findFirst: jest.fn(async () => lastDistribution),
       // The ledger reader loads every recorded distribution (sweep facts).
-      findMany: jest.fn(async () => ledger.distributions ?? [])
+      findMany: jest.fn(async () => ledger.distributions ?? []),
+      count: jest.fn(async () => 0)
     },
-    rewardPayout: { findMany: jest.fn(async () => ledger.payouts ?? []) },
+    rewardPayout: {
+      findMany: jest.fn(async () => ledger.payouts ?? []),
+      groupBy: jest.fn(async () => [])
+    },
     rewardsWalletTransaction: {
       findMany: jest.fn(async () => ledger.transactions ?? []),
       findUnique: jest.fn(async () => null)
@@ -97,11 +104,19 @@ function makeModels ({ inflow = {}, config = CONFIG, lastDistribution = null, le
     item: { findMany: jest.fn(async () => []) },
     earn: { findMany: jest.fn(async () => []) },
     paymentTransactionProof: { findUnique: jest.fn(async () => null) },
+    // curatorBudget walk readers (resolveHandicapIds, readTrustWeighting) and
+    // poolHealth group/count readers — benign defaults, overridden per test.
+    user: { findMany: jest.fn(async () => []) },
+    healthSnapshot: { findUnique: jest.fn(async () => null) },
+    userSubTrust: { count: jest.fn(async () => 0) },
     $queryRaw: calls
   }
   // The pool read runs inside one Serializable transaction; an omitted mock
   // must not silently exercise a weaker path.
-  models.$transaction = jest.fn(async fn => fn(models))
+  models.$transaction = jest.fn(async fn => {
+    if (txnDelayMs) await new Promise(resolve => setTimeout(resolve, txnDelayMs))
+    return fn(models)
+  })
   return models
 }
 
@@ -282,6 +297,165 @@ describe('Query.rewards', () => {
       .rejects.toThrow(/rewardsPct/)
     await expect(resolvers.Mutation.donateToRewards(null, { piconeros: 3_000_000_000n, rewardsPct: -1 }, { me: { id: 1 }, models: {} }))
       .rejects.toThrow(/rewardsPct/)
+  })
+})
+
+// Regression: the module caches in api/resolvers/rewards.js are
+// stale-while-revalidate with in-flight dedupe. Before the dedupe, every
+// caller arriving during a TTL expiry window opened its OWN Serializable
+// transaction (and on a cold cache, every concurrent first caller awaited
+// its own). The footer polls curatorBudget/rewards from every open tab and
+// pageview, so each expiry spawned a stampede of Serializable transactions
+// that exhausted the Prisma connection pool: the refresh path failed with
+// P2028 "Unable to start a transaction in the given time" and every
+// unrelated query queued ~2s behind the held connections.
+describe('cache refresh single-flight', () => {
+  const CURATOR_CONFIG = {
+    ...CONFIG,
+    curatorBudgetMode: 'SHADOW',
+    curatorBudgetMultBps: 15000,
+    curatorBudgetDrawdownWeeks: 13,
+    curatorBudgetAvgPeriods: 4,
+    curatorTipCapShareBps: 2000,
+    curatorBreakerRatioBps: 20000,
+    curatorBreakerFloorMedianPeriods: 4,
+    curatorBreakerArmPeriods: 4
+  }
+
+  // Fields for the eligible-tip-volume reader, merged into the default
+  // $queryRaw inflow row so ONE stub satisfies both readers of the
+  // curatorBudget walk.
+  const VOLUME = {
+    raw: '0',
+    eligible: '0',
+    after_exclusions: '0',
+    ranked: '0',
+    handicapped: '0',
+    trusted: '0',
+    tippers: []
+  }
+
+  test('concurrent cold-start curatorBudget calls share one transaction', async () => {
+    const models = makeModels({ config: CURATOR_CONFIG, txnDelayMs: 25, inflow: VOLUME })
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => resolvers.Query.curatorBudget(null, {}, { models }))
+    )
+
+    expect(models.$transaction).toHaveBeenCalledTimes(1)
+    for (const budget of results) {
+      // the live projection ran, not the error fallback
+      expect(budget.mode).toBe('SHADOW')
+      expect(budget.projectedPiconeros).not.toBeNull()
+    }
+  })
+
+  test('curatorBudget expiry spawns exactly one refresh transaction', async () => {
+    const models = makeModels({ config: CURATOR_CONFIG, txnDelayMs: 25, inflow: VOLUME })
+
+    const primed = await resolvers.Query.curatorBudget(null, {}, { models })
+    expect(models.$transaction).toHaveBeenCalledTimes(1)
+    expect(primed.projectedPiconeros).not.toBeNull()
+
+    const realNow = Date.now()
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(realNow + 11000)
+    try {
+      const stale = await Promise.all(
+        Array.from({ length: 5 }, () => resolvers.Query.curatorBudget(null, {}, { models }))
+      )
+      // stale-while-revalidate semantics survive: expired cache still serves
+      for (const budget of stale) expect(budget).toEqual(primed)
+
+      await new Promise(resolve => setTimeout(resolve, 150))
+      // one priming transaction + one shared background refresh
+      expect(models.$transaction).toHaveBeenCalledTimes(2)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  test('concurrent cold-start rewards calls share one transaction', async () => {
+    const models = makeModels({ txnDelayMs: 25 })
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => resolvers.Query.rewards(null, {}, { models }))
+    )
+
+    expect(models.$transaction).toHaveBeenCalledTimes(1)
+    for (const [reward] of results) expect(reward.total).toBeNull()
+  })
+
+  test('rewards expiry spawns exactly one refresh transaction', async () => {
+    const models = makeModels({ txnDelayMs: 25 })
+
+    const primed = await resolvers.Query.rewards(null, {}, { models })
+    expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+    const realNow = Date.now()
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(realNow + 11000)
+    try {
+      const stale = await Promise.all(
+        Array.from({ length: 5 }, () => resolvers.Query.rewards(null, {}, { models }))
+      )
+      for (const [reward] of stale) expect(reward).toEqual(primed[0])
+
+      await new Promise(resolve => setTimeout(resolve, 150))
+      expect(models.$transaction).toHaveBeenCalledTimes(2)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  test('a rejected refresh reaches cold-start callers, clears the slot, and never leaves an unhandled rejection', async () => {
+    const models = makeModels()
+    const boom = new Error('pool jammed (P2028)')
+    const delegate = models.$transaction
+    models.$transaction = jest.fn()
+      .mockImplementationOnce(async () => { throw boom })
+      .mockImplementation(delegate)
+
+    const unhandled = jest.fn()
+    process.on('unhandledRejection', unhandled)
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      // cold start: the shared rejection propagates to the awaiting caller
+      await expect(resolvers.Query.rewards(null, {}, { models })).rejects.toThrow(boom)
+
+      // the slot was cleared, not poisoned: the next caller retries for real
+      const [reward] = await resolvers.Query.rewards(null, {}, { models })
+      expect(reward.total).toBeNull()
+      expect(models.$transaction).toHaveBeenCalledTimes(2)
+
+      // a failed BACKGROUND refresh (stale-while-revalidate) is handled
+      // quietly: no unhandled rejection reaches the process
+      models.$transaction.mockImplementationOnce(async () => { throw boom })
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 11000)
+      try {
+        await resolvers.Query.rewards(null, {}, { models }) // serves stale
+      } finally {
+        nowSpy.mockRestore()
+      }
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(unhandled).not.toHaveBeenCalled()
+      expect(models.$transaction).toHaveBeenCalledTimes(3)
+    } finally {
+      process.off('unhandledRejection', unhandled)
+      consoleError.mockRestore()
+    }
+  })
+
+  test('concurrent cold-start rewardsPoolHealth calls share one transaction', async () => {
+    const models = makeModels({
+      txnDelayMs: 25,
+      lastDistribution: { periodEnd: new Date(Date.now() - DAY_MS), rolledOverPiconeros: 600n }
+    })
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => resolvers.Query.rewardsPoolHealth(null, {}, { models }))
+    )
+
+    expect(models.$transaction).toHaveBeenCalledTimes(1)
+    for (const health of results) expect(health.distributionCount).toBe(0)
   })
 })
 

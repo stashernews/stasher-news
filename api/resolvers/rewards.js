@@ -22,20 +22,43 @@ let rewardCache
 let curatorBudgetCache
 let poolHealthCache
 
+// At most one refresh in flight per cache. Every caller that arrives while a
+// refresh is running — cold start or TTL expiry — shares that ONE refresh
+// transaction instead of each opening its own. Without this, each footer
+// poll/pageview landing inside an expiry window spawned its own Serializable
+// transaction; the concurrent refreshes exhausted the Prisma connection pool
+// (P2028 on new transactions, multi-second queue waits on every other query).
+// A rejected refresh clears the slot so the next caller retries.
+function singleFlight (refresh) {
+  let inFlight = null
+  return models => {
+    if (!inFlight) {
+      inFlight = refresh(models)
+      // settled (either way) clears the slot; the handled rejection branch
+      // keeps the clearing chain itself rejection-free (and stands in for
+      // any future call site that fails to handle the background refresh)
+      inFlight.then(() => {}, () => {}).then(() => { inFlight = null })
+    }
+    return inFlight
+  }
+}
+
 async function updateCachedRewards (models) {
   const rewards = await getActiveRewards(models)
   rewardCache = { rewards, createdAt: Date.now() }
   return rewards
 }
 
+const refreshActiveRewards = singleFlight(updateCachedRewards)
+
 async function getCachedActiveRewards (staleIn, models) {
   if (rewardCache) {
     const { rewards, createdAt } = rewardCache
     const expired = createdAt + staleIn < Date.now()
-    if (expired) updateCachedRewards(models).catch(console.error)
+    if (expired) refreshActiveRewards(models).catch(console.error)
     return rewards // serve stale rewards
   }
-  return await updateCachedRewards(models)
+  return await refreshActiveRewards(models)
 }
 
 const minBigInt = (a, b) => (a < b ? a : b)
@@ -187,14 +210,16 @@ async function updateCachedCuratorBudget (models) {
   return curatorBudget
 }
 
+const refreshCuratorBudget = singleFlight(updateCachedCuratorBudget)
+
 async function getCachedCuratorBudget (staleIn, models) {
   if (curatorBudgetCache) {
     const { curatorBudget, createdAt } = curatorBudgetCache
     const expired = createdAt + staleIn < Date.now()
-    if (expired) updateCachedCuratorBudget(models).catch(console.error)
+    if (expired) refreshCuratorBudget(models).catch(console.error)
     return curatorBudget // serve stale projection
   }
-  return await updateCachedCuratorBudget(models)
+  return await refreshCuratorBudget(models)
 }
 
 // The active cycle publishes this cycle's income by source and the next
@@ -308,13 +333,15 @@ async function updateCachedPoolHealth (models) {
   return health
 }
 
+const refreshPoolHealth = singleFlight(updateCachedPoolHealth)
+
 async function getCachedPoolHealth (staleIn, models) {
   if (poolHealthCache) {
     const { health, createdAt } = poolHealthCache
-    if (createdAt + staleIn < Date.now()) updateCachedPoolHealth(models).catch(console.error)
+    if (createdAt + staleIn < Date.now()) refreshPoolHealth(models).catch(console.error)
     return health
   }
-  return await updateCachedPoolHealth(models)
+  return await refreshPoolHealth(models)
 }
 
 export default {
