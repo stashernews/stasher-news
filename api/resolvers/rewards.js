@@ -17,10 +17,24 @@ import { resolveExcludedCuratorIds } from '@/worker/curatorShares'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_TARGET_MULT_BPS = 15000
+// A fallback curatorBudget projection (refresh failure or invalid config)
+// holds only this long before the next caller retries the live walk, so a
+// transient DB failure can never pin the fallback cap on the UI for a day.
+const CURATOR_FALLBACK_RETRY_MS = 60 * 1000
 
 let rewardCache
 let curatorBudgetCache
 let poolHealthCache
+
+// The next 12:00 UTC strictly after t (t exactly at noon -> tomorrow noon).
+// The daily expiry anchor for the curatorBudget projection and pool health:
+// weekly-scale figures that only need one refresh a day, at a predictable
+// mid-day moment away from the Monday 00:00 UTC distribution run.
+function nextNoonUtcAfter (t) {
+  const d = new Date(t)
+  const noon = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12)
+  return t < noon ? noon : noon + DAY_MS
+}
 
 // At most one refresh in flight per cache. Every caller that arrives while a
 // refresh is running — cold start or TTL expiry — shares that ONE refresh
@@ -206,15 +220,22 @@ async function getLiveCuratorBudget (models) {
 
 async function updateCachedCuratorBudget (models) {
   const curatorBudget = await getLiveCuratorBudget(models)
-  curatorBudgetCache = { curatorBudget, createdAt: Date.now() }
+  // The projection is a weekly-scale figure: a live result holds until the
+  // next mid-day UTC slot, so the heavy Serializable walk runs once a day.
+  // A fallback result holds only for the short retry window instead.
+  const now = Date.now()
+  const staleIn = curatorBudget.projectedPiconeros == null
+    ? CURATOR_FALLBACK_RETRY_MS
+    : nextNoonUtcAfter(now) - now
+  curatorBudgetCache = { curatorBudget, createdAt: now, staleIn }
   return curatorBudget
 }
 
 const refreshCuratorBudget = singleFlight(updateCachedCuratorBudget)
 
-async function getCachedCuratorBudget (staleIn, models) {
+async function getCachedCuratorBudget (models) {
   if (curatorBudgetCache) {
-    const { curatorBudget, createdAt } = curatorBudgetCache
+    const { curatorBudget, createdAt, staleIn } = curatorBudgetCache
     const expired = createdAt + staleIn < Date.now()
     if (expired) refreshCuratorBudget(models).catch(console.error)
     return curatorBudget // serve stale projection
@@ -329,15 +350,22 @@ function median (values) {
 
 async function updateCachedPoolHealth (models) {
   const health = await getPoolHealth(models)
-  poolHealthCache = { health, createdAt: Date.now() }
+  // Trend/runway labels move on weekly distributions: the same daily
+  // mid-day UTC anchor applies.
+  const now = Date.now()
+  poolHealthCache = {
+    health,
+    createdAt: now,
+    staleIn: nextNoonUtcAfter(now) - now
+  }
   return health
 }
 
 const refreshPoolHealth = singleFlight(updateCachedPoolHealth)
 
-async function getCachedPoolHealth (staleIn, models) {
+async function getCachedPoolHealth (models) {
   if (poolHealthCache) {
-    const { health, createdAt } = poolHealthCache
+    const { health, createdAt, staleIn } = poolHealthCache
     if (createdAt + staleIn < Date.now()) refreshPoolHealth(models).catch(console.error)
     return health
   }
@@ -349,9 +377,9 @@ export default {
     rewards: async (parent, { when }, { models }) =>
       when ? await getRewards(when, models) : await getCachedActiveRewards(10000, models),
     curatorBudget: async (parent, args, { models }) =>
-      await getCachedCuratorBudget(10000, models),
+      await getCachedCuratorBudget(models),
     rewardsPoolHealth: async (parent, args, { models }) =>
-      await getCachedPoolHealth(60000, models),
+      await getCachedPoolHealth(models),
     meRewards: async (parent, { when }, { me, models }) => {
       if (!me) {
         return null

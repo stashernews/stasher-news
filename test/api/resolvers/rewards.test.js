@@ -309,32 +309,35 @@ describe('Query.rewards', () => {
 // that exhausted the Prisma connection pool: the refresh path failed with
 // P2028 "Unable to start a transaction in the given time" and every
 // unrelated query queued ~2s behind the held connections.
+// Valid curatorBudget walk config: resolveCuratorBudgetConfig passes, the
+// planner records a live projection (projectedPiconeros set), distinguishing
+// the live path from the error fallback.
+const CURATOR_CONFIG = {
+  ...CONFIG,
+  curatorBudgetMode: 'SHADOW',
+  curatorBudgetMultBps: 15000,
+  curatorBudgetDrawdownWeeks: 13,
+  curatorBudgetAvgPeriods: 4,
+  curatorTipCapShareBps: 2000,
+  curatorBreakerRatioBps: 20000,
+  curatorBreakerFloorMedianPeriods: 4,
+  curatorBreakerArmPeriods: 4
+}
+
+// Fields for the eligible-tip-volume reader, merged into the default
+// $queryRaw inflow row so ONE stub satisfies both readers of the
+// curatorBudget walk.
+const VOLUME = {
+  raw: '0',
+  eligible: '0',
+  after_exclusions: '0',
+  ranked: '0',
+  handicapped: '0',
+  trusted: '0',
+  tippers: []
+}
+
 describe('cache refresh single-flight', () => {
-  const CURATOR_CONFIG = {
-    ...CONFIG,
-    curatorBudgetMode: 'SHADOW',
-    curatorBudgetMultBps: 15000,
-    curatorBudgetDrawdownWeeks: 13,
-    curatorBudgetAvgPeriods: 4,
-    curatorTipCapShareBps: 2000,
-    curatorBreakerRatioBps: 20000,
-    curatorBreakerFloorMedianPeriods: 4,
-    curatorBreakerArmPeriods: 4
-  }
-
-  // Fields for the eligible-tip-volume reader, merged into the default
-  // $queryRaw inflow row so ONE stub satisfies both readers of the
-  // curatorBudget walk.
-  const VOLUME = {
-    raw: '0',
-    eligible: '0',
-    after_exclusions: '0',
-    ranked: '0',
-    handicapped: '0',
-    trusted: '0',
-    tippers: []
-  }
-
   test('concurrent cold-start curatorBudget calls share one transaction', async () => {
     const models = makeModels({ config: CURATOR_CONFIG, txnDelayMs: 25, inflow: VOLUME })
 
@@ -350,16 +353,20 @@ describe('cache refresh single-flight', () => {
     }
   })
 
-  test('curatorBudget expiry spawns exactly one refresh transaction', async () => {
+  test('curatorBudget noon expiry spawns exactly one refresh transaction', async () => {
     const models = makeModels({ config: CURATOR_CONFIG, txnDelayMs: 25, inflow: VOLUME })
 
-    const primed = await resolvers.Query.curatorBudget(null, {}, { models })
-    expect(models.$transaction).toHaveBeenCalledTimes(1)
-    expect(primed.projectedPiconeros).not.toBeNull()
-
-    const realNow = Date.now()
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(realNow + 11000)
+    const noon = Date.UTC(2026, 10, 10, 12)
+    let now = noon - 60 * 1000 // primed just before the daily slot
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
     try {
+      const primed = await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+      expect(primed.projectedPiconeros).not.toBeNull()
+
+      // past the slot boundary: expired cache serves stale while exactly ONE
+      // shared background refresh runs, no matter how many callers arrive
+      now = noon + 60 * 1000
       const stale = await Promise.all(
         Array.from({ length: 5 }, () => resolvers.Query.curatorBudget(null, {}, { models }))
       )
@@ -456,6 +463,156 @@ describe('cache refresh single-flight', () => {
 
     expect(models.$transaction).toHaveBeenCalledTimes(1)
     for (const health of results) expect(health.distributionCount).toBe(0)
+  })
+})
+
+// The curatorBudget and poolHealth caches expire on a daily mid-day UTC
+// schedule: an entry holds until the NEXT 12:00 UTC after it was cached, so
+// under continuous demand the heavy Serializable walk runs once a day, at a
+// predictable mid-day moment away from the Monday 00:00 UTC distribution.
+// A fallback curatorBudget projection holds only for a short retry window
+// instead, so one bad minute can never pin the fallback cap on the UI for
+// a whole day.
+describe('cache expiry schedule', () => {
+  const nineAm = Date.UTC(2026, 10, 10, 9) // Tue 2026-11-10 09:00 UTC
+  const noon = Date.UTC(2026, 10, 10, 12)
+
+  test('live curatorBudget projection holds until the next 12:00 UTC slot', async () => {
+    const models = makeModels({ config: CURATOR_CONFIG, inflow: VOLUME })
+    let now = nineAm
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      const primed = await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(primed.projectedPiconeros).not.toBeNull() // live, not fallback
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+      // 11:59, almost three hours later: still inside the slot, no refresh
+      now = noon - 60 * 1000
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+      // 12:01: the slot boundary passed; stale served while one refresh runs
+      now = noon + 60 * 1000
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(models.$transaction).toHaveBeenCalledTimes(2)
+
+      // the refreshed entry is anchored to TOMORROW's noon: 13:00 is fresh
+      now = Date.UTC(2026, 10, 10, 13)
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(models.$transaction).toHaveBeenCalledTimes(2)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  test('an afternoon-primed projection holds through midnight until the next noon', async () => {
+    const models = makeModels({ config: CURATOR_CONFIG, inflow: VOLUME })
+    // 14:00 Dec 31 -> the slot is 12:00 Jan 1: the hold must cross a month
+    // boundary, and it distinguishes the noon anchor from any fixed TTL that
+    // would have expired a 14:00 prime within the same evening.
+    let now = Date.UTC(2026, 11, 31, 14)
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+      now = Date.UTC(2027, 0, 1, 11, 59)
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+      now = Date.UTC(2027, 0, 1, 12, 1)
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(models.$transaction).toHaveBeenCalledTimes(2)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  test('a projection cached exactly at noon holds until TOMORROW\'S noon', async () => {
+    const models = makeModels({ config: CURATOR_CONFIG, inflow: VOLUME })
+    let now = Date.UTC(2026, 10, 10, 12) // exactly at the slot
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+      // the slot is strictly NEXT noon: a minute later is still fresh
+      now = Date.UTC(2026, 10, 10, 12, 1)
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  test('a fallback projection retries shortly instead of holding the daily slot', async () => {
+    const models = makeModels()
+    // the live walk fails; getLiveCuratorBudget serves its fallback object
+    models.$transaction = jest.fn(async () => { throw new Error('db unavailable') })
+    let now = nineAm
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      const fallback = await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(fallback.projectedPiconeros).toBeNull()
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+      // a minute later the fallback has already expired: a retry fires. A
+      // daily hold on fallbacks would leave this at 1 until the next noon.
+      now = nineAm + 61 * 1000
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(models.$transaction).toHaveBeenCalledTimes(2)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  test('an invalid-config record also retries on the short window', async () => {
+    // The default CONFIG carries no curator budget fields: the walk SUCCEEDS
+    // but planCuratorBudget records the minimal LEGACY fallback (null
+    // projection). Same short retry window as a failed refresh, so fixing
+    // the admin config is visible within a minute instead of at the next
+    // noon.
+    const models = makeModels()
+    let now = nineAm
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      const record = await resolvers.Query.curatorBudget(null, {}, { models })
+      expect(record.projectedPiconeros).toBeNull()
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+      now = nineAm + 61 * 1000
+      await resolvers.Query.curatorBudget(null, {}, { models })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(models.$transaction).toHaveBeenCalledTimes(2)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  test('pool health holds until the next 12:00 UTC slot', async () => {
+    const models = makeModels({
+      lastDistribution: { periodEnd: new Date(nineAm - DAY_MS), rolledOverPiconeros: 600n }
+    })
+    let now = nineAm
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      await resolvers.Query.rewardsPoolHealth(null, {}, { models })
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+      now = noon - 60 * 1000
+      await resolvers.Query.rewardsPoolHealth(null, {}, { models })
+      expect(models.$transaction).toHaveBeenCalledTimes(1)
+
+      now = noon + 60 * 1000
+      await resolvers.Query.rewardsPoolHealth(null, {}, { models })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(models.$transaction).toHaveBeenCalledTimes(2)
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 })
 
