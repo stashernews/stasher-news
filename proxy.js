@@ -14,7 +14,10 @@ import { isAdminPath, isAdminRequest } from '@/lib/admin/guard'
 
 const REFERRER_TTL_S = 60 * 60 * 24
 
-const referrerPattern = new URLPattern({ pathname: ':pathname(*)/r/:referrer([\\w_]+)' })
+// NOTE: a bare `*` is not a valid custom regex and the strict URLPattern built
+// into Node >= 24 rejects it at construction; `.*` is equivalent and valid
+// under both the native implementation and the urlpattern-polyfill.
+const referrerPattern = new URLPattern({ pathname: ':pathname(.*)/r/:referrer([\\w_]+)' })
 const itemPattern = new URLPattern({ pathname: '/items/:id(\\d+){/:other(\\w+)}?' })
 const profilePattern = new URLPattern({ pathname: '/:name([\\w_]+){/:type(\\w+)}?' })
 const territoryPattern = new URLPattern({ pathname: '/~:name([\\w_]+){/*}?' })
