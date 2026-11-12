@@ -72,6 +72,11 @@ const ZAP_THRESHOLD_PICONEROS = 100_000_000n
 // entry is inert; the multiplier still applies to the remaining accounts.
 export const HANDICAP_ZAP_MULT = 0.5
 
+// V2 weighs the same handicapped accounts at 0.35x. V2's accuracy and
+// breadth terms favor a founder account that tips early and widely, so the
+// SN-parity 0.5x left it a larger share than LEGACY gives it.
+export const V2_HANDICAP_ZAP_MULT = 0.35
+
 // --- Shared SQL fragments (T must share turf/trust/founder SQL with
 // computeCuratorShares, not copy it) ---
 //
@@ -138,6 +143,18 @@ export function resolveExcludedCuratorIds (configured) {
   return [...new Set([CURATOR_EXCLUDED_ID, ...sanitizeExcludedCuratorIds(configured)])]
 }
 
+// Accounts younger than minAccountAgeDays at periodEnd earn no curator share.
+// Like operator exclusions, their tips still rank and qualify items; they are
+// only removed from attribution, so they take no topN slot.
+async function youngCuratorIds (models, periodEnd, minAccountAgeDays) {
+  const days = Number.isInteger(minAccountAgeDays) && minAccountAgeDays > 0 ? minAccountAgeDays : 0
+  if (days === 0) return []
+  const rows = await models.$queryRaw`
+    SELECT id FROM users
+    WHERE created_at > ${periodEnd}::TIMESTAMP(3) - make_interval(days => ${days}::INT)`
+  return rows.map(r => r.id)
+}
+
 // --- Curator trust weighting (#6) ---
 
 // The nightly trust walk (02:00 UTC) writes a dedicated heartbeat
@@ -200,52 +217,8 @@ function apportionEarns (earns, sharePiconeros) {
   return apportioned
 }
 
-// --- Curator rewards v2 configuration ---
-//
-// PlatformFeeConfig.curatorShareFormula selects the formula: LEGACY pays the
-// ported earn.js shares, SHADOW pays LEGACY and records V2, V2 pays V2. Any
-// invalid V2 parameter fails closed to LEGACY (the caller logs the errors), so
-// malformed config can never change payouts.
-export const CURATOR_SHARE_FORMULAS = ['LEGACY', 'SHADOW', 'V2']
-
-const isUnitInterval = v => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1
-
-export function resolveCuratorShareConfig (config) {
-  const row = config ?? {}
-  const formula = row.curatorShareFormula ?? 'LEGACY'
-  const params = {
-    accuracyExponent: row.curatorAccuracyExponent ?? 0.25,
-    amountExponent: row.curatorAmountExponent ?? 0.25,
-    minTipPiconeros: row.curatorMinTipPiconeros ?? 200_000_000n,
-    capShareBps: row.curatorShareCapBps ?? 3000,
-    shadowTrustWeightFloor: row.curatorShadowTrustWeightFloor ?? null
-  }
-
-  const errors = []
-  if (!CURATOR_SHARE_FORMULAS.includes(formula)) errors.push('formula_invalid')
-  if (!isUnitInterval(params.accuracyExponent)) errors.push('accuracyExponent_invalid')
-  if (!isUnitInterval(params.amountExponent)) errors.push('amountExponent_invalid')
-  if (typeof params.minTipPiconeros !== 'bigint' || params.minTipPiconeros <= 0n) errors.push('minTipPiconeros_invalid')
-  if (!Number.isSafeInteger(params.capShareBps) || params.capShareBps <= 0 || params.capShareBps > 10000) {
-    errors.push('capShareBps_invalid')
-  }
-  if (params.shadowTrustWeightFloor != null && !isUnitInterval(params.shadowTrustWeightFloor)) {
-    errors.push('shadowTrustWeightFloor_invalid')
-  }
-
-  return {
-    ok: errors.length === 0,
-    formula: errors.length === 0 ? formula : 'LEGACY',
-    params,
-    errors
-  }
-}
-
-// The per-payment minimum also leaves the budget's tip volume T, but only once
-// V2 pays: in LEGACY and SHADOW the budget must stay exactly as it is today.
-export function budgetMinTipPiconeros (shareConfig) {
-  return shareConfig?.formula === 'V2' ? shareConfig.params.minTipPiconeros : null
-}
+// --- Curator rewards v2 configuration (lib/curatorShareConfig.js) ---
+export { CURATOR_SHARE_FORMULAS, resolveCuratorShareConfig, budgetMinTipPiconeros } from '@/lib/curatorShareConfig'
 
 // Cap each recipient at `capPiconeros` and give the excess to the uncapped
 // recipients in proportion to their weight (water-filling). `totalPiconeros`
@@ -274,13 +247,16 @@ export function capCuratorShares (proportions, totalPiconeros, capPiconeros) {
  * @param {Date} periodStart - inclusive start of the reward window.
  * @param {Date} periodEnd   - exclusive end of the reward window.
  * @param {bigint} poolPiconeros - total piconeros to distribute this period.
- * @param {{ minPayout?: bigint, topN?: number, trustWeightFloor?: number, excludedCuratorIds?: number[], formula?: 'LEGACY'|'V2', accuracyExponent?: number, amountExponent?: number, minTipPiconeros?: bigint, capShareBps?: number }} [opts]
+ * @param {{ minPayout?: bigint, topN?: number, trustWeightFloor?: number, excludedCuratorIds?: number[], formula?: 'LEGACY'|'V2', accuracyExponent?: number, amountExponent?: number, minTipPiconeros?: bigint, capShareBps?: number, holdCapExcess?: boolean }} [opts]
  *   - minPayout: shares below this are excluded and roll over (NOT redistributed).
  *   - topN: cap on the number of recipients (highest proportion first).
  *   - excludedCuratorIds: operator-configured accounts that never earn a share.
  *     The founder is always excluded in addition to this list.
  *   - formula: 'V2' selects the curator rewards v2 formula; the remaining
  *     options apply to V2 only (see computeV2Prospects).
+ *   - holdCapExcess: V2 caps shares but keeps the excess instead of giving it
+ *     to the uncapped curators. The result carries `capExcess`; the caller
+ *     decides how much of it goes back to curators via settleCapExcess.
  * @param {object} [models] - Prisma client. A throwaway client is created if
  *   omitted (and disconnected after the query).
  * @returns {Promise<{ shares: Array<{ curatorId: number, sharePiconeros: bigint, earns: Array<{ type: 'TIP_POST'|'TIP_COMMENT', rank: number, piconeros: bigint }> }>, distributedPiconeros: bigint, rolledOverPiconeros: bigint, details?: object }>}
@@ -288,6 +264,10 @@ export function capCuratorShares (proportions, totalPiconeros, capPiconeros) {
  *   exactly to `sharePiconeros`. Consumed when writing per-(curator,type) Earn rows.
  *   V2 adds `details`: per-curator accuracy counts and the share cap outcome.
  */
+// Largest pool the floating-point split handles exactly (2^53 piconeros,
+// about 9,007 XMR).
+export const MAX_EXACT_POOL_PICONEROS = 2n ** 53n
+
 export async function computeCuratorShares (periodStart, periodEnd, poolPiconeros, {
   minPayout = 0n,
   topN = 100,
@@ -297,13 +277,28 @@ export async function computeCuratorShares (periodStart, periodEnd, poolPiconero
   accuracyExponent = 0.25,
   amountExponent = 0.25,
   minTipPiconeros = 200_000_000n,
-  capShareBps = 3000
+  capShareBps = 2500,
+  holdCapExcess = false,
+  minAccountAgeDays = 0
 } = {}, models) {
+  // The split converts the pool to a Number; above 2^53 that conversion
+  // rounds and the floored shares can sum to more than the pool. Refuse
+  // loudly instead of paying out a rounded split.
+  if (poolPiconeros >= MAX_EXACT_POOL_PICONEROS) {
+    const err = new Error(`computeCuratorShares: pool ${poolPiconeros} piconeros is too large for an exact split`)
+    err.code = 'pool_too_large'
+    throw err
+  }
   const ownsClient = !models
   const db = ownsClient ? createPrisma() : models
   const floor = sanitizeTrustWeightFloor(trustWeightFloor)
-  const excludedIds = resolveExcludedCuratorIds(excludedCuratorIds)
   try {
+    const excludedIds = [
+      ...new Set([
+        ...resolveExcludedCuratorIds(excludedCuratorIds),
+        ...await youngCuratorIds(db, periodEnd, minAccountAgeDays)
+      ])
+    ]
     if (formula === 'V2') {
       return await computeV2(db, periodStart, periodEnd, poolPiconeros, {
         minPayout,
@@ -313,7 +308,8 @@ export async function computeCuratorShares (periodStart, periodEnd, poolPiconero
         accuracyExponent,
         amountExponent,
         minTipPiconeros,
-        capShareBps
+        capShareBps,
+        holdCapExcess
       })
     }
     return await compute(db, periodStart, periodEnd, poolPiconeros, minPayout, topN, floor, excludedIds)
@@ -468,9 +464,8 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
     return { shares: [], distributedPiconeros: 0n, rolledOverPiconeros: poolPiconeros }
   }
 
-  // floor(prop_i / sum(prop) * pool). NOTE: Number(pool) is exact for pools up to
-  // ~9e15 piconeros (2^53), which is ~9000 XMR/week — far beyond any realistic v1
-  // pool. The brief mandates this floor-and-normalize in JS.
+  // floor(prop_i / sum(prop) * pool). Number(pool) is exact because the pool is
+  // below MAX_EXACT_POOL_PICONEROS (checked on entry).
   const poolNum = Number(poolPiconeros)
   let ranked = rows
     .map(r => ({
@@ -644,7 +639,7 @@ async function computeV2Prospects (models, periodStart, periodEnd, {
       SELECT w."userId", w."isPost",
         CASE WHEN w."userId" = ANY(${seedIds}::int[]) THEN w.untrusted * COALESCE(st.multiplier, 1) ELSE w.trusted END
           * w.accuracy_mult
-          * CASE WHEN w."userId" = ANY(${handicapIds}::int[]) THEN ${HANDICAP_ZAP_MULT} ELSE 1 END AS weight,
+          * CASE WHEN w."userId" = ANY(${handicapIds}::int[]) THEN ${V2_HANDICAP_ZAP_MULT} ELSE 1 END AS weight,
         w.hit_items, w.tipped_items
       FROM curator_weights w
       LEFT JOIN seed_trust st ON st."isPost" = w."isPost"
@@ -669,9 +664,10 @@ async function computeV2Prospects (models, periodStart, periodEnd, {
 }
 
 // V2 post-processing matches LEGACY (normalize over every curator, keep topN,
-// floor) and then caps each topN share at capShareBps of the pool, giving the
-// excess to the uncapped curators. minPayout runs last: shares below it roll
-// over and are not redistributed.
+// floor) and then caps each topN share at capShareBps of the pool. By default
+// the excess goes to the uncapped curators by weight; with holdCapExcess it is
+// held back and returned as `capExcess` for the caller to place. minPayout runs
+// last: shares below it roll over and are not redistributed.
 async function computeV2 (models, periodStart, periodEnd, poolPiconeros, {
   minPayout,
   topN,
@@ -680,7 +676,8 @@ async function computeV2 (models, periodStart, periodEnd, poolPiconeros, {
   accuracyExponent,
   amountExponent,
   minTipPiconeros,
-  capShareBps
+  capShareBps,
+  holdCapExcess = false
 }) {
   const prospects = await computeV2Prospects(models, periodStart, periodEnd, {
     trustWeightFloor,
@@ -720,9 +717,24 @@ async function computeV2 (models, periodStart, periodEnd, poolPiconeros, {
   if (ranked.length > topN) ranked = ranked.slice(0, topN)
 
   const topNTotal = ranked.reduce((acc, r) => acc + r.uncappedPiconeros, 0n)
-  const { shares: capped, cappedIndexes } = capCuratorShares(ranked.map(r => r.totalProportion), topNTotal, capPiconeros)
-  ranked = ranked.map((r, i) => ({ ...r, sharePiconeros: capped[i] }))
+  if (holdCapExcess) {
+    const held = ranked.map(r => ({ ...r, sharePiconeros: r.uncappedPiconeros > capPiconeros ? capPiconeros : r.uncappedPiconeros }))
+    const capExcess = {
+      excessPiconeros: topNTotal - held.reduce((acc, r) => acc + r.sharePiconeros, 0n),
+      capPiconeros,
+      minPayout: BigInt(minPayout),
+      poolPiconeros,
+      ranked: held
+    }
+    return { ...finishV2(held, poolPiconeros, capPiconeros, minPayout), capExcess }
+  }
+  const { shares: capped } = capCuratorShares(ranked.map(r => r.totalProportion), topNTotal, capPiconeros)
+  return finishV2(ranked.map((r, i) => ({ ...r, sharePiconeros: capped[i] })), poolPiconeros, capPiconeros, minPayout)
+}
 
+// Apply minPayout to capped topN rows and build the result: shares below the
+// minimum roll over. A row counts as capped once its share reaches the cap.
+function finishV2 (ranked, poolPiconeros, capPiconeros, minPayout) {
   const minBig = BigInt(minPayout)
   const shares = ranked
     .filter(s => s.sharePiconeros >= minBig)
@@ -744,7 +756,7 @@ async function computeV2 (models, periodStart, periodEnd, poolPiconeros, {
     rolledOverPiconeros: poolPiconeros - distributedPiconeros,
     details: {
       capPiconeros,
-      cappedCuratorIds: cappedIndexes.map(i => ranked[i].curatorId),
+      cappedCuratorIds: ranked.filter(r => r.uncappedPiconeros > capPiconeros || r.sharePiconeros >= capPiconeros).map(r => r.curatorId),
       curators: ranked.map(r => ({
         curatorId: r.curatorId,
         uncappedPiconeros: r.uncappedPiconeros,
@@ -754,4 +766,44 @@ async function computeV2 (models, periodStart, periodEnd, poolPiconeros, {
       }))
     }
   }
+}
+
+// Give `leftoverPiconeros` of a held cap excess to the uncapped curators in
+// proportion to their weight, never lifting anyone above the cap (a curator who
+// reaches it stops receiving and the rest goes to the others). Shares floor, so
+// a few piconeros can stay unplaced; they roll over with everything not given.
+// `ceilings` (Map curatorId -> piconeros) lowers the limit for single curators
+// below the cap, e.g. a contributor winner under the combined curator plus
+// contributor cap. Returns the same shape as computeCuratorShares, plus the
+// amount placed.
+export function settleCapExcess (capExcess, leftoverPiconeros, { ceilings } = {}) {
+  const { ranked, capPiconeros, minPayout, poolPiconeros } = capExcess
+  let remaining = leftoverPiconeros > capExcess.excessPiconeros ? capExcess.excessPiconeros : leftoverPiconeros
+  const rows = ranked.map(r => ({ ...r }))
+  const limitOf = r => {
+    const own = ceilings?.get(r.curatorId)
+    return own != null && own < capPiconeros ? own : capPiconeros
+  }
+  const open = new Set(rows.flatMap((r, i) => r.sharePiconeros < limitOf(r) ? [i] : []))
+  while (remaining > 0n && open.size > 0) {
+    const freeSum = [...open].reduce((acc, i) => acc + rows[i].totalProportion, 0)
+    if (freeSum <= 0) break
+    const budget = remaining
+    let closed = false
+    for (const i of open) {
+      let give = BigInt(Math.floor(rows[i].totalProportion / freeSum * Number(budget)))
+      const room = limitOf(rows[i]) - rows[i].sharePiconeros
+      if (give >= room) {
+        give = room
+        open.delete(i)
+        closed = true
+      }
+      rows[i].sharePiconeros += give
+      remaining -= give
+    }
+    if (!closed) break
+  }
+  const placedPiconeros = rows.reduce((acc, r) => acc + r.sharePiconeros, 0n) -
+    ranked.reduce((acc, r) => acc + r.sharePiconeros, 0n)
+  return { ...finishV2(rows, poolPiconeros, capPiconeros, minPayout), placedPiconeros }
 }

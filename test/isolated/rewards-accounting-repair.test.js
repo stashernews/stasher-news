@@ -1291,6 +1291,7 @@ async function createIsolatedAccountingScenario ({ withHistoricalRepair = true }
       walletlessTipRewardsPct: 70,
       distributionMinPayoutPiconeros: 1_000_000_000n,
       distributionTopN: 10,
+      curatorMinAccountAgeDays: 0,
       curatorTrustWeightFloor: 1.0
     }
     if (configBefore) {

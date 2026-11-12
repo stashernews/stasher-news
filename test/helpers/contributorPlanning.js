@@ -10,6 +10,7 @@ export const CONFIG = {
   curatorBreakerRatioBps: 25000,
   curatorBreakerFloorMedianPeriods: 12,
   curatorBreakerArmPeriods: 4,
+  curatorMinAccountAgeDays: 0,
   contributorPoolMode: 'ACTIVE',
   contributorShareBps: 1500,
   contributorTopN: 5,

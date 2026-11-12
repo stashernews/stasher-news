@@ -93,6 +93,7 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
       data: {
         curatorTrustWeightFloor: 1.0,
         distributionTopN: 10,
+        curatorMinAccountAgeDays: 0,
         distributionMinPayoutPiconeros: 1_000_000_000n,
         postingFeeRewardsPct: 100,
         curatorBudgetMode: 'LEGACY',
@@ -108,6 +109,8 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
         contributorTopN: 5,
         contributorWinnerCapBps: 4000,
         contributorCombinedCapBps: 0,
+        curatorShareFormula: 'LEGACY',
+        curatorShareCapBps: 2500,
         ...overrides
       }
     })
@@ -199,6 +202,17 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
       await seedTip(t, item.id, 1_000_000_000n, new Date(at.getTime() + 3600_000))
     }
     return { itemId: item.id, authorId: owner }
+  }
+
+  // Four equal posts; V2 qualifies the first three. curators[0] tips all three
+  // first, then curators[1..3] each tip one of them, so curators[0] holds
+  // about 54% of the weight and the 25% share cap trims it.
+  async function seedDominantCurator () {
+    const createdAt = new Date(Date.now() - DAY)
+    const posts = []
+    for (let i = 0; i < 4; i++) posts.push(await createItem(authorId, createdAt))
+    for (let i = 0; i < 3; i++) await seedTip(curators[0], posts[i].id, TIP, createdAt)
+    for (let i = 0; i < 3; i++) await seedTip(curators[i + 1], posts[i].id, TIP, createdAt)
   }
 
   async function seedInflow (piconeros) {
@@ -535,6 +549,64 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
     await expectConserved(distribution)
   })
 
+  test('under V2 the cap excess pays the contributor winners before the other curators', async () => {
+    await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'ACTIVE', curatorShareFormula: 'V2' })
+    await seedHistory()
+    await seedDominantCurator()
+    await seedInflow(XMR)
+    for (let i = 0; i < 3; i++) await seedWinner()
+
+    const distribution = await run()
+
+    const budget = distribution.appliedCuratorBudgetPiconeros
+    const record = distribution.curatorShareRecord.capExcess
+    const contributorPaid = distribution.contributorDistributedPiconeros
+    const excess = BigInt(record.excessPiconeros)
+    expect(contributorPaid).toBeGreaterThan(0n)
+    expect(excess).toBeGreaterThan(contributorPaid)
+    expect(BigInt(record.contributorsPiconeros)).toBe(contributorPaid)
+    expect(BigInt(record.referralsPiconeros)).toBe(0n)
+    const curatorTotal = curatorPayoutsByIndex(distribution).flat().reduce((sum, p) => sum + p, 0n)
+    expect(curatorPayoutsByIndex(distribution)[0]).toEqual([budget * 2500n / 10000n])
+    // The winners are paid out of the excess: curators and contributors
+    // together get the curator budget, not the budget plus the winners.
+    expect(curatorTotal + contributorPaid).toBeLessThanOrEqual(budget)
+    expect(budget - curatorTotal - contributorPaid).toBeLessThan(10n)
+    await expectConserved(distribution)
+  })
+
+  test('under V2 the cap excess never lifts a winning curator over the combined cap', async () => {
+    // curators[1] is an uncapped curator and also a contributor winner. Before
+    // settlement their curator plus contributor payout fits the combined cap;
+    // the settled cap excess must not push the sum over it.
+    await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'ACTIVE', curatorShareFormula: 'V2', contributorCombinedCapBps: 1800 })
+    await seedHistory()
+    await seedDominantCurator()
+    await seedInflow(XMR)
+    await seedWinner({ author: curators[1] })
+    for (let i = 0; i < 2; i++) await seedWinner()
+
+    const distribution = await run()
+
+    const params = distribution.contributorParams
+    const combinedCap = BigInt(params.allocation.combinedCap)
+    const totals = new Map()
+    for (const p of distribution.payouts) totals.set(p.curatorId, (totals.get(p.curatorId) || 0n) + p.piconeros)
+    const [, mine, other] = curatorPayoutsByIndex(distribution)
+    const winnerShare = BigInt(params.scored.find(s => s.authorId === curators[1]).share)
+    expect(winnerShare).toBeGreaterThan(0n)
+    expect(BigInt(distribution.curatorShareRecord.capExcess.curatorsPiconeros)).toBeGreaterThan(0n)
+    // the combined cap only limits accounts that also win a contributor payout
+    for (const s of params.scored.filter(s => BigInt(s.share ?? 0) > 0n)) {
+      expect(totals.get(s.authorId)).toBeLessThanOrEqual(combinedCap)
+    }
+    // curators[2] has the same weight but no contributor payout, so the
+    // settlement lifts them further than the capped winner.
+    expect(totals.get(curators[1])).toBe(combinedCap)
+    expect(other[0]).toBeGreaterThan(mine.reduce((a, b) => a + b, 0n) - winnerShare)
+    await expectConserved(distribution)
+  })
+
   test('contributor payouts carry no referral commission', async () => {
     await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'ACTIVE' })
     const referrer = await createUser()
@@ -696,6 +768,33 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
     await deleteDistribution(shadow)
 
     await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'ACTIVE', contributorCombinedCapBps: 2500 })
+    const active = await run()
+    expect(active.contributorParams.scored.filter(s => s.rank != null)).toEqual(simulated)
+    await expectConserved(active)
+  })
+
+  test('under V2 a tight SHADOW week previews the combined cap against held curator shares, as ACTIVE applies it', async () => {
+    // curators[1] is uncapped and wins a contributor payout. ACTIVE allocates
+    // against curator shares with the cap excess still held; if SHADOW spread
+    // the excess first, curators[1] would look bigger and be trimmed harder.
+    const seed = async () => {
+      await seedHistory({ lastRollover: XMR })
+      await seedDominantCurator()
+      await seedInflow(XMR)
+      await seedWinner({ author: curators[1] })
+      for (let i = 0; i < 2; i++) await seedWinner()
+    }
+    await seed()
+    const config = { curatorBudgetMode: 'ACTIVE', curatorShareFormula: 'V2', contributorCombinedCapBps: 1800 }
+
+    await setConfig({ ...config, contributorPoolMode: 'SHADOW' })
+    const shadow = await run()
+    expect(shadow.dynamicBudgetMode).toBe('DRAWDOWN')
+    const simulated = shadow.contributorParams.scored.filter(s => s.rank != null)
+    expect(BigInt(simulated.find(s => s.authorId === curators[1]).share)).toBeGreaterThan(0n)
+    await deleteDistribution(shadow)
+
+    await setConfig({ ...config, contributorPoolMode: 'ACTIVE' })
     const active = await run()
     expect(active.contributorParams.scored.filter(s => s.rank != null)).toEqual(simulated)
     await expectConserved(active)

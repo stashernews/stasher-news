@@ -15,7 +15,9 @@ import {
   budgetMinTipPiconeros,
   capCuratorShares,
   computeCuratorShares,
-  resolveCuratorShareConfig
+  resolveCuratorShareConfig,
+  V2_HANDICAP_ZAP_MULT,
+  settleCapExcess
 } from '@/worker/curatorShares'
 
 jest.mock(`${process.cwd()}/lib/logger`, () => ({ logError: jest.fn() }))
@@ -128,12 +130,12 @@ describe('configuration', () => {
     expect(resolveCuratorShareConfig({})).toMatchObject({
       ok: true,
       formula: 'LEGACY',
-      params: { accuracyExponent: 0.25, amountExponent: 0.25, minTipPiconeros: MIN_TIP, capShareBps: 3000 }
+      params: { accuracyExponent: 0.25, amountExponent: 0.25, minTipPiconeros: MIN_TIP, capShareBps: 2500 }
     })
   })
 
   test('the share cap has its own setting, apart from the per-tipper cap on T', () => {
-    expect(resolveCuratorShareConfig({ curatorTipCapShareBps: 9000 }).params.capShareBps).toBe(3000)
+    expect(resolveCuratorShareConfig({ curatorTipCapShareBps: 9000 }).params.capShareBps).toBe(2500)
     expect(resolveCuratorShareConfig({ curatorShareCapBps: 3500 }).params.capShareBps).toBe(3500)
   })
 
@@ -144,7 +146,10 @@ describe('configuration', () => {
       { curatorShareFormula: 'V2', curatorAmountExponent: -0.1 },
       { curatorShareFormula: 'V2', curatorMinTipPiconeros: 0n },
       { curatorShareFormula: 'V2', curatorShareCapBps: 0 },
-      { curatorShareFormula: 'V2', curatorShadowTrustWeightFloor: 1.5 }
+      { curatorShareFormula: 'V2', curatorShadowTrustWeightFloor: 1.5 },
+      { curatorShareFormula: 'V2', curatorMinAccountAgeDays: -1 },
+      { curatorShareFormula: 'V2', curatorMinAccountAgeDays: 1.5 },
+      { curatorShareFormula: 'V2', curatorMinAccountAgeDays: '7' }
     ]) {
       const resolved = resolveCuratorShareConfig(bad)
       expect(resolved.ok).toBe(false)
@@ -152,7 +157,17 @@ describe('configuration', () => {
     }
   })
 
-  test('the minimum leaves T only once V2 pays', () => {
+  test('the account age defaults to 7 days and accepts 0', () => {
+    expect(resolveCuratorShareConfig({}).params.minAccountAgeDays).toBe(7)
+    expect(resolveCuratorShareConfig({ curatorMinAccountAgeDays: 0 }).ok).toBe(true)
+  })
+
+  test('a pool too large for an exact split is refused before any query', async () => {
+    await expect(computeCuratorShares(new Date(0), new Date(1), 2n ** 53n, {}, {}))
+      .rejects.toMatchObject({ code: 'pool_too_large' })
+  })
+
+  test('the minimum leaves T only when V2 is configured', () => {
     expect(budgetMinTipPiconeros(resolveCuratorShareConfig({ curatorShareFormula: 'V2' }))).toBe(MIN_TIP)
     expect(budgetMinTipPiconeros(resolveCuratorShareConfig({ curatorShareFormula: 'SHADOW' }))).toBeNull()
     expect(budgetMinTipPiconeros(resolveCuratorShareConfig({ curatorShareFormula: 'LEGACY' }))).toBeNull()
@@ -175,6 +190,67 @@ describe('capCuratorShares', () => {
   test('with every recipient capped the remainder is left unplaced', () => {
     const { shares } = capCuratorShares([1, 1, 1], 900n, 250n)
     expect(shares).toEqual([250n, 250n, 250n])
+  })
+})
+
+describe('settleCapExcess', () => {
+  // Pool 1000, cap 400. Weights 0.5 / 0.375 / 0.125 give uncapped shares
+  // 500 / 375 / 125; holding the cap leaves 100 of excess. Among the two
+  // uncapped curators the leftover splits 3 : 1.
+  const held = ({ minPayout = 0n } = {}) => {
+    const row = (curatorId, totalProportion, uncappedPiconeros) => ({
+      curatorId,
+      totalProportion,
+      uncappedPiconeros,
+      sharePiconeros: uncappedPiconeros > 400n ? 400n : uncappedPiconeros,
+      earns: [{ type: 'TIP_POST', rank: curatorId, typeProportion: totalProportion, hitItems: 1, tippedItems: 1 }]
+    })
+    return {
+      excessPiconeros: 100n,
+      capPiconeros: 400n,
+      minPayout,
+      poolPiconeros: 1000n,
+      ranked: [row(1, 0.5, 500n), row(2, 0.375, 375n), row(3, 0.125, 125n)]
+    }
+  }
+  const sharesOf = result => Object.fromEntries(result.shares.map(s => [s.curatorId, s.sharePiconeros]))
+
+  test('with nothing left over, curators keep their capped shares', () => {
+    const result = settleCapExcess(held(), 0n)
+    expect(sharesOf(result)).toEqual({ 1: 400n, 2: 375n, 3: 125n })
+    expect(result.placedPiconeros).toBe(0n)
+  })
+
+  test('the leftover goes to the uncapped curators by weight', () => {
+    const result = settleCapExcess(held(), 20n)
+    expect(sharesOf(result)).toEqual({ 1: 400n, 2: 390n, 3: 130n })
+    expect(result.placedPiconeros).toBe(20n)
+  })
+
+  test('nobody is lifted above the cap; the rest goes to those still under it', () => {
+    const result = settleCapExcess(held(), 100n)
+    expect(sharesOf(result)).toEqual({ 1: 400n, 2: 400n, 3: 200n })
+    expect(result.placedPiconeros).toBe(100n)
+  })
+
+  test('a curator below the minimum payout is paid once the leftover lifts them over it', () => {
+    expect(sharesOf(settleCapExcess(held({ minPayout: 130n }), 0n))).toEqual({ 1: 400n, 2: 375n })
+    expect(sharesOf(settleCapExcess(held({ minPayout: 130n }), 20n))).toEqual({ 1: 400n, 2: 390n, 3: 130n })
+  })
+
+  test('the leftover never exceeds the held excess', () => {
+    expect(settleCapExcess(held(), 10_000n).placedPiconeros).toBe(100n)
+  })
+
+  test('a ceiling below the cap stops that curator early; the rest goes to the others', () => {
+    const result = settleCapExcess(held(), 100n, { ceilings: new Map([[2, 380n]]) })
+    expect(sharesOf(result)).toEqual({ 1: 400n, 2: 380n, 3: 220n })
+    expect(result.placedPiconeros).toBe(100n)
+  })
+
+  test('a ceiling at or below the current share gives that curator nothing', () => {
+    const result = settleCapExcess(held(), 20n, { ceilings: new Map([[2, 300n]]) })
+    expect(sharesOf(result)).toEqual({ 1: 400n, 2: 375n, 3: 145n })
   })
 })
 
@@ -334,5 +410,44 @@ describe('V2 shares', () => {
     expect(shareOf(result, excluded)).toBe(0n)
     // second is rank 2, third rank 3: ratio m(3) / m(2).
     expect(Number(shareOf(result, third)) / Number(shareOf(result, second))).toBeCloseTo(early(3) / early(2), 4)
+  })
+
+  test('a handicapped account weighs V2_HANDICAP_ZAP_MULT (0.35) of an equal tip', async () => {
+    const w = nextWindow()
+    const author = await createUser()
+    const post = await createPost(author, 50, w.at(0))
+    const seed = await trustSeed()
+    const other = await createUser()
+    await tip(seed.id, post, TIP, w.at(10))
+    await tip(other, post, TIP, w.at(11))
+
+    const result = await v2(w)
+
+    expect(V2_HANDICAP_ZAP_MULT).toBe(0.35)
+    expect(Number(shareOf(result, seed.id)) / Number(shareOf(result, other))).toBeCloseTo(0.35 * early(1) / early(2), 4)
+  })
+
+  test('accounts younger than minAccountAgeDays at periodEnd are not paid but keep their rank', async () => {
+    const w = nextWindow()
+    const author = await createUser()
+    const post = await createPost(author, 50, w.at(0))
+    const young = await createUser()
+    const second = await createUser()
+    const third = await createUser()
+    const setCreated = (id, at) => prisma.$executeRaw`UPDATE users SET created_at = ${at} WHERE id = ${id}::int`
+    await setCreated(young, new Date(w.end.getTime() - 3 * DAY))
+    await setCreated(second, new Date(w.end.getTime() - 30 * DAY))
+    await setCreated(third, new Date(w.end.getTime() - 7 * DAY))
+    await tip(young, post, TIP, w.at(10))
+    await tip(second, post, TIP, w.at(11))
+    await tip(third, post, TIP, w.at(12))
+
+    const gated = await v2(w, { minAccountAgeDays: 7 })
+    const open = await v2(w)
+
+    expect(shareOf(gated, young)).toBe(0n)
+    expect(shareOf(open, young)).toBeGreaterThan(0n)
+    // exactly 7 days old qualifies; ranks are unchanged by the gate.
+    expect(Number(shareOf(gated, third)) / Number(shareOf(gated, second))).toBeCloseTo(early(3) / early(2), 4)
   })
 })

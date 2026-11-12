@@ -130,6 +130,7 @@ function snapshot (value) {
       data: {
         curatorTrustWeightFloor: 1.0,
         distributionTopN: 10,
+        curatorMinAccountAgeDays: 0,
         distributionMinPayoutPiconeros: 1_000_000_000n,
         postingFeeRewardsPct: 100,
         downvoteRewardsPct: 100,

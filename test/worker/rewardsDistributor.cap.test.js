@@ -41,7 +41,7 @@ const START = new Date('2026-10-19T00:00:00Z')
     process.env.MONERO_NETWORK = 'stagenet'
     process.env.PLATFORM_REWARDS_ADDRESS = '5' + '7'.repeat(94)
     savedConfig = await db.platformFeeConfig.findUnique({ where: { id: 1 } })
-    const config = { curatorTrustWeightFloor: 1.0, distributionTopN: 10, distributionMinPayoutPiconeros: 1_000_000_000n }
+    const config = { curatorTrustWeightFloor: 1.0, distributionTopN: 10, distributionMinPayoutPiconeros: 1_000_000_000n, curatorMinAccountAgeDays: 0 }
     await db.platformFeeConfig.upsert({ where: { id: 1 }, update: config, create: { id: 1, ...config } })
   })
 
@@ -52,7 +52,7 @@ const START = new Date('2026-10-19T00:00:00Z')
       doNotFake: ['hrtime', 'nextTick', 'performance', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout']
     })
     expect(await db.rewardDistribution.count()).toBe(0)
-    await db.platformFeeConfig.update({ where: { id: 1 }, data: { distributionTopN: 10, distributionMinPayoutPiconeros: 1_000_000_000n } })
+    await db.platformFeeConfig.update({ where: { id: 1 }, data: { distributionTopN: 10, distributionMinPayoutPiconeros: 1_000_000_000n, curatorMinAccountAgeDays: 0 } })
     authorId = await createUser()
     curatorId = await createUser()
     recipient = await createAccount(null, 'author')

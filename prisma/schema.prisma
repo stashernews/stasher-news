@@ -2375,10 +2375,14 @@ model PlatformFeeConfig {
   bountyFeePct                   Int    @default(1)
   bountyExpiryDays               Int    @default(30)
   // rewards distribution
-  // Top-N curator count: 10 at launch (fewer, larger payouts); raise as the
-  // platform grows — operator-tunable via the PlatformFeeConfig row.
-  distributionTopN               Int    @default(10)
+  // Top-N curator count: 10 at launch (fewer, larger payouts), 20 from the
+  // V2 rollout; operator-tunable via the PlatformFeeConfig row.
+  distributionTopN               Int    @default(20)
   distributionMinPayoutPiconeros BigInt @default(1000000000)
+  // Accounts younger than this many days at the end of the period earn no
+  // curator share (their tips still count toward which items qualify).
+  // 0 = no age requirement.
+  curatorMinAccountAgeDays       Int    @default(7)
   // Curator trust weighting (#6, sybil hardening): each curator's reward-share
   // weight is multiplied by (curatorTrustWeightFloor + (1 - floor) * their
   // UserSubTrust score in the tipped item's turf). 1.0 (default) = disabled,
@@ -2426,7 +2430,7 @@ model PlatformFeeConfig {
   curatorAmountExponent            Float  @default(0.25)
   curatorMinTipPiconeros           BigInt @default(200000000)
   curatorShadowTrustWeightFloor    Float? @default(0.75)
-  curatorShareCapBps               Int    @default(3000)
+  curatorShareCapBps               Int    @default(2500)
   curatorBreakerRatioBps           Int @default(25000)
   curatorBreakerFloorMedianPeriods Int @default(12)
   curatorBreakerArmPeriods         Int @default(4)
@@ -2436,11 +2440,11 @@ model PlatformFeeConfig {
   // to OFF with a CRITICAL alert. Read at distribution time, so a SQL edit
   // takes effect on the next weekly run.
   contributorPoolMode              ContributorPoolMode @default(OFF)
-  contributorShareBps              Int                 @default(1500) // s
+  contributorShareBps              Int                 @default(1000) // s
   contributorTopN                  Int                 @default(5)
   contributorWinnerCapBps          Int                 @default(4000)
   contributorCombinedCapBps        Int                 @default(0) // curator + contributor per account; 0 = off
-  contributorMinTipPiconeros       BigInt              @default(500000000) // 0.5 mXMR per payment
+  contributorMinTipPiconeros       BigInt              @default(250000000) // 0.25 mXMR per payment
   contributorTrustThreshold        Float               @default(0.1)
   contributorMinTrustedTippers     Int                 @default(3)
   contributorTipperCapBps          Int                 @default(3334) // 3334 so three equal tippers pass

@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
-import { budgetMinTipPiconeros, computeCuratorShares, resolveCuratorShareConfig, resolveExcludedCuratorIds } from './curatorShares'
+import { budgetMinTipPiconeros, computeCuratorShares, resolveCuratorShareConfig, resolveExcludedCuratorIds, settleCapExcess } from './curatorShares'
 import { sendPayouts as defaultSendPayouts, getRewardsWallet } from '@/api/monero/rewards'
 import { reconcileWalletTransactions, errorLabel } from '@/api/monero/rewardsTransactions'
 import logger, { logInfo, logError } from '@/lib/logger'
@@ -214,6 +214,57 @@ function emitCuratorBudgetAlerts ({ breaker, configErrors, fallbackError, mode, 
 // RESERVED and not paid, so a later referrer can never receive the excluded
 // money. The caller's distributed/rolled-over split then leaves that reserved
 // amount in rolledOverPiconeros.
+// Curator payout rows. A curator is a tipper; they may not have registered a
+// wallet to RECEIVE payouts. Curators with no MoneroAccount(ownerUserId) are
+// excluded and their share rolls over (it stays in poolPiconeros -
+// distributedPiconeros).
+async function curatorPayoutRows (models, shares) {
+  const rows = []
+  const paidIds = new Set()
+  for (const share of shares) {
+    const account = await models.moneroAccount.findFirst({ where: { ownerUserId: share.curatorId } })
+    if (!account) continue
+    paidIds.add(share.curatorId)
+    rows.push({ curatorId: share.curatorId, recipientAddress: account.address, piconeros: share.sharePiconeros })
+  }
+  return { rows, paidIds }
+}
+
+// Forever-referral commissions owed on curator shares: referrerId -> { piconeros }.
+async function referralCommissions (models, shares, paidCuratorIds, excludedCuratorIdSet) {
+  const referralByReferrer = new Map()
+  for (const share of shares) {
+    if (share.sharePiconeros <= 0n) continue
+    // Defensive: excluded accounts are already absent from computeCuratorShares,
+    // but one must never generate a referral commission either.
+    if (excludedCuratorIdSet.has(share.curatorId)) continue
+    // Referral payouts are earned on PAID curator shares only. A
+    // wallet-less curator's share rolls over — 10% of money that was never
+    // paid must not leak to their referrer.
+    if (!paidCuratorIds.has(share.curatorId)) continue
+    const curator = await models.user.findUnique({
+      where: { id: share.curatorId },
+      select: { referrerId: true }
+    })
+    if (!curator?.referrerId) continue
+    // Keep a stasher entry in the map: allocateReferralPayouts reserves its
+    // capped commission so it cannot be redirected to another referrer.
+    const referralPiconeros = share.sharePiconeros / 10n
+    if (referralPiconeros <= 0n) continue
+    const entry = referralByReferrer.get(curator.referrerId) || { piconeros: 0n }
+    entry.piconeros += referralPiconeros
+    referralByReferrer.set(curator.referrerId, entry)
+  }
+  return referralByReferrer
+}
+
+// The referral payouts these shares would produce, without writing anything.
+async function referralCommissionTotal (models, { shares, paidCuratorIds, excludedCuratorIdSet, excludedCuratorIds, budget }) {
+  const byReferrer = await referralCommissions(models, shares, paidCuratorIds, excludedCuratorIdSet)
+  const { rows } = await allocateReferralPayouts(models, byReferrer, budget, excludedCuratorIds)
+  return rows.reduce((acc, r) => acc + r.piconeros, 0n)
+}
+
 export async function allocateReferralPayouts (models, referralByReferrer, referralBudget, excludedCuratorIds = []) {
   const excludedIds = new Set(resolveExcludedCuratorIds(excludedCuratorIds))
   const rows = []
@@ -503,7 +554,8 @@ async function distribute (models) {
       minPayout: toBigInt(config.distributionMinPayoutPiconeros),
       topN: config.distributionTopN,
       trustWeightFloor,
-      excludedCuratorIds
+      excludedCuratorIds,
+      minAccountAgeDays: shareConfig.errors.includes('minAccountAgeDays_invalid') ? 0 : shareConfig.params.minAccountAgeDays
     }
     const v2ShareOpts = {
       ...legacyShareOpts,
@@ -522,7 +574,9 @@ async function distribute (models) {
     let shareError = null
     if (shareConfig.formula === 'V2') {
       try {
-        sharesResult = await withSavepoint(tx, () => computeShares(v2ShareOpts))
+        // The cap excess is held back and placed after contributors and
+        // referrals are known (see "Cap excess" below).
+        sharesResult = await withSavepoint(tx, () => computeShares({ ...v2ShareOpts, holdCapExcess: true }))
         paidFormula = 'V2'
       } catch (err) {
         if (isSerializationFailure(err)) throw err
@@ -531,7 +585,7 @@ async function distribute (models) {
       }
     }
     if (!sharesResult) sharesResult = await computeShares(legacyShareOpts)
-    const { shares } = sharesResult
+    let { shares } = sharesResult
 
     // SHADOW: record V2 at the effective trust floor and at the shadow floor.
     // A failure is recorded, never paid around.
@@ -561,28 +615,17 @@ async function distribute (models) {
         accuracyExponent: shareConfig.params.accuracyExponent,
         amountExponent: shareConfig.params.amountExponent,
         minTipPiconeros: String(shareConfig.params.minTipPiconeros),
+        // the minimum the budget's tip volume used (null: no filter)
+        budgetMinTipPiconeros: budgetMinTipPiconeros(shareConfig) == null ? null : String(budgetMinTipPiconeros(shareConfig)),
         capShareBps: shareConfig.params.capShareBps
       },
       v2: paidFormula === 'V2' ? shareResultRecord(trustWeightFloor, sharesResult) : null,
       shadow
     }
 
-    // --- Address filter + payout rows ---
-    // A curator is a tipper; they may not have registered a wallet to RECEIVE
-    // payouts. Curators with no MoneroAccount(ownerUserId) are excluded — their
-    // share rolls over (it stays in poolPiconeros - distributedPiconeros).
-    const payoutRows = []
-    const paidCuratorIds = new Set()
-    for (const share of shares) {
-      const account = await tx.moneroAccount.findFirst({ where: { ownerUserId: share.curatorId } })
-      if (!account) continue
-      paidCuratorIds.add(share.curatorId)
-      payoutRows.push({
-        curatorId: share.curatorId,
-        recipientAddress: account.address,
-        piconeros: share.sharePiconeros
-      })
-    }
+    // --- Address filter + payout rows (wallet-less curators roll over) ---
+    let { rows: curatorRows, paidIds: paidCuratorIds } = await curatorPayoutRows(tx, shares)
+    const payoutRows = [...curatorRows]
 
     // Combined caps in SHADOW need the curator rows ACTIVE would have paid,
     // including its reduced budget, minimum, topN and wallet filter. Never use
@@ -593,7 +636,8 @@ async function distribute (models) {
       try {
         contributorCuratorRows = await withSavepoint(tx, async () => {
           const simulated = await computeCuratorShares(periodStart, periodEnd, contributorFunding.curatorBudget,
-            paidFormula === 'V2' ? v2ShareOpts : legacyShareOpts, tx)
+            // ACTIVE allocates against V2 shares with the cap excess still held
+            paidFormula === 'V2' ? { ...v2ShareOpts, holdCapExcess: true } : legacyShareOpts, tx)
           return (await curatorPayoutRows(tx, simulated.shares)).rows
         })
       } catch (err) {
@@ -641,6 +685,54 @@ async function distribute (models) {
     }
     const contributorTotal = contributorPayouts.reduce((acc, c) => acc + c.row.piconeros, 0n)
 
+    // --- Cap excess (V2 only). What the share cap took from the capped
+    // curators first pays this run's other reward obligations, so the pool
+    // reserve funds less of them: the contributor payouts actually made, then
+    // the referral commissions on the capped curator shares. Only what is left
+    // after both goes back to the uncapped curators, by weight and under the
+    // cap. Referral commissions are then earned on the final shares, so the
+    // commission on that last leftover is the one part the pool still pays. ---
+    if (sharesResult.capExcess) {
+      const { capExcess } = sharesResult
+      const excess = capExcess.excessPiconeros
+      const provisionalReferral = await referralCommissionTotal(tx, {
+        shares,
+        paidCuratorIds,
+        excludedCuratorIdSet,
+        excludedCuratorIds,
+        budget: poolPiconeros - payoutRows.reduce((acc, p) => acc + p.piconeros, 0n)
+      })
+      const toContributors = excess < contributorTotal ? excess : contributorTotal
+      const afterContributors = excess - toContributors
+      const toReferrals = afterContributors < provisionalReferral ? afterContributors : provisionalReferral
+      // A contributor winner who is also a curator must stay under the
+      // combined cap after settlement too: the allocation trimmed the winner
+      // against the curator share before settlement, so the curator share may
+      // grow only by the combined room the winner has left.
+      const ceilings = new Map()
+      const combinedCap = contributorActive ? contributorAllocation?.combinedCap : null
+      if (combinedCap != null) {
+        const shareBefore = new Map(shares.map(s => [s.curatorId, s.sharePiconeros]))
+        for (const { row } of contributorPayouts) {
+          const curator = shareBefore.get(row.curatorId) ?? 0n
+          const room = combinedCap - curator - row.piconeros
+          ceilings.set(row.curatorId, curator + (room > 0n ? room : 0n))
+        }
+      }
+      const settled = settleCapExcess(capExcess, afterContributors - toReferrals, { ceilings })
+      sharesResult = settled
+      shares = settled.shares
+      ;({ rows: curatorRows, paidIds: paidCuratorIds } = await curatorPayoutRows(tx, shares))
+      payoutRows.splice(0, payoutRows.length, ...curatorRows, ...contributorPayouts.map(c => c.row))
+      curatorShareRecord.v2 = shareResultRecord(trustWeightFloor, settled)
+      curatorShareRecord.capExcess = {
+        excessPiconeros: String(excess),
+        contributorsPiconeros: String(toContributors),
+        referralsPiconeros: String(toReferrals),
+        curatorsPiconeros: String(settled.placedPiconeros)
+      }
+    }
+
     // --- Referral shares (forever-only) ---
     // For every paid curator with a referrer, the referrer earns 10% of that
     // curator's share IN ADDITION (paid from the pool, upstream FOREVER_REFERRAL
@@ -656,29 +748,7 @@ async function distribute (models) {
     // curator + contributor rows are all in payoutRows at this point
     const referralBudget = poolPiconeros - payoutRows.reduce((acc, p) => acc + p.piconeros, 0n)
 
-    const referralByReferrer = new Map() // referrerId -> { piconeros }
-    for (const share of shares) {
-      if (share.sharePiconeros <= 0n) continue
-      // Defensive: excluded accounts are already absent from computeCuratorShares,
-      // but one must never generate a referral commission either.
-      if (excludedCuratorIdSet.has(share.curatorId)) continue
-      // Referral payouts are earned on PAID curator shares only. A
-      // wallet-less curator's share rolls over — 10% of money that was never
-      // paid must not leak to their referrer.
-      if (!paidCuratorIds.has(share.curatorId)) continue
-      const curator = await tx.user.findUnique({
-        where: { id: share.curatorId },
-        select: { referrerId: true }
-      })
-      if (!curator?.referrerId) continue
-      // Keep a stasher entry in the map: allocateReferralPayouts reserves its
-      // capped commission so it cannot be redirected to another referrer.
-      const referralPiconeros = share.sharePiconeros / 10n
-      if (referralPiconeros <= 0n) continue
-      const entry = referralByReferrer.get(curator.referrerId) || { piconeros: 0n }
-      entry.piconeros += referralPiconeros
-      referralByReferrer.set(curator.referrerId, entry)
-    }
+    const referralByReferrer = await referralCommissions(tx, shares, paidCuratorIds, excludedCuratorIdSet)
 
     // Referral payout rows are role-tagged here so the Earn loops below can tell
     // them apart from curator payout rows. A referrer who is ALSO a paid curator
