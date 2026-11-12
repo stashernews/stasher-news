@@ -155,6 +155,13 @@ export default gql`
     sortTime: Date!
   }
 
+  type ContributorDisqualified {
+    id: ID!
+    sortTime: Date!
+    item: Item!
+    reason: String
+  }
+
   type Flame {
     id: ID!
     sortTime: Date!
@@ -184,7 +191,7 @@ export default gql`
     | FollowActivity | Revenue | SubStatus
     | TerritoryPost | TerritoryTransfer | Reminder | ItemMention | PayInification
     | ReferralReward | Flame | NewVerified | QuestComplete | FlameDay
-    | Bulletinification
+    | Bulletinification | ContributorDisqualified
 
   type Notifications {
     lastChecked: Date

@@ -506,6 +506,11 @@ model Item {
   title                   String?
   text                    String?
   url                     String?
+  // Contributor pool disqualification. Set by an operator via SQL;
+  // a disqualified post is skipped at the next weekly run.
+  contributorDisqualifiedAt     DateTime?
+  contributorDisqualifiedReason ContributorDisqualifyReason?
+  contributorDisqualifiedNote   String?
   userId                  Int
   parentId                Int?
   path                    Unsupported("ltree")?
@@ -1527,6 +1532,23 @@ enum CuratorShareFormula {
   V2
 }
 
+// Contributor pool mode.
+// OFF = no contributor work; SHADOW = score and record, pay nothing;
+// ACTIVE = fund and pay the top original posts.
+enum ContributorPoolMode {
+  OFF
+  SHADOW
+  ACTIVE
+}
+
+// Why an operator disqualified a post from the contributor pool.
+enum ContributorDisqualifyReason {
+  PLAGIARISM
+  AI_GENERATED
+  RULES
+  OTHER
+}
+
 // Outcome recorded for one dynamic budget calculation.
 enum CuratorBudgetOutcome {
   FULL
@@ -2004,6 +2026,14 @@ model RewardDistribution {
   // paid, V2 per-curator accuracy and cap details, and in SHADOW mode the V2
   // shares at the effective and shadow trust floors.
   curatorShareRecord            Json?
+  // Contributor pool. Budget is the applied amount (0 in SHADOW);
+  // params snapshots the config and every candidate's score. BigInts are
+  // decimal strings inside the JSON.
+  contributorPoolMode             ContributorPoolMode?
+  contributorTargetPiconeros      BigInt?
+  contributorBudgetPiconeros      BigInt?
+  contributorDistributedPiconeros BigInt?
+  contributorParams               Json?
 
   payouts            RewardPayout[]
   earns              Earn[]
@@ -2398,6 +2428,29 @@ model PlatformFeeConfig {
   curatorBreakerRatioBps           Int @default(25000)
   curatorBreakerFloorMedianPeriods Int @default(12)
   curatorBreakerArmPeriods         Int @default(4)
+  // Contributor pool.
+  // OFF = nothing runs; SHADOW = score and record only; ACTIVE = fund and pay
+  // (only while curatorBudgetMode is also ACTIVE). Invalid values fail closed
+  // to OFF with a CRITICAL alert. Read at distribution time, so a SQL edit
+  // takes effect on the next weekly run.
+  contributorPoolMode              ContributorPoolMode @default(OFF)
+  contributorShareBps              Int                 @default(1500) // s
+  contributorTopN                  Int                 @default(5)
+  contributorWinnerCapBps          Int                 @default(4000)
+  contributorCombinedCapBps        Int                 @default(0) // curator + contributor per account; 0 = off
+  contributorMinTipPiconeros       BigInt              @default(500000000) // 0.5 mXMR per payment
+  contributorTrustThreshold        Float               @default(0.1)
+  contributorMinTrustedTippers     Int                 @default(3)
+  contributorTipperCapBps          Int                 @default(3334) // 3334 so three equal tippers pass
+  contributorBreadthTarget         Int                 @default(5)
+  contributorReciprocityMult       Float               @default(0.5)
+  contributorReciprocityDays       Int                 @default(30)
+  contributorCommentBonusBps       Int                 @default(500)
+  contributorCommentBonusMax       Int                 @default(8)
+  contributorMinAccountAgeDays     Int                 @default(14)
+  contributorLengthFloor           Float               @default(0.6)
+  contributorLengthScaleWords      Int                 @default(100)
+  contributorLengthCapWords        Int                 @default(1500)
 }
 
 // Singleton (id=1) cache of the monerod chain tip, written by the

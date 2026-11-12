@@ -184,6 +184,8 @@ export async function readCuratorBudgetConfig (tx) {
  *   appliedCuratorBudgetPiconeros: bigint,
  *   breaker: object|null,
  *   configErrors: string[],
+ *   targetPiconeros?: bigint,
+ *   limitPiconeros?: bigint,
  *   fallbackError?: Error
  * }>}
  */
@@ -350,7 +352,11 @@ export async function planCuratorBudget (tx, {
     record,
     appliedCuratorBudgetPiconeros: applied,
     breaker,
-    configErrors: []
+    configErrors: [],
+    // Not record fields: the contributor pool funds itself from the same
+    // target and limit.
+    targetPiconeros: budget.targetPiconeros,
+    limitPiconeros: budget.limitPiconeros
   }
 }
 

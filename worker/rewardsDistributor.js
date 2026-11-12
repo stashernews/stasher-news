@@ -5,12 +5,17 @@ import { sendPayouts as defaultSendPayouts, getRewardsWallet } from '@/api/moner
 import { reconcileWalletTransactions, errorLabel } from '@/api/monero/rewardsTransactions'
 import logger, { logInfo, logError } from '@/lib/logger'
 import { alert } from '@/lib/alert'
+import { utcWeekStart } from '@/lib/utcWeek'
 import { moneroDistributionStatus } from '@/lib/metrics'
 import { opsCarry, walletScope, CURATOR_FALLBACK_CAP_PICONEROS } from '@/lib/rewardsAccounting'
 import { readRewardsInflow } from '@/api/monero/rewardsInflow'
 import { readRewardsWalletLedger } from '@/api/monero/rewardsLedger'
 import { withRewardsPhase } from './rewardsPhase'
 import { incomeFromInflow, planCuratorBudget, readTrustWeighting } from './curatorBudget'
+import { decideContributorMode, selectContributorWinners, allocateContributorRun, settleTightWeek, buildContributorParams } from './contributorPoolRun'
+import { isSerializationFailure, withSavepoint } from '@/lib/rewardsPlanning'
+
+export { isSerializationFailure, withSavepoint } from '@/lib/rewardsPlanning'
 
 // rewardsDistributor — StasherNews' weekly rewards-pool distribution job.
 // Each week it:
@@ -48,35 +53,6 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
 
 const DISTRIBUTION_STATUS_GAUGE = { PENDING: 0, SENDING: 1, COMPLETE: 2, FAILED: 3 }
-
-// Serialization/deadlock errors must escape the budget SAVEPOINT: retrying the
-// whole Serializable ledger transaction (the caller's/scheduler's job) is the
-// only safe response. Prisma reports a write conflict as P2034; a raw SQL
-// SERIALIZABLE failure or deadlock is P2010 with meta.code 40001 / 40P01.
-// Shapes verified by forced conflicts on PostgreSQL 16 / Prisma 5.20.0.
-export function isSerializationFailure (err) {
-  if (!err) return false
-  if (err.code === 'P2034') return true
-  const code = String(err.meta?.code ?? err.code ?? '')
-  return code === '40001' || code === '40P01'
-}
-
-// Run `fn` inside a PostgreSQL SAVEPOINT so a planning error can be rolled back
-// without aborting the surrounding Serializable ledger transaction. Static SQL
-// only: these statements are code-owned, never user input.
-export async function withSavepoint (tx, fn) {
-  await tx.$executeRaw`SAVEPOINT curator_budget`
-  try {
-    const result = await fn()
-    await tx.$executeRaw`RELEASE SAVEPOINT curator_budget`
-    return result
-  } catch (err) {
-    try {
-      await tx.$executeRaw`ROLLBACK TO SAVEPOINT curator_budget`
-    } catch { /* the original error wins; the outer transaction aborts anyway */ }
-    throw err
-  }
-}
 
 // Planning-failure fallback: pay min(pool, 0.2 XMR) exactly like LEGACY. The
 // record is deliberately minimal (no fabricated T/F/budget figures); the
@@ -167,6 +143,30 @@ function emitCuratorShareAlerts ({ shareConfigErrors, shareFailed, distributionI
   }
 }
 
+// Post-commit alerts for the contributor pool: invalid config fails closed to
+// OFF, and a selection failure pays no contributor budget. Never call inside
+// the ledger transaction.
+function emitContributorPoolAlerts ({ contributorConfigErrors, contributorFailed, contributorCatchUpWeeks, distributionId }) {
+  if (contributorCatchUpWeeks > 0) {
+    alert('warn', 'contributor pool scored extra weeks',
+      `distribution ${distributionId}: the contributor window covered ${contributorCatchUpWeeks} earlier week(s) that were never scored (a skipped or failed run, or the pool was off). ` +
+      'Their posts competed in this run for the usual slots. Check that the previous weekly run completed.',
+      { dedupeKey: `contributor-pool-catch-up-${distributionId}` })
+  }
+  if (contributorConfigErrors?.length) {
+    alert('critical', 'contributor pool config invalid — contributor pool skipped',
+      `distribution ${distributionId}: invalid PlatformFeeConfig (${contributorConfigErrors.join(', ')}); the contributor pool failed closed to OFF and paid nothing. ` +
+      'Fix the config before the next weekly run.',
+      { dedupeKey: 'contributor-pool-config-invalid' })
+  }
+  if (contributorFailed) {
+    alert('critical', 'contributor pool selection failed — no contributor payouts',
+      `distribution ${distributionId}: the contributor pool could not select winners; contributor budget is 0 and curator payouts were unaffected. ` +
+      'Diagnostic withheld; see the worker log. Investigate before the next weekly run.',
+      { dedupeKey: `contributor-pool-failed-${distributionId}` })
+  }
+}
+
 // Post-commit alerts for the budget plan. NEVER call these inside the ledger
 // transaction: a reused row and an aborted transaction alert nothing.
 function emitCuratorBudgetAlerts ({ breaker, configErrors, fallbackError, mode, distributionId, periodEnd, medianPeriods }) {
@@ -183,9 +183,7 @@ function emitCuratorBudgetAlerts ({ breaker, configErrors, fallbackError, mode, 
       { dedupeKey: 'curator-budget-config-invalid' })
   }
   if (breaker?.tripped) {
-    const weekStart = new Date(periodEnd)
-    weekStart.setUTCHours(0, 0, 0, 0)
-    weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7))
+    const weekStart = utcWeekStart(periodEnd)
     const nextMonday = new Date(weekStart.getTime() + WEEK_MS).toISOString()
     // A zero threshold identifies a zero recorded average/median baseline (the
     // breaker ratio is always above 100%), the accepted zero-history/recovery
@@ -279,9 +277,7 @@ async function distribute (models) {
   // consumes only the week it was actually created in, never the following
   // Monday. The inflow window stays independently anchored to the previous
   // distribution's exact periodEnd (see periodStart below).
-  const weekStart = new Date(periodEnd)
-  weekStart.setUTCHours(0, 0, 0, 0)
-  weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7))
+  const weekStart = utcWeekStart(periodEnd)
   // First distribution only: fall back to the trailing seven days for the
   // inflow window (matching lib/rewardsPool.js's open-cycle fallback).
   const firstRunPeriodStart = new Date(periodEnd.getTime() - WEEK_MS)
@@ -450,7 +446,57 @@ async function distribute (models) {
       }, 'rewardsDistributor: dynamic curator budget planning failed; paying the fallback cap')
       budgetPlan = fallbackCapPlan(poolPiconeros, err)
     }
-    const curatorBudget = budgetPlan.appliedCuratorBudgetPiconeros
+
+    // --- Contributor pool. OFF runs nothing. SHADOW and
+    // ACTIVE select the week's winners in their own SAVEPOINT: any
+    // non-serialization error leaves the contributor budget at 0 and the
+    // curator inputs untouched, and serialization errors escape for retry.
+    // ACTIVE additionally refits the curator budget to the 85/15 split BEFORE
+    // curator shares are computed (shadow never changes curator money). ---
+    const contributorDecision = decideContributorMode(config, budgetPlan)
+    let contributorRun = null
+    let contributorError = null
+    if (contributorDecision.effectiveMode !== 'OFF') {
+      try {
+        contributorRun = await withSavepoint(tx, () => selectContributorWinners(tx, {
+          decision: contributorDecision,
+          budgetPlan,
+          poolPiconeros,
+          weekStart,
+          excludedCuratorIds
+        }))
+      } catch (err) {
+        if (isSerializationFailure(err)) throw err
+        contributorError = err
+        logError({
+          code: budgetPlanningDiagnostic(err).code,
+          phase: 'contributor-pool',
+          err: budgetPlanningDiagnostic(err)
+        }, 'rewardsDistributor: contributor pool selection failed; contributor budget is 0 this run')
+      }
+    }
+    const contributorActive = contributorDecision.effectiveMode === 'ACTIVE' &&
+      contributorRun?.funding != null
+    // Tight week (limit or pool binds): pay the winners first and give
+    // curators the rest of the room. Unscaled weeks: curators keep their full
+    // target and the contributor pool is extra.
+    let contributorFunding = contributorRun?.funding ?? null
+    let contributorAllocation = null
+    if (contributorActive) {
+      const tight = settleTightWeek({
+        decision: contributorDecision,
+        funding: contributorFunding,
+        selection: contributorRun.selection,
+        minPayout: toBigInt(config.distributionMinPayoutPiconeros)
+      })
+      if (tight) {
+        contributorFunding = tight.funding
+        contributorAllocation = tight.allocation
+      }
+    }
+    const curatorBudget = contributorActive
+      ? contributorFunding.curatorBudget
+      : budgetPlan.appliedCuratorBudgetPiconeros
 
     // --- Curator shares. Read-only, so it COULD run outside the tx,
     // but passing tx keeps the reads in the same serializable snapshot as the
@@ -540,6 +586,41 @@ async function distribute (models) {
       })
     }
 
+    // --- Contributor payouts (ACTIVE only). The split uses the wallet-filtered
+    // curator rows for the optional combined cap; a winner whose wallet is gone
+    // since ranking rolls over. SHADOW computes the same split for the record
+    // only. Contributor payouts carry no referral commission: the referral
+    // loop below iterates curator `shares` only. ---
+    const contributorPayoutRows = new Set()
+    const curatorPaidByUser = new Map()
+    for (const p of payoutRows) {
+      curatorPaidByUser.set(p.curatorId, (curatorPaidByUser.get(p.curatorId) || 0n) + p.piconeros)
+    }
+    contributorAllocation ??= contributorRun
+      ? allocateContributorRun({
+        decision: contributorDecision,
+        funding: contributorFunding,
+        selection: contributorRun.selection,
+        curatorPaid: curatorPaidByUser,
+        minPayout: toBigInt(config.distributionMinPayoutPiconeros)
+      })
+      : null
+    const contributorPayouts = []
+    if (contributorActive && contributorAllocation) {
+      let rank = 0
+      for (const win of contributorAllocation.payouts) {
+        rank++
+        if (win.share <= 0n) continue
+        // The address comes from the candidate query (same snapshot as the
+        // wallet eligibility check), so no per-winner lookup is needed.
+        const row = { curatorId: win.authorId, recipientAddress: win.recipientAddress, piconeros: win.share }
+        contributorPayoutRows.add(row)
+        contributorPayouts.push({ row, win, rank })
+        payoutRows.push(row)
+      }
+    }
+    const contributorTotal = contributorPayouts.reduce((acc, c) => acc + c.row.piconeros, 0n)
+
     // --- Referral shares (forever-only) ---
     // For every paid curator with a referrer, the referrer earns 10% of that
     // curator's share IN ADDITION (paid from the pool, upstream FOREVER_REFERRAL
@@ -552,8 +633,8 @@ async function distribute (models) {
     // (someone else's referrer) and as sources (their curator share is already
     // absent from `shares`). Their 10% cut is not redirected to another
     // recipient; it simply remains part of the distribution's rollover.
-    const curatorTotal = payoutRows.reduce((acc, p) => acc + p.piconeros, 0n)
-    const referralBudget = poolPiconeros - curatorTotal
+    // curator + contributor rows are all in payoutRows at this point
+    const referralBudget = poolPiconeros - payoutRows.reduce((acc, p) => acc + p.piconeros, 0n)
 
     const referralByReferrer = new Map() // referrerId -> { piconeros }
     for (const share of shares) {
@@ -615,7 +696,32 @@ async function distribute (models) {
         // applied budget is LEGACY/SHADOW fallback or ACTIVE
         // min(target, limit, pool) (target = k × T4 + approved make-up).
         ...budgetPlan.record,
-        curatorShareRecord
+        curatorShareRecord,
+        // ACTIVE records the refitted curator budget that was really applied.
+        appliedCuratorBudgetPiconeros: curatorBudget,
+        // multBps is the EFFECTIVE multiple (budget x 10000 / T4): keep it
+        // true after a tight-week refit. dynamicBudgetPiconeros stays the
+        // curator budget before the contributor split.
+        ...(curatorBudget !== budgetPlan.appliedCuratorBudgetPiconeros && budgetPlan.record.tipT4Piconeros > 0n
+          ? { multBps: Number(curatorBudget * 10000n / budgetPlan.record.tipT4Piconeros) }
+          : {}),
+        // Contributor pool record. Budget is the applied amount
+        // (0 in SHADOW and OFF); params holds the bounded snapshot.
+        contributorPoolMode: contributorDecision.effectiveMode,
+        ...(contributorDecision.effectiveMode === 'OFF' && !contributorDecision.configErrors.length
+          ? {}
+          : {
+              contributorTargetPiconeros: contributorRun?.funding?.contributorTarget ?? null,
+              contributorBudgetPiconeros: contributorActive ? contributorRun.funding.contributorBudget : 0n,
+              contributorDistributedPiconeros: contributorTotal,
+              contributorParams: buildContributorParams({
+                decision: contributorDecision,
+                funding: contributorFunding,
+                selection: contributorRun?.selection,
+                allocation: contributorAllocation,
+                error: contributorError
+              })
+            })
       }
     })
 
@@ -635,6 +741,8 @@ async function distribute (models) {
         // curator-type rows — even when the referrer is ALSO a paid curator
         // (shares.find would otherwise succeed and re-emit the referrer's earns).
         if (referralPayoutRows.has(p)) continue
+        // Contributor rows emit their POST Earn below, never curator types.
+        if (contributorPayoutRows.has(p)) continue
         const share = shares.find(s => s.curatorId === p.curatorId)
         for (const e of share?.earns ?? []) {
           earnRows.push({
@@ -647,6 +755,20 @@ async function distribute (models) {
             createdAt: periodEnd
           })
         }
+      }
+      // Contributor POST Earn rows: one per paid winner, typeId = the post so
+      // the existing "#rank among posts" UI links it.
+      for (const { row, win, rank } of contributorPayouts) {
+        earnRows.push({
+          userId: row.curatorId,
+          piconeros: row.piconeros,
+          type: 'POST',
+          rank,
+          typeProportion: Number(row.piconeros) / Number(contributorRun.funding.contributorBudget),
+          typeId: win.itemId,
+          distributionId: distribution.id,
+          createdAt: periodEnd
+        })
       }
       // FOREVER_REFERRAL Earn rows: one per referrer (only actual referral
       // payout rows — the role tag, not the curatorId, decides), rank/typeId
@@ -681,7 +803,12 @@ async function distribute (models) {
       excludedCurators: excludedCuratorIds.length,
       // Dynamic curator budget (all modes record; only ACTIVE pays it).
       curatorBudgetMode: budgetPlan.record.curatorBudgetMode,
-      curatorBudget: budgetPlan.appliedCuratorBudgetPiconeros.toString(),
+      curatorBudget: curatorBudget.toString(),
+      // Contributor pool (OFF runs nothing; only ACTIVE pays).
+      contributorPoolMode: contributorDecision.effectiveMode,
+      contributorBudget: contributorActive ? contributorRun.funding.contributorBudget.toString() : '0',
+      contributorPaid: contributorTotal.toString(),
+      contributorPayouts: contributorPayouts.length,
       dynamicBudget: budgetPlan.record.dynamicBudgetPiconeros?.toString() ?? null,
       trustedTip: budgetPlan.record.trustedTipPiconeros?.toString() ?? null,
       makeup: budgetPlan.record.makeupPiconeros?.toString() ?? null,
@@ -702,15 +829,19 @@ async function distribute (models) {
       periodEnd,
       medianPeriods: budgetPlan.record.curatorBudgetParams?.breakerFloorMedianPeriods ?? null,
       shareConfigErrors: shareConfig.errors,
-      shareFailed: shareError != null
+      shareFailed: shareError != null,
+      contributorConfigErrors: contributorDecision.configErrors,
+      contributorFailed: contributorError != null,
+      contributorCatchUpWeeks: contributorRun?.selection?.catchUpWeeks ?? 0
     }
     return completed
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10000 })
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20000 }) // 20s: contributor selection with multi-week catch-up windows can outrun 10s in heavy weeks
 
   // After commit only. If the transaction rejected, this code is never reached.
   if (postCommitBudget?.created) {
     emitCuratorBudgetAlerts(postCommitBudget)
     emitCuratorShareAlerts(postCommitBudget)
+    emitContributorPoolAlerts(postCommitBudget)
   }
   return result
 }

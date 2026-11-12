@@ -5,6 +5,7 @@ export default gql`
     rewards(when: [String!]): [Rewards!]
     meRewards(when: [String!]!): [MeRewards]
     curatorBudget: CuratorBudget!
+    contributorPool: ContributorPool!
     rewardsPoolHealth: RewardsPoolHealth!
   }
 
@@ -38,6 +39,32 @@ export default gql`
     dynamicBudgetMode: String     # FULL | DRAWDOWN | POOL_SHORT for the live projection; NULL when unavailable
     windingDown: Boolean!         # the last two recorded runs both ended in DRAWDOWN
     breakerTripped: Boolean!
+  }
+
+  # Public contributor-pool view.
+  # Ranks and amounts only: scores, trust and tipper counts are never exposed.
+  type ContributorPool {
+    mode: String!                          # OFF | SHADOW | ACTIVE (effective config)
+    lastRun: ContributorRun                # latest recorded SHADOW/ACTIVE run
+    candidates: [ContributorCandidate!]!   # provisional ranking for the next run; empty when OFF
+  }
+
+  type ContributorRun {
+    periodEnd: Date!
+    mode: String!                          # SHADOW = would-have-won, nothing paid
+    budgetPiconeros: BigInt!               # applied; 0 in SHADOW
+    results: [ContributorResult!]!
+  }
+
+  type ContributorResult {
+    rank: Int!
+    piconeros: BigInt!
+    item: Item
+  }
+
+  type ContributorCandidate {
+    rank: Int!
+    item: Item
   }
 
   extend type Mutation {

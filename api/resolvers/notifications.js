@@ -276,6 +276,22 @@ export default {
         )
       }
 
+      // The author's own post was disqualified from the contributor pool by an
+      // operator (docs/ops/rewards-contributor-disqualification.md). Shows the
+      // reason, never who decided it. Not gated by noteEarning: it is a notice
+      // about their content, not income.
+      queries.push(
+        `(SELECT "Item".id::text, "Item"."contributorDisqualifiedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros",
+          'ContributorDisqualified' AS type
+          FROM "Item"
+          WHERE "Item"."userId" = $1
+          AND "Item"."contributorDisqualifiedAt" IS NOT NULL
+          AND "Item"."contributorDisqualifiedAt" < $2
+          AND "Item"."deletedAt" IS NULL
+          ORDER BY "sortTime" DESC
+          LIMIT ${LIMIT})`
+      )
+
       if (meFull.noteEarning) {
         queries.push(
           `(SELECT min(id)::text, created_at AS "sortTime", COALESCE(sum(piconeros), 0)::BIGINT as "earnedPiconeros",
@@ -493,6 +509,18 @@ export default {
   },
   TerritoryPost: {
     item: async (n, args, { models, me }) => getItem(n, { id: n.id }, { models, me })
+  },
+  ContributorDisqualified: {
+    item: async (n, args, { models, me }) => getItem(n, { id: Number(n.id) }, { models, me }),
+    // one query per request for all of the viewer's reasons, not one per notification
+    reason: async (n, args, ctx) => {
+      const { models, me } = ctx
+      ctx.contributorDisqualifiedReasons ??= models.item.findMany({
+        where: { userId: me.id, contributorDisqualifiedAt: { not: null } },
+        select: { id: true, contributorDisqualifiedReason: true }
+      }).then(rows => new Map(rows.map(r => [r.id, r.contributorDisqualifiedReason])))
+      return (await ctx.contributorDisqualifiedReasons).get(Number(n.id)) ?? null
+    }
   },
   Reminder: {
     item: async (n, args, { models, me }) => {

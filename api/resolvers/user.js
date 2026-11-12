@@ -626,6 +626,19 @@ export default {
         }
       }
 
+      // an operator disqualified one of the user's posts from the contributor pool
+      const [newDisqualified] = await models.$queryRaw`
+        SELECT EXISTS(
+          SELECT *
+          FROM "Item"
+          WHERE "Item"."userId" = ${me.id}
+          AND "Item"."deletedAt" IS NULL
+          AND "Item"."contributorDisqualifiedAt" > ${lastChecked})`
+      if (newDisqualified.exists) {
+        foundNotes()
+        return true
+      }
+
       // update checkedNotesAt to prevent rechecking same time period
       models.$queryRaw`
         UPDATE users

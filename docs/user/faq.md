@@ -60,7 +60,7 @@ You'll need a Monero wallet to receive tips and rewards, since all payments are 
 
 ### How do I earn XMR on Stasher News?
 
-There are four ways to earn XMR on Stasher News:
+There are five ways to earn XMR on Stasher News:
 
 **1. Tips**
 
@@ -70,13 +70,17 @@ To earn XMR via [tips](#tips) from fellow stashers peer-to-peer, you need to [at
 
 Stashers can also earn XMR via weekly rewards. Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, paid boosts and tips to wallet-less authors (plus all downvotes and donations) back to the stashers who curated the best content of the week: the tippers of the top-ranked posts and comments. Distribution happens every Monday at 00:00 UTC, and payouts are sent on-chain to your attached wallet.
 
-**3. Referrals**
+**3. Contributor rewards**
+
+Authors can earn too. Each week, contributors get about 15% of the combined curator and contributor budget, paid in addition to the curator budget (in weeks when the pool is tight, within the same spending limit). It goes to the best original posts of the previous week (Monday to Sunday, UTC): text posts and posts with your own uploaded media. See [How do contributor rewards work?](#how-do-contributor-rewards-work) for the rules. Contributor rewards are currently in a trial period (shadow mode): candidates are ranked and listed on the [rewards page](/rewards), but nothing is paid yet.
+
+**4. Referrals**
 
 Another way to earn XMR is via [referrals](/referrals/month). If a stasher signs up through one of your referral links, you will earn 10% of their weekly curator rewards in perpetuity, subject to remaining pool funds. Referral payouts are additional to curator payouts and come from what is left in the pool after the curator budget. A referral link is any link that ends with /r/\<your name\>. Your posts, comments and profile are also implicit referral links. They don't need to have the /r/\<your name\> suffix.
 
 To make referring stashers easy, clicking on `...` next to a post or comment and selecting 'copy link' will copy it as a referral link by default. You can disable this in your [settings](/settings).
 
-**4. Turfs**
+**5. Turfs**
 
 Founding a turf is the last way to put XMR to work, though it is not a recommended way to earn XMR for new stashers: you need to pay for the turf in advance. Turf founders do earn revenue: 100% of the posting fees and comment fees paid in their turf (the standard fee plus any premium they set) go directly to their registered Monero wallet. Paid boosts and cases where the payer has no wallet attached still pay the platform rewards pool.
 
@@ -85,6 +89,12 @@ Founding a turf is the last way to put XMR to work, though it is not a recommend
 ### How is the weekly curator budget determined?
 
 The weekly curator budget is dynamic: it is determined by the real activity levels on the platform each week, so it rises and falls with how much stashers post, comment, tip, boost and donate. As a target, curators as a group are paid about 1.5× what they tipped on average over the last 4 weeks, while the pool has sufficient reserves. The 1.5× is a target, not a guarantee. When the reserve runs low, spending is limited to the pool's income plus 1/13 of its reserve each week, so payouts slide gradually toward income instead of stopping. Eligible tips leave out self-tips, exclude founder accounts or count them at half weight, and apply per-tipper limits. If the calculation cannot run, a fixed 0.2 XMR cap applies that week. Any unused pool funds roll over for future weeks. The [rewards page](/rewards) shows this week's projection and this week's spending limit.
+
+### How do contributor rewards work?
+
+Each week, part of the rewards pool goes to the best original posts of the previous week (Monday to Sunday, UTC): text posts and posts with your own uploaded media. Link posts, polls and bounties aren't eligible, and your account must be at least 14 days old when you post. A post is scored once its 7 days of tips are over, so it is paid at the Monday 00:00 UTC run a week after the week you wrote it in. A post qualifies once at least 3 trusted stashers have each tipped it at least 0.5 mXMR within 7 days, and the top posts by trusted tips and discussion win. Longer posts earn somewhat more, but length never decides who wins. You need an attached wallet, each author can win once per week, and plagiarized or wholesale AI-generated posts are disqualified. Winners are paid on Monday at 00:00 UTC, together with the other weekly rewards, and appear on the [rewards page](/rewards).
+
+Scores are never shown, so there is nothing to optimize but writing something worth reading.
 
 ---
 

@@ -197,6 +197,14 @@ export const NOTIFICATIONS = gql`
         ... on PayInification {
           ...PayInificationFields
         }
+        ... on ContributorDisqualified {
+          id
+          sortTime
+          reason
+          item {
+            ...ItemFullFields
+          }
+        }
         ... on Reminder {
           id
           sortTime

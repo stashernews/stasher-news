@@ -50,7 +50,7 @@ export function DiscussionForm ({
         label={<>{textLabel} <small className='text-muted ms-2'>optional</small></>}
         name='text'
         minRows={6}
-        hint={EditInfo}
+        hint={<>{EditInfo}</>}
       />
       <AdvPostForm>
         <MoneroWallFields item={item} />

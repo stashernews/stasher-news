@@ -72,6 +72,10 @@ const REWARDS_WALLET = gql`
       dynamicBudgetMode
       curatorBudgetMode
       appliedCuratorBudgetPiconeros
+      contributorPoolMode
+      contributorTargetPiconeros
+      contributorBudgetPiconeros
+      contributorDistributedPiconeros
       eligibleTipStages
       payouts {
         id
@@ -373,6 +377,14 @@ export default function Transparency ({ ssrData }) {
                             <Stat label='Applied budget' value={xmrOrDash(d.appliedCuratorBudgetPiconeros)} sub={d.curatorBudgetMode ?? '—'} />
                             <Stat label='Mode' value={d.curatorBudgetMode ?? '—'} sub={d.dynamicBudgetMode ?? undefined} />
                           </div>
+                          {d.contributorPoolMode != null && d.contributorPoolMode !== 'OFF' && (
+                            <div className='d-flex flex-wrap justify-content-between align-items-start ms-2 mt-1'>
+                              <Stat label='Contributor mode' value={d.contributorPoolMode} sub={d.contributorPoolMode === 'SHADOW' ? 'recorded, nothing paid' : undefined} />
+                              <Stat label='Contributor target' value={xmrOrDash(d.contributorTargetPiconeros)} />
+                              <Stat label='Contributor budget' value={xmrOrDash(d.contributorBudgetPiconeros)} sub='applied' />
+                              <Stat label='Contributor paid' value={xmrOrDash(d.contributorDistributedPiconeros)} />
+                            </div>
+                          )}
                           {(d.breakerTripped || makeup > 0n) && (
                             <div className='ms-2 mt-1'>
                               {d.breakerTripped && (

@@ -68,6 +68,7 @@ function Notification ({ n, fresh }) {
         (type === 'TerritoryPost' && <TerritoryPost n={n} />) ||
         (type === 'TerritoryTransfer' && <TerritoryTransfer n={n} />) ||
         (type === 'Reminder' && <Reminder n={n} />) ||
+        (type === 'ContributorDisqualified' && <ContributorDisqualified n={n} />) ||
         (type === 'PayInification' && (
           ((n.payIn.payInType === 'WITHDRAWAL' || n.payIn.payInType === 'AUTO_WITHDRAWAL') && <PayInWithdrawal n={n} />) ||
             <PayInFailed n={n} />
@@ -304,13 +305,13 @@ function EarnNotification ({ n }) {
         </NoteHeader>
         {n.sources &&
           <div style={{ fontSize: '80%', color: 'var(--theme-grey)' }}>
-            {n.sources.posts > 0 && <span>{piconerosToMXmr(BigInt(n.sources.posts))} for top posts</span>}
+            {n.sources.posts > 0 && <span>{piconerosToMXmr(BigInt(n.sources.posts))} for original posts (contributor rewards)</span>}
             {n.sources.comments > 0 && <span>{n.sources.posts > 0 && ' \\ '}{piconerosToMXmr(BigInt(n.sources.comments))} for top comments</span>}
             {n.sources.tipPosts > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0) && ' \\ '}{piconerosToMXmr(BigInt(n.sources.tipPosts))} for tipping top posts early</span>}
             {n.sources.tipComments > 0 && <span>{(n.sources.comments > 0 || n.sources.posts > 0 || n.sources.tipPosts > 0) && ' \\ '}{piconerosToMXmr(BigInt(n.sources.tipComments))} for tipping top comments early</span>}
           </div>}
         <div style={{ lineHeight: '140%' }}>
-          SN distributes the XMR it earns to top stashers like you weekly. The top stashers make the top posts and comments or tip the top posts and comments early and generously. View the rewards pool and make a donation <Link href='/rewards'>here</Link>.
+          SN distributes the XMR it earns to top stashers like you weekly. The top stashers write the best original posts or tip the top posts and comments early and generously. View the rewards pool and make a donation <Link href='/rewards'>here</Link>.
         </div>
         <small className='text-muted ms-1 pb-1 fw-normal'>click for details</small>
       </div>
@@ -688,6 +689,25 @@ function TerritoryTransfer ({ n }) {
       ~{n.sub.name} was transferred to you
       <small className='text-muted ms-1 fw-normal' suppressHydrationWarning>{timeSince(new Date(n.sortTime))}</small>
     </div>
+  )
+}
+
+const DISQUALIFIED_REASONS = {
+  PLAGIARISM: 'it appears to be copied from another source',
+  AI_GENERATED: 'it appears to be AI-generated',
+  RULES: 'it does not follow the site rules',
+  OTHER: 'it does not meet the contributor rules'
+}
+
+function ContributorDisqualified ({ n }) {
+  const why = DISQUALIFIED_REASONS[n.reason]
+  return (
+    <>
+      <NoteHeader color='warning'>
+        this post is not eligible for contributor rewards{why ? `: ${why}` : ''}
+      </NoteHeader>
+      <NoteItem item={n.item} />
+    </>
   )
 }
 
