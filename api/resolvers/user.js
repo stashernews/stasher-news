@@ -633,7 +633,8 @@ export default {
           FROM "Item"
           WHERE "Item"."userId" = ${me.id}
           AND "Item"."deletedAt" IS NULL
-          AND "Item"."contributorDisqualifiedAt" > ${lastChecked})`
+          AND "Item"."contributorDisqualifiedAt" IS NOT NULL
+          AND "Item"."contributorDisqualifiedNotifyAt" > ${lastChecked})`
       if (newDisqualified.exists) {
         foundNotes()
         return true

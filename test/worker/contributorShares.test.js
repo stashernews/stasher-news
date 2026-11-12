@@ -215,6 +215,35 @@ describeDb('computeContributorShares', () => {
     expect(r.ranked.map(x => x.itemId)).not.toContain(weak.id)
   })
 
+  it.each([{ feeStatus: 'PENDING_FEE' }, { status: 'STOPPED' }])('excludes a stronger unpublished post and advances the next eligible post: %j', async hiddenState => {
+    const visible = await tippedPost(3)
+    const hidden = await tippedPost(6)
+    await prisma.item.update({ where: { id: hidden.id }, data: hiddenState })
+    const r = await computeContributorShares(prisma, { weekStart: WEEK_START, params: { ...PARAMS, topN: 1 }, excludedIds: [] })
+    expect(wonIds(r)).toEqual([visible.id])
+    expect(r.scored.map(s => s.itemId)).not.toContain(hidden.id)
+  })
+
+  it.each([{ feeStatus: 'PENDING_FEE' }, { status: 'STOPPED' }])('counts a trusted comment only after it is public: %j', async hiddenState => {
+    const { id } = await tippedPost(3)
+    const baseline = (await run()).scored.find(s => s.itemId === id)
+    const commenter = await user()
+    await trust(commenter, 0.5)
+    const [{ id: cid }] = await prisma.$queryRaw`
+      INSERT INTO "Item" ("userId", "parentId", "rootId", title, "bountyPiconeros", created_at)
+      VALUES (${commenter}::int, ${id}::int, ${id}::int, 'c', 0, ${new Date(POST_AT.getTime() + 7200_000)}) RETURNING id::int AS id`
+    created.items.push(cid)
+    await prisma.item.update({ where: { id: cid }, data: hiddenState })
+    const hidden = (await run()).scored.find(s => s.itemId === id)
+    expect(hidden.E).toBe(0)
+    expect(hidden.S).toBe(baseline.S)
+
+    await prisma.item.update({ where: { id: cid }, data: { status: 'ACTIVE', feeStatus: 'FEE_PAID' } })
+    const visible = (await run()).scored.find(s => s.itemId === id)
+    expect(visible.E).toBe(1)
+    expect(visible.S).toBeCloseTo(baseline.S * 1.05, 8)
+  })
+
   it('breaks ties by earlier createdAt, then lower id', async () => {
     const early = await tippedPost(3, { at: new Date(POST_AT.getTime() - DAY) })
     const late = await tippedPost(3)

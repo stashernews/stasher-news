@@ -13,16 +13,10 @@ import { lengthMultiplier, scorePost } from '@/lib/contributorPool'
 // turf/trust fragments are imported from worker/curatorShares.js so a
 // tipper's trust cannot drift from curator rewards.
 //
-// Candidate window is normally the UTC calendar week BEFORE the previous one:
-// [weekStart - 14d, weekStart - 7d), so each post's own 7-day tip window
-// [createdAt, createdAt + 7d) has closed by weekStart. weekStart is the run's
-// UTC Monday, never the inflow periodStart (that drifts with the previous
-// run's exact periodEnd).
-//
-// Catch-up: if earlier weeks were never scored (a run was skipped, failed or
-// the pool was off), the window starts where the last scored window ended, so
-// no week is lost — like curator inflow, which is contiguous. It is capped at
-// MAX_WINDOW_WEEKS so re-enabling after a long OFF period stays bounded.
+// The candidate window is normally [weekStart - 14d, weekStart - 7d) so each
+// post's own 7-day tip window has closed by weekStart (the run's UTC Monday,
+// never the drifting inflow periodStart); catch-up starts where the last
+// scored window ended, capped at MAX_WINDOW_WEEKS (readWindowStart).
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * DAY_MS
@@ -88,6 +82,8 @@ async function loadCandidates (tx, start, end) {
       AND i.created_at >= ${start}
       AND i.created_at < ${end}
       AND i."deletedAt" IS NULL
+      AND i.status <> 'STOPPED'
+      AND COALESCE(i."feeStatus", 'FEE_NOT_REQUIRED') <> 'PENDING_FEE'
       AND NOT i.bio
     ORDER BY i.id`
 }
@@ -143,6 +139,8 @@ async function loadCommenters (tx, ids) {
       AND c."parentId" IS NOT NULL
       AND c."userId" <> p."userId"
       AND c."deletedAt" IS NULL
+      AND c.status <> 'STOPPED'
+      AND COALESCE(c."feeStatus", 'FEE_NOT_REQUIRED') <> 'PENDING_FEE'
       AND c.created_at >= p.created_at
       AND c.created_at < p.created_at + interval '7 days'`
 }

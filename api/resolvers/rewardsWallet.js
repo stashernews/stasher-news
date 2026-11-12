@@ -34,6 +34,10 @@ const PUBLIC_DISTRIBUTION_FIELDS = [
   'dynamicBudgetMode',
   'curatorBudgetMode',
   'appliedCuratorBudgetPiconeros',
+  'contributorPoolMode',
+  'contributorTargetPiconeros',
+  'contributorBudgetPiconeros',
+  'contributorDistributedPiconeros',
   'eligibleTipStages',
   'payouts'
 ]

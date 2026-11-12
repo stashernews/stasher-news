@@ -281,12 +281,13 @@ export default {
       // reason, never who decided it. Not gated by noteEarning: it is a notice
       // about their content, not income.
       queries.push(
-        `(SELECT "Item".id::text, "Item"."contributorDisqualifiedAt" AS "sortTime", 0::INTEGER as "earnedPiconeros",
+        `(SELECT "Item".id::text, "Item"."contributorDisqualifiedNotifyAt" AS "sortTime", 0::INTEGER as "earnedPiconeros",
           'ContributorDisqualified' AS type
           FROM "Item"
           WHERE "Item"."userId" = $1
           AND "Item"."contributorDisqualifiedAt" IS NOT NULL
-          AND "Item"."contributorDisqualifiedAt" < $2
+          AND "Item"."contributorDisqualifiedNotifyAt" IS NOT NULL
+          AND "Item"."contributorDisqualifiedNotifyAt" < $2
           AND "Item"."deletedAt" IS NULL
           ORDER BY "sortTime" DESC
           LIMIT ${LIMIT})`

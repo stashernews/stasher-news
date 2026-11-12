@@ -320,6 +320,11 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
     expect(params.qualifying).toBe(3)
     const winners = params.scored.filter(s => s.rank != null)
     expect(winners).toHaveLength(3)
+    for (const winner of winners) {
+      const tips = await db.observedTip.findMany({ where: { postId: winner.itemId, state: 'CONFIRMED' }, select: { tipperId: true } })
+      expect(winner.trustedTipperIds).toEqual(tips.map(t => t.tipperId).sort((a, b) => a - b))
+      expect(winner.trustedTipperIds).toHaveLength(winner.n)
+    }
     expect(winners.every(w => BigInt(w.share) > 0n)).toBe(true)
     // the recorded summary is the would-be split, not zeros
     const wouldPay = winners.reduce((a, w) => a + BigInt(w.share), 0n)
@@ -576,6 +581,30 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
     expect(alert.mock.calls.some(([, , , opts = {}]) => opts.dedupeKey?.startsWith('contributor-pool-catch-up-'))).toBe(false)
   })
 
+  test.each(['selection failure', 'invalid config'])('catches up the first %s without an earlier scored window', async failure => {
+    await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'ACTIVE', ...(failure === 'invalid config' ? { contributorShareBps: 0 } : {}) })
+    const winners = await seedActiveWeek()
+    if (failure === 'selection failure') computeContributorShares.mockImplementationOnce(async tx => { await tx.$queryRaw`SELECT 1 / 0` })
+    const first = await run()
+    expect(first.contributorDistributedPiconeros).toBe(0n)
+    expect(await postEarns(first)).toHaveLength(0)
+    await expectConserved(first)
+
+    jest.setSystemTime(new Date(START.getTime() + 7 * DAY))
+    await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'ACTIVE' })
+    await seedItemsAndTips()
+    await seedInflow(XMR)
+    const recovered = await run()
+    expect(recovered.contributorParams.catchUpWeeks).toBe(1)
+    expect(recovered.contributorParams.window).toEqual(['2026-10-05T00:00:00.000Z', '2026-10-19T00:00:00.000Z'])
+    expect((await postEarns(recovered)).map(e => e.typeId).sort()).toEqual(winners.map(w => w.itemId).sort())
+    await expectConserved(recovered)
+    expect((await db.rewardDistribution.findUnique({ where: { id: first.id } })).contributorParams).toEqual(first.contributorParams)
+    const replay = await run()
+    expect(replay.id).toBe(recovered.id)
+    expect(await postEarns(recovered)).toHaveLength(winners.length)
+  })
+
   test('a week configured ACTIVE that degrades to SHADOW is not marked scored; the next ACTIVE run catches it up', async () => {
     await seedActiveWeek()
     // week 1: contributor ACTIVE but the curator budget is SHADOW -> runs as SHADOW
@@ -615,7 +644,7 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
     expect(alert.mock.calls.some(([, , , opts = {}]) => opts.dedupeKey?.startsWith('contributor-pool-catch-up-'))).toBe(false)
   })
 
-  test('a tight ACTIVE week with the combined cap on uses the fixed 85/15 split and stays within the limit', async () => {
+  test('a tight ACTIVE week with the combined cap on uses the configured split and stays within the limit', async () => {
     await seedTightWeek(3)
     await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'ACTIVE', contributorCombinedCapBps: 9000 })
     const distribution = await run()
@@ -624,7 +653,7 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
     const limit = distribution.spendLimitPiconeros
     const applied = distribution.appliedCuratorBudgetPiconeros
     const budget = distribution.contributorBudgetPiconeros
-    // fixed split: both scaled by the same factor, 85/15 within flooring
+    // Configured split: both budgets are scaled by the same factor.
     expect(applied + budget).toBeLessThanOrEqual(limit)
     expect(Number(budget) / Number(applied + budget)).toBeCloseTo(0.15, 4)
     expect(distribution.contributorDistributedPiconeros).toBeLessThanOrEqual(budget)
@@ -644,6 +673,32 @@ const CONTRIBUTOR_TARGET = 1_500_000_000_000n * 1500n / 8500n
     expect(BigInt(distribution.contributorParams.allocation.paid)).toBeGreaterThan(0n)
     expect(await postEarns(distribution)).toHaveLength(0)
     await expectConserved(distribution)
+  })
+
+  test('tight SHADOW combined caps simulate ACTIVE curator rows without making contributor payments', async () => {
+    await seedTightWeek(0)
+    await seedWinner({ author: curators[0] })
+    await seedWinner()
+    await seedWinner()
+    await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'OFF', contributorCombinedCapBps: 2500 })
+    const baseline = await run()
+    const baselineAmounts = curatorPayoutsByIndex(baseline)
+    await deleteDistribution(baseline)
+
+    await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'SHADOW', contributorCombinedCapBps: 2500 })
+    const shadow = await run()
+    expect(curatorPayoutsByIndex(shadow)).toEqual(baselineAmounts)
+    expect(shadow.contributorDistributedPiconeros).toBe(0n)
+    expect(await postEarns(shadow)).toHaveLength(0)
+    await expectConserved(shadow)
+    const simulated = shadow.contributorParams.scored.filter(s => s.rank != null)
+    expect(BigInt(simulated.find(s => s.authorId === curators[0]).share)).toBeGreaterThan(0n)
+    await deleteDistribution(shadow)
+
+    await setConfig({ curatorBudgetMode: 'ACTIVE', contributorPoolMode: 'ACTIVE', contributorCombinedCapBps: 2500 })
+    const active = await run()
+    expect(active.contributorParams.scored.filter(s => s.rank != null)).toEqual(simulated)
+    await expectConserved(active)
   })
 
   test('a same-week rerun reuses the distribution and writes no duplicate contributor rows', async () => {

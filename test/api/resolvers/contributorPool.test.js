@@ -5,7 +5,7 @@ import { computeContributorShares } from '@/worker/contributorShares'
 jest.mock('../../../components/editor', () => ({ __esModule: true, SNEditor: 'textarea' }))
 jest.mock('../../../api/payIn', () => ({ __esModule: true, default: {} }))
 jest.mock('../../../lib/lexical/server/html', () => ({ __esModule: true, lexicalHTMLGenerator: async () => '' }))
-jest.mock('../../../worker/contributorShares', () => ({ computeContributorShares: jest.fn() }))
+jest.mock('../../../worker/contributorShares', () => ({ ...jest.requireActual('../../../worker/contributorShares'), computeContributorShares: jest.fn() }))
 jest.mock('../../../lib/logger', () => ({ __esModule: true, default: { info: jest.fn() }, logInfo: jest.fn(), logWarn: jest.fn(), logError: jest.fn() }))
 
 const { Query: { contributorPool: contributorPoolQuery }, ContributorPool: poolFields } = rewardsResolvers
@@ -49,13 +49,14 @@ const RUN = {
   contributorParams: {
     scored: [
       { itemId: 12, authorId: 7, rank: 2, share: '3000000000', S: 31.3, n: 6, base: 10, trims: [] },
-      { itemId: 11, authorId: 8, rank: 1, share: '9000000000', S: 40.1, n: 5, base: 12, trims: [] },
+      { itemId: 11, authorId: 8, rank: 1, share: '9000000000', S: 40.1, n: 5, trustedTipperIds: [100, 101, 102, 103, 104], base: 12, trims: [] },
       { itemId: 13, authorId: 9, rank: null, share: null, S: 2, n: 1, base: 1, trims: [] }
     ]
   }
 }
 
 const mkModels = (config, run = RUN) => ({
+  $queryRaw: async () => [],
   platformFeeConfig: { findUnique: jest.fn(async () => config) },
   rewardDistribution: { findFirst: jest.fn(async () => run) }
 })

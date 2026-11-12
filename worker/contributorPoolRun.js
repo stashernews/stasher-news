@@ -10,9 +10,10 @@ import { computeContributorShares, readWindowStart } from '@/worker/contributorS
 //   buildContributorParams  bounded, JSON-safe record snapshot
 //
 // OFF runs nothing at all. SHADOW scores and records but leaves every curator
-// input alone. ACTIVE refits the curator budget to the 85/15 split first.
+// input alone. ACTIVE refits the curator budget to the configured split first.
 
 const MAX_RECORDED_CANDIDATES = 200
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 // Effective mode: ACTIVE needs the curator side ACTIVE and a clean
 // plan, otherwise a configured ACTIVE degrades to SHADOW. Invalid contributor
@@ -98,12 +99,14 @@ const jsonSafe = value => JSON.parse(JSON.stringify(value, (_k, v) => {
 }))
 
 // Bounded record snapshot: config, funding, counts and one row per scored
-// candidate with tip activity. No per-tip rows.
-export function buildContributorParams ({ decision, funding, selection, allocation, error }) {
+// candidate with tip activity. Trusted account IDs are recorded, not per-tip rows.
+export function buildContributorParams ({ decision, funding, selection, allocation, error, weekStart }) {
   if (decision.configErrors.length || error) {
     return jsonSafe({
       configured: decision.resolved.params,
       configuredMode: decision.configuredMode,
+      // Preserve the failed week even when there is no earlier scored window.
+      windowNotScored: [new Date(weekStart.getTime() - 2 * WEEK_MS), new Date(weekStart.getTime() - WEEK_MS)],
       errors: error ? ['selection_failed'] : decision.configErrors
     })
   }
@@ -123,6 +126,7 @@ export function buildContributorParams ({ decision, funding, selection, allocati
         turf: p.turf,
         tippers: p.tipperCount,
         n: p.trustedTippers,
+        trustedTipperIds: p.trustedTipperIds,
         base: p.base,
         B: p.B,
         E: p.E,

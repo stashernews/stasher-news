@@ -47,6 +47,24 @@ function snapshot (decision, selection) {
 }
 
 describe('buildContributorParams', () => {
+  test.each(['selection failure', 'invalid config'])('%s retains an unscored window before the first success', failure => {
+    const config = failure === 'invalid config' ? { ...CONFIG, contributorShareBps: 0 } : CONFIG
+    const decision = decideContributorMode(config, {})
+    const out = buildContributorParams({ decision, weekStart: new Date('2026-10-19T00:00:00Z'), error: failure === 'selection failure' ? new Error('selection unavailable') : null })
+    expect(out.windowNotScored).toEqual(['2026-10-05T00:00:00.000Z', '2026-10-12T00:00:00.000Z'])
+    expect(out.window).toBeUndefined()
+    expect(out.errors).toEqual(failure === 'selection failure' ? ['selection_failed'] : ['shareBps_out_of_range'])
+  })
+
+  test('stores trusted account IDs without adding tip amounts or trust values', () => {
+    const decision = { resolved: resolveContributorPoolConfig(CONFIG), configuredMode: 'ACTIVE', effectiveMode: 'ACTIVE', configErrors: [] }
+    const winner = scored(7, 5, { trustedTipperIds: [10, 20, 30] })
+    const out = snapshot(decision, { window: WINDOW, scored: [winner], winners: [winner] })
+    expect(out.scored[0].trustedTipperIds).toEqual([10, 20, 30])
+    expect(out.scored[0]).not.toHaveProperty('tips')
+    expect(out.scored[0]).not.toHaveProperty('recipientAddress')
+  })
+
   test('winners always make the snapshot, even when more than 200 non-qualifying posts score higher', () => {
     const decision = { resolved: resolveContributorPoolConfig(CONFIG), configuredMode: 'ACTIVE', effectiveMode: 'ACTIVE', configErrors: [] }
     const strongButUnqualified = Array.from({ length: 250 }, (_, i) =>

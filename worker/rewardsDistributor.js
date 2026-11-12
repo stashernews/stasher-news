@@ -12,7 +12,7 @@ import { readRewardsInflow } from '@/api/monero/rewardsInflow'
 import { readRewardsWalletLedger } from '@/api/monero/rewardsLedger'
 import { withRewardsPhase } from './rewardsPhase'
 import { incomeFromInflow, planCuratorBudget, readTrustWeighting } from './curatorBudget'
-import { decideContributorMode, selectContributorWinners, allocateContributorRun, settleTightWeek, buildContributorParams } from './contributorPoolRun'
+import { decideContributorMode, selectContributorWinners, allocateContributorRun, prepareContributorRun, buildContributorParams } from './contributorPoolRun'
 import { isSerializationFailure, withSavepoint } from '@/lib/rewardsPlanning'
 
 export { isSerializationFailure, withSavepoint } from '@/lib/rewardsPlanning'
@@ -451,7 +451,7 @@ async function distribute (models) {
     // ACTIVE select the week's winners in their own SAVEPOINT: any
     // non-serialization error leaves the contributor budget at 0 and the
     // curator inputs untouched, and serialization errors escape for retry.
-    // ACTIVE additionally refits the curator budget to the 85/15 split BEFORE
+    // ACTIVE additionally refits the curator budget to the configured split BEFORE
     // curator shares are computed (shadow never changes curator money). ---
     const contributorDecision = decideContributorMode(config, budgetPlan)
     let contributorRun = null
@@ -482,17 +482,15 @@ async function distribute (models) {
     // target and the contributor pool is extra.
     let contributorFunding = contributorRun?.funding ?? null
     let contributorAllocation = null
-    if (contributorActive) {
-      const tight = settleTightWeek({
+    if (contributorFunding) {
+      const prepared = prepareContributorRun({
         decision: contributorDecision,
         funding: contributorFunding,
         selection: contributorRun.selection,
         minPayout: toBigInt(config.distributionMinPayoutPiconeros)
       })
-      if (tight) {
-        contributorFunding = tight.funding
-        contributorAllocation = tight.allocation
-      }
+      contributorFunding = prepared.funding
+      contributorAllocation = prepared.allocation
     }
     const curatorBudget = contributorActive
       ? contributorFunding.curatorBudget
@@ -586,6 +584,28 @@ async function distribute (models) {
       })
     }
 
+    // Combined caps in SHADOW need the curator rows ACTIVE would have paid,
+    // including its reduced budget, minimum, topN and wallet filter. Never use
+    // these hypothetical rows in the ledger or referral loop.
+    let contributorCuratorRows = payoutRows
+    if (!contributorActive && contributorFunding && !contributorAllocation &&
+        contributorDecision.resolved.params.combinedCapBps > 0 && contributorFunding.curatorBudget !== curatorBudget) {
+      try {
+        contributorCuratorRows = await withSavepoint(tx, async () => {
+          const simulated = await computeCuratorShares(periodStart, periodEnd, contributorFunding.curatorBudget,
+            paidFormula === 'V2' ? v2ShareOpts : legacyShareOpts, tx)
+          return (await curatorPayoutRows(tx, simulated.shares)).rows
+        })
+      } catch (err) {
+        if (isSerializationFailure(err)) throw err
+        contributorError = err
+        contributorRun = null
+        contributorFunding = null
+        logError({ code: budgetPlanningDiagnostic(err).code, phase: 'contributor-pool' },
+          'rewardsDistributor: contributor simulation failed; curator payouts unchanged')
+      }
+    }
+
     // --- Contributor payouts (ACTIVE only). The split uses the wallet-filtered
     // curator rows for the optional combined cap; a winner whose wallet is gone
     // since ranking rolls over. SHADOW computes the same split for the record
@@ -593,7 +613,7 @@ async function distribute (models) {
     // loop below iterates curator `shares` only. ---
     const contributorPayoutRows = new Set()
     const curatorPaidByUser = new Map()
-    for (const p of payoutRows) {
+    for (const p of contributorCuratorRows) {
       curatorPaidByUser.set(p.curatorId, (curatorPaidByUser.get(p.curatorId) || 0n) + p.piconeros)
     }
     contributorAllocation ??= contributorRun
@@ -715,6 +735,7 @@ async function distribute (models) {
               contributorBudgetPiconeros: contributorActive ? contributorRun.funding.contributorBudget : 0n,
               contributorDistributedPiconeros: contributorTotal,
               contributorParams: buildContributorParams({
+                weekStart,
                 decision: contributorDecision,
                 funding: contributorFunding,
                 selection: contributorRun?.selection,

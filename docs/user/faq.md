@@ -72,7 +72,7 @@ Stashers can also earn XMR via weekly rewards. Stasher News distributes a share 
 
 **3. Contributor rewards**
 
-Authors can earn too. Each week, contributors get about 15% of the combined curator and contributor budget, paid in addition to the curator budget (in weeks when the pool is tight, within the same spending limit). It goes to the best original posts of the previous week (Monday to Sunday, UTC): text posts and posts with your own uploaded media. See [How do contributor rewards work?](#how-do-contributor-rewards-work) for the rules. Contributor rewards are currently in a trial period (shadow mode): candidates are ranked and listed on the [rewards page](/rewards), but nothing is paid yet.
+Authors can earn too. Contributor rewards set aside a share of the weekly rewards budget for the best original text posts and posts with your own uploaded media. The budget and qualifying requirements can change, and rewards depend on available funds. See [How do contributor rewards work?](#how-do-contributor-rewards-work) for the rules. The [rewards page](/rewards) shows contributor rewards when enabled and clearly labels shadow mode, where results are recorded but nothing is paid.
 
 **4. Referrals**
 
@@ -86,15 +86,19 @@ Founding a turf is the last way to put XMR to work, though it is not a recommend
 
 ---
 
-### How is the weekly curator budget determined?
-
-The weekly curator budget is dynamic: it is determined by the real activity levels on the platform each week, so it rises and falls with how much stashers post, comment, tip, boost and donate. As a target, curators as a group are paid about 1.5× what they tipped on average over the last 4 weeks, while the pool has sufficient reserves. The 1.5× is a target, not a guarantee. When the reserve runs low, spending is limited to the pool's income plus 1/13 of its reserve each week, so payouts slide gradually toward income instead of stopping. Eligible tips leave out self-tips, exclude founder accounts or count them at half weight, and apply per-tipper limits. If the calculation cannot run, a fixed 0.2 XMR cap applies that week. Any unused pool funds roll over for future weeks. The [rewards page](/rewards) shows this week's projection and this week's spending limit.
-
 ### How do contributor rewards work?
 
-Each week, part of the rewards pool goes to the best original posts of the previous week (Monday to Sunday, UTC): text posts and posts with your own uploaded media. Link posts, polls and bounties aren't eligible, and your account must be at least 14 days old when you post. A post is scored once its 7 days of tips are over, so it is paid at the Monday 00:00 UTC run a week after the week you wrote it in. A post qualifies once at least 3 trusted stashers have each tipped it at least 0.5 mXMR within 7 days, and the top posts by trusted tips and discussion win. Longer posts earn somewhat more, but length never decides who wins. You need an attached wallet, each author can win once per week, and plagiarized or wholesale AI-generated posts are disqualified. Winners are paid on Monday at 00:00 UTC, together with the other weekly rewards, and appear on the [rewards page](/rewards).
+Contributor rewards recognize original text posts and posts with your own uploaded media. Link posts, polls and bounties aren't eligible. You need an attached wallet, and your account must meet the minimum age requirement when you post.
 
-Scores are never shown, so there is nothing to optimize but writing something worth reading.
+Posts need qualifying tips from enough trusted stashers during their tip window. Trusted tips and discussion determine which posts rank highest. Limits on individual tippers help prevent a single large tip from deciding the result. Post length can affect the reward amount, but it does not decide who wins. Each author's best qualifying post competes for the available places. Plagiarized or wholesale AI-generated posts are disqualified.
+
+Posts are assessed after their tip windows close, so rewards do not arrive immediately after posting. In active mode, awards are included in the weekly distribution. In shadow mode, rankings are recorded without payments. The [rewards page](/rewards) shows the mode and recorded results when contributor rewards are enabled. Qualifying requirements, award limits and budget settings may be adjusted.
+
+Scores aren't published. Focus on writing something worth reading rather than chasing a number.
+
+### How is the weekly curator budget determined?
+
+The weekly curator budget responds to eligible tipping activity and the rewards pool's income and reserves. It targets a multiple of recent eligible tips, but that target is not a guarantee. Spending limits protect the pool as reserves run down, and a fallback cap applies if the calculation cannot run. Self-tips are excluded, some platform or founder accounts are excluded or discounted, and per-tipper limits reduce the influence of unusually large tips. Budget settings can change, and unused funds roll over for future weeks. The [rewards page](/rewards) shows the current curator budget or projection.
 
 ---
 

@@ -506,11 +506,13 @@ model Item {
   title                   String?
   text                    String?
   url                     String?
-  // Contributor pool disqualification. Set by an operator via SQL;
+  // Contributor pool disqualification. Set by an operator;
   // a disqualified post is skipped at the next weekly run.
   contributorDisqualifiedAt     DateTime?
   contributorDisqualifiedReason ContributorDisqualifyReason?
   contributorDisqualifiedNote   String?
+  contributorDisqualifiedNotifyAt DateTime?
+  contributorModerationRevision Int @default(0)
   userId                  Int
   parentId                Int?
   path                    Unsupported("ltree")?

@@ -84,6 +84,15 @@ jobs:
           npx prisma db seed
           npm test -- --runInBand --runTestsByPath test/prisma/adminPanel.migration.test.js test/prisma/adminEdge.test.js test/prisma/adminTrustBounds.test.js test/api/gate-db.test.js test/lib/admin/apply.test.js test/api/admin/queries.test.js test/lib/admin/overview.test.js
 
+      - name: Test contributor review in isolation
+        env:
+          DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stasher_contributor_pool_test"
+        run: |
+          docker exec db createdb -U stasher stasher_contributor_pool_test
+          npx prisma migrate deploy
+          npx prisma db seed
+          npm test -- --runInBand --runTestsByPath test/api/resolvers/contributorDisqualified.test.js test/api/admin/contributor-eligibility.db.test.js test/worker/contributorShares.test.js test/worker/rewardsDistributor.contributorPool.test.js
+
       - name: Run tests
         # --runInBand: the DB-backed suites share one database and assume they
         # are the sole inflow source; parallel jest

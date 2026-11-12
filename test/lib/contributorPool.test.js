@@ -123,6 +123,13 @@ describe('lengthMultiplier', () => {
 })
 
 describe('scorePost', () => {
+  it('records each trusted counting account once using the scoring threshold and per-payment floor', () => {
+    const result = scorePost({ tips: [tipper(9, 0.1, 0.5), tipper(9, 0.1, 1), tipper(2, 0.4, 1, true), tipper(3, 0.09, 10), tipper(4, 0.8, 0.25), tipper(4, 0.8, 0.25)] }, P)
+    expect(result.trustedTipperIds).toEqual([2, 9])
+    expect(result.trustedTippers).toBe(2)
+    expect(scorePost({ tips: [] }, P).trustedTipperIds).toEqual([])
+  })
+
   const sims = {
     honest_broad: { tips: [1, 2, 3, 4, 5, 6].map(i => tipper(i, 0.5, 1)), commenters: [1, 2, 3, 4].map(i => ({ userId: 100 + i, trust: 0.4 })) },
     honest_minimal: { tips: [1, 2, 3].map(i => tipper(i, 0.3, 0.5)), commenters: [] },
