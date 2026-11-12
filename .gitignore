@@ -57,6 +57,8 @@ public/*-development.js
 
 .cache_ggshield
 docker-compose.*.yml
+# the onion overlay is a committed artifact (like prod/volumes), not a local override
+!docker-compose.onion.yml
 !docker-compose.prod.yml
 !docker-compose.volumes.yml
 *.sql
@@ -122,3 +124,6 @@ docs/presentation/
 docker/caddy/maintenance/enabled
 # Runtime maintenance state is never committed.
 /docker/caddy/maintenance-flag/enabled
+
+# onion vanity mining output — never commit key material
+.onion-keys/

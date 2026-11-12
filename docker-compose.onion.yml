@@ -1,0 +1,74 @@
+# Onion mirror overlay — the 5th file in the live chain (runbook:
+# docs/onion-mirror.md). Attach on key day ONLY, after the vanity keys are
+# staged into the onion_tordata volume: tor mints a random address if the
+# HiddenServiceDir is empty at first start.
+#   docker compose -f docker-compose.yml -f docker-compose.volumes.yml \
+#     -f docker-compose.prod.yml -f docker-compose.prodmode.yml \
+#     -f docker-compose.onion.yml up -d
+services:
+  onion-tor:
+    build: ./docker/onion
+    container_name: onion-tor
+    restart: unless-stopped
+    # hardened ingress source: no published ports (the onion service itself
+    # is the only way in), read-only rootfs, writes confined to the key
+    # volume, no-new-privileges. Only network peer: caddy:8081.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - onion_tordata:/tordata
+    # end-to-end: through the tor circuit to our own /api/health.
+    # $$ escapes compose interpolation: $(cat ...) runs in-container.
+    healthcheck:
+      test: ["CMD-SHELL", "curl --socks5-hostname 127.0.0.1:9050 -sf http://$$(cat /tordata/hs/hostname)/api/health || exit 1"]
+      interval: 1m
+      timeout: 30s
+      retries: 3
+      start_period: 5m
+    cpu_shares: "${CPU_SHARES_LOW}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # shares caddy's netns: torrc targets 127.0.0.1:8081 = the caddy onion listener
+    network_mode: "service:caddy"
+    depends_on:
+      - caddy
+
+  # extends the base caddy service: {$ONION_HOST} feeds the
+  # Onion-Location header in Caddyfile.prod. ':?' fails loudly if unset.
+  caddy:
+    environment:
+      - ONION_HOST=${ONION_HOST:?set ONION_HOST (the mirror's .onion address, no scheme) — see docs/onion-mirror.md}
+
+  # extends the base app service: the login redirect allowlist compares
+  # absolute callbacks against the mirror origin (lib/safe-url.js
+  # isOnionOriginUrl), so the app must know the address too — same gate and
+  # source as caddy. Attaching this overlay recreates the app on key day.
+  app:
+    environment:
+      - ONION_HOST=${ONION_HOST:?set ONION_HOST (the mirror's .onion address, no scheme) — see docs/onion-mirror.md}
+
+  # LOCAL-ONLY vanity miner. Profile-gated so a plain `up` (VPS included)
+  # can never start it. Runs on a workstation, never the VPS (domains-caddy
+  # must resolve for the overlay: base caddy is profile-gated):
+  #   mkdir -p ./.onion-keys && CURRENT_UID=$(id -u) CURRENT_GID=$(id -g) \
+  #     docker compose --env-file .env.development \
+  #       -f docker-compose.yml -f docker-compose.onion.yml \
+  #       --profile onion-miner --profile domains-caddy \
+  #       run --rm onion-miner -n 1 -d /out stasher
+  onion-miner:
+    profiles:
+      - onion-miner
+    build: ./docker/onion/miner
+    user: "${CURRENT_UID:-1000}:${CURRENT_GID:-1000}"
+    volumes:
+      - ./.onion-keys:/out
+    cpu_shares: "${CPU_SHARES_IMPORTANT}"
+
+volumes:
+  onion_tordata:

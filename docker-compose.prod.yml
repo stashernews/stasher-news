@@ -9,6 +9,9 @@
 # snapshot is manual by policy. Ground truth for the live chain:
 #   docker inspect app --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'
 # (see AGENTS.md "The VPS runs stasher.news publicly in PRODUCTION mode").
+# Onion mirror: docker-compose.onion.yml is an optional 5th overlay,
+# attached on key day only (see docs/onion-mirror.md) — it must never be
+# attached before the vanity keys are staged in onion_tordata.
 # Overrides dev-isms in the base file: dev watch commands -> prod commands,
 # explicit NODE_ENV for both processes.
 # The volumes-wipe guard lives in docker-compose.volumes.yml and is shared with

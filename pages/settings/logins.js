@@ -9,6 +9,7 @@ import { getGetServerSideProps } from '@/api/ssrApollo'
 import LoginButton from '@/components/login-button'
 import { signIn } from 'next-auth/react'
 import { SETTINGS } from '@/fragments/users'
+import { mirrorAuthCallbackUrl } from '@/lib/safe-url'
 import { useRouter } from 'next/router'
 import Info from '@/components/info'
 import Link from 'next/link'
@@ -59,7 +60,7 @@ function NostrLinkButton ({ unlink, status }) {
     ? unlink
     : () => showModal(onClose =>
       <div className='d-flex flex-column align-items-center'>
-        <NostrAuth text='Link' callbackUrl='/settings/logins' />
+        <NostrAuth text='Link' callbackUrl={mirrorAuthCallbackUrl('/settings/logins')} />
       </div>)
 
   return (
@@ -208,13 +209,13 @@ function AuthMethods ({ methods, apiKeyEnabled }) {
                 </div>
                 {showEmailForm && (
                   <div className='mt-2'>
-                    <EmailLinkForm callbackUrl='/settings/logins' />
+                    <EmailLinkForm callbackUrl={mirrorAuthCallbackUrl('/settings/logins')} />
                     <Button variant='link' className='p-0' onClick={() => setShowEmailForm(false)}>cancel</Button>
                   </div>
                 )}
               </div>
               )
-            : <div key={provider} className='mt-2'><EmailLinkForm callbackUrl='/settings/logins' /></div>
+            : <div key={provider} className='mt-2'><EmailLinkForm callbackUrl={mirrorAuthCallbackUrl('/settings/logins')} /></div>
         } else if (provider === 'nostr') {
           return <NostrLinkButton key='nostr' status={methods[provider]} unlink={async () => await unlink(provider)} />
         } else if (provider === 'phrase') {

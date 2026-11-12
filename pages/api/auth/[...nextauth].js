@@ -15,7 +15,7 @@ import { encryptEmail } from '@/lib/emailCrypto'
 import { multiAuthMiddleware, setMultiAuthCookies, cookieOptions } from '@/lib/auth'
 import { isAuthProviderEnabled } from '@/lib/authProviderEnv'
 import { getDomainMapping } from '@/lib/domains'
-import { isSafeRedirectPath, parseSafeHost } from '@/lib/safe-url'
+import { isSafeRedirectPath, parseSafeHost, isOnionOriginUrl } from '@/lib/safe-url'
 import { checkEmailSendAllowance, checkPubkeySignupAllowance } from '@/lib/auth-send-limiter'
 import { consumeChallenge } from '@/api/resolvers/phrase'
 import { verifyChallengeSignature } from '@/lib/recoveryPhrase'
@@ -186,6 +186,13 @@ function getCallbacks (req, res) {
       try {
         const parsed = new URL(url)
         if (parsed.origin === baseUrl) return url
+
+        // the onion mirror is this same app behind a different origin; without
+        // this allowlist next-auth rewrites a mirror login to the canonical
+        // origin, where the host-scoped session cookie the mirror just issued
+        // does not apply. ONION_HOST is deployment config set by the onion
+        // overlay (never user input) and only its exact plain-http origin passes.
+        if (isOnionOriginUrl(url, process.env.ONION_HOST)) return url
 
         const domainName = parseSafeHost(parsed.host)?.hostname
         const mapping = domainName ? await getDomainMapping(domainName) : null

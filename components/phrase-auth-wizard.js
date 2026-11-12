@@ -5,6 +5,7 @@ import { useMutation } from '@apollo/client/react'
 import { Alert, Button, Form } from 'react-bootstrap'
 import clipboardCopy from 'clipboard-copy'
 import { generatePhrase, phraseKeypair } from '@/lib/recoveryPhrase'
+import { mirrorAuthCallbackUrl } from '@/lib/safe-url'
 import { COPY } from '@/lib/rebrand-copy'
 
 const CREATE_AUTH = gql`mutation { createAuth { k1 } }`
@@ -55,7 +56,9 @@ export default function PhraseAuthWizard ({ mode, replace, callbackUrl, onDone }
         await linkPhrase({ variables: { k1, pubkey, sig } })
         onDone?.()
       } else {
-        await signIn('phrase', { k1, pubkey, sig, callbackUrl: callbackUrl || '/' })
+        // same mirror-stay logic as the login page: absolute mirror-origin
+        // callback when the visitor is on the onion mirror (no-op otherwise)
+        await signIn('phrase', { k1, pubkey, sig, callbackUrl: mirrorAuthCallbackUrl(callbackUrl || '/') })
       }
     } catch (e) {
       setError(e?.message ?? 'something went wrong. try again.')

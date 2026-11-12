@@ -15,6 +15,7 @@ import Link from 'next/link'
 import useCookie from './use-cookie'
 import { AccountChooser } from './account'
 import PhraseLoginForm from './phrase-login-form'
+import { mirrorAuthCallbackUrl } from '@/lib/safe-url'
 import { COPY } from '@/lib/rebrand-copy'
 import { useServiceWorker } from './serviceworker'
 
@@ -79,7 +80,11 @@ export function authErrorMessage (error, signin) {
 
 const multiAuthProviders = ['Nostr', 'Phrase', 'Email']
 
-export default function Login ({ providers, callbackUrl, multiAuth, error, text, Header, Footer, signin, domainData }) {
+export default function Login ({ providers, callbackUrl: callbackUrlProp, multiAuth, error, text, Header, Footer, signin, domainData }) {
+  // stay on the onion mirror after login: next-auth resolves callbacks
+  // against NEXTAUTH_URL (clearnet), so mirror visitors must hand it an
+  // absolute mirror-origin callback. No-op off the mirror.
+  const callbackUrl = mirrorAuthCallbackUrl(callbackUrlProp)
   const [errorMessage, setErrorMessage] = useState(authErrorMessage(error, signin))
   const router = useRouter()
   const [, setPointerCookie] = useCookie(MULTI_AUTH_POINTER)

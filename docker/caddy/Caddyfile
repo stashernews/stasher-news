@@ -115,3 +115,18 @@ http://:9443 {
 		respond 404
 	}
 }
+
+# Onion mirror ingress for local end-to-end testing (see docs/onion-mirror.md).
+# Prod parity lives in Caddyfile.prod's (ingress) snippet; dev needs only the
+# proxy hop so tor -> caddy -> app exercises the app's host-agnostic path.
+# `bind 127.0.0.1` keeps the listener loopback-only: tor shares caddy's netns
+# (network_mode: "service:caddy") and targets 127.0.0.1:8081; binding all
+# interfaces would expose the hop needlessly.
+http://:8081 {
+	bind 127.0.0.1
+	import deny_admin
+	reverse_proxy app:3000 {
+		header_up Host {host}
+		header_up X-Forwarded-Proto http
+	}
+}

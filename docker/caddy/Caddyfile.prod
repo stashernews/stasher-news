@@ -19,7 +19,11 @@
 	}
 }
 
-stasher.news {
+# Shared ingress handlers for the main site: imported by the clearnet
+# stasher.news site (https) and the onion-mirror listener (http://:8081)
+# so the two ingress paths cannot drift. {args[0]} is the truthful
+# X-Forwarded-Proto for the importing path.
+(ingress) {
 	encode zstd gzip
 	import deny_admin
 
@@ -38,17 +42,8 @@ stasher.news {
 	}
 
 	# Media uploads: same-origin /uploads is reverse-proxied to the media S3
-	# service (SeaweedFS behind an HTTP-only proxy) so browsers can POST
-	# presigned uploads and GET objects over TLS without a second host (no
-	# mixed content, no extra DNS). S3 presigned POSTs target the bucket root
-	# (https://stasher.news/uploads) — the key rides in the multipart form
-	# fields, not the URL — so the matcher must include bare /uploads as well
-	# as /uploads/<key>; otherwise the POST falls through to the app and the
-	# invite gate. The bucket name `uploads` is the s3 path-style prefix, so
-	# /uploads/<key> maps 1:1 to minio:9000/uploads/<key>. `minio` is the
-	# legacy name: the old minio container answers it until a host migrates,
-	# then the media proxy carries it as a network alias — so this upstream is
-	# correct on both sides of the cutover.
+	# service (SeaweedFS behind an HTTP-only proxy). See the long comment in
+	# git history for the bucket-root-vs-key matcher rationale.
 	@uploads path /uploads /uploads/*
 	handle @uploads {
 		reverse_proxy minio:9000 {
@@ -56,9 +51,7 @@ stasher.news {
 		}
 	}
 
-	# lws confirmation webhook: internal-only. lws delivers container-to-container
-	# (direct to app:3000), never through the edge, so any public hit is a probe or
-	# forgery attempt — 404 before the catch-all proxy.
+	# lws confirmation webhook: internal-only (404 before the catch-all).
 	@webhook path /api/monero/webhook /api/monero/webhook/*
 	handle @webhook {
 		respond 404
@@ -67,16 +60,36 @@ stasher.news {
 	handle {
 		reverse_proxy app:3000 {
 			header_up -X-Admin-Gate
-			# preserve the original Host so proxy.js's getDomainMapping(host) sees
-			# the user-facing domain, not "app:3000"
+			# preserve the original Host so proxy.js's getDomainMapping(host)
+			# sees the user-facing domain, not "app:3000"
 			header_up Host {host}
-			# Tell Next.js the browser-facing request was HTTPS, preserving the
-			# ALB-era X-Forwarded-Proto contract (Secure cookies, crypto.subtle)
-			header_up X-Forwarded-Proto https
 			# overwrite (not append) the client-supplied X-Forwarded-For (audit B-2)
 			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {args[0]}
 		}
 	}
+}
+
+stasher.news {
+	import ingress https
+	# Tor Browser offers clearnet visitors a one-click switch to the onion
+	# mirror; honored on HTML responses per the Onion-Location spec. Gated on
+	# ONION_HOST so the pre-key-day state (env unset) emits no header instead
+	# of a garbage http:/// value.
+	@onionReady expression `{env.ONION_HOST} != ""`
+	header @onionReady Onion-Location "http://{$ONION_HOST}{uri}"
+}
+
+# Onion mirror ingress: host-agnostic on purpose so the onion address never
+# appears in Caddy config (no chicken-and-egg with the unknown-at-build-time
+# hostname; a future address change needs no Caddyfile edit). `bind 127.0.0.1`
+# keeps the listener loopback-only — its only network peer is the onion-tor
+# container, which shares caddy's netns (network_mode: "service:caddy") and
+# reaches this listener via 127.0.0.1:8081. Nothing else on the box can reach
+# it, and no host port is published.
+http://:8081 {
+	bind 127.0.0.1
+	import ingress http
 }
 
 # Image rendering host. Client-rendered image URLs carry an imgproxy path prefix

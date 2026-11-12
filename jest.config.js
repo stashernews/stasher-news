@@ -34,6 +34,11 @@ module.exports = createJestConfig({
   // require('uuid') to a CJS shim. See test/helpers/uuid-shim.js.
   moduleNameMapper: {
     '^uuid$': '<rootDir>/test/helpers/uuid-shim.js',
+    // @auth/prisma-adapter is ESM-only and pages/api/auth/[...nextauth].js
+    // imports it at the top, so any suite building NextAuth options pulls it
+    // into jest's CJS sandbox. No test exercises the adapter; see
+    // test/helpers/prisma-adapter-shim.js.
+    '^@auth/prisma-adapter$': '<rootDir>/test/helpers/prisma-adapter-shim.js',
     // @noble/hashes v2 is ESM-only (type:module) and jest 29's CJS sandbox
     // cannot require it. Redirect only the specifiers lib/recoveryPhrase.js
     // imports to a CJS shim (same pattern as the uuid shim). Transitive users
