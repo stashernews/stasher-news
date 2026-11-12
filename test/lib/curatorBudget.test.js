@@ -141,6 +141,18 @@ describe('resolveCuratorBudgetConfig', () => {
     expect(result.params).toEqual(expectedParams)
   })
 
+  test('an invalid budget trust floor fails closed to LEGACY; unset or in [0, 1] is valid', () => {
+    for (const value of [-0.1, 1.5, NaN, '0.5']) {
+      const result = resolveCuratorBudgetConfig({ ...DEFAULT_CONFIG, curatorBudgetTrustWeightFloor: value })
+      expect(result.ok).toBe(false)
+      expect(result.mode).toBe('LEGACY')
+      expect(result.errors).toContain('budgetTrustWeightFloor_invalid')
+    }
+    for (const value of [undefined, null, 0, 0.75, 1]) {
+      expect(resolveCuratorBudgetConfig({ ...DEFAULT_CONFIG, curatorBudgetTrustWeightFloor: value }).ok).toBe(true)
+    }
+  })
+
   test.each(NUMERIC_CONFIG_FIELDS)('rejects null, fractional and unsafe %s', field => {
     const param = PARAM_BY_CONFIG_FIELD[field]
     for (const value of [null, undefined, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '15000']) {

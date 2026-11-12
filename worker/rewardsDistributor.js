@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
-import { computeCuratorShares, resolveExcludedCuratorIds } from './curatorShares'
+import { budgetMinTipPiconeros, computeCuratorShares, resolveCuratorShareConfig, resolveExcludedCuratorIds } from './curatorShares'
 import { sendPayouts as defaultSendPayouts, getRewardsWallet } from '@/api/monero/rewards'
 import { reconcileWalletTransactions, errorLabel } from '@/api/monero/rewardsTransactions'
 import logger, { logInfo, logError } from '@/lib/logger'
@@ -118,6 +118,26 @@ function redactDiagnosticText (value, max) {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
+// JSON-safe summary of a computeCuratorShares result for curatorShareRecord.
+// BigInts are decimal strings, like the budget's JSON snapshots.
+function shareResultRecord (trustWeightFloor, result) {
+  const str = v => (v == null ? null : String(v))
+  return {
+    trustWeightFloor,
+    distributedPiconeros: str(result.distributedPiconeros),
+    rolledOverPiconeros: str(result.rolledOverPiconeros),
+    capPiconeros: str(result.details?.capPiconeros),
+    cappedCuratorIds: result.details?.cappedCuratorIds ?? [],
+    curators: (result.details?.curators ?? []).map(c => ({
+      curatorId: c.curatorId,
+      uncappedPiconeros: str(c.uncappedPiconeros),
+      sharePiconeros: str(c.sharePiconeros),
+      post: c.post,
+      comment: c.comment
+    }))
+  }
+}
+
 function budgetPlanningDiagnostic (err) {
   const code = typeof err?.code === 'string'
     ? err.code
@@ -129,6 +149,21 @@ function budgetPlanningDiagnostic (err) {
     metaCode: metaCode == null ? undefined : String(metaCode),
     message: redactDiagnosticText(err?.message ?? err, DIAGNOSTIC_MESSAGE_MAX),
     stack: err?.stack == null ? undefined : redactDiagnosticText(err.stack, DIAGNOSTIC_STACK_MAX)
+  }
+}
+
+// Post-commit alerts for the curator share formula (curator rewards v2).
+function emitCuratorShareAlerts ({ shareConfigErrors, shareFailed, distributionId }) {
+  if (shareFailed) {
+    alert('critical', 'V2 curator shares failed — LEGACY shares paid',
+      `distribution ${distributionId}: the V2 curator share computation failed; the run paid LEGACY shares and committed normally. ` +
+      'Diagnostic withheld; see the worker log.',
+      { dedupeKey: `curator-shares-v2-${distributionId}` })
+  }
+  if (shareConfigErrors?.length) {
+    alert('critical', 'curator share config invalid — LEGACY shares paid',
+      `distribution ${distributionId}: invalid PlatformFeeConfig (${shareConfigErrors.join(', ')}); the share formula failed closed to LEGACY.`,
+      { dedupeKey: `curator-shares-config-${distributionId}` })
   }
 }
 
@@ -361,10 +396,27 @@ async function distribute (models) {
     const opsAvailable = opsInflow + opsRolledOver
 
     // --- Curator trust weighting (#6): shared with the live projection. ---
-    const { trustWeightFloor, trustStale } = await readTrustWeighting(tx, config)
+    // Shares use trustWeightFloor; the budget's T uses budgetTrustWeightFloor.
+    const {
+      trustWeightFloor,
+      budgetTrustWeightFloor,
+      budgetTrustStale,
+      shadowTrustWeightFloor
+    } = await readTrustWeighting(tx, config)
+
+    // --- Curator rewards v2 formula switch. Invalid V2 parameters fail closed
+    // to LEGACY so malformed config can never change payouts. ---
+    const shareConfig = resolveCuratorShareConfig(config)
+    if (!shareConfig.ok) {
+      logError({ errors: shareConfig.errors }, 'rewardsDistributor: invalid curator share config — paying LEGACY shares')
+    }
     const configTrustFloor = config.curatorTrustWeightFloor ?? 1.0
     if (trustWeightFloor !== configTrustFloor) {
       logError('rewardsDistributor: trust walk stale or missing (heartbeat) — curator trust weighting disabled for this run')
+    }
+    const configBudgetTrustFloor = config.curatorBudgetTrustWeightFloor ?? 1.0
+    if (budgetTrustWeightFloor !== configBudgetTrustFloor) {
+      logError('rewardsDistributor: trust walk stale or missing (heartbeat) — budget tip-volume trust weighting disabled for this run')
     }
 
     // --- Dynamic curator budget. Planned inside a SAVEPOINT
@@ -382,8 +434,9 @@ async function distribute (models) {
         incomePiconeros,
         config,
         excludedCuratorIds,
-        trustWeightFloor,
-        trustStale,
+        trustWeightFloor: budgetTrustWeightFloor,
+        trustStale: budgetTrustStale,
+        minTipPiconeros: budgetMinTipPiconeros(shareConfig),
         previousDistribution: lastDistribution,
         fallbackCapPiconeros: CURATOR_FALLBACK_CAP_PICONEROS
       }))
@@ -402,15 +455,73 @@ async function distribute (models) {
     // --- Curator shares. Read-only, so it COULD run outside the tx,
     // but passing tx keeps the reads in the same serializable snapshot as the
     // writes below — fully consistent at no extra cost. ---
-    const { shares } = await computeCuratorShares(
-      periodStart, periodEnd, curatorBudget,
-      {
-        minPayout: toBigInt(config.distributionMinPayoutPiconeros),
-        topN: config.distributionTopN,
+    const legacyShareOpts = {
+      minPayout: toBigInt(config.distributionMinPayoutPiconeros),
+      topN: config.distributionTopN,
+      trustWeightFloor,
+      excludedCuratorIds
+    }
+    const v2ShareOpts = {
+      ...legacyShareOpts,
+      formula: 'V2',
+      accuracyExponent: shareConfig.params.accuracyExponent,
+      amountExponent: shareConfig.params.amountExponent,
+      minTipPiconeros: shareConfig.params.minTipPiconeros,
+      capShareBps: shareConfig.params.capShareBps
+    }
+    const computeShares = opts => computeCuratorShares(periodStart, periodEnd, curatorBudget, opts, tx)
+
+    // V2 runs inside a savepoint: a non-serialization failure pays LEGACY
+    // shares instead of aborting the ledger write, and alerts after commit.
+    let sharesResult
+    let paidFormula = 'LEGACY'
+    let shareError = null
+    if (shareConfig.formula === 'V2') {
+      try {
+        sharesResult = await withSavepoint(tx, () => computeShares(v2ShareOpts))
+        paidFormula = 'V2'
+      } catch (err) {
+        if (isSerializationFailure(err)) throw err
+        shareError = err
+        logError({ err: budgetPlanningDiagnostic(err) }, 'rewardsDistributor: V2 curator shares failed; paying LEGACY shares')
+      }
+    }
+    if (!sharesResult) sharesResult = await computeShares(legacyShareOpts)
+    const { shares } = sharesResult
+
+    // SHADOW: record V2 at the effective trust floor and at the shadow floor.
+    // A failure is recorded, never paid around.
+    let shadow = null
+    if (shareConfig.formula === 'SHADOW') {
+      const floors = [trustWeightFloor]
+      if (shadowTrustWeightFloor != null && shadowTrustWeightFloor !== trustWeightFloor) floors.push(shadowTrustWeightFloor)
+      shadow = []
+      for (const floor of floors) {
+        try {
+          const result = await withSavepoint(tx, () => computeShares({ ...v2ShareOpts, trustWeightFloor: floor }))
+          shadow.push(shareResultRecord(floor, result))
+        } catch (err) {
+          if (isSerializationFailure(err)) throw err
+          shadow.push({ trustWeightFloor: floor, error: budgetPlanningDiagnostic(err).code ?? 'failed' })
+        }
+      }
+    }
+    const curatorShareRecord = {
+      formula: shareConfig.formula,
+      paidFormula,
+      configErrors: shareConfig.errors,
+      shareError: shareError ? (budgetPlanningDiagnostic(shareError).code ?? 'failed') : null,
+      params: {
         trustWeightFloor,
-        excludedCuratorIds
+        shadowTrustWeightFloor,
+        accuracyExponent: shareConfig.params.accuracyExponent,
+        amountExponent: shareConfig.params.amountExponent,
+        minTipPiconeros: String(shareConfig.params.minTipPiconeros),
+        capShareBps: shareConfig.params.capShareBps
       },
-      tx)
+      v2: paidFormula === 'V2' ? shareResultRecord(trustWeightFloor, sharesResult) : null,
+      shadow
+    }
 
     // --- Address filter + payout rows ---
     // A curator is a tipper; they may not have registered a wallet to RECEIVE
@@ -503,7 +614,8 @@ async function distribute (models) {
         // Dynamic curator budget record. Reconciled every run; the
         // applied budget is LEGACY/SHADOW fallback or ACTIVE
         // min(target, limit, pool) (target = k × T4 + approved make-up).
-        ...budgetPlan.record
+        ...budgetPlan.record,
+        curatorShareRecord
       }
     })
 
@@ -588,13 +700,18 @@ async function distribute (models) {
       mode: budgetPlan.record.curatorBudgetMode,
       distributionId: distribution.id,
       periodEnd,
-      medianPeriods: budgetPlan.record.curatorBudgetParams?.breakerFloorMedianPeriods ?? null
+      medianPeriods: budgetPlan.record.curatorBudgetParams?.breakerFloorMedianPeriods ?? null,
+      shareConfigErrors: shareConfig.errors,
+      shareFailed: shareError != null
     }
     return completed
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10000 })
 
   // After commit only. If the transaction rejected, this code is never reached.
-  if (postCommitBudget?.created) emitCuratorBudgetAlerts(postCommitBudget)
+  if (postCommitBudget?.created) {
+    emitCuratorBudgetAlerts(postCommitBudget)
+    emitCuratorShareAlerts(postCommitBudget)
+  }
   return result
 }
 

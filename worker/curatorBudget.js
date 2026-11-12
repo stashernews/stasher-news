@@ -89,20 +89,33 @@ const minBigInt = (a, b) => (a < b ? a : b)
 // walk. Heartbeat missing/stale (> TRUST_STALENESS_MS) or trust table empty =>
 // force 1.0 (weighting disabled) so a broken walk can never slash payouts.
 // Shared by the distributor and the live projection so their rules cannot drift.
+//
+// Two floors share that fail-safe: `trustWeightFloor` (curatorTrustWeightFloor)
+// weights reward shares, and `budgetTrustWeightFloor`
+// (curatorBudgetTrustWeightFloor) weights the budget's tip volume T.
 export async function readTrustWeighting (tx, config) {
   const configTrustFloor = config?.curatorTrustWeightFloor ?? 1.0
+  const configBudgetTrustFloor = config?.curatorBudgetTrustWeightFloor ?? 1.0
   const heartbeat = await tx.healthSnapshot.findUnique({
     where: { id: 1 },
     select: { trustCompletedAt: true }
   })
   const trustRows = await tx.userSubTrust.count()
-  const trustWeightFloor = trustRows > 0
-    ? effectiveTrustWeightFloor(configTrustFloor, heartbeat?.trustCompletedAt ?? null)
+  const effectiveFloor = configured => trustRows > 0
+    ? effectiveTrustWeightFloor(configured, heartbeat?.trustCompletedAt ?? null)
     : 1.0
+  const trustWeightFloor = effectiveFloor(configTrustFloor)
+  const budgetTrustWeightFloor = effectiveFloor(configBudgetTrustFloor)
 
   return {
     trustWeightFloor,
-    trustStale: configTrustFloor < 1.0 && trustWeightFloor !== configTrustFloor
+    trustStale: configTrustFloor < 1.0 && trustWeightFloor !== configTrustFloor,
+    budgetTrustWeightFloor,
+    budgetTrustStale: configBudgetTrustFloor < 1.0 && budgetTrustWeightFloor !== configBudgetTrustFloor,
+    // Curator rewards v2 SHADOW: the second V2 computation's floor (null skips it).
+    shadowTrustWeightFloor: config?.curatorShadowTrustWeightFloor == null
+      ? null
+      : effectiveFloor(config.curatorShadowTrustWeightFloor)
   }
 }
 
@@ -183,6 +196,7 @@ export async function planCuratorBudget (tx, {
   excludedCuratorIds,
   trustWeightFloor,
   trustStale = false,
+  minTipPiconeros = null,
   previousDistribution = null,
   fallbackCapPiconeros = CURATOR_FALLBACK_CAP_PICONEROS
 }) {
@@ -229,7 +243,8 @@ export async function planCuratorBudget (tx, {
     periodEnd,
     trustWeightFloor: staleTrustFallback ? 1.0 : trustWeightFloor,
     excludedCuratorIds,
-    capShareBps: params.capShareBps
+    capShareBps: params.capShareBps,
+    minTipPiconeros
   })
 
   const tipBeforeBreaker = staleTrustFallback ? toBigInt(previousT) : volume.cappedPiconeros
@@ -325,6 +340,8 @@ export async function planCuratorBudget (tx, {
       mode,
       trustWeightFloor,
       trustStale,
+      // Curator rewards v2: the per-payment minimum T applied (null = none).
+      minTipPiconeros: minTipPiconeros == null ? null : minTipPiconeros.toString(),
       historyIds: history.map(row => row.id)
     }
   }
@@ -531,7 +548,10 @@ async function deriveFirstRunInputs (tx, {
   const latest = tRows[0] ?? null
   const now = new Date()
   const openStart = latest?.periodEnd ?? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-  const { trustWeightFloor, trustStale } = await readTrustWeighting(tx, config)
+  const {
+    budgetTrustWeightFloor: trustWeightFloor,
+    budgetTrustStale: trustStale
+  } = await readTrustWeighting(tx, config)
   const previousT = priorTs[0] ?? null
   const staleTrustFallback = Boolean(trustStale && previousT != null)
   const openVolume = await computeEligibleTipVolume(tx, {

@@ -1519,6 +1519,14 @@ enum CuratorBudgetMode {
   ACTIVE
 }
 
+// Curator share formula (curator rewards v2). LEGACY = the ported SN earn.js
+// shares; SHADOW = LEGACY pays while V2 is computed and recorded; V2 = V2 pays.
+enum CuratorShareFormula {
+  LEGACY
+  SHADOW
+  V2
+}
+
 // Outcome recorded for one dynamic budget calculation.
 enum CuratorBudgetOutcome {
   FULL
@@ -1992,6 +2000,10 @@ model RewardDistribution {
   curatorBudgetMode             CuratorBudgetMode?
   appliedCuratorBudgetPiconeros BigInt?
   curatorBudgetParams           Json?
+  // Curator share record (curator rewards v2): the formula and parameters that
+  // paid, V2 per-curator accuracy and cap details, and in SHADOW mode the V2
+  // shares at the effective and shadow trust floors.
+  curatorShareRecord            Json?
 
   payouts            RewardPayout[]
   earns              Earn[]
@@ -2340,7 +2352,9 @@ model PlatformFeeConfig {
   // UserSubTrust score in the tipped item's turf). 1.0 (default) = disabled,
   // exactly legacy behavior; 0.5 = gentle; 0.25 = strict. A missing/stale
   // trust-walk heartbeat (HealthSnapshot.trustCompletedAt) or an empty trust
-  // table forces 1.0 (fail-safe, see worker/rewardsDistributor.js).
+  // table forces 1.0 (fail-safe, see worker/rewardsDistributor.js). Weights
+  // reward shares only; the budget's tip volume T uses
+  // curatorBudgetTrustWeightFloor.
   curatorTrustWeightFloor            Float  @default(1.0)
   // Operator-managed account exclusions from the weekly curator distribution
   // (and its referral commissions). The founder account is always excluded in
@@ -2358,6 +2372,29 @@ model PlatformFeeConfig {
   curatorBudgetDrawdownWeeks       Int @default(13) // W
   curatorBudgetAvgPeriods          Int @default(4)
   curatorTipCapShareBps            Int @default(2500)
+  // Trust-weight floor for the eligible tip volume T only (same formula as
+  // curatorTrustWeightFloor, which weights shares). Lowering it makes
+  // low-trust tipping grow the budget less without changing any curator's
+  // relative share. 1.0 (default) = every tip counts at full weight. The same
+  // stale/missing-heartbeat fail-safe forces 1.0.
+  curatorBudgetTrustWeightFloor    Float @default(1.0)
+  // Curator rewards v2 (worker/curatorShares.js). LEGACY pays today's shares;
+  // SHADOW pays LEGACY and records V2 (at the effective trust floor and at
+  // curatorShadowTrustWeightFloor; null skips the second); V2 pays V2. Under
+  // V2, accuracy^curatorAccuracyExponent multiplies each curator's weight,
+  // curatorAmountExponent is the per-(curator, item) amount exponent, and tips
+  // below curatorMinTipPiconeros (per payment) earn nothing and leave T.
+  // curatorShareCapBps caps each V2 curator share (separate from
+  // curatorTipCapShareBps, which caps one tipper's part of T). Below a trust
+  // floor of 1.0, V2 gives the trust seeds (TRUST_SEED_NYMS) the average trust
+  // multiplier of the other curators instead of their own.
+  // Invalid values fail closed to LEGACY with a logged error.
+  curatorShareFormula              CuratorShareFormula @default(LEGACY)
+  curatorAccuracyExponent          Float  @default(0.25)
+  curatorAmountExponent            Float  @default(0.25)
+  curatorMinTipPiconeros           BigInt @default(200000000)
+  curatorShadowTrustWeightFloor    Float? @default(0.75)
+  curatorShareCapBps               Int    @default(3000)
   curatorBreakerRatioBps           Int @default(25000)
   curatorBreakerFloorMedianPeriods Int @default(12)
   curatorBreakerArmPeriods         Int @default(4)

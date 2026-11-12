@@ -13,7 +13,7 @@ import {
   planCuratorBudget,
   readTrustWeighting
 } from '@/worker/curatorBudget'
-import { resolveExcludedCuratorIds } from '@/worker/curatorShares'
+import { budgetMinTipPiconeros, resolveCuratorShareConfig, resolveExcludedCuratorIds } from '@/worker/curatorShares'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_TARGET_MULT_BPS = 15000
@@ -159,7 +159,11 @@ async function getLiveCuratorBudget (models) {
         config
       })
       const incomePiconeros = incomeFromInflow(inflow)
-      const { trustWeightFloor, trustStale } = await readTrustWeighting(tx, config)
+      // T is weighted by the budget's own trust floor, not the share floor.
+      const {
+        budgetTrustWeightFloor: trustWeightFloor,
+        budgetTrustStale: trustStale
+      } = await readTrustWeighting(tx, config)
 
       const budgetPlan = await planCuratorBudget(tx, {
         periodStart,
@@ -170,6 +174,7 @@ async function getLiveCuratorBudget (models) {
         excludedCuratorIds: resolveExcludedCuratorIds(config.distributionExcludedCuratorIds),
         trustWeightFloor,
         trustStale,
+        minTipPiconeros: budgetMinTipPiconeros(resolveCuratorShareConfig(config)),
         previousDistribution: lastDistribution,
         fallbackCapPiconeros: CURATOR_FALLBACK_CAP_PICONEROS
       })
