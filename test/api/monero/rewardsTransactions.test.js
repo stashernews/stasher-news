@@ -1102,7 +1102,7 @@ const leHex = value => {
       models, wallet: makeWallet(), scope: SCOPE, daemon, auditWallet, keyProvider
     })
     expect(result).toMatchObject({ uncertainSweep: false, accountingUnpersisted: 1 })
-    expect(result.uncertainPayoutIds.sort()).toEqual(payouts.map(p => p.id).sort((a, b) => a - b))
+    expect(result.uncertainPayoutIds.sort((a, b) => a - b)).toEqual(payouts.map(p => p.id).sort((a, b) => a - b))
     expect((await loadRow(journal.id)).state).toBe('PREPARED')
     expect(alert).toHaveBeenCalledWith('critical', expect.any(String), expect.stringContaining(HASH))
 
@@ -1123,7 +1123,7 @@ const leHex = value => {
     // Unattempted: the prepare→claim window was interrupted. The pair is
     // provably unbroadcast, yet its payouts stay reserved.
     const result = await reconcileWithPayoutAudit()
-    expect(result.uncertainPayoutIds.sort()).toEqual(payouts.map(p => p.id).sort((a, b) => a - b))
+    expect(result.uncertainPayoutIds.sort((a, b) => a - b)).toEqual(payouts.map(p => p.id).sort((a, b) => a - b))
     const dedupeKey = `rewards-pair-unattempted-${HASH}`
     expect(alert).toHaveBeenCalledWith('critical', 'Rewards wallet pair reserved (durable but unattempted)',
       expect.stringContaining(HASH), expect.objectContaining({ dedupeKey }))
@@ -1269,7 +1269,7 @@ const leHex = value => {
     await markAttempted(second.id)
 
     const result = await reconcileWithPayoutAudit()
-    expect(result.uncertainPayoutIds.sort()).toEqual(payouts.map(p => p.id).sort((a, b) => a - b))
+    expect(result.uncertainPayoutIds.sort((a, b) => a - b)).toEqual(payouts.map(p => p.id).sort((a, b) => a - b))
     expect((await loadRow(second.id)).state).toBe('PREPARED')
     expect((await loadRow(second.id)).relayAttemptedAt).not.toBeNull()
     // The durable first proof is the only complete fact and recovers the

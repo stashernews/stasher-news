@@ -465,8 +465,16 @@ describe('payment proof lifecycle request refusals (pure)', () => {
     return { journals, escrow }
   }
 
-  beforeAll(() => {
+  // Journal rows keyed by the shared fixture wallet can be left behind by
+  // other suites that run earlier against the same isolated database; the
+  // check's counts must start from this suite's own fixtures only.
+  beforeAll(async () => {
     db = new PrismaClient()
+    await db.$transaction([
+      db.paymentTransactionProof.deleteMany({ where: fixtureProofScope() }),
+      db.rewardsWalletTransaction.deleteMany({ where: { walletAddress: SCOPE.walletAddress } }),
+      db.escrowWalletTransaction.deleteMany({ where: { walletAddress: SCOPE.walletAddress } })
+    ])
   })
 
   beforeEach(() => {
