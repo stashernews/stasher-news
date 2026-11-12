@@ -1,11 +1,12 @@
-FROM ghcr.io/puppeteer/puppeteer:25.16.0
+FROM ghcr.io/puppeteer/puppeteer:25.17.0
 
 # CVE-2026-111497 (Brotli decoder out-of-bounds write, CISA KEV since
-# 2026-10-27): no puppeteer image tag ships a fixed Node yet. 25.16.0 (built
-# 2026-10-22) still carries v24.21.0, so overlay the fixed Node toolchain from
-# the official node image (same bookworm base, installs into /usr/local).
-# Drop this COPY once a base tag's own Node passes the guard below.
-COPY --from=node:24.22.1-bookworm /usr/local /usr/local
+# 2026-10-27) forced this overlay: the base image's own Node version is not
+# contractual (25.16.0 shipped the unfixed v24.21.0). Keep overlaying the
+# toolchain from the official node image (same bookworm base, installs into
+# /usr/local); 24.22.3 also carries the 2026-11-11 Node security release
+# (http2/TLS, 7 High) that the guard below does not track.
+COPY --from=node:24.22.3-bookworm /usr/local /usr/local
 
 # fail the build loudly if the runtime Node is ever an unfixed line again
 # (fixed: 22.23.4 / 24.22.1 / 26.12.1 or later on those lines; unknown future
