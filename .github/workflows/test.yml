@@ -24,7 +24,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "22.23.4"
+          node-version: "22.23.5"
           cache: 'npm'
 
       - name: Install dependencies
@@ -70,7 +70,7 @@ jobs:
 
       - name: Prepare pinned Caddy routing tests
         run: |
-          docker create --name caddy-test caddy:2.11.7-alpine
+          docker create --name caddy-test caddy:2.11.9-alpine
           docker cp caddy-test:/usr/bin/caddy "$RUNNER_TEMP/caddy"
           docker rm caddy-test
           echo "CADDY_BINARY=$RUNNER_TEMP/caddy" >> "$GITHUB_ENV"

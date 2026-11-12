@@ -153,7 +153,7 @@ services:
       - domains-network
   imgproxy:
     container_name: imgproxy
-    image: darthsim/imgproxy:v4.0.21
+    image: darthsim/imgproxy:v4.0.23
     profiles:
       - images
     healthcheck:
@@ -220,7 +220,7 @@ services:
   # admin interfaces stay unreachable behind the media-backend network.
   media:
     container_name: media
-    image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
+    image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
     restart: unless-stopped
     profiles:
       - media
@@ -366,7 +366,7 @@ services:
     # ALB-equivalent: terminates TLS for custom domains and forwards plain
     # HTTP to the next.js app, so dev mirrors the prod traffic shape and
     # browsers treat custom domains as secure contexts.
-    image: caddy:2.11.7-alpine
+    image: caddy:2.11.9-alpine
     container_name: caddy
     profiles:
       - domains-caddy
