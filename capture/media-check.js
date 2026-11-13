@@ -18,7 +18,9 @@ function tokenOk (req) {
   // fail closed in production: an unconfigured token must never accept
   if (!MEDIA_TOKEN) return process.env.NODE_ENV !== 'production'
   const h = req.headers['x-capture-token']
-  return typeof h === 'string' && h.length === MEDIA_TOKEN.length &&
+  // compare byte lengths: timingSafeEqual throws on unequal buffer sizes, and a
+  // header can have MEDIA_TOKEN's char length while encoding to more bytes
+  return typeof h === 'string' && Buffer.byteLength(h) === Buffer.byteLength(MEDIA_TOKEN) &&
     timingSafeEqual(Buffer.from(h), Buffer.from(MEDIA_TOKEN))
 }
 
@@ -56,76 +58,94 @@ export function isVideoMime (mime) { return typeof mime === 'string' && mime.sta
 function timeoutSignal (timeout) {
   const controller = new AbortController()
 
+  let timer
   if (timeout) {
-    setTimeout(() => {
+    timer = setTimeout(() => {
       controller.abort(new Error(`timeout after ${timeout / 1000}s`))
     }, timeout)
   }
 
-  return controller.signal
+  // the caller MUST run clear() once the fetch settles: a timer that outlives
+  // its request aborts an already-settled signal later, which rejects inside
+  // undici with nobody listening and takes the whole process down
+  return { signal: controller.signal, clear: () => clearTimeout(timer) }
 }
 
 const requiresAuth = (res) => res.status === 401 || res.status === 403
 
 async function headMime (url, timeout = TIMEOUT_HEAD) {
-  const res = await guardedFetch(url, { method: 'HEAD', signal: timeoutSignal(timeout) })
-  // bail on auth or forbidden
-  if (requiresAuth(res)) return null
+  const { signal, clear } = timeoutSignal(timeout)
+  try {
+    const res = await guardedFetch(url, { method: 'HEAD', signal })
+    // bail on auth or forbidden
+    if (requiresAuth(res)) return null
 
-  return res.headers.get('content-type')
+    return res.headers.get('content-type')
+  } finally {
+    clear()
+  }
 }
 
 async function readMagicBytes (url, { timeout = TIMEOUT_GET, byteLimit = BYTE_LIMIT } = {}) {
-  const res = await guardedFetch(url, {
-    method: 'GET',
-    // accept image and video, but not other types
-    headers: { Range: `bytes=0-${byteLimit - 1}`, Accept: 'image/*,video/*;q=0.9,*/*;q=0.8' },
-    signal: timeoutSignal(timeout)
-  })
-  // bail on auth or forbidden
-  if (requiresAuth(res)) return { bytes: null, headers: res.headers }
+  const { signal, clear } = timeoutSignal(timeout)
+  try {
+    const res = await guardedFetch(url, {
+      method: 'GET',
+      // accept image and video, but not other types
+      headers: { Range: `bytes=0-${byteLimit - 1}`, Accept: 'image/*,video/*;q=0.9,*/*;q=0.8' },
+      signal
+    })
+    // bail on auth or forbidden
+    if (requiresAuth(res)) return { bytes: null, headers: res.headers }
 
-  // stream a small chunk if possible, otherwise read buffer
-  if (res.body?.getReader) {
-    const reader = res.body.getReader()
-    let received = 0
-    const chunks = []
-    try {
-      while (received < byteLimit) {
-        const { done, value } = await reader.read()
-        if (done) break
-        chunks.push(value)
-        received += value.byteLength
+    // stream a small chunk if possible, otherwise read buffer
+    if (res.body?.getReader) {
+      const reader = res.body.getReader()
+      let received = 0
+      const chunks = []
+      try {
+        while (received < byteLimit) {
+          const { done, value } = await reader.read()
+          if (done) break
+          chunks.push(value)
+          received += value.byteLength
+        }
+      } finally {
+        try { reader.releaseLock?.() } catch {}
+        try { res.body?.cancel?.() } catch {}
       }
-    } finally {
-      try { reader.releaseLock?.() } catch {}
-      try { res.body?.cancel?.() } catch {}
+      const buf = new Uint8Array(received)
+      let offset = 0
+      for (const c of chunks) {
+        buf.set(c, offset)
+        offset += c.byteLength
+      }
+      return { bytes: buf, headers: res.headers }
+    } else {
+      const ab = await res.arrayBuffer()
+      const buf = new Uint8Array(ab.slice(0, byteLimit))
+      return { bytes: buf, headers: res.headers }
     }
-    const buf = new Uint8Array(received)
-    let offset = 0
-    for (const c of chunks) {
-      buf.set(c, offset)
-      offset += c.byteLength
-    }
-    return { bytes: buf, headers: res.headers }
-  } else {
-    const ab = await res.arrayBuffer()
-    const buf = new Uint8Array(ab.slice(0, byteLimit))
-    return { bytes: buf, headers: res.headers }
+  } finally {
+    // covers header hops AND body consumption: the request stays timeout-bounded
+    // the whole way, and the timer is gone the moment any part settles
+    clear()
   }
 }
 
 export default async function mediaCheck (req, res) {
   // express automatically decodes the values in req.params (using decodeURIComponent)
-  let url = req.params.url
-  if (typeof url !== 'string' || !/^(https?:\/\/)/.test(url)) {
-    return res.status(400).json({ error: 'Invalid URL' })
-  }
-  if (!tokenOk(req)) {
-    return res.status(401).json({ error: 'unauthorized' })
-  }
-
+  // express 4 does not catch async handler rejections — one escaped throw here
+  // would kill the process — so everything below runs inside this try
   try {
+    let url = req.params.url
+    if (typeof url !== 'string' || !/^(https?:\/\/)/.test(url)) {
+      return res.status(400).json({ error: 'Invalid URL' })
+    }
+    if (!tokenOk(req)) {
+      return res.status(401).json({ error: 'unauthorized' })
+    }
+
     // in development, the capture container can't reach the public media url,
     // so we need to replace it with its docker equivalent, e.g. http://aws:4566/uploads
     if (url.startsWith(process.env.NEXT_PUBLIC_MEDIA_URL) && process.env.NODE_ENV === 'development') {
@@ -147,6 +167,10 @@ export default async function mediaCheck (req, res) {
     return res.status(200).json({ mime, isImage: isImageMime(mime), isVideo: isVideoMime(mime) })
   } catch (err) {
     console.log('media check error:', err)
-    return res.status(500).json({ mime: null, isImage: false, isVideo: false })
+    try {
+      // the client may already be gone (crawler disconnect); never let this
+      // reject the handler — express 4 would crash the process
+      return res.status(500).json({ mime: null, isImage: false, isVideo: false })
+    } catch {}
   }
 }

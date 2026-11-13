@@ -29,6 +29,17 @@ testPathIgnorePatterns.push('<rootDir>/.worktrees/', '<rootDir>/\\.[a-z0-9-]+/wo
 
 module.exports = createJestConfig({
   testPathIgnorePatterns,
+  // native-ESM islands: test/capture imports capture/media-check.js, whose
+  // nearest package.json declares "type": "module". next/jest's SWC transform
+  // downcompiles every file to CJS regardless, which breaks native-ESM loading
+  // under --experimental-vm-modules (require() of an ESM module; `exports is
+  // not defined`). Both sides of that import stay untransformed and load as
+  // real ESM — capture/*.js are plain ESM with no JSX/TS needing a transform.
+  transformIgnorePatterns: [
+    '/node_modules/',
+    '<rootDir>/capture/[^/]+\\.js$',
+    '<rootDir>/test/capture/[^/]+\\.js$'
+  ],
   // uuid@14 is ESM-only; next-auth v4 CJS-requires it inside jest's sandbox
   // (ERR_REQUIRE_ESM). No first-party code imports uuid, so redirect every
   // require('uuid') to a CJS shim. See test/helpers/uuid-shim.js.

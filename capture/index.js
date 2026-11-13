@@ -427,6 +427,8 @@ app.get('/health', async (req, res) => {
   res.status(200).end()
 })
 
+// express 4 does not catch async handler rejections: mediaCheck is written to
+// never reject — do not loosen that when editing it
 app.get('/media/:url', mediaCheck)
 
 app.get('/*', async (req, res) => {
