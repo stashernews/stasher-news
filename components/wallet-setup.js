@@ -205,6 +205,7 @@ export function WalletGuideCard () {
           <Button variant='outline-info' size='sm' href='https://cakewallet.com' target='_blank' rel='noopener noreferrer'>cake wallet</Button>
           <Button variant='outline-info' size='sm' href='https://monerujo.io' target='_blank' rel='noopener noreferrer'>monerujo</Button>
           <Button variant='outline-info' size='sm' href='https://featherwallet.org' target='_blank' rel='noopener noreferrer'>feather wallet</Button>
+          <Button variant='outline-info' size='sm' href='https://chromewebstore.google.com/detail/monerochan-wallet/jenajmckdpejhndnkklphofjdnapcome' target='_blank' rel='noopener noreferrer'>monerochan wallet</Button>
         </div>
         <div className='mt-3'>
           <div className='text-muted small mb-1'>New to Monero?</div>

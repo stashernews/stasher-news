@@ -7,6 +7,7 @@
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { parseHTML } from 'linkedom'
+import { WalletGuideCard } from '@/components/wallet-setup'
 
 jest.mock(`${process.cwd()}/components/form`, () => ({
   Form: 'form',
@@ -23,12 +24,11 @@ jest.mock('@apollo/client/react', () => ({
   useQuery: () => ({ data: undefined }),
   useMutation: () => [jest.fn(), { loading: false }]
 }))
+
 jest.mock('next/link', () => ({
   __esModule: true,
   default: ({ href, children, ...props }) => <a href={href} {...props}>{children}</a>
 }))
-
-import { WalletGuideCard } from '@/components/wallet-setup'
 
 let win
 let container
@@ -62,6 +62,17 @@ function render (element) {
   })
   return container.innerHTML
 }
+
+test('wallet guide recommends the monerochan browser wallet alongside the native wallets', () => {
+  render(<WalletGuideCard />)
+
+  const monerochan = container.querySelector('a[href="https://chromewebstore.google.com/detail/monerochan-wallet/jenajmckdpejhndnkklphofjdnapcome"]')
+  expect(monerochan).not.toBeNull()
+  expect(monerochan.textContent).toContain('monerochan wallet')
+  // external link, same treatment as the other wallet recommendations
+  expect(monerochan.getAttribute('target')).toBe('_blank')
+  expect(monerochan.getAttribute('rel')).toBe('noopener noreferrer')
+})
 
 test('wallet guide card links the user-written Monero guide under the recommendations', () => {
   const html = render(<WalletGuideCard />)
