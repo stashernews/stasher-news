@@ -827,6 +827,25 @@ describe('public projection', () => {
     expect(publicWalletInfo({ ...base, outstandingRewardsPiconeros: 0n, balancePiconeros: 0n }).inflowMix.otherBps).toBe(0)
   })
 
+  test('Query.rewardDistributions publishes the contributor totals, never the scored snapshot', async () => {
+    const dist = makeDistribution({
+      contributorPoolMode: 'SHADOW',
+      contributorTargetPiconeros: 750n,
+      contributorBudgetPiconeros: 0n,
+      contributorDistributedPiconeros: 0n,
+      contributorParams: { scored: [{ itemId: 9, S: 12.5 }] }
+    })
+    const models = makeModels({ distributions: [dist] })
+
+    const [row] = await resolvers.Query.rewardDistributions(null, {}, { models })
+
+    expect(row.contributorPoolMode).toBe('SHADOW')
+    expect(row.contributorTargetPiconeros).toBe(750n)
+    expect(row.contributorBudgetPiconeros).toBe(0n)
+    expect(row.contributorDistributedPiconeros).toBe(0n)
+    expect(row).not.toHaveProperty('contributorParams')
+  })
+
   test('Query.rewardDistributions drops the pool, rollover, reserve, income and ops amounts', async () => {
     const dist = makeDistribution({
       opsSweepTxHash: 'ab'.repeat(32),

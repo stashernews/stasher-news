@@ -103,8 +103,19 @@ const escrowFixtureOverrides = () => ({
   let userIds
   let distributionIds
 
-  beforeAll(() => {
+  // Journal rows keyed by the shared fixture wallet can be left behind by
+  // other suites that run earlier against the same isolated database; a stale
+  // row with this fixture's txHash would read as a conflicting owner.
+  const clearFixtureJournals = () => db.$transaction([
+    db.paymentTransactionProof.deleteMany({ where: { rewardsJournal: { walletAddress: SCOPE.walletAddress } } }),
+    db.rewardsWalletTransaction.deleteMany({ where: { walletAddress: SCOPE.walletAddress } }),
+    db.paymentTransactionProof.deleteMany({ where: { escrowJournal: { walletAddress: SCOPE.walletAddress } } }),
+    db.escrowWalletTransaction.deleteMany({ where: { walletAddress: SCOPE.walletAddress } })
+  ])
+
+  beforeAll(async () => {
     db = new PrismaClient()
+    await clearFixtureJournals()
   })
 
   beforeEach(() => {

@@ -72,3 +72,30 @@ test('the public GraphQL schema has none of the new admin queries or mutations',
   const types = result.data.__schema.types.filter(type => ['Query', 'Mutation'].includes(type.name))
   expect(types.flatMap(type => type.fields).filter(field => field.name.startsWith('admin'))).toEqual([])
 })
+
+test.each([
+  '{ adminContributorPost(id: 7) { note version } }',
+  '{ adminContributorSnapshot(id: 7) { posts { score } } }',
+  'mutation { adminSetContributorEligibility(id: 7, expectedVersion: "x", disqualified: false, reason: "review") { applied } }',
+  '{ contributorPool { candidates { score } } }',
+  '{ contributorPool { candidates { trustedTipperAccounts { id name } } } }',
+  '{ contributorPool { lastRun { results { trustedTipperIds } } } }',
+  '{ contributorPool { lastRun { results { score } } } }',
+  '{ contributorPool { candidates { item { contributorDisqualifiedNote } } } }',
+  '{ contributorPool { candidates { item { contributorDisqualifiedNotifyAt } } } }',
+  '{ contributorPool { candidates { item { contributorModerationRevision } } } }'
+])('public schema rejects private contributor operations and fields: %s', async source => {
+  const result = await graphql({ schema: makeExecutableSchema({ typeDefs: publicTypeDefs }), source })
+  expect(result.data).toBeUndefined()
+  expect(result.errors?.length).toBeGreaterThan(0)
+  expect(result.errors.every(error => error.message.includes('Cannot query field'))).toBe(true)
+})
+
+test('unguarded contributor mutations return 404 without reaching their resolver', async () => {
+  process.env.ADMIN_GATE_SECRET = 'a'.repeat(32)
+  const response = { status: jest.fn().mockReturnThis(), end: jest.fn(), setHeader: jest.fn() }
+  await handler({ method: 'POST', headers: { 'x-admin-client': '1' }, body: { query: 'mutation { adminSetContributorEligibility(id: 7, expectedVersion: "x", disqualified: false, reason: "review") { applied } }' } }, response)
+  expect(response.status).toHaveBeenCalledWith(404)
+  expect(response.end).toHaveBeenCalledWith()
+  expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store')
+})

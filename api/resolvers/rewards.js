@@ -13,7 +13,11 @@ import {
   planCuratorBudget,
   readTrustWeighting
 } from '@/worker/curatorBudget'
-import { resolveExcludedCuratorIds } from '@/worker/curatorShares'
+import { budgetMinTipPiconeros, resolveCuratorShareConfig, resolveExcludedCuratorIds } from '@/worker/curatorShares'
+import { resolveContributorPoolConfig } from '@/lib/contributorPool'
+import { nextUtcWeekStart } from '@/lib/utcWeek'
+import { decideContributorMode, selectContributorCandidates, selectContributorWinners, prepareContributorRun } from '@/worker/contributorPoolRun'
+import { isSerializationFailure, withSavepoint } from '@/lib/rewardsPlanning'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_TARGET_MULT_BPS = 15000
@@ -24,6 +28,8 @@ const CURATOR_FALLBACK_RETRY_MS = 60 * 1000
 
 let rewardCache
 let curatorBudgetCache
+let contributorPoolCache
+const CONTRIBUTOR_POOL_STALE_MS = 5 * 60 * 1000
 let poolHealthCache
 
 // The next 12:00 UTC strictly after t (t exactly at noon -> tomorrow noon).
@@ -159,7 +165,11 @@ async function getLiveCuratorBudget (models) {
         config
       })
       const incomePiconeros = incomeFromInflow(inflow)
-      const { trustWeightFloor, trustStale } = await readTrustWeighting(tx, config)
+      // T is weighted by the budget's own trust floor, not the share floor.
+      const {
+        budgetTrustWeightFloor: trustWeightFloor,
+        budgetTrustStale: trustStale
+      } = await readTrustWeighting(tx, config)
 
       const budgetPlan = await planCuratorBudget(tx, {
         periodStart,
@@ -170,10 +180,40 @@ async function getLiveCuratorBudget (models) {
         excludedCuratorIds: resolveExcludedCuratorIds(config.distributionExcludedCuratorIds),
         trustWeightFloor,
         trustStale,
+        minTipPiconeros: budgetMinTipPiconeros(resolveCuratorShareConfig(config)),
         previousDistribution: lastDistribution,
         fallbackCapPiconeros: CURATOR_FALLBACK_CAP_PICONEROS
       })
       const record = budgetPlan.record
+      let projectedPiconeros = record.dynamicBudgetPiconeros ?? null
+      let multBps = record.multBps ?? null
+      const decision = decideContributorMode(config, budgetPlan)
+      if (decision.effectiveMode === 'ACTIVE') {
+        try {
+          const prepared = await withSavepoint(tx, async () => {
+            const run = await selectContributorWinners(tx, {
+              decision,
+              budgetPlan,
+              poolPiconeros: pool.poolPiconeros,
+              weekStart: nextMondayUtc(periodEnd),
+              excludedCuratorIds: resolveExcludedCuratorIds(config.distributionExcludedCuratorIds)
+            })
+            return prepareContributorRun({ decision, ...run, minPayout: BigInt(config.distributionMinPayoutPiconeros ?? 0) })
+          })
+          if (prepared.funding) {
+            projectedPiconeros = prepared.funding.curatorBudget
+            if (projectedPiconeros !== budgetPlan.appliedCuratorBudgetPiconeros && record.tipT4Piconeros > 0n) {
+              multBps = Number(projectedPiconeros * 10000n / record.tipT4Piconeros)
+            }
+          }
+        } catch (err) {
+          if (isSerializationFailure(err)) throw err
+          // Match distribution failure isolation: no contributor funding,
+          // retain the valid curator plan, not the global fallback cap.
+          logError({ code: err?.code, phase: 'contributor-budget-projection' },
+            'curatorBudget: contributor selection unavailable; curator budget unchanged')
+        }
+      }
 
       // "Pool winding down": the last two RECORDED runs must both
       // have ended in DRAWDOWN. The live projection itself never counts, so a
@@ -198,8 +238,8 @@ async function getLiveCuratorBudget (models) {
       return {
         mode: resolved.mode,
         fallbackBudgetPiconeros: minBigInt(pool.poolPiconeros, CURATOR_FALLBACK_CAP_PICONEROS),
-        projectedPiconeros: record.dynamicBudgetPiconeros ?? null,
-        multBps: record.multBps ?? null,
+        projectedPiconeros,
+        multBps,
         targetMultBps,
         t4Piconeros: record.tipT4Piconeros ?? null,
         targetPiconeros,
@@ -295,6 +335,90 @@ async function getRewards (when, models) {
   return [rewardsFromInflow(inflow.raw, d, config)]
 }
 
+// Next Monday 00:00 UTC: the upcoming run's weekStart.
+export const nextMondayUtc = nextUtcWeekStart
+
+// Recorded winners (or would-have-won in SHADOW) of the latest run, from the
+// stored snapshot. Only item id, rank and amount leave this function.
+function lastContributorRun (row) {
+  if (!row) return null
+  const scored = Array.isArray(row.contributorParams?.scored) ? row.contributorParams.scored : []
+  const results = scored
+    .filter(s => s.rank != null)
+    .sort((a, b) => a.rank - b.rank)
+    .map(s => ({ rank: s.rank, piconeros: BigInt(s.share ?? 0), itemId: s.itemId }))
+    .filter(r => r.piconeros > 0n)
+  return {
+    periodEnd: row.periodEnd,
+    mode: row.contributorPoolMode,
+    budgetPiconeros: row.contributorBudgetPiconeros ?? 0n,
+    results
+  }
+}
+
+async function readContributorMode (models) {
+  const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
+  const resolved = resolveContributorPoolConfig(config)
+  let mode = resolved.ok ? resolved.mode : 'OFF'
+  // ACTIVE only pays while the curator budget is ACTIVE too; otherwise the run
+  // behaves as SHADOW (a planning fallback on the day cannot be known here).
+  if (mode === 'ACTIVE') {
+    const curator = resolveCuratorBudgetConfig(config)
+    if (!curator.ok || curator.mode !== 'ACTIVE') mode = 'SHADOW'
+  }
+  return { config, resolved, mode }
+}
+
+async function loadContributorPool (models) {
+  const { config, resolved, mode } = await readContributorMode(models)
+  if (mode === 'OFF') return { mode, lastRun: null, candidates: [] }
+
+  const row = await models.rewardDistribution.findFirst({
+    where: { contributorPoolMode: { in: ['SHADOW', 'ACTIVE'] } },
+    orderBy: { periodEnd: 'desc' },
+    select: { periodEnd: true, contributorPoolMode: true, contributorBudgetPiconeros: true, contributorParams: true }
+  })
+  let candidates = []
+  try {
+    // Heavy read on a public page: cached for CONTRIBUTOR_POOL_STALE_MS.
+    const selection = await selectContributorCandidates(models, {
+      weekStart: nextMondayUtc(),
+      decision: { configuredMode: resolved.mode, effectiveMode: mode, resolved },
+      excludedCuratorIds: resolveExcludedCuratorIds(config.distributionExcludedCuratorIds)
+    })
+    candidates = selection.winners.map((w, i) => ({ rank: i + 1, itemId: w.itemId }))
+  } catch (err) {
+    logError({ err: err?.message }, 'rewards: contributor candidates unavailable')
+  }
+  return { mode, lastRun: lastContributorRun(row), candidates }
+}
+
+// `lastRun` and `candidates` resolve concurrently: share one refresh in flight.
+let contributorPoolRefresh = null
+
+async function updateCachedContributorPool (models) {
+  contributorPoolRefresh ??= loadContributorPool(models)
+    .then(pool => {
+      contributorPoolCache = { pool, createdAt: Date.now() }
+      return pool
+    })
+    .finally(() => { contributorPoolRefresh = null })
+  return await contributorPoolRefresh
+}
+
+// Same stale-while-revalidate style as getCachedCuratorBudget.
+async function getCachedContributorPool (staleIn, models) {
+  if (contributorPoolCache) {
+    const { pool, createdAt } = contributorPoolCache
+    if (createdAt + staleIn < Date.now()) updateCachedContributorPool(models).catch(console.error)
+    return pool
+  }
+  return await updateCachedContributorPool(models)
+}
+
+// test seam
+export function resetContributorPoolCache () { contributorPoolCache = null; contributorPoolRefresh = null }
+
 // Trend, runway range and activity totals over COMPLETE distributions. Every
 // figure is a label, a share, a count or a single payout size: nothing here
 // can be multiplied back into the reserve (lib/rewardsPoolHealth.js).
@@ -374,6 +498,10 @@ async function getCachedPoolHealth (models) {
 
 export default {
   Query: {
+    // Cheap on purpose (one config row): the post form asks only for the mode.
+    // lastRun and candidates are resolved lazily and cached below.
+    contributorPool: async (parent, args, { models }) =>
+      ({ mode: (await readContributorMode(models)).mode }),
     rewards: async (parent, { when }, { models }) =>
       when ? await getRewards(when, models) : await getCachedActiveRewards(10000, models),
     curatorBudget: async (parent, args, { models }) =>
@@ -426,6 +554,16 @@ export default {
 
       return await pay('DONATE', { piconeros, rewardsPct }, { me, models, sendProtocolId })
     }
+  },
+  ContributorPool: {
+    lastRun: async (pool, args, { models }) => (await getCachedContributorPool(CONTRIBUTOR_POOL_STALE_MS, models)).lastRun,
+    candidates: async (pool, args, { models }) => (await getCachedContributorPool(CONTRIBUTOR_POOL_STALE_MS, models)).candidates
+  },
+  ContributorResult: {
+    item: async (r, args, { me, models }) => getItem(r, { id: r.itemId }, { me, models })
+  },
+  ContributorCandidate: {
+    item: async (c, args, { me, models }) => getItem(c, { id: c.itemId }, { me, models })
   },
   Reward: {
     item: async (reward, args, { me, models }) => {

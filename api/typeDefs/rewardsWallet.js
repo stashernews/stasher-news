@@ -91,6 +91,12 @@ export default gql`
     dynamicBudgetMode: String
     curatorBudgetMode: String
     appliedCuratorBudgetPiconeros: BigInt
+    # Contributor pool record. Totals only: the scored
+    # candidate snapshot (contributorParams) is never exposed.
+    contributorPoolMode: String
+    contributorTargetPiconeros: BigInt
+    contributorBudgetPiconeros: BigInt
+    contributorDistributedPiconeros: BigInt
     eligibleTipStages: JSONObject
     payouts: [RewardPayout!]!
   }

@@ -60,7 +60,7 @@ You'll need a Monero wallet to receive tips and rewards, since all payments are 
 
 ### How do I earn XMR on Stasher News?
 
-There are four ways to earn XMR on Stasher News:
+There are five ways to earn XMR on Stasher News:
 
 **1. Tips**
 
@@ -70,21 +70,35 @@ To earn XMR via [tips](#tips) from fellow stashers peer-to-peer, you need to [at
 
 Stashers can also earn XMR via weekly rewards. Stasher News distributes a share of the revenue it collects from posting and comment fees, turf fees, paid boosts and tips to wallet-less authors (plus all downvotes and donations) back to the stashers who curated the best content of the week: the tippers of the top-ranked posts and comments. Distribution happens every Monday at 00:00 UTC, and payouts are sent on-chain to your attached wallet.
 
-**3. Referrals**
+**3. Contributor rewards**
+
+Authors can earn too. Contributor rewards set aside a share of the weekly rewards budget for the best original text posts and posts with your own uploaded media. The budget and qualifying requirements can change, and rewards depend on available funds. See [How do contributor rewards work?](#how-do-contributor-rewards-work) for the rules. The [rewards page](/rewards) shows contributor rewards when enabled and clearly labels shadow mode, where results are recorded but nothing is paid.
+
+**4. Referrals**
 
 Another way to earn XMR is via [referrals](/referrals/month). If a stasher signs up through one of your referral links, you will earn 10% of their weekly curator rewards in perpetuity, subject to remaining pool funds. Referral payouts are additional to curator payouts and come from what is left in the pool after the curator budget. A referral link is any link that ends with /r/\<your name\>. Your posts, comments and profile are also implicit referral links. They don't need to have the /r/\<your name\> suffix.
 
 To make referring stashers easy, clicking on `...` next to a post or comment and selecting 'copy link' will copy it as a referral link by default. You can disable this in your [settings](/settings).
 
-**4. Turfs**
+**5. Turfs**
 
 Founding a turf is the last way to put XMR to work, though it is not a recommended way to earn XMR for new stashers: you need to pay for the turf in advance. Turf founders do earn revenue: 100% of the posting fees and comment fees paid in their turf (the standard fee plus any premium they set) go directly to their registered Monero wallet. Paid boosts and cases where the payer has no wallet attached still pay the platform rewards pool.
 
 ---
 
+### How do contributor rewards work?
+
+Contributor rewards recognize original text posts and posts with your own uploaded media. Link posts, polls and bounties aren't eligible. You need an attached wallet, and your account must meet the minimum age requirement when you post.
+
+Posts need qualifying tips from enough trusted stashers during their tip window. Trusted tips and discussion determine which posts rank highest. Limits on individual tippers help prevent a single large tip from deciding the result. Post length can affect the reward amount, but it does not decide who wins. Each author's best qualifying post competes for the available places. Plagiarized or wholesale AI-generated posts are disqualified.
+
+Posts are assessed after their tip windows close, so rewards do not arrive immediately after posting. In active mode, awards are included in the weekly distribution. In shadow mode, rankings are recorded without payments. The [rewards page](/rewards) shows the mode and recorded results when contributor rewards are enabled. Qualifying requirements, award limits and budget settings may be adjusted.
+
+Scores aren't published. Focus on writing something worth reading rather than chasing a number.
+
 ### How is the weekly curator budget determined?
 
-The weekly curator budget is dynamic: it is determined by the real activity levels on the platform each week, so it rises and falls with how much stashers post, comment, tip, boost and donate. As a target, curators as a group are paid about 1.5× what they tipped on average over the last 4 weeks, while the pool has sufficient reserves. The 1.5× is a target, not a guarantee. When the reserve runs low, spending is limited to the pool's income plus 1/13 of its reserve each week, so payouts slide gradually toward income instead of stopping. Eligible tips leave out self-tips, exclude founder accounts or count them at half weight, and apply per-tipper limits. If the calculation cannot run, a fixed 0.2 XMR cap applies that week. Any unused pool funds roll over for future weeks. The [rewards page](/rewards) shows this week's projection and this week's spending limit.
+The weekly curator budget responds to eligible tipping activity and the rewards pool's income and reserves. It targets a multiple of recent eligible tips, but that target is not a guarantee. Spending limits protect the pool as reserves run down, and a fallback cap applies if the calculation cannot run. Self-tips are excluded, some platform or founder accounts are excluded or discounted, and per-tipper limits reduce the influence of unusually large tips. Budget settings can change, and unused funds roll over for future weeks. The [rewards page](/rewards) shows the current curator budget or projection.
 
 ---
 

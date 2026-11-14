@@ -36,10 +36,13 @@ const prismaBin = path.join('node_modules', '.bin', 'prisma')
 const newMigrationName = '20261005000000_rewards_wallet_accounting'
 // The proof-era migration depends on tables the migration under test creates
 // (RewardsWalletTransaction columns), so it must never precede it in a scratch
-// pre-deploy: exclude both from the copied migration set.
+// pre-deploy: exclude both from the copied migration set. The later index
+// rename only renames an index the proof-era migration creates, so it is held
+// back with it; the final full deploy applies all three in order.
 const excludedPreDeployMigrations = new Set([
   newMigrationName,
-  '20261006120000_payment_transaction_proofs'
+  '20261006120000_payment_transaction_proofs',
+  '20261009120000_fix_escrow_unique_index_name'
 ])
 // Each scratch DB runs a 109-migration pre-deploy, then the migration under
 // test, plus seeds and assertions — well over Jest's 5s default.

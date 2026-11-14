@@ -17,6 +17,7 @@ import { useMemo } from 'react'
 import { CompactLongCountdown } from '@/components/countdown'
 import { payTypeShortName } from '@/lib/pay-in'
 import DonateModal from '@/components/donate-modal'
+import ContributorRewards from '@/components/contributor-rewards'
 import { curatorBudgetHeadline } from '@/components/pool-health'
 
 const GrowthPieChart = dynamic(() => import('@/components/charts').then(mod => mod.GrowthPieChart), {
@@ -38,6 +39,29 @@ const REWARDS_FULL = gql`
     projectedPiconeros
     multBps
     windingDown
+  }
+  contributorPool {
+    mode
+    lastRun {
+      periodEnd
+      mode
+      budgetPiconeros
+      results {
+        rank
+        piconeros
+        item {
+          id
+          title
+        }
+      }
+    }
+    candidates {
+      rank
+      item {
+        id
+        title
+      }
+    }
   }
 }
 `
@@ -136,6 +160,7 @@ export default function Rewards ({ ssrData }) {
                 <small>wallet transparency</small>
               </Link>
             </div>
+            <ContributorRewards pool={dat.contributorPool} />
             <div className='my-3 w-100'>
               <div className='text-center text-muted'><small>This week's income</small></div>
               {sources?.length > 0

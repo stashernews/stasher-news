@@ -7,6 +7,7 @@ import { incomeFromInflow, readCuratorBudgetHistory, readCuratorBudgetIncomeHist
 import { computeCuratorBudget, resolveCuratorBudgetConfig } from '@/lib/curatorBudget'
 import { approveCuratorMakeup } from '../../scripts/approve-curator-makeup'
 import { computeEligibleTipVolume } from '@/worker/eligibleTipVolume'
+import { computeCuratorShares } from '@/worker/curatorShares'
 import { CURATOR_FALLBACK_CAP_PICONEROS } from '@/lib/rewardsAccounting'
 import { alert } from '@/lib/alert'
 import { logError } from '../../lib/logger'
@@ -36,6 +37,11 @@ jest.mock('../../lib/logger', () => ({
 }))
 // Delegate to the real SQL by default; individual tests replace it with a
 // thrown error to exercise the savepoint/fallback and serialization paths.
+jest.mock('../../worker/curatorShares', () => ({
+  ...jest.requireActual('../../worker/curatorShares'),
+  computeCuratorShares: jest.fn((...args) =>
+    jest.requireActual('../../worker/curatorShares').computeCuratorShares(...args))
+}))
 jest.mock('../../worker/eligibleTipVolume', () => ({
   computeEligibleTipVolume: jest.fn((...args) =>
     jest.requireActual('../../worker/eligibleTipVolume').computeEligibleTipVolume(...args))
@@ -135,6 +141,13 @@ describe('isSerializationFailure', () => {
         where: { id: 1 },
         data: {
           curatorTrustWeightFloor: savedConfig.curatorTrustWeightFloor,
+          curatorBudgetTrustWeightFloor: savedConfig.curatorBudgetTrustWeightFloor,
+          curatorShareFormula: savedConfig.curatorShareFormula,
+          curatorAccuracyExponent: savedConfig.curatorAccuracyExponent,
+          curatorAmountExponent: savedConfig.curatorAmountExponent,
+          curatorMinTipPiconeros: savedConfig.curatorMinTipPiconeros,
+          curatorShadowTrustWeightFloor: savedConfig.curatorShadowTrustWeightFloor,
+          curatorShareCapBps: savedConfig.curatorShareCapBps,
           distributionTopN: savedConfig.distributionTopN,
           distributionMinPayoutPiconeros: savedConfig.distributionMinPayoutPiconeros,
           postingFeeRewardsPct: savedConfig.postingFeeRewardsPct,
@@ -161,7 +174,15 @@ describe('isSerializationFailure', () => {
       where: { id: 1 },
       data: {
         curatorTrustWeightFloor: 1.0,
+        curatorBudgetTrustWeightFloor: 1.0,
+        curatorShareFormula: 'LEGACY',
+        curatorAccuracyExponent: 0.25,
+        curatorAmountExponent: 0.25,
+        curatorMinTipPiconeros: 200_000_000n,
+        curatorShadowTrustWeightFloor: 0.75,
+        curatorShareCapBps: 2500,
         distributionTopN: 10,
+        curatorMinAccountAgeDays: 0,
         distributionMinPayoutPiconeros: 1_000_000_000n,
         postingFeeRewardsPct: 100,
         curatorBudgetMode: 'LEGACY',
@@ -246,6 +267,17 @@ describe('isSerializationFailure', () => {
       const item = await createItem(authorId, createdAt)
       await seedTip(curators[i], item.id, piconerosEach, createdAt)
     }
+  }
+
+  // Four equal posts; V2 qualifies the first three. curators[0] tips all three
+  // first, then curators[1..3] each tip one of them, so curators[0] holds
+  // about 54% of the weight and the 25% share cap trims it.
+  async function seedDominantCurator () {
+    const createdAt = new Date(Date.now() - DAY)
+    const posts = []
+    for (let i = 0; i < 4; i++) posts.push(await createItem(authorId, createdAt))
+    for (let i = 0; i < 3; i++) await seedTip(curators[0], posts[i].id, TIP, createdAt)
+    for (let i = 0; i < 3; i++) await seedTip(curators[i + 1], posts[i].id, TIP, createdAt)
   }
 
   async function seedInflow (piconeros) {
@@ -1026,7 +1058,7 @@ describe('isSerializationFailure', () => {
   })
 
   test('stale trust reuses the previous recorded T while still recording computed stages', async () => {
-    await setConfig({ curatorTrustWeightFloor: 0.5 })
+    await setConfig({ curatorBudgetTrustWeightFloor: 0.5 })
     await seedHistory({ t: 1_234_000_000_000n })
     await seedItemsAndTips()
     await seedInflow(XMR)
@@ -1041,6 +1073,206 @@ describe('isSerializationFailure', () => {
       staleTrustFallback: true
     })
     expect(distribution.rawTipPiconeros).toBe(XMR)
+    await expectConserved(distribution)
+  })
+
+  // curators[0] has trust 0.5 in the items' turf; the other three have none.
+  // At budget floor f the per-tipper sums are TIP × (f + (1 - f) × 0.5) and
+  // TIP × f (×3); the 25% per-tipper cap trims the first to TIP × f, so
+  // T = 4 × TIP × f.
+  test('T uses the budget trust floor, not the share floor', async () => {
+    await setConfig({ curatorTrustWeightFloor: 1.0, curatorBudgetTrustWeightFloor: 0.25 })
+    await seedHistory()
+    await seedItemsAndTips()
+    await seedInflow(XMR)
+    await seedTrustHeartbeat(new Date(START.getTime() - 60 * 60 * 1000))
+
+    const distribution = await run()
+
+    expect(distribution.trustedTipPiconeros).toBe(XMR / 4n)
+    expect(distribution.eligibleTipStages).toMatchObject({
+      handicapped: XMR.toString(),
+      final: (XMR / 4n).toString(),
+      staleTrustFallback: false
+    })
+    expect(distribution.curatorBudgetParams.trustWeightFloor).toBe(0.25)
+    // Shares stay unweighted: four equal tippers on equal items are paid equally.
+    expect(new Set(distribution.payouts.map(p => p.piconeros)).size).toBe(1)
+    await expectConserved(distribution)
+  })
+
+  test('the share trust floor leaves T unweighted', async () => {
+    await setConfig({ curatorTrustWeightFloor: 0.25, curatorBudgetTrustWeightFloor: 1.0 })
+    await seedHistory()
+    await seedItemsAndTips()
+    await seedInflow(XMR)
+    await seedTrustHeartbeat(new Date(START.getTime() - 60 * 60 * 1000))
+
+    const distribution = await run()
+
+    expect(distribution.trustedTipPiconeros).toBe(XMR)
+    expect(distribution.curatorBudgetParams.trustWeightFloor).toBe(1.0)
+    // Shares are weighted: the trusted curator is paid more than the others.
+    const byCurator = new Map(distribution.payouts.map(p => [p.curatorId, p.piconeros]))
+    expect(byCurator.get(curators[0])).toBeGreaterThan(byCurator.get(curators[1]))
+    await expectConserved(distribution)
+  })
+
+  test('a stale heartbeat forces the budget floor to 1.0 and logs it', async () => {
+    await setConfig({ curatorBudgetTrustWeightFloor: 0.25 })
+    await seedItemsAndTips()
+    await seedInflow(XMR)
+    await seedTrustHeartbeat(new Date(START.getTime() - 30 * 60 * 60 * 1000))
+
+    const distribution = await run()
+
+    // No recorded T to reuse, so T is computed at the forced 1.0.
+    expect(distribution.eligibleTipStages.capped).toBe(XMR.toString())
+    expect(distribution.curatorBudgetParams).toMatchObject({ trustWeightFloor: 1.0, trustStale: true })
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining('budget tip-volume trust weighting disabled'))
+    await expectConserved(distribution)
+  })
+
+  // Curator rewards v2. seedItemsAndTips gives each of the four curators one
+  // post of equal weight, so V2's top two thirds (CEIL(4 × 2/3) = 3, ties by
+  // id) pays only the curators of the first three posts.
+  test('LEGACY records the share formula and pays LEGACY shares', async () => {
+    await seedHistory()
+    await seedItemsAndTips()
+    await seedInflow(XMR)
+
+    const distribution = await run()
+
+    expect(distribution.curatorShareRecord).toMatchObject({ formula: 'LEGACY', paidFormula: 'LEGACY', v2: null, shadow: null })
+    expect(distribution.payouts).toHaveLength(4)
+    await expectConserved(distribution)
+  })
+
+  test('SHADOW pays LEGACY and records V2 at the effective and shadow trust floors', async () => {
+    await setConfig({ curatorShareFormula: 'SHADOW' })
+    await seedHistory()
+    await seedItemsAndTips()
+    await seedInflow(XMR)
+    await seedTrustHeartbeat(new Date(START.getTime() - 60 * 60 * 1000))
+
+    const distribution = await run()
+
+    const record = distribution.curatorShareRecord
+    expect(record).toMatchObject({ formula: 'SHADOW', paidFormula: 'LEGACY', v2: null })
+    expect(record.shadow.map(s => s.trustWeightFloor)).toEqual([1.0, 0.75])
+    for (const variant of record.shadow) {
+      expect(variant.curators.map(c => c.curatorId).sort((a, b) => a - b)).toEqual(curators.slice(0, 3).sort((a, b) => a - b))
+    }
+    // Payouts are LEGACY: all four curators, equal shares.
+    expect(distribution.payouts).toHaveLength(4)
+    expect(new Set(distribution.payouts.map(p => p.piconeros)).size).toBe(1)
+    // The budget's T is untouched in SHADOW.
+    expect(distribution.curatorBudgetParams.minTipPiconeros).toBeNull()
+    await expectConserved(distribution)
+  })
+
+  test('V2 pays the top two thirds and caps each curator at capShareBps of the budget', async () => {
+    await setConfig({ curatorShareFormula: 'V2' })
+    await seedHistory()
+    await seedItemsAndTips()
+    await seedInflow(XMR)
+
+    const distribution = await run()
+
+    expect(distribution.curatorShareRecord).toMatchObject({ formula: 'V2', paidFormula: 'V2', shadow: null })
+    // Three recipients would each get a third; the 25% cap holds all three at
+    // 1/4 of CAP and the rest rolls over.
+    expect(distribution.payouts.map(p => p.curatorId).sort((a, b) => a - b)).toEqual(curators.slice(0, 3).sort((a, b) => a - b))
+    for (const p of distribution.payouts) expect(p.piconeros).toBe(CAP / 4n)
+    expect(distribution.curatorShareRecord.v2.cappedCuratorIds).toHaveLength(3)
+    expect(distribution.curatorBudgetParams.minTipPiconeros).toBe('200000000')
+    await expectConserved(distribution)
+  })
+
+  test('under V2 the cap excess pays the referral commission before the other curators', async () => {
+    await setConfig({ curatorBudgetMode: 'ACTIVE', curatorShareFormula: 'V2' })
+    await seedHistory()
+    await seedDominantCurator()
+    await seedInflow(XMR)
+    const referrerId = await createUser()
+    await createAccount(referrerId, 'referrer-payout')
+    await db.user.update({ where: { id: curators[0] }, data: { referrerId } })
+
+    const distribution = await run()
+
+    const budget = distribution.appliedCuratorBudgetPiconeros
+    const record = distribution.curatorShareRecord.capExcess
+    const curatorPayouts = distribution.payouts.filter(p => p.curatorId !== referrerId)
+    const referral = distribution.payouts.find(p => p.curatorId === referrerId)
+    const capped = curatorPayouts.find(p => p.curatorId === curators[0]).piconeros
+    expect(capped).toBe(budget * 2500n / 10000n)
+    expect(referral.piconeros).toBe(capped / 10n)
+    expect(BigInt(record.contributorsPiconeros)).toBe(0n)
+    expect(BigInt(record.referralsPiconeros)).toBe(referral.piconeros)
+    // Only what the referral did not use goes back to the other curators, so
+    // curators and the referral together get no more than the budget.
+    const curatorTotal = curatorPayouts.reduce((sum, p) => sum + p.piconeros, 0n)
+    expect(curatorTotal + referral.piconeros).toBeLessThanOrEqual(budget)
+    expect(budget - curatorTotal - referral.piconeros).toBeLessThan(10n)
+    await expectConserved(distribution)
+  })
+
+  test('under V2 tips below the per-payment minimum leave T', async () => {
+    await setConfig({ curatorShareFormula: 'V2' })
+    await seedHistory()
+    await seedItemsAndTips(100_000_000n)
+    await seedInflow(XMR)
+
+    const distribution = await run()
+
+    expect(distribution.rawTipPiconeros).toBe(400_000_000n)
+    expect(distribution.eligibleTipStages.eligible).toBe('0')
+    expect(distribution.trustedTipPiconeros).toBe(0n)
+    expect(distribution.payouts).toHaveLength(0)
+    await expectConserved(distribution)
+  })
+
+  test('invalid V2 config pays LEGACY shares and raises a critical alert', async () => {
+    await setConfig({ curatorShareFormula: 'V2', curatorAccuracyExponent: 2 })
+    await seedHistory()
+    await seedItemsAndTips()
+    await seedInflow(XMR)
+
+    const distribution = await run()
+
+    expect(distribution.curatorShareRecord).toMatchObject({ formula: 'LEGACY', paidFormula: 'LEGACY' })
+    expect(distribution.curatorShareRecord.configErrors).toEqual(['accuracyExponent_invalid'])
+    expect(distribution.payouts).toHaveLength(4)
+    expect(alert).toHaveBeenCalledWith('critical', expect.stringContaining('curator share config invalid'), expect.any(String), expect.any(Object))
+    await expectConserved(distribution)
+  })
+
+  test('a failed V2 computation pays LEGACY shares from the V2-sized budget and alerts', async () => {
+    await setConfig({ curatorShareFormula: 'V2' })
+    await seedHistory()
+    await seedItemsAndTips()
+    await seedInflow(XMR)
+    const actual = jest.requireActual('../../worker/curatorShares').computeCuratorShares
+    computeCuratorShares.mockImplementation((start, end, pool, opts, models) => {
+      if (opts?.formula === 'V2') throw Object.assign(new Error('forced V2 failure'), { code: 'forced_v2_failure' })
+      return actual(start, end, pool, opts, models)
+    })
+    let distribution
+    try {
+      distribution = await run()
+    } finally {
+      computeCuratorShares.mockImplementation((...args) => actual(...args))
+    }
+
+    const record = distribution.curatorShareRecord
+    expect(record).toMatchObject({ formula: 'V2', paidFormula: 'LEGACY', v2: null, shareError: 'forced_v2_failure' })
+    // the budget was planned before the shares, with V2's per-payment minimum
+    expect(record.params.budgetMinTipPiconeros).toBe('200000000')
+    expect(distribution.curatorBudgetParams.minTipPiconeros).toBe('200000000')
+    // LEGACY pays all four curators equally
+    expect(distribution.payouts).toHaveLength(4)
+    expect(new Set(distribution.payouts.map(p => p.piconeros)).size).toBe(1)
+    expect(alert).toHaveBeenCalledWith('critical', expect.stringContaining('V2 curator shares failed'), expect.any(String), expect.any(Object))
     await expectConserved(distribution)
   })
 

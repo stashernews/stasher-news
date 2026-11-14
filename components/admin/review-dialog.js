@@ -31,10 +31,10 @@ export function ReviewDialog ({ changes, onApply, onClose, busy = false, error }
       <div ref={dialog} className={styles.dialog} role='dialog' aria-modal='true' aria-labelledby='review-title'>
         <div className={styles.heading}><h2 id='review-title'>Review & apply</h2><button type='button' disabled={busy} onClick={onClose} aria-label='Close review'>×</button></div>
         <p>One apply. One audit group. Every change is announced.</p>
-        {error && <p role='alert' className={styles.warning}>{error}</p>}
         <form onSubmit={submit}>
           {changes.map(change => <div className={styles.reviewChange} key={change.field.key}><small>{change.field.section}</small><h3>{change.field.label}</h3><p><del>{change.expected}</del> → <strong>{change.value}</strong>{change.field.type === 'xmr' ? ' XMR' : ''}</p>{change.error && <p role='alert'>{change.error}</p>}{change.jump && <label>Large change — retype {change.value}<input autoComplete='off' value={retyped[change.field.key] ?? ''} disabled={busy} onInput={event => setRetyped({ ...retyped, [change.field.key]: event.currentTarget.value })} /></label>}</div>)}
           <label htmlFor='apply-reason'>Reason (required)</label><textarea id='apply-reason' value={reason} maxLength={500} disabled={busy} onInput={event => setReason(event.currentTarget.value)} />
+          {error && <p role='alert' className={styles.warning}>{error}</p>}
           <div className={styles.actions}><button type='button' disabled={busy} onClick={onClose}>Back to edits</button><button className={styles.primary} type='submit' disabled={busy || invalid || !reason.trim()}>{busy ? 'Applying…' : `Apply ${changes.length} change${changes.length === 1 ? '' : 's'}`}</button></div>
         </form>
       </div>

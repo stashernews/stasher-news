@@ -20,12 +20,12 @@ import {
   isLargeDownvote
 } from '@/lib/downvote'
 
-// preset quick amounts (piconeros) — mirrors the tip presets (0.0005 / 0.001 / 0.005 / 0.01 XMR)
+// preset quick amounts (piconeros) — mirrors the tip presets (0.00025 / 0.0005 / 0.001 / 0.002 XMR)
 const PRESETS = [
+  250_000_000, // 0.00025 XMR
   500_000_000, // 0.0005 XMR
   1_000_000_000, // 0.001 XMR
-  5_000_000_000, // 0.005 XMR
-  10_000_000_000 // 0.01 XMR
+  2_000_000_000 // 0.002 XMR
 ]
 
 // StealthNews downvote modal.

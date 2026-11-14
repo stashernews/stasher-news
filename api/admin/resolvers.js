@@ -11,6 +11,8 @@ import { adminAccess } from '@/lib/admin/access'
 import { adminOverview } from '@/lib/admin/overview'
 import { adminTreasury } from '@/lib/admin/treasury'
 import { GraphQLScalarType } from 'graphql'
+import { readContributorPost, readDisqualifiedContributorPosts, setContributorEligibility } from '@/lib/admin/contributor-eligibility'
+import { readContributorRuns, readContributorSnapshot } from '@/lib/admin/contributor-snapshots'
 
 export { adminEnvironment }
 
@@ -32,6 +34,10 @@ function fieldView (field, state) {
 export default {
   AdminOverviewData: new GraphQLScalarType({ name: 'AdminOverviewData', serialize: value => value, parseValue: () => { throw new Error('output only') }, parseLiteral: () => { throw new Error('output only') } }),
   Query: {
+    adminContributorPost: (_, { id }, { models }) => readContributorPost(models, id),
+    adminContributorRuns: (_, args, { models }) => readContributorRuns(models, args),
+    adminDisqualifiedContributorPosts: (_, args, { models }) => readDisqualifiedContributorPosts(models, args),
+    adminContributorSnapshot: (_, { id }, { models }) => readContributorSnapshot(models, id),
     adminOverview: (_, args, { models }) => adminOverview(models),
     adminTreasury: (_, args, { models }) => adminTreasury(models),
     adminSections: async (_, args, { models }) => {
@@ -54,6 +60,7 @@ export default {
     }
   },
   Mutation: {
+    adminSetContributorEligibility: (_, args, { models }) => setContributorEligibility({ ...args, models }),
     adminApply: (_, args, { models }) => adminApply({ ...args, models }),
     adminCreateInviteCode: (_, args, { models }) => adminCreateInviteCode({ ...args, models }),
     adminRevokeInviteCode: (_, args, { models }) => adminRevokeInviteCode({ ...args, models })

@@ -179,6 +179,7 @@ let genuineRewardsShare // rewards share of genuine (non-fixture) inflow in the 
 let genuineOpsShare // ops share of genuine (non-fixture) inflow in the period (beforeAll)
 let priorTrustFloor = null
 let priorDistributionExcludedCuratorIds = []
+let priorCuratorMinAccountAgeDays
 let priorDistributionTopN = null
 let priorRewardsAddress
 let priorNetworkEnv
@@ -469,6 +470,7 @@ beforeAll(async () => {
   const priorConfigRow = await prisma.platformFeeConfig.findUnique({ where: { id: 1 } })
   priorTrustFloor = priorConfigRow?.curatorTrustWeightFloor ?? null
   priorDistributionExcludedCuratorIds = priorConfigRow?.distributionExcludedCuratorIds ?? []
+  priorCuratorMinAccountAgeDays = priorConfigRow?.curatorMinAccountAgeDays
   priorDistributionTopN = priorConfigRow?.distributionTopN ?? null
 
   // Ensure the PlatformFeeConfig singleton exists with schema defaults
@@ -479,9 +481,11 @@ beforeAll(async () => {
   // the exact-pool assertions regardless of operator config.
   // distributionExcludedCuratorIds is pinned empty for the same reason: the
   // suite's exact-pool assertions describe the default (founder-only) exclusion.
+  // curatorMinAccountAgeDays is pinned to 0: every fixture curator is created
+  // during the run, so any age requirement would exclude them all.
   await prisma.platformFeeConfig.upsert({
     where: { id: 1 },
-    update: { curatorTrustWeightFloor: 1.0, distributionExcludedCuratorIds: [] },
+    update: { curatorTrustWeightFloor: 1.0, distributionExcludedCuratorIds: [], curatorMinAccountAgeDays: 0 },
     create: { id: 1 }
   })
 
@@ -732,7 +736,8 @@ afterAll(async () => {
     where: { id: 1 },
     update: {
       curatorTrustWeightFloor: priorTrustFloor ?? 1.0,
-      distributionExcludedCuratorIds: priorDistributionExcludedCuratorIds
+      distributionExcludedCuratorIds: priorDistributionExcludedCuratorIds,
+      curatorMinAccountAgeDays: priorCuratorMinAccountAgeDays ?? 7
     },
     create: { id: 1 }
   })

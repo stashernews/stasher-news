@@ -75,14 +75,50 @@ jobs:
           docker rm caddy-test
           echo "CADDY_BINARY=$RUNNER_TEMP/caddy" >> "$GITHUB_ENV"
 
-      - name: Test admin database contracts in isolation
+      - name: Test admin contracts and dynamic budget in isolation
         env:
           DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stasher_rewards_dynamic_test"
         run: |
           docker exec db createdb -U stasher stasher_rewards_dynamic_test
           npx prisma migrate deploy
           npx prisma db seed
-          npm test -- --runInBand --runTestsByPath test/prisma/adminPanel.migration.test.js test/prisma/adminEdge.test.js test/prisma/adminTrustBounds.test.js test/api/gate-db.test.js test/lib/admin/apply.test.js test/api/admin/queries.test.js test/lib/admin/overview.test.js
+          npm test -- --runInBand --runTestsByPath test/prisma/adminPanel.migration.test.js test/prisma/adminEdge.test.js test/prisma/adminTrustBounds.test.js test/api/gate-db.test.js test/lib/admin/apply.test.js test/api/admin/queries.test.js test/lib/admin/overview.test.js test/worker/rewardsDistributor.dynamicBudget.test.js
+
+      - name: Test contributor review in isolation
+        env:
+          DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stasher_contributor_pool_test"
+        run: |
+          docker exec db createdb -U stasher stasher_contributor_pool_test
+          npx prisma migrate deploy
+          npx prisma db seed
+          npm test -- --runInBand --runTestsByPath test/api/resolvers/contributorDisqualified.test.js test/api/admin/contributor-eligibility.db.test.js test/worker/contributorShares.test.js test/worker/rewardsDistributor.contributorPool.test.js
+
+      - name: Test turf pins in isolation
+        env:
+          DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stasher_turf_pins_test"
+        run: |
+          docker exec db createdb -U stasher stasher_turf_pins_test
+          npx prisma migrate deploy
+          npx prisma db seed
+          npm test -- --runInBand --runTestsByPath test/api/turf-pins.core.test.js test/api/turf-pin-lifecycle.test.js test/api/turf-pin-feeds.test.js test/api/turf-pins.test.js test/prisma/turf-pins.core.test.js test/prisma/turf-pins.migration.test.js
+
+      - name: Test curator budget backfill in isolation
+        env:
+          DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stasher_rewards_backfill_test"
+        run: |
+          docker exec db createdb -U stasher stasher_rewards_backfill_test
+          npx prisma migrate deploy
+          npx prisma db seed
+          npm test -- --runInBand --runTestsByPath test/worker/curatorBudgetBackfill.test.js
+
+      - name: Test rewards accounting, payment proofs and payout cap in isolation
+        env:
+          DATABASE_URL: "postgres://stasher:stasher@localhost:5432/stasher_rewards_repair_test"
+        run: |
+          docker exec db createdb -U stasher stasher_rewards_repair_test
+          npx prisma migrate deploy
+          npx prisma db seed
+          npm test -- --runInBand --runTestsByPath test/api/monero/applyRewardsReconciliation.test.js test/api/monero/bounties.send.test.js test/api/monero/escrowTransactions.test.js test/api/monero/paymentProofLifecycle.test.js test/api/monero/paymentProofStore.test.js test/api/monero/paymentVerification.test.js test/api/monero/rewardsInflow.test.js test/api/monero/rewardsLedger.test.js test/api/monero/rewardsReconciliation.test.js test/api/monero/rewardsRelayProof.test.js test/api/monero/rewardsTransactions.test.js test/isolated/rewards-accounting-repair.test.js test/prisma/payment-proof-constraints.test.js test/prisma/rewards-accounting-constraints.test.js test/worker/rewardsDistributor.cap.test.js test/worker/rewardsDistributor.test.js test/worker/rewardsWalletObserver.bounty.test.js
 
       - name: Run tests
         # --runInBand: the DB-backed suites share one database and assume they

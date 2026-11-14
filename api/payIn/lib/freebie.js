@@ -2,6 +2,7 @@ import { USER_ID } from '@/lib/constants'
 import { freeCommentsQuota, freePostsQuota } from '@/api/monero/postingFee'
 import { lockRewardUser } from '@/api/quests/boost-credit'
 import { Prisma } from '@prisma/client'
+import { nextUtcWeekStart } from '@/lib/utcWeek'
 import { getSiteSettings } from '@/lib/siteSettings'
 
 // Get the first day of next month at midnight UTC
@@ -15,9 +16,7 @@ export function getNextMonthStart () {
 // (`0 0 * * 1`). Monday itself advances a full week — the window that opened
 // at 00:00 today is the current one, so its reset is the following Monday.
 export function getNextWeekStart () {
-  const now = new Date()
-  const daysAhead = ((8 - now.getUTCDay()) % 7) || 7
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysAhead, 0, 0, 0, 0))
+  return nextUtcWeekStart()
 }
 
 /**

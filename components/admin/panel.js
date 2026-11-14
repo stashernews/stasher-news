@@ -6,6 +6,7 @@ import { ReviewDialog } from './review-dialog'
 import { currentHash, readDrafts, sectionFromHash, sessionStore, writeDrafts } from './persist'
 import { Overview, Table, MaintenanceBanner, InviteCodes, AuditLog, Treasury } from './read-only'
 import styles from '@/styles/admin.module.css'
+import ContributorReview from './contributor-review'
 
 export function Sidebar ({ sections, active, onSelect, changes }) {
   return (
@@ -42,6 +43,8 @@ export function AdminPanel () {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [review, setReview] = useState(false)
+  const [contributorActive, setContributorActive] = useState(false)
+  const [refreshRevision, setRefreshRevision] = useState(0)
   const closeReview = useCallback(() => setReview(false), [])
   const refresh = useCallback(async () => {
     const result = await client.query({ query: DASHBOARD })
@@ -93,7 +96,7 @@ export function AdminPanel () {
       } else setMessage(error.message || 'Apply failed. Refresh and inspect the audit before retrying.')
     } finally { setBusy(false) }
   }
-  const manualRefresh = async () => { setLoading(true); try { await refresh() } catch { setMessage('Refresh failed. Existing values may be stale.') } finally { setLoading(false) } }
+  const manualRefresh = async () => { setLoading(true); setRefreshRevision(v => v + 1); try { await refresh() } catch { setMessage('Refresh failed. Existing values may be stale.') } finally { setLoading(false) } }
   return (
     <div className={styles.shell}>
       <header className={styles.topbar}><div><span className={styles.brand}>STASHER<span> / ADMIN</span></span><small>RUNTIME CONTROL · PRIVATE</small></div><div className={styles.actions}><span className={styles.connection}>SSH-TUNNEL</span><button disabled={loading || busy} onClick={manualRefresh}>{loading ? 'Refreshing…' : 'Refresh'}</button></div></header>
@@ -112,10 +115,11 @@ export function AdminPanel () {
             {active === 'access' && <><Table rows={data.adminAccess} columns={[{ key: 'label', label: 'Check' }, { key: 'pass', label: 'Result', render: row => row.pass ? 'PASS' : 'FAIL / UNKNOWN' }, { key: 'detail', label: 'Detail' }, { key: 'checkedAt', label: 'Last check / UTC' }]} /><p>SSH hardening: key-only authentication, a passphrase or hardware-backed key, and no root login. Change account login methods separately, never through this panel.</p></>}
             {active === 'environment' && <Table rows={data.adminEnvironment} columns={[{ key: 'key', label: 'Name' }, { key: 'value', label: 'Effective value / presence' }, { key: 'source', label: 'Source' }, { key: 'help', label: 'Why read-only' }]} />}
             {active === 'audit' && <AuditLog key={data.adminOverview?.fetchedAt ?? 'initial'} initial={data.adminAudit} client={client} />}
+            {active === 'rewards' && <ContributorReview client={client} refreshRevision={refreshRevision} onCommitted={refresh} disabled={busy || review} onActivityChange={setContributorActive} />}
           </main>
         </div>
       )}
-      {changes.length > 0 && <PendingBar changes={changes} invalid={invalid} errors={crossErrors} busy={busy} onDiscard={() => setDrafts({})} onReview={() => { setMessage(''); setReview(true) }} />}
+      {changes.length > 0 && <PendingBar changes={changes} invalid={invalid} errors={crossErrors} busy={busy || contributorActive} onDiscard={() => setDrafts({})} onReview={() => { setMessage(''); setReview(true) }} />}
       {review && <ReviewDialog changes={changes} busy={busy} onClose={closeReview} onApply={apply} error={message} />}
     </div>
   )

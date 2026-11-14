@@ -15,7 +15,25 @@ const state = {
   curatorTipCapShareBps: 2500,
   curatorBreakerRatioBps: 25000,
   curatorBreakerFloorMedianPeriods: 12,
-  curatorBreakerArmPeriods: 4
+  curatorBreakerArmPeriods: 4,
+  contributorPoolMode: 'OFF',
+  contributorShareBps: 1500,
+  contributorTopN: 5,
+  contributorWinnerCapBps: 4000,
+  contributorCombinedCapBps: 0,
+  contributorMinTipPiconeros: 500000000n,
+  contributorTrustThreshold: 0.1,
+  contributorMinTrustedTippers: 3,
+  contributorTipperCapBps: 3334,
+  contributorBreadthTarget: 5,
+  contributorReciprocityMult: 0.5,
+  contributorReciprocityDays: 30,
+  contributorCommentBonusBps: 500,
+  contributorCommentBonusMax: 8,
+  contributorMinAccountAgeDays: 14,
+  contributorLengthFloor: 0.6,
+  contributorLengthScaleWords: 100,
+  contributorLengthCapWords: 1500
 }
 const change = (key, value, confirmedJump = true) => ({ key, value, confirmedJump })
 

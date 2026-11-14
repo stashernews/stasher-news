@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import createPrisma from '@/lib/create-prisma'
-import { nymsToIds, HANDICAP_NYMS } from '@/lib/founderNyms'
+import { nymsToIds, resolveTrustSeeds, HANDICAP_NYMS } from '@/lib/founderNyms'
 import { logError } from '@/lib/logger'
 import { META_SUB, USER_ID } from '@/lib/constants'
 
@@ -41,6 +41,12 @@ import { META_SUB, USER_ID } from '@/lib/constants'
 // weightedDownVotes) earn rewards for their curators. Same value as earn.js.
 const PERCENTILE_CUTOFF = 50
 
+// V2 qualifies the top two thirds of each category instead: rank <=
+// CEIL(n × 2 / 3). Stasher News pays a small pool to few curators, so a wider
+// cut keeps more good-faith picks earning.
+const V2_QUALIFYING_NUMERATOR = 2
+const V2_QUALIFYING_DENOMINATOR = 3
+
 // Each recipient class (post-curator vs comment-curator) is allocated
 // 1/EACH_ZAP_PORTION of its partition's proportion. 2.0 => posts and comments
 // each carry half the total curator weight (an even split). Same value as earn.js.
@@ -65,6 +71,11 @@ const ZAP_THRESHOLD_PICONEROS = 100_000_000n
 // The founder account `stasher` is excluded outright below, so its handicap
 // entry is inert; the multiplier still applies to the remaining accounts.
 export const HANDICAP_ZAP_MULT = 0.5
+
+// V2 weighs the same handicapped accounts at 0.35x. V2's accuracy and
+// breadth terms favor a founder account that tips early and widely, so the
+// SN-parity 0.5x left it a larger share than LEGACY gives it.
+export const V2_HANDICAP_ZAP_MULT = 0.35
 
 // --- Shared SQL fragments (T must share turf/trust/founder SQL with
 // computeCuratorShares, not copy it) ---
@@ -132,6 +143,18 @@ export function resolveExcludedCuratorIds (configured) {
   return [...new Set([CURATOR_EXCLUDED_ID, ...sanitizeExcludedCuratorIds(configured)])]
 }
 
+// Accounts younger than minAccountAgeDays at periodEnd earn no curator share.
+// Like operator exclusions, their tips still rank and qualify items; they are
+// only removed from attribution, so they take no topN slot.
+async function youngCuratorIds (models, periodEnd, minAccountAgeDays) {
+  const days = Number.isInteger(minAccountAgeDays) && minAccountAgeDays > 0 ? minAccountAgeDays : 0
+  if (days === 0) return []
+  const rows = await models.$queryRaw`
+    SELECT id FROM users
+    WHERE created_at > ${periodEnd}::TIMESTAMP(3) - make_interval(days => ${days}::INT)`
+  return rows.map(r => r.id)
+}
+
 // --- Curator trust weighting (#6) ---
 
 // The nightly trust walk (02:00 UTC) writes a dedicated heartbeat
@@ -194,29 +217,101 @@ function apportionEarns (earns, sharePiconeros) {
   return apportioned
 }
 
+// --- Curator rewards v2 configuration (lib/curatorShareConfig.js) ---
+export { CURATOR_SHARE_FORMULAS, resolveCuratorShareConfig, budgetMinTipPiconeros } from '@/lib/curatorShareConfig'
+
+// Cap each recipient at `capPiconeros` and give the excess to the uncapped
+// recipients in proportion to their weight (water-filling). `totalPiconeros`
+// is the amount the recipients share before capping. When every recipient is
+// capped the remainder cannot be placed and rolls over. Shares floor, so the
+// result never exceeds `totalPiconeros`.
+export function capCuratorShares (proportions, totalPiconeros, capPiconeros) {
+  const capped = new Set()
+  for (;;) {
+    const remaining = totalPiconeros - capPiconeros * BigInt(capped.size)
+    const freeSum = proportions.reduce((acc, p, i) => capped.has(i) ? acc : acc + p, 0)
+    const shares = proportions.map((p, i) => {
+      if (capped.has(i)) return capPiconeros
+      if (freeSum <= 0 || remaining <= 0n) return 0n
+      return BigInt(Math.floor(p / freeSum * Number(remaining)))
+    })
+    const over = shares.flatMap((s, i) => (!capped.has(i) && s > capPiconeros) ? [i] : [])
+    if (over.length === 0) return { shares, cappedIndexes: [...capped].sort((a, b) => a - b) }
+    for (const i of over) capped.add(i)
+  }
+}
+
 /**
  * Compute curator reward shares for a period.
  *
  * @param {Date} periodStart - inclusive start of the reward window.
  * @param {Date} periodEnd   - exclusive end of the reward window.
  * @param {bigint} poolPiconeros - total piconeros to distribute this period.
- * @param {{ minPayout?: bigint, topN?: number, trustWeightFloor?: number, excludedCuratorIds?: number[] }} [opts]
+ * @param {{ minPayout?: bigint, topN?: number, trustWeightFloor?: number, excludedCuratorIds?: number[], formula?: 'LEGACY'|'V2', accuracyExponent?: number, amountExponent?: number, minTipPiconeros?: bigint, capShareBps?: number, holdCapExcess?: boolean }} [opts]
  *   - minPayout: shares below this are excluded and roll over (NOT redistributed).
  *   - topN: cap on the number of recipients (highest proportion first).
  *   - excludedCuratorIds: operator-configured accounts that never earn a share.
  *     The founder is always excluded in addition to this list.
+ *   - formula: 'V2' selects the curator rewards v2 formula; the remaining
+ *     options apply to V2 only (see computeV2Prospects).
+ *   - holdCapExcess: V2 caps shares but keeps the excess instead of giving it
+ *     to the uncapped curators. The result carries `capExcess`; the caller
+ *     decides how much of it goes back to curators via settleCapExcess.
  * @param {object} [models] - Prisma client. A throwaway client is created if
  *   omitted (and disconnected after the query).
- * @returns {Promise<{ shares: Array<{ curatorId: number, sharePiconeros: bigint, earns: Array<{ type: 'TIP_POST'|'TIP_COMMENT', rank: number, piconeros: bigint }> }>, distributedPiconeros: bigint, rolledOverPiconeros: bigint }>}
+ * @returns {Promise<{ shares: Array<{ curatorId: number, sharePiconeros: bigint, earns: Array<{ type: 'TIP_POST'|'TIP_COMMENT', rank: number, piconeros: bigint }> }>, distributedPiconeros: bigint, rolledOverPiconeros: bigint, details?: object }>}
  *   `share.earns` partitions `sharePiconeros` by content type; its piconeros sum
  *   exactly to `sharePiconeros`. Consumed when writing per-(curator,type) Earn rows.
+ *   V2 adds `details`: per-curator accuracy counts and the share cap outcome.
  */
-export async function computeCuratorShares (periodStart, periodEnd, poolPiconeros, { minPayout = 0n, topN = 100, trustWeightFloor = 1.0, excludedCuratorIds = [] } = {}, models) {
+// Largest pool the floating-point split handles exactly (2^53 piconeros,
+// about 9,007 XMR).
+export const MAX_EXACT_POOL_PICONEROS = 2n ** 53n
+
+export async function computeCuratorShares (periodStart, periodEnd, poolPiconeros, {
+  minPayout = 0n,
+  topN = 100,
+  trustWeightFloor = 1.0,
+  excludedCuratorIds = [],
+  formula = 'LEGACY',
+  accuracyExponent = 0.25,
+  amountExponent = 0.25,
+  minTipPiconeros = 200_000_000n,
+  capShareBps = 2500,
+  holdCapExcess = false,
+  minAccountAgeDays = 0
+} = {}, models) {
+  // The split converts the pool to a Number; above 2^53 that conversion
+  // rounds and the floored shares can sum to more than the pool. Refuse
+  // loudly instead of paying out a rounded split.
+  if (poolPiconeros >= MAX_EXACT_POOL_PICONEROS) {
+    const err = new Error(`computeCuratorShares: pool ${poolPiconeros} piconeros is too large for an exact split`)
+    err.code = 'pool_too_large'
+    throw err
+  }
   const ownsClient = !models
   const db = ownsClient ? createPrisma() : models
   const floor = sanitizeTrustWeightFloor(trustWeightFloor)
-  const excludedIds = resolveExcludedCuratorIds(excludedCuratorIds)
   try {
+    const excludedIds = [
+      ...new Set([
+        ...resolveExcludedCuratorIds(excludedCuratorIds),
+        ...await youngCuratorIds(db, periodEnd, minAccountAgeDays)
+      ])
+    ]
+    if (formula === 'V2') {
+      return await computeV2(db, periodStart, periodEnd, poolPiconeros, {
+        minPayout,
+        topN,
+        trustWeightFloor: floor,
+        excludedIds,
+        accuracyExponent,
+        amountExponent,
+        minTipPiconeros,
+        capShareBps,
+        holdCapExcess
+      })
+    }
     return await compute(db, periodStart, periodEnd, poolPiconeros, minPayout, topN, floor, excludedIds)
   } finally {
     if (ownsClient) db.$disconnect().catch(console.error)
@@ -369,9 +464,8 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
     return { shares: [], distributedPiconeros: 0n, rolledOverPiconeros: poolPiconeros }
   }
 
-  // floor(prop_i / sum(prop) * pool). NOTE: Number(pool) is exact for pools up to
-  // ~9e15 piconeros (2^53), which is ~9000 XMR/week — far beyond any realistic v1
-  // pool. The brief mandates this floor-and-normalize in JS.
+  // floor(prop_i / sum(prop) * pool). Number(pool) is exact because the pool is
+  // below MAX_EXACT_POOL_PICONEROS (checked on entry).
   const poolNum = Number(poolPiconeros)
   let ranked = rows
     .map(r => ({
@@ -399,4 +493,317 @@ async function compute (models, periodStart, periodEnd, poolPiconeros, minPayout
   const rolledOverPiconeros = poolPiconeros - distributedPiconeros
 
   return { shares, distributedPiconeros, rolledOverPiconeros }
+}
+
+// --- Curator rewards v2 ---
+//
+// For curator u in category c (posts or comments):
+//   W(u,c) = H(u) · A(u,c)^α · Σ_{i ∈ Q_c, a_ui > 0} p_i · trust(u,i) · g(u,i) · τ(u,i)
+// where
+//   Q_c    = items created in the period, ranked by wV - wDV (id breaks ties),
+//            keeping rank <= CEIL(n_c × 2/3) (an exact rank cut; NTILE(100)
+//            qualified the top 50 items of any category with fewer than 100);
+//   p_i    = the item's share of the qualifying weightedVotes (unchanged);
+//   a_ui   = u's eligible tips on i (CONFIRMED in the period, >= the
+//            per-payment minimum, never the author's own);
+//   g      = a_ui^β / Σ_v a_vi^β (β = the amount exponent; 0.25 = today's
+//            fourth root, with no islands: per-(u, i) grouping already stops
+//            split tips from gaining);
+//   τ      = Σ_k amt_k · m(rank_k) / a_ui, the amount-weighted timing, with
+//            LEGACY's early-tipper multiplier m(r) = 1 + 2 / LN(r + e - 1)
+//            (3.0 for the first account, falling slowly towards 1). Ranks
+//            follow detectedAt (confirmedAt ties within a block), each account
+//            counts once per item, and a top-up takes the rank at the time it
+//            was paid;
+//   A(u,c) = qualifying items u tipped with an eligible tip ÷ all period items
+//            u tipped in c (tips below the minimum count here, never as hits);
+//   trust and H are the LEGACY trust multiplier and handicap, except that
+//            below a floor of 1.0 the trust seeds (TRUST_SEED_NYMS) do not use
+//            their own trust: their weight gets the average trust multiplier of
+//            the other paid-eligible curators in the same category (Σ trusted
+//            weight ÷ Σ untrusted weight). Seeds hold the highest trust by
+//            construction, so their own trust would let any floor below 1.0
+//            move share to them.
+// Excluded accounts keep their timing ranks and their amounts in g's
+// denominator, and are removed before normalization and ranking.
+async function computeV2Prospects (models, periodStart, periodEnd, {
+  trustWeightFloor,
+  excludedIds,
+  accuracyExponent,
+  amountExponent,
+  minTipPiconeros
+}) {
+  const handicapIds = await resolveHandicapIds(models)
+  const seedIds = trustWeightFloor < 1 ? await resolveTrustSeeds(models) : []
+  const itemRef = Prisma.raw('"Item"')
+  const rootRef = Prisma.raw('root')
+  const userItemRef = Prisma.raw('ui')
+  const ustRef = Prisma.raw('ust')
+  const zapTrustRef = Prisma.raw('c.zap_trust')
+  return await models.$queryRaw`
+    WITH period_items AS (
+      SELECT "Item".id, "Item"."userId", "Item"."parentId",
+        "Item"."weightedVotes", "Item"."weightedDownVotes",
+        ${itemTurfSql(itemRef, rootRef)} AS turf
+      FROM "Item"
+      LEFT JOIN "Item" root ON root.id = "Item"."rootId"
+      WHERE "Item"."created_at" >= ${periodStart}
+        AND "Item"."created_at" < ${periodEnd}
+        AND "Item"."deletedAt" IS NULL
+        AND NOT "Item".bio
+    ),
+    ranked_items AS (
+      SELECT id, "parentId", "weightedVotes",
+        COUNT(*) OVER (PARTITION BY "parentId" IS NULL) AS item_count,
+        ROW_NUMBER() OVER (PARTITION BY "parentId" IS NULL ORDER BY ("weightedVotes" - "weightedDownVotes") DESC, id ASC) AS rank
+      FROM period_items
+      WHERE "weightedVotes" > 0
+    ),
+    qualified_items AS (
+      SELECT id,
+        "weightedVotes" / SUM("weightedVotes") OVER (PARTITION BY "parentId" IS NULL) AS proportion
+      FROM ranked_items
+      WHERE rank <= CEIL(item_count * ${V2_QUALIFYING_NUMERATOR}::INT / ${V2_QUALIFYING_DENOMINATOR}::NUMERIC)
+    ),
+    period_tips AS (
+      SELECT t.id, t."tipperId" AS "userId", t."postId" AS "itemId", t.piconeros, t."detectedAt",
+        pi."parentId", pi.turf
+      FROM "ObservedTip" t
+      JOIN period_items pi ON pi.id = t."postId"
+      WHERE t.state = 'CONFIRMED'
+        AND t."confirmedAt" >= ${periodStart}
+        AND t."confirmedAt" < ${periodEnd}
+        AND t."tipperId" IS NOT NULL
+        AND t."tipperId" <> pi."userId"
+    ),
+    eligible_tips AS (
+      SELECT period_tips.*,
+        ROW_NUMBER() OVER (PARTITION BY "userId", "itemId" ORDER BY "detectedAt", id) AS user_tip_number
+      FROM period_tips
+      WHERE piconeros >= ${minTipPiconeros}::BIGINT
+    ),
+    timed_tips AS (
+      SELECT eligible_tips.*,
+        SUM(CASE WHEN user_tip_number = 1 THEN 1 ELSE 0 END) OVER (
+          PARTITION BY "itemId" ORDER BY "detectedAt", id ROWS UNBOUNDED PRECEDING
+        ) AS tip_rank
+      FROM eligible_tips
+    ),
+    user_items AS (
+      SELECT "userId", "itemId", "parentId", turf,
+        SUM(piconeros)::DOUBLE PRECISION AS amount,
+        SUM(piconeros::DOUBLE PRECISION * (1.0 + 2.0 / LN(tip_rank::DOUBLE PRECISION + EXP(1.0) - 1))) AS timed_amount
+      FROM timed_tips
+      GROUP BY "userId", "itemId", "parentId", turf
+    ),
+    credits AS (
+      SELECT ui."userId", ui."itemId", ui."parentId", q.proportion,
+        POWER(ui.amount, ${amountExponent}::DOUBLE PRECISION)
+          / SUM(POWER(ui.amount, ${amountExponent}::DOUBLE PRECISION)) OVER (PARTITION BY ui."itemId") AS amount_share,
+        ui.timed_amount / ui.amount AS timing,
+        ${zapTrustSql(userItemRef, ustRef)} AS zap_trust
+      FROM user_items ui
+      JOIN qualified_items q ON q.id = ui."itemId"
+      LEFT JOIN "UserSubTrust" ust
+        ON ust."subName" = ui.turf
+       AND ust."userId" = ui."userId"
+    ),
+    accuracy AS (
+      SELECT pt."userId", pt."parentId" IS NULL AS "isPost",
+        COUNT(DISTINCT pt."itemId") AS tipped_items,
+        COUNT(DISTINCT ui."itemId") FILTER (WHERE q.id IS NOT NULL) AS hit_items
+      FROM period_tips pt
+      LEFT JOIN user_items ui ON ui."userId" = pt."userId" AND ui."itemId" = pt."itemId"
+      LEFT JOIN qualified_items q ON q.id = pt."itemId"
+      GROUP BY pt."userId", pt."parentId" IS NULL
+    ),
+    curator_weights AS (
+      SELECT c."userId", c."parentId" IS NULL AS "isPost",
+        SUM(c.proportion * c.amount_share * c.timing * ${trustMultiplierSql(trustWeightFloor, zapTrustRef)}) AS trusted,
+        SUM(c.proportion * c.amount_share * c.timing) AS untrusted,
+        POWER(a.hit_items::DOUBLE PRECISION / a.tipped_items, ${accuracyExponent}::DOUBLE PRECISION) AS accuracy_mult,
+        a.hit_items, a.tipped_items
+      FROM credits c
+      JOIN accuracy a ON a."userId" = c."userId" AND a."isPost" = (c."parentId" IS NULL)
+      GROUP BY c."userId", c."parentId" IS NULL, a.hit_items, a.tipped_items
+    ),
+    seed_trust AS (
+      SELECT "isPost",
+        SUM(trusted * accuracy_mult) / NULLIF(SUM(untrusted * accuracy_mult), 0) AS multiplier
+      FROM curator_weights
+      WHERE NOT ("userId" = ANY(${seedIds}::int[]))
+        AND NOT ("userId" = ANY(${excludedIds}::int[]))
+      GROUP BY "isPost"
+    ),
+    weights AS (
+      SELECT w."userId", w."isPost",
+        CASE WHEN w."userId" = ANY(${seedIds}::int[]) THEN w.untrusted * COALESCE(st.multiplier, 1) ELSE w.trusted END
+          * w.accuracy_mult
+          * CASE WHEN w."userId" = ANY(${handicapIds}::int[]) THEN ${V2_HANDICAP_ZAP_MULT} ELSE 1 END AS weight,
+        w.hit_items, w.tipped_items
+      FROM curator_weights w
+      LEFT JOIN seed_trust st ON st."isPost" = w."isPost"
+    ),
+    reward_proportions AS (
+      SELECT "userId",
+        CASE WHEN "isPost" THEN 'TIP_POST' ELSE 'TIP_COMMENT' END AS type,
+        ROW_NUMBER() OVER (PARTITION BY "isPost" ORDER BY weight DESC, "userId") AS rank,
+        weight / SUM(weight) OVER (PARTITION BY "isPost") / ${EACH_ZAP_PORTION} AS "typeProportion",
+        hit_items, tipped_items
+      FROM weights
+      WHERE weight > 0
+        AND NOT ("userId" = ANY(${excludedIds}::int[]))
+    )
+    SELECT "userId" AS "curatorId",
+      sum("typeProportion") AS "total_proportion",
+      json_agg(json_build_object(
+        'type', type, 'rank', rank, 'typeProportion', "typeProportion",
+        'hitItems', hit_items, 'tippedItems', tipped_items))::text AS "earns"
+    FROM reward_proportions
+    GROUP BY "userId"`
+}
+
+// V2 post-processing matches LEGACY (normalize over every curator, keep topN,
+// floor) and then caps each topN share at capShareBps of the pool. By default
+// the excess goes to the uncapped curators by weight; with holdCapExcess it is
+// held back and returned as `capExcess` for the caller to place. minPayout runs
+// last: shares below it roll over and are not redistributed.
+async function computeV2 (models, periodStart, periodEnd, poolPiconeros, {
+  minPayout,
+  topN,
+  trustWeightFloor,
+  excludedIds,
+  accuracyExponent,
+  amountExponent,
+  minTipPiconeros,
+  capShareBps,
+  holdCapExcess = false
+}) {
+  const prospects = await computeV2Prospects(models, periodStart, periodEnd, {
+    trustWeightFloor,
+    excludedIds,
+    accuracyExponent,
+    amountExponent,
+    minTipPiconeros
+  })
+
+  const rows = prospects.map(r => ({
+    curatorId: Number(r.curatorId),
+    totalProportion: Number(r.total_proportion),
+    earns: JSON.parse(r.earns).map(e => ({
+      type: e.type,
+      rank: Number(e.rank),
+      typeProportion: Number(e.typeProportion),
+      hitItems: Number(e.hitItems),
+      tippedItems: Number(e.tippedItems)
+    }))
+  }))
+
+  const capPiconeros = poolPiconeros * BigInt(capShareBps) / 10000n
+  const sumProportion = rows.reduce((acc, r) => acc + r.totalProportion, 0)
+  if (!rows.length || sumProportion <= 0 || poolPiconeros <= 0n) {
+    return {
+      shares: [],
+      distributedPiconeros: 0n,
+      rolledOverPiconeros: poolPiconeros,
+      details: { capPiconeros, cappedCuratorIds: [], curators: [] }
+    }
+  }
+
+  const poolNum = Number(poolPiconeros)
+  let ranked = rows
+    .map(r => ({ ...r, uncappedPiconeros: BigInt(Math.floor(r.totalProportion / sumProportion * poolNum)) }))
+    .sort((a, b) => b.totalProportion - a.totalProportion || a.curatorId - b.curatorId)
+  if (ranked.length > topN) ranked = ranked.slice(0, topN)
+
+  const topNTotal = ranked.reduce((acc, r) => acc + r.uncappedPiconeros, 0n)
+  if (holdCapExcess) {
+    const held = ranked.map(r => ({ ...r, sharePiconeros: r.uncappedPiconeros > capPiconeros ? capPiconeros : r.uncappedPiconeros }))
+    const capExcess = {
+      excessPiconeros: topNTotal - held.reduce((acc, r) => acc + r.sharePiconeros, 0n),
+      capPiconeros,
+      minPayout: BigInt(minPayout),
+      poolPiconeros,
+      ranked: held
+    }
+    return { ...finishV2(held, poolPiconeros, capPiconeros, minPayout), capExcess }
+  }
+  const { shares: capped } = capCuratorShares(ranked.map(r => r.totalProportion), topNTotal, capPiconeros)
+  return finishV2(ranked.map((r, i) => ({ ...r, sharePiconeros: capped[i] })), poolPiconeros, capPiconeros, minPayout)
+}
+
+// Apply minPayout to capped topN rows and build the result: shares below the
+// minimum roll over. A row counts as capped once its share reaches the cap.
+function finishV2 (ranked, poolPiconeros, capPiconeros, minPayout) {
+  const minBig = BigInt(minPayout)
+  const shares = ranked
+    .filter(s => s.sharePiconeros >= minBig)
+    .map(s => ({
+      curatorId: s.curatorId,
+      sharePiconeros: s.sharePiconeros,
+      earns: apportionEarns(s.earns, s.sharePiconeros)
+    }))
+
+  const distributedPiconeros = shares.reduce((acc, s) => acc + s.sharePiconeros, 0n)
+  const accuracyOf = (earns, type) => {
+    const e = earns.find(x => x.type === type)
+    return e ? { hitItems: e.hitItems, tippedItems: e.tippedItems } : null
+  }
+
+  return {
+    shares,
+    distributedPiconeros,
+    rolledOverPiconeros: poolPiconeros - distributedPiconeros,
+    details: {
+      capPiconeros,
+      cappedCuratorIds: ranked.filter(r => r.uncappedPiconeros > capPiconeros || r.sharePiconeros >= capPiconeros).map(r => r.curatorId),
+      curators: ranked.map(r => ({
+        curatorId: r.curatorId,
+        uncappedPiconeros: r.uncappedPiconeros,
+        sharePiconeros: r.sharePiconeros,
+        post: accuracyOf(r.earns, 'TIP_POST'),
+        comment: accuracyOf(r.earns, 'TIP_COMMENT')
+      }))
+    }
+  }
+}
+
+// Give `leftoverPiconeros` of a held cap excess to the uncapped curators in
+// proportion to their weight, never lifting anyone above the cap (a curator who
+// reaches it stops receiving and the rest goes to the others). Shares floor, so
+// a few piconeros can stay unplaced; they roll over with everything not given.
+// `ceilings` (Map curatorId -> piconeros) lowers the limit for single curators
+// below the cap, e.g. a contributor winner under the combined curator plus
+// contributor cap. Returns the same shape as computeCuratorShares, plus the
+// amount placed.
+export function settleCapExcess (capExcess, leftoverPiconeros, { ceilings } = {}) {
+  const { ranked, capPiconeros, minPayout, poolPiconeros } = capExcess
+  let remaining = leftoverPiconeros > capExcess.excessPiconeros ? capExcess.excessPiconeros : leftoverPiconeros
+  const rows = ranked.map(r => ({ ...r }))
+  const limitOf = r => {
+    const own = ceilings?.get(r.curatorId)
+    return own != null && own < capPiconeros ? own : capPiconeros
+  }
+  const open = new Set(rows.flatMap((r, i) => r.sharePiconeros < limitOf(r) ? [i] : []))
+  while (remaining > 0n && open.size > 0) {
+    const freeSum = [...open].reduce((acc, i) => acc + rows[i].totalProportion, 0)
+    if (freeSum <= 0) break
+    const budget = remaining
+    let closed = false
+    for (const i of open) {
+      let give = BigInt(Math.floor(rows[i].totalProportion / freeSum * Number(budget)))
+      const room = limitOf(rows[i]) - rows[i].sharePiconeros
+      if (give >= room) {
+        give = room
+        open.delete(i)
+        closed = true
+      }
+      rows[i].sharePiconeros += give
+      remaining -= give
+    }
+    if (!closed) break
+  }
+  const placedPiconeros = rows.reduce((acc, r) => acc + r.sharePiconeros, 0n) -
+    ranked.reduce((acc, r) => acc + r.sharePiconeros, 0n)
+  return { ...finishV2(rows, poolPiconeros, capPiconeros, minPayout), placedPiconeros }
 }

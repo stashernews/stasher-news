@@ -66,6 +66,13 @@ test('stasher schema has no custodial/Lightning residue models', () => {
   }
 })
 
+test('ItemSub carries the optional membership pin position', () => {
+  const field = allModels.find(m => m.name === 'ItemSub')?.fields.find(f => f.name === 'pinPosition')
+  expect(field).toBeDefined()
+  expect(field.type).toBe('Int')
+  expect(field.isRequired).toBe(false)
+})
+
 test('Item keeps the ranking-trigger column names verbatim', () => {
   const fields = fieldsOf('Item')
   // These identifiers are referenced verbatim by item_ranking_trigger() SQL

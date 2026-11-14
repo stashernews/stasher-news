@@ -32,6 +32,9 @@ import {
  * @param {number[]} params.excludedCuratorIds - already-resolved exclusion set
  *   (the founder is always included by resolveExcludedCuratorIds).
  * @param {number} params.capShareBps - per-tipper cap share in basis points.
+ * @param {bigint|null} [params.minTipPiconeros] - curator rewards v2 per-payment
+ *   minimum: tips below it leave the eligible stage. null (LEGACY/SHADOW) keeps
+ *   every tip.
  * @returns {Promise<{
  *   rawPiconeros: bigint,
  *   stages: Record<'raw'|'eligible'|'afterExclusions'|'ranked'|'handicapped'|'trusted'|'capped', string>,
@@ -46,7 +49,8 @@ export async function computeEligibleTipVolume (tx, {
   periodEnd,
   trustWeightFloor,
   excludedCuratorIds,
-  capShareBps
+  capShareBps,
+  minTipPiconeros = null
 }) {
   const handicapIds = await resolveHandicapIds(tx)
 
@@ -55,6 +59,9 @@ export async function computeEligibleTipVolume (tx, {
   const rootRef = Prisma.raw('root')
   const ustRef = Prisma.raw('ust')
   const zapTrustRef = Prisma.raw('zap_trust')
+  const minTipFilter = minTipPiconeros == null
+    ? Prisma.empty
+    : Prisma.sql`AND piconeros >= ${minTipPiconeros}::BIGINT`
 
   const [row] = await tx.$queryRaw`
     WITH tips AS (
@@ -75,6 +82,7 @@ export async function computeEligibleTipVolume (tx, {
     eligible AS (
       SELECT * FROM tips
       WHERE "tipperId" IS NOT NULL AND "tipperId" <> author_id
+        ${minTipFilter}
     ),
     included AS (
       SELECT * FROM eligible

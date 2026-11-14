@@ -1,6 +1,7 @@
 import { gql } from 'graphql-tag'
+import contributorTypeDefs from './contributor-typeDefs'
 
-export default gql`
+const baseTypeDefs = gql`
   scalar AdminOverviewData
   type AdminField {
     key: String!, store: String!, section: String!, group: String!, label: String!
@@ -33,3 +34,5 @@ export default gql`
     adminRevokeInviteCode(id: Int!, reason: String!): AdminApplyResult!
   }
 `
+
+export default [baseTypeDefs, contributorTypeDefs]
