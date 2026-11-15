@@ -34,10 +34,20 @@ Tor Browser ── onion circuit ──▶ onion-tor (HiddenServicePort 80)
   mirror: next-auth resolves callbacks against `NEXTAUTH_URL` (clearnet), so
   the auth redirect callback allowlists the exact mirror origin (`ONION_HOST`,
   which the overlay passes to the `app` service), and login forms hand it an
-  absolute mirror-origin callback when browsed on `.onion`. Email magic-link
-  and OAuth logins still complete on clearnet (next-auth builds their
-  verification/callback URLs from `NEXTAUTH_URL`, so the session is minted
-  there); use phrase or nostr to exercise mirror login during rehearsal.
+  absolute mirror-origin callback when browsed on `.onion`. Email magic-code
+  logins also stay on the mirror: next-auth builds every auth redirect (the
+  post-send check-your-email hop, the CSRF/error bounces, the post-login
+  callback) from `NEXTAUTH_URL`, so the auth API boundary rewrites those
+  redirects to the mirror origin for requests that verifiably arrived on it
+  (`mirrorAuthRedirectRes` in `lib/safe-url.js` — only the canonical origin is
+  ever rewritten) — the code form stays enabled and the session cookie is
+  minted on the mirror origin. Login emails contain a code, not a login link.
+  OAuth logins still complete on clearnet (their callback URLs are registered
+  against clearnet). Login of any
+  kind requires a client that treats `.onion` as trustworthy (Tor Browser
+  does): a spec-strict client cannot satisfy the `Secure`-attributed CSRF
+  cookie over plain HTTP. Rehearsal covers phrase, nostr, and email-code
+  logins.
 - Accepted trade-offs (same as BBC/NYT mirrors): share links, canonical/`og:url`,
   RSS links, push targets and email digests point at clearnet because they are
   generated from `NEXT_PUBLIC_URL`; media assets load from the clearnet media
@@ -469,7 +479,7 @@ docker exec onion-tor sh -c 'curl --socks5-hostname 127.0.0.1:9050 -sI \
   "http://$(cat /tordata/hs/hostname)/" | grep -i onion-location'  # expect no match
 ```
 
-Then, in **Tor Browser**, open `http://<address>/` and confirm the seven human
+Then, in **Tor Browser**, open `http://<address>/` and confirm the eight human
 checks:
 
 1. The page loads **with styles** — `upgrade-insecure-requests` must not break
@@ -485,11 +495,16 @@ checks:
    idea is not a contingency.
 2. Login works and the session survives a reload (`Secure` cookie on the
    trustworthy onion origin).
-3. Posting/commenting works.
-4. An upload through `/uploads` succeeds.
-5. `/admin` and `/api/admin` return 404.
-6. `/api/monero/webhook` returns 404.
-7. Invite-gate behavior matches clearnet (if `SITE_INVITE_CODES` is set).
+3. Email login stays on the mirror end to end: submit an address on `/login`,
+   land back on the **mirror's** `/email` with the code form enabled (not a
+   disabled dead end), enter the magic code, and remain logged in on the
+   mirror after the redirect. A deliberately wrong code must show the error
+   page without leaving the onion.
+4. Posting/commenting works.
+5. An upload through `/uploads` succeeds.
+6. `/admin` and `/api/admin` return 404.
+7. `/api/monero/webhook` returns 404.
+8. Invite-gate behavior matches clearnet (if `SITE_INVITE_CODES` is set).
 
 Local dev parity is partial, and that is expected. The dev `http://:8081`
 block imports only `deny_admin`, so `/admin` and `/api/admin` 404 through the

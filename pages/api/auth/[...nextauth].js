@@ -15,7 +15,7 @@ import { encryptEmail } from '@/lib/emailCrypto'
 import { multiAuthMiddleware, setMultiAuthCookies, cookieOptions } from '@/lib/auth'
 import { isAuthProviderEnabled } from '@/lib/authProviderEnv'
 import { getDomainMapping } from '@/lib/domains'
-import { isSafeRedirectPath, parseSafeHost, isOnionOriginUrl } from '@/lib/safe-url'
+import { isSafeRedirectPath, parseSafeHost, isOnionOriginUrl, mirrorAuthRedirectRes } from '@/lib/safe-url'
 import { checkEmailSendAllowance, checkPubkeySignupAllowance } from '@/lib/auth-send-limiter'
 import { consumeChallenge } from '@/api/resolvers/phrase'
 import { verifyChallengeSignature } from '@/lib/recoveryPhrase'
@@ -526,7 +526,9 @@ export const getAuthOptions = (req, res) => ({
 })
 
 export default async (req, res) => {
-  await NextAuth(req, res, getAuthOptions(req, res))
+  // Install interception on the original response so framework helpers and
+  // auth callbacks share its status, redirects and Set-Cookie headers.
+  await NextAuth(req, mirrorAuthRedirectRes(req, res), getAuthOptions(req, res))
 }
 
 function generateRandomString (length = 6, charset = BECH32_CHARSET) {
