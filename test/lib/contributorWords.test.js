@@ -53,10 +53,13 @@ describe('effectiveWords', () => {
   })
 
   it('crafted unclosed markup stays fast (no quadratic regex backtracking)', () => {
+    // 2000ms: quadratic backtracking would blow far past this even on slow
+    // CI runners (a healthy run measured ~540ms there); linear parsing
+    // stays in the tens of ms.
     for (const text of ['<'.repeat(100000), '![x'.repeat(33333), '<!['.repeat(33333), '[a'.repeat(50000)]) {
       const t0 = Date.now()
       effectiveWords(text)
-      expect(Date.now() - t0).toBeLessThan(500)
+      expect(Date.now() - t0).toBeLessThan(2000)
     }
   })
 
