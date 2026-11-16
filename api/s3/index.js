@@ -1,6 +1,7 @@
 import { S3Client, DeleteObjectsCommand } from '@aws-sdk/client-s3'
 import { createPresignedPost as s3CreatePresignedPost } from '@aws-sdk/s3-presigned-post'
 import { PUBLIC_MEDIA_URL } from '@/lib/constants'
+import { verifiedMirrorOrigin } from '@/lib/safe-url'
 
 const bucketRegion = 'us-east-1'
 const Bucket = process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET
@@ -81,7 +82,7 @@ function resolveS3Endpoint (devFallback) {
     (process.env.NODE_ENV === 'development' ? devFallback : undefined)
 }
 
-export async function createPresignedPost ({ key, type, size }) {
+export async function createPresignedPost ({ key, type, size, headers }) {
   const endpoint = resolveS3Endpoint(process.env.NEXT_PUBLIC_MEDIA_URL)
   const client = getS3Client(endpoint)
 
@@ -99,15 +100,21 @@ export async function createPresignedPost ({ key, type, size }) {
   })
 
   // Presigned POST signatures are host-agnostic (they cover the policy and
-  // fields, not the URL), so the browser can POST to the PUBLIC origin even
-  // though we signed against the container endpoint. With no endpoint (real
+  // fields, not the URL), so the browser can POST to any origin that routes
+  // /uploads to the store. On the configured onion mirror the public origin
+  // is cross-origin and the S3 gateway serves its real API responses without
+  // CORS headers (it only emits them on 405 method rejections), so the
+  // browser blocks the response of a POST that DID store the object — fetch
+  // rejects and retries persist duplicates. Point the POST at the origin the
+  // request verifiably arrived on there; everywhere else the PUBLIC origin
+  // is already same-origin (canonical clearnet). With no endpoint (real
   // AWS) the SDK's URL is already correct — leave it untouched.
   if (endpoint) {
     const url = new URL(post.url)
-    const publicUrl = new URL(PUBLIC_MEDIA_URL)
-    url.protocol = publicUrl.protocol
-    url.hostname = publicUrl.hostname
-    url.port = publicUrl.port
+    const target = new URL(verifiedMirrorOrigin(headers) ?? PUBLIC_MEDIA_URL)
+    url.protocol = target.protocol
+    url.hostname = target.hostname
+    url.port = target.port
     return { ...post, url: url.toString() }
   }
 

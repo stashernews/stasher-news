@@ -52,7 +52,14 @@ Tor Browser ── onion circuit ──▶ onion-tor (HiddenServicePort 80)
   RSS links, push targets and email digests point at clearnet because they are
   generated from `NEXT_PUBLIC_URL`; media assets load from the clearnet media
   hosts over HTTPS (CSP already allows `https:`). Link generation is out of
-  scope.
+  scope. Uploads are the exception: the S3 gateway serves its real API
+  responses without CORS headers, so `getSignedPOST` rewrites the presigned
+  POST url to the mirror origin for requests that verifiably arrived on it
+  (`verifiedMirrorOrigin` in `lib/safe-url.js`; the signature is
+  host-agnostic). The browser's FormData POST is then same-origin on the
+  mirror — without the rewrite the browser blocks the response of a POST that
+  did store the object, and retries persist duplicates. Everywhere else the
+  public origin applies unchanged.
 
 ## 2. Mining the vanity address (workstation only)
 

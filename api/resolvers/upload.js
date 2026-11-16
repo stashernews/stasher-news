@@ -80,7 +80,9 @@ export default {
       }
 
       const upload = await models.upload.create({ data: { ...fileParams } })
-      return createPresignedPost({ key: String(upload.id), type, size })
+      // headers make the POST url mirror-aware: same-origin on the onion
+      // mirror instead of cross-origin to the public origin
+      return createPresignedPost({ key: String(upload.id), type, size, headers })
     }
   }
 }

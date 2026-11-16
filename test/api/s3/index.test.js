@@ -15,7 +15,8 @@ const ENV_KEYS = [
   'MEDIA_AWS_ACCESS_KEY_ID',
   'MEDIA_AWS_SECRET_ACCESS_KEY',
   'AWS_ACCESS_KEY_ID',
-  'AWS_SECRET_ACCESS_KEY'
+  'AWS_SECRET_ACCESS_KEY',
+  'ONION_HOST'
 ]
 
 const savedEnv = {}
@@ -135,6 +136,142 @@ describe('createPresignedPost — endpoint selection', () => {
     expect(clientArgs.forcePathStyle).toBe(false)
     expect(clientArgs.credentials).toBeUndefined()
     expect(post.url).toBe('https://snuploads.s3.us-east-1.amazonaws.com/9?X-Amz-Signature=test')
+  })
+})
+
+// The public-origin rewrite above makes the browser's FormData POST
+// same-origin on canonical clearnet but cross-origin on any mirror: the S3
+// gateway serves real API responses without CORS headers (it only emits them
+// on 405 method rejections), so the browser blocks the response of a POST
+// that DID store the object — fetch rejects, the UI reports a network error,
+// and retries persist duplicate objects. The signature is host-agnostic (the
+// code already rewrites the host once), so for requests that verifiably
+// arrived on the configured onion mirror the POST url must point at the
+// mirror origin, whose edge routes /uploads to the same store.
+describe('createPresignedPost — mirror-origin POST url', () => {
+  const ONION = `${'a'.repeat(56)}.onion`
+  const EVIL = `${'b'.repeat(56)}.onion`
+
+  const setSelfHostedProdEnv = () => {
+    process.env.NODE_ENV = 'production'
+    process.env.MEDIA_URL_DOCKER = 'http://minio:9000/uploads'
+    process.env.NEXT_PUBLIC_MEDIA_URL = 'https://stasher.news/uploads'
+    process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'uploads'
+    process.env.MEDIA_AWS_ACCESS_KEY_ID = 'media-root-key'
+    process.env.MEDIA_AWS_SECRET_ACCESS_KEY = 'media-root-secret'
+  }
+
+  test('a request that verifiably arrived on the configured mirror gets a mirror-origin POST url', async () => {
+    setSelfHostedProdEnv()
+    process.env.ONION_HOST = ONION
+    const { createPresignedPost } = await loadS3()
+    const post = await createPresignedPost({
+      key: '123',
+      type: 'image/png',
+      size: 1024,
+      headers: { host: ONION, 'x-forwarded-proto': 'http' }
+    })
+    expect(post.url).toBe(`http://${ONION}/uploads/123?X-Amz-Signature=test`)
+    expect(post.fields).toEqual({ key: '123' })
+  })
+
+  test('honors x-forwarded-host when the proxy forwards the real mirror host', async () => {
+    setSelfHostedProdEnv()
+    process.env.ONION_HOST = ONION
+    const { createPresignedPost } = await loadS3()
+    const post = await createPresignedPost({
+      key: '5',
+      type: 'image/png',
+      size: 1024,
+      headers: { host: 'app:3000', 'x-forwarded-host': ONION, 'x-forwarded-proto': 'http' }
+    })
+    expect(post.url).toBe(`http://${ONION}/uploads/5?X-Amz-Signature=test`)
+  })
+
+  test('canonical clearnet requests keep the public-origin rewrite', async () => {
+    setSelfHostedProdEnv()
+    process.env.ONION_HOST = ONION
+    const { createPresignedPost } = await loadS3()
+    const post = await createPresignedPost({
+      key: '7',
+      type: 'image/png',
+      size: 1024,
+      headers: { host: 'stasher.news', 'x-forwarded-proto': 'https' }
+    })
+    expect(post.url).toBe('https://stasher.news/uploads/7?X-Amz-Signature=test')
+  })
+
+  test('without request headers, keeps the public-origin rewrite', async () => {
+    setSelfHostedProdEnv()
+    process.env.ONION_HOST = ONION
+    const { createPresignedPost } = await loadS3()
+    const post = await createPresignedPost({ key: '9', type: 'image/png', size: 1024 })
+    expect(post.url).toBe('https://stasher.news/uploads/9?X-Amz-Signature=test')
+  })
+
+  test('fails closed to the public origin when ONION_HOST is unset', async () => {
+    setSelfHostedProdEnv()
+    const { createPresignedPost } = await loadS3()
+    const post = await createPresignedPost({
+      key: '11',
+      type: 'image/png',
+      size: 1024,
+      headers: { host: ONION, 'x-forwarded-proto': 'http' }
+    })
+    expect(post.url).toBe('https://stasher.news/uploads/11?X-Amz-Signature=test')
+  })
+
+  test('fails closed for a lookalike mirror host', async () => {
+    setSelfHostedProdEnv()
+    process.env.ONION_HOST = ONION
+    const { createPresignedPost } = await loadS3()
+    const post = await createPresignedPost({
+      key: '13',
+      type: 'image/png',
+      size: 1024,
+      headers: { host: EVIL, 'x-forwarded-proto': 'http' }
+    })
+    expect(post.url).toBe('https://stasher.news/uploads/13?X-Amz-Signature=test')
+  })
+
+  test('fails closed for https on the mirror address', async () => {
+    setSelfHostedProdEnv()
+    process.env.ONION_HOST = ONION
+    const { createPresignedPost } = await loadS3()
+    const post = await createPresignedPost({
+      key: '15',
+      type: 'image/png',
+      size: 1024,
+      headers: { host: ONION, 'x-forwarded-proto': 'https' }
+    })
+    expect(post.url).toBe('https://stasher.news/uploads/15?X-Amz-Signature=test')
+  })
+
+  test('fails closed when the forwarded host disagrees with the configured mirror', async () => {
+    setSelfHostedProdEnv()
+    process.env.ONION_HOST = ONION
+    const { createPresignedPost } = await loadS3()
+    const post = await createPresignedPost({
+      key: '17',
+      type: 'image/png',
+      size: 1024,
+      headers: { host: ONION, 'x-forwarded-host': 'evil.example', 'x-forwarded-proto': 'http' }
+    })
+    expect(post.url).toBe('https://stasher.news/uploads/17?X-Amz-Signature=test')
+  })
+
+  test('mainnet (no endpoint) leaves the SDK url untouched even for mirror requests', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.NEXT_PUBLIC_AWS_UPLOAD_BUCKET = 'snuploads'
+    process.env.ONION_HOST = ONION
+    const { createPresignedPost } = await loadS3()
+    const post = await createPresignedPost({
+      key: '19',
+      type: 'image/png',
+      size: 1024,
+      headers: { host: ONION, 'x-forwarded-proto': 'http' }
+    })
+    expect(post.url).toBe('https://snuploads.s3.us-east-1.amazonaws.com/19?X-Amz-Signature=test')
   })
 })
 
