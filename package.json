@@ -89,7 +89,7 @@
     "micromark-extension-gfm": "^3.0.0",
     "micromark-extension-math": "^3.1.0",
     "monero-ts": "^0.11.21",
-    "next": "^16.4.1",
+    "next": "^16.4.6",
     "next-auth": "^4.24.15",
     "next-plausible": "^4.0.0",
     "next-seo": "^6.6.0",
