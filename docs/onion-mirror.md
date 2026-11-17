@@ -241,24 +241,27 @@ no published ports — the onion service is the only way in.
 **6. Verify.**
 
 ```bash
-$DC ps onion-tor                        # healthy (start_period 5m, 1m interval)
+$DC ps onion-tor                        # healthy (start_period 1m, 1m interval)
 docker logs -f onion-tor                # wait for "Bootstrapped 100%" and the HS
                                         # descriptor upload; publication 1–5 min
 docker exec onion-tor cat /tordata/hs/hostname   # == <address>
-# Explicit identity assertion: the healthcheck reads the hostname file itself,
-# so it cannot catch a typo'd ONION_HOST — a wrong env value would advertise a
-# different address while everything looks healthy. Assert equality by value.
+# Explicit identity assertion: no automated check compares the hostname file
+# to ONION_HOST — a wrong env value would advertise a different address while
+# everything looks healthy. Assert equality by value.
 [ "$(docker exec onion-tor cat /tordata/hs/hostname)" = "$ONION_HOST" ] \
   && echo 'identity OK' || { echo "MISMATCH: hostname != ONION_HOST ($ONION_HOST)"; exit 1; }
 curl -sI https://stasher.news/ | grep -i '^onion-location'
 # → Onion-Location: http://<address>/
 ```
 
-The healthcheck is end-to-end: it fetches
-`http://<address>/api/health` through the container's own SOCKS port. Healthy
-means keys exist, the descriptor is published, introduction points work, and
-Caddy → app is alive. The first healthcheck may take up to ~10 minutes
-(bootstrap + descriptor propagation); give it that long before diagnosing.
+The healthcheck probes the serving path directly: `curl -sf
+http://127.0.0.1:8081/api/health` — the caddy onion listener visitors exit
+to (shared netns), no tor roundtrip. Healthy means Caddy → app is alive on
+the exact path tor delivers to; it goes healthy within ~2 minutes, long
+before tor finishes bootstrapping. It does NOT assert tor-side state
+(bootstrap, descriptor publication, reachability) — watch `docker logs` for
+"Bootstrapped 100%" and the HS descriptor upload, and see section 7 for why the
+tor roundtrip was dropped from the check.
 
 Then run section 8's docker-native checks and Tor Browser checks against
 `http://<address>/` before announcing the address anywhere.
@@ -372,7 +375,7 @@ $DC up -d --force-recreate onion-tor
 fresh one unless the address is compared, so assert equality:
 
 ```bash
-$DC ps onion-tor                      # healthy; first check may take ~10 min
+$DC ps onion-tor                      # healthy; the serving-path check goes healthy within ~2 min of tor being up
 addr=$(docker exec onion-tor cat /tordata/hs/hostname)
 header=$(curl -sI https://stasher.news/ | grep -i '^onion-location:' | tr -d '\r')
 printf 'expected: Onion-Location: http://%s/\nactual:   %s\n' "$addr" "$header"
@@ -408,16 +411,23 @@ block before announcing the new address.
   the direct peer), so per-IP limits treat the entire onion population as a
   single bucket. Accepted for a small mirror; revisit if abused. The same
   applies to per-IP logs/metrics.
-- **Monitoring is the docker-native healthcheck** on `onion-tor` (end-to-end,
-  through the circuit). There is no external onion-ping monitor; alert on the
-  container's health status like any other service. Container logs are
-  `json-file`, capped at 10 MB × 3.
+- **Monitoring is the docker-native healthcheck** on `onion-tor` (local
+  serving path: caddy listener → app; no tor roundtrip). The roundtrip was
+  dropped 2026-11-17: outbound-only circuit degradation failed it for ~26h
+  while the mirror served inbound traffic fine — a self-probe through our
+  own SOCKS port cannot distinguish "our service is broken" from "our
+  outbound circuits are degraded", and only the first is fixable here.
+  What the check cannot see: tor-side outages (wedged daemon, descriptor
+  loss, intro-point attacks). For those, add an external onion-ping
+  monitor; the manual SOCKS fetch in section 8 is the in-container diagnostic.
+  Alert on the container's health status like any other service. Container
+  logs are `json-file`, capped at 10 MB × 3.
 - **The overlay is additive.** It adds `onion-tor` + the `onion_tordata` volume
   and sets `ONION_HOST` on `caddy`. It must stay out of the live chain until
   key day (keys-first rule).
 - **Never `--profile '*'` on the VPS** — it activates `onion-miner`.
 - App outbound traffic never uses the tor SOCKS proxy (`SOCKSPort` is container
-  loopback, for the healthcheck only). tor is an ingress source, nothing else.
+  loopback, kept for the section 8 manual diagnostics). tor is an ingress source, nothing else.
 - **Legacy `docker/tor/` is unrelated** — lnd-era, referenced by no compose
   file. Do not confuse it with `docker/onion/`.
 - The Caddy onion listener is host-agnostic on purpose: the address never
@@ -472,7 +482,7 @@ Two passes. **Docker-native checks** first (no Tor Browser needed):
 ```bash
 # the key tor loaded is the one that was staged
 docker exec onion-tor cat /tordata/hs/hostname      # == basename of $found
-# the container's own healthcheck is the end-to-end SOCKS fetch
+# the container's healthcheck covers the serving path only; the SOCKS fetch below is the end-to-end probe
 ONION_HOST=unused.invalid docker compose --env-file .env.development \
   -f docker-compose.yml -f docker-compose.onion.yml ps onion-tor           # STATUS … (healthy)
 # the same fetch, by hand

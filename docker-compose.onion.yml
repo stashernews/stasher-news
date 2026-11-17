@@ -20,14 +20,18 @@ services:
       - no-new-privileges:true
     volumes:
       - onion_tordata:/tordata
-    # end-to-end: through the tor circuit to our own /api/health.
-    # $$ escapes compose interpolation: $(cat ...) runs in-container.
+    # the serving path visitors exit to: shares caddy's netns, so loopback
+    # :8081 IS the caddy onion listener. No tor roundtrip here — outbound
+    # circuit degradation is tor-side and restarting this container cannot
+    # fix it (2026-11-17: ~26h false-unhealthy while inbound traffic was
+    # served fine). True end-to-end needs an external onion-ping; the manual
+    # SOCKS fetch stays in docs/onion-mirror.md section 8 for diagnostics.
     healthcheck:
-      test: ["CMD-SHELL", "curl --socks5-hostname 127.0.0.1:9050 -sf http://$$(cat /tordata/hs/hostname)/api/health || exit 1"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8081/api/health"]
       interval: 1m
-      timeout: 30s
+      timeout: 10s
       retries: 3
-      start_period: 5m
+      start_period: 1m
     cpu_shares: "${CPU_SHARES_LOW}"
     logging:
       driver: json-file

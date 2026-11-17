@@ -12,8 +12,10 @@ test('onion-tor is a hardened ingress source with no published ports', () => {
   expect(tor.security_opt).toContain('no-new-privileges:true')
   expect(tor.volumes).toContain('onion_tordata:/tordata')
   expect(tor.restart).toBe('unless-stopped')
-  expect(String(tor.healthcheck.test)).toContain('socks5-hostname')
-  expect(String(tor.healthcheck.test)).toContain('/tordata/hs/hostname')
+  expect(String(tor.healthcheck.test)).toContain('127.0.0.1:8081/api/health')
+  // no tor roundtrip: outbound-only circuit degradation is tor-side, not
+  // this container's failure (2026-11-17 incident: ~26h false-unhealthy)
+  expect(String(tor.healthcheck.test)).not.toContain('socks5-hostname')
   // shares caddy's netns: torrc targets 127.0.0.1:8081 = the caddy onion listener
   expect(tor.network_mode).toBe('service:caddy')
 })
