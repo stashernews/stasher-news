@@ -424,6 +424,18 @@ function invertedInvestmentClause (postsPiconerosFilter, commentsPiconerosFilter
 
 // Uses the indexed netInvestment column for efficient filtering
 // ownerBypass: if true, always show the user's own items regardless of filter
+// Pinned items are filter-exempt: global and reply pins ("Item"."pinId") and
+// per-turf pins ("ItemSub"."pinPosition") stay visible however the item ranks.
+// Scope of the exemption: pinned ANYWHERE (globally or in any territory)
+// exempts the item EVERYWHERE this clause runs — every feed sort plus the
+// notification surfaces that share it. Deliberate: a pin is moderator
+// endorsement, and endorsement outranks the viewer's filter on those surfaces.
+// The desperados inverted clause deliberately has no such exemption.
+const pinExemptionClause = `"Item"."pinId" IS NOT NULL OR EXISTS (
+  SELECT 1 FROM "ItemSub"
+  WHERE "ItemSub"."itemId" = "Item"."id"
+    AND "ItemSub"."pinPosition" IS NOT NULL)`
+
 function investmentClause (postsPiconerosFilter, commentsPiconerosFilter, meId, ownerBypass) {
   // null means "show all" — no filter for that dimension
   if (postsPiconerosFilter == null && commentsPiconerosFilter == null) {
@@ -438,12 +450,12 @@ function investmentClause (postsPiconerosFilter, commentsPiconerosFilter, meId, 
     ? 'TRUE'
     : `"Item"."netInvestment" >= ${commentsPiconerosFilter}${ownerClause}`
 
-  return `(
+  return `(${pinExemptionClause} OR (
     CASE WHEN "Item"."parentId" IS NULL
       THEN ${postsExpr}
       ELSE ${commentsExpr}
     END
-  )`
+  ))`
 }
 
 export async function filterClause (type, sub, sort, { me, models, userLoader, subLoader, bind = String }, by) {

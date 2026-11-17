@@ -7,7 +7,7 @@ export function turfPinFixture () {
     throw new Error('turf pin tests require the dedicated test database')
   }
   const db = new PrismaClient()
-  const created = { users: [], subs: [], items: [], payIns: [], pins: [] }
+  const created = { users: [], subs: [], items: [], payIns: [], pins: [], replies: [] }
   const tag = randomUUID().replaceAll('-', '').slice(0, 12)
   let subSeq = 0
   const user = async () => {
@@ -48,6 +48,11 @@ export function turfPinFixture () {
   }
   const cleanup = async () => {
     await db.itemPayIn.deleteMany({ where: { itemId: { in: created.items } } })
+    // Reply has no cascade from Item, so it must go before the items
+    await db.reply.deleteMany({ where: { id: { in: created.replies } } })
+    // ThreadSubscription's key is composite (userId, itemId); this instance's
+    // users are instance-local, so deleting by them cannot touch other rows
+    await db.threadSubscription.deleteMany({ where: { userId: { in: created.users } } })
     await db.item.deleteMany({ where: { id: { in: created.items } } })
     await db.payIn.deleteMany({ where: { id: { in: created.payIns } } })
     await db.pin.deleteMany({ where: { id: { in: created.pins } } })

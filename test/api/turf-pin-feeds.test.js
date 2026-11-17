@@ -2,13 +2,17 @@
 // Real-DB feed behavior for turf pins: a turf's pins are injected only into
 // that turf's feed, excluded from its ordinary list, and invisible to other
 // turfs (including the same post pinned elsewhere). Global (no-turf) pins,
-// sort variants, and metadata completeness are pinned here too.
+// sort variants, and metadata completeness are pinned here too. Pinned posts
+// survive the viewer's investment filter on new and top — and on the home
+// ordinary list, and in the notifications list, which shares the same clause
+// (a pinned reply surfaces even below the filter). Desperados gains no pins.
 //
 //   DATABASE_URL='postgresql://sn:changeme@127.0.0.1:5431/stasher_turf_pins_test?schema=public' \
 //     npm test -- --runInBand --runTestsByPath test/api/turf-pin-feeds.test.js
 import { turfPinFixture } from '../helpers/turf-pins'
 import { setTurfPin, readTurfPins } from '@/api/turf-pins'
 import itemResolvers from '@/api/resolvers/item'
+import notifications from '@/api/resolvers/notifications'
 
 jest.mock('../../lib/lexical/server/html', () => ({
   __esModule: true,
@@ -35,12 +39,13 @@ const isolated = (() => {
   })
 
   // seedPost keeps a paid ITEM_CREATE so the payInJoinFilter admits the post.
-  const seedPost = async (author, subs, { pay = true } = {}) => {
+  const seedPost = async (author, subs, { pay = true, parentId = null } = {}) => {
     const item = await f.db.item.create({
       data: {
         userId: author.id,
         title: 'turf pin feed test',
         text: 'body',
+        ...(parentId ? { parentId } : {}),
         subs: { create: subs.map(s => ({ subName: s.name })) }
       }
     })
@@ -55,11 +60,11 @@ const isolated = (() => {
     return item
   }
 
-  const ctx = (me = null) => ({
+  const ctx = (me = null, userFilters = {}, subPostsFilter = -100000000000n) => ({
     me,
     models: f.db,
-    userLoader: { load: async () => ({ nsfwMode: false }) },
-    subLoader: { load: async name => ({ name, postsPiconerosFilter: -100000000000n }) }
+    userLoader: { load: async () => ({ nsfwMode: false, ...userFilters }) },
+    subLoader: { load: async name => ({ name, postsPiconerosFilter: subPostsFilter }) }
   })
   const args = { sort: 'lit', type: 'posts', limit: 21 }
 
@@ -166,5 +171,128 @@ const isolated = (() => {
     expect((home.pins ?? []).map(i => i.id)).not.toContain(item.id)
     // ordinary home list still shows the post (home only excludes global pins)
     expect(home.items.map(i => i.id)).toContain(item.id)
+  })
+
+  // the filter from the report: 0.0011 XMR = 1.1 mXMR = 1.1e9 piconeros
+  const FILTERED = 1100000000n
+  const filteredCtx = viewer => ctx(viewer, {
+    postsPiconerosFilter: FILTERED,
+    commentsPiconerosFilter: FILTERED
+  }, FILTERED)
+  const lowInvestment = async item => {
+    await f.db.item.update({ where: { id: item.id }, data: { netInvestment: 0n } })
+  }
+
+  test('a global pin rides through the new feed regardless of the filter', async () => {
+    const owner = await f.user()
+    const item = await seedPost(owner, [])
+    await lowInvestment(item)
+    const pin = await f.db.pin.create({ data: { position: 0 } })
+    f.created.pins.push(pin.id)
+    await f.db.item.update({ where: { id: item.id }, data: { pinId: pin.id } })
+    const viewer = await f.user()
+    const args = { sort: 'new', type: 'posts', limit: 21 }
+    const withPin = await itemResolvers.Query.items(null, args, filteredCtx(viewer))
+    expect(withPin.items.map(i => i.id)).toContain(item.id)
+    // negative control: the filter itself works — unpin and the same post vanishes
+    await f.db.item.update({ where: { id: item.id }, data: { pinId: null } })
+    const unpinned = await itemResolvers.Query.items(null, args, filteredCtx(viewer))
+    expect(unpinned.items.map(i => i.id)).not.toContain(item.id)
+  })
+
+  test('a turf pin clears the filter in its own turf and in other turfs', async () => {
+    const owner = await f.user()
+    const a = await f.sub(owner, 'fex')
+    const b = await f.sub(owner, 'gex')
+    const item = await seedPost(owner, [a, b])
+    await lowInvestment(item)
+    await setTurfPin({ id: item.id, subName: a.name, pinned: true }, { me: owner, models: f.db })
+    const viewer = await f.user()
+    const args = { sort: 'new', type: 'posts', limit: 21 }
+    // pinned anywhere => exempt everywhere it can appear
+    const inTurf = await itemResolvers.Query.items(null, { ...args, sub: a.name }, filteredCtx(viewer))
+    expect(inTurf.items.map(i => i.id)).toContain(item.id)
+    const otherTurf = await itemResolvers.Query.items(null, { ...args, sub: b.name }, filteredCtx(viewer))
+    expect(otherTurf.items.map(i => i.id)).toContain(item.id)
+  })
+
+  test('a pinned post also clears the filter on top', async () => {
+    const owner = await f.user()
+    const a = await f.sub(owner, 'tex')
+    const item = await seedPost(owner, [a])
+    await lowInvestment(item)
+    await setTurfPin({ id: item.id, subName: a.name, pinned: true }, { me: owner, models: f.db })
+    const viewer = await f.user()
+    const top = await itemResolvers.Query.items(
+      null,
+      { sort: 'top', type: 'posts', limit: 21, sub: a.name },
+      filteredCtx(viewer)
+    )
+    expect(top.items.map(i => i.id)).toContain(item.id)
+  })
+
+  test('a turf-pinned post clears the filter on the home ordinary list too', async () => {
+    const owner = await f.user()
+    const a = await f.sub(owner, 'hfx')
+    const item = await seedPost(owner, [a])
+    await lowInvestment(item)
+    await setTurfPin({ id: item.id, subName: a.name, pinned: true }, { me: owner, models: f.db })
+    const viewer = await f.user()
+    const home = await itemResolvers.Query.items(
+      null, { sort: 'lit', type: 'posts', limit: 21 }, filteredCtx(viewer)
+    )
+    expect(home.items.map(i => i.id)).toContain(item.id)
+    // negative control: the filter itself works — unpin and home hides it too
+    await setTurfPin({ id: item.id, subName: a.name, pinned: false }, { me: owner, models: f.db })
+    const unpinned = await itemResolvers.Query.items(
+      null, { sort: 'lit', type: 'posts', limit: 21 }, filteredCtx(viewer)
+    )
+    expect(unpinned.items.map(i => i.id)).not.toContain(item.id)
+  })
+
+  test('a pinned reply below the filter still surfaces in notifications', async () => {
+    const author = await f.user()
+    const replier = await f.user()
+    const parent = await seedPost(author, [])
+    const reply = await seedPost(replier, [], { parentId: parent.id })
+    await lowInvestment(reply)
+    // the notifications resolver reaches replies through ThreadSubscription and
+    // Reply rows (created by app logic on real replies); replicate that state
+    await f.db.threadSubscription.create({ data: { userId: author.id, itemId: parent.id } })
+    const replyRow = await f.db.reply.create({
+      data: { ancestorId: parent.id, ancestorUserId: author.id, itemId: reply.id, userId: replier.id, level: 1 }
+    })
+    f.created.replies.push(replyRow.id)
+    const pin = await f.db.pin.create({ data: { position: 0 } })
+    f.created.pins.push(pin.id)
+    await f.db.item.update({ where: { id: reply.id }, data: { pinId: pin.id } })
+    const notifCtx = {
+      me: author,
+      models: f.db,
+      userLoader: { load: async () => ({ nsfwMode: false, postsPiconerosFilter: FILTERED, commentsPiconerosFilter: FILTERED }) }
+    }
+    const pinned = await notifications.Query.notifications(null, {}, notifCtx)
+    expect(pinned.notifications.map(n => n.id)).toContain(String(reply.id))
+    // negative control: the filter itself still governs notifications — unpin
+    // and the same below-filter reply vanishes from the bell
+    await f.db.item.update({ where: { id: reply.id }, data: { pinId: null } })
+    const unpinned = await notifications.Query.notifications(null, {}, notifCtx)
+    expect(unpinned.notifications.map(n => n.id)).not.toContain(String(reply.id))
+  })
+
+  test('pins are not injected into desperados', async () => {
+    const owner = await f.user()
+    const a = await f.sub(owner, 'dex')
+    const item = await seedPost(owner, [a])
+    // well above the filter: the exemption must not pull it below-threshold feed in
+    await f.db.item.update({ where: { id: item.id }, data: { netInvestment: 2000000000n } })
+    await setTurfPin({ id: item.id, subName: a.name, pinned: true }, { me: owner, models: f.db })
+    const viewer = await f.user()
+    const desperados = await itemResolvers.Query.items(
+      null,
+      { sort: 'lit', type: 'desperados', limit: 21 },
+      filteredCtx(viewer)
+    )
+    expect(desperados.items.map(i => i.id)).not.toContain(item.id)
   })
 })
