@@ -127,24 +127,6 @@ export async function commentQuotaFor (prisma, user) {
   return { base: quota, baseLeft, credits, quota, left, nextExpiresAt, freeNow: left > 0 && !freeReplyCooldownEndsAt(u, config) }
 }
 
-// Per-request memo for the GraphQL UserPrivates resolvers: freeCommentsLeft,
-// freeCommentsQuota and freeReplyAvailable all resolve off the same parent
-// object within one request (and `me` polls), so they share one computation
-// instead of each re-running the credit/reservation queries. Keyed by the
-// parent object, so it never outlives the request. Not for payIn/tx paths,
-// which must read fresh state under their locks.
-const commentQuotaMemo = new WeakMap()
-export function commentQuotaForResolver (models, user) {
-  if (!user || typeof user !== 'object') return commentQuotaFor(models, user)
-  let pending = commentQuotaMemo.get(user)
-  if (!pending) {
-    pending = commentQuotaFor(models, user)
-    commentQuotaMemo.set(user, pending)
-    pending.catch(() => commentQuotaMemo.delete(user))
-  }
-  return pending
-}
-
 /** Unconsumed, unexpired banked REPLY rewards for a user. */
 export async function bankedReplyCredits (prisma, userId) {
   const [row] = await prisma.$queryRaw`
@@ -253,19 +235,19 @@ export const POSTING_FEE_NO_FEE = {
   freePostsLeft: 0,
   freePostCount: 0,
   freePostsQuota: 0,
-  freeCommentsQuota: 0,
   freePostCredits: 0,
   freePostCreditsExpireAt: null
 }
 
-export async function postingFeePrivatesFor (models, user, viewerId) {
+// `postQuota` lets the GraphQL resolvers share one per-request post-quota
+// computation with the freePosts* fields (api/resolvers/user.js requestMemo).
+export async function postingFeePrivatesFor (models, user, viewerId, { postQuota: postQuotaOf } = {}) {
   if (!viewerId || viewerId !== user.id) {
     return { ...POSTING_FEE_NO_FEE }
   }
   const config = await getCachedPlatformFeeConfig(models)
   if (!config) return { ...POSTING_FEE_NO_FEE }
-  const postQuota = await postQuotaFor(models, user, config)
-  const commentQuota = await commentQuotaFor(models, user)
+  const postQuota = postQuotaOf ? await postQuotaOf() : await postQuotaFor(models, user, config)
   const postsLeft = postQuota.left
   const frontend = {
     freePostThresholdPiconeros: config.freePostThresholdPiconeros,
@@ -273,7 +255,6 @@ export async function postingFeePrivatesFor (models, user, viewerId) {
     freePostsLeft: postsLeft,
     freePostCount: user.freePostCount || 0,
     freePostsQuota: postQuota.baseQuota,
-    freeCommentsQuota: commentQuota.quota,
     freePostCredits: postQuota.credits,
     freePostCreditsExpireAt: postQuota.nextExpiresAt
   }

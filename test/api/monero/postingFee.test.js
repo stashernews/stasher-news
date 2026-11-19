@@ -55,7 +55,6 @@ describe('postingFeePrivatesFor', () => {
       freePostsLeft: 1,
       freePostCount: 0,
       freePostsQuota: 1,
-      freeCommentsQuota: 1,
       freePostCredits: 0,
       freePostCreditsExpireAt: null
     })
@@ -89,7 +88,6 @@ describe('postingFeePrivatesFor', () => {
       freePostsLeft: 1,
       freePostCount: 0,
       freePostsQuota: 1,
-      freeCommentsQuota: 1,
       freePostCredits: 0,
       freePostCreditsExpireAt: null
     })
@@ -114,7 +112,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       8
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
   })
 
   test('a logged-out viewer never sees fee info', async () => {
@@ -123,7 +121,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       null
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
   })
 
   test('missing config reports no fee', async () => {
@@ -133,7 +131,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       7
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
   })
 
   // Turf repost (2026-09-24): a repost (turf addition via pay('ITEM_UPDATE'))

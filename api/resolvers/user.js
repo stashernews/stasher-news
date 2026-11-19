@@ -2,7 +2,7 @@ import { readFile } from 'fs/promises'
 import { sqlValueBinder } from '@/lib/sql-parameters'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
-import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentQuotaForResolver, postQuotaFor, bankedReplyCredits } from '@/api/monero/postingFee'
+import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentQuotaFor, postQuotaFor, bankedReplyCredits } from '@/api/monero/postingFee'
 import { flamePosition } from '@/lib/quests'
 import { questDay, questResetsAt } from '@/lib/questClock'
 import { resolveDraw } from '@/api/quests/draw'
@@ -1084,28 +1084,28 @@ export default {
       }
       return user.freeCommentCount || 0
     },
-    freeCommentsLeft: async (user, args, { models }) =>
-      (await commentQuotaForResolver(models, user)).left,
-    freeCommentsQuota: async (user, args, { models }) =>
-      (await commentQuotaForResolver(models, user)).quota,
+    freeCommentsLeft: async (user, args, ctx) =>
+      (await commentQuotaOf(user, ctx)).left,
+    freeCommentsQuota: async (user, args, ctx) =>
+      (await commentQuotaOf(user, ctx)).quota,
     // Whether the NEXT reply is free: a unit left and no free-reply cooldown
     // running. A boolean on purpose — the cooldown end time is never exposed.
-    freeReplyAvailable: async (user, args, { models }) =>
-      (await commentQuotaForResolver(models, user)).freeNow,
+    freeReplyAvailable: async (user, args, ctx) =>
+      (await commentQuotaOf(user, ctx)).freeNow,
     freeReplyCredits: async (user, args, { models }) =>
       (await bankedReplyCredits(models, user.id)).credits,
-    questUpvoteComplete: async (user, args, { models }) =>
-      (await questStateFor(models, user)).upvoteComplete,
-    questDrawnType: async (user, args, { models }) =>
-      (await questStateFor(models, user)).drawnType,
-    questDrawnComplete: async (user, args, { models }) =>
-      (await questStateFor(models, user)).drawnComplete,
-    questsCompletedToday: async (user, args, { models }) =>
-      (await questStateFor(models, user)).questsCompleted,
-    flameCycleDay: async (user, args, { models }) =>
-      user.streak == null ? 0 : flamePosition(user.streak, (await questStateFor(models, user)).questsCompleted === 2).day,
-    flameWeek: async (user, args, { models }) =>
-      user.streak == null ? 0 : flamePosition(user.streak, (await questStateFor(models, user)).questsCompleted === 2).week,
+    questUpvoteComplete: async (user, args, ctx) =>
+      (await questStateOf(user, ctx)).upvoteComplete,
+    questDrawnType: async (user, args, ctx) =>
+      (await questStateOf(user, ctx)).drawnType,
+    questDrawnComplete: async (user, args, ctx) =>
+      (await questStateOf(user, ctx)).drawnComplete,
+    questsCompletedToday: async (user, args, ctx) =>
+      (await questStateOf(user, ctx)).questsCompleted,
+    flameCycleDay: async (user, args, ctx) =>
+      user.streak == null ? 0 : flamePosition(user.streak, (await questStateOf(user, ctx)).questsCompleted === 2).day,
+    flameWeek: async (user, args, ctx) =>
+      user.streak == null ? 0 : flamePosition(user.streak, (await questStateOf(user, ctx)).questsCompleted === 2).week,
     goldFlame: async (user, args, ctx) => (await activeFlame(ctx, user.id))?.goldActive ?? false,
     flameTier: async (user, args, ctx) => (await activeFlame(ctx, user.id))?.flameTier ?? null,
     turfDiscountHeld: async (user, args, { models }) => heldReward(models, user.id, 'TURF_DISCOUNT'),
@@ -1132,32 +1132,32 @@ export default {
       }
       return user.freePostCount || 0
     },
-    freePostsLeft: async (user, args, { models }) =>
-      (await postQuotaFor(models, user)).left,
-    freePostsQuota: async (user, args, { models }) =>
-      (await postQuotaFor(models, user)).baseQuota,
-    freePostCredits: async (user, args, { models }) =>
-      (await postQuotaFor(models, user)).credits,
-    freePostCreditsExpireAt: async (user, args, { models }) =>
-      (await postQuotaFor(models, user)).nextExpiresAt,
-    postingFeeRequired: async (user, args, { models, me }) =>
-      (await postingFeePrivatesFor(models, user, me?.id)).postingFeeRequired,
-    postingFeePiconeros: async (user, args, { models, me }) =>
-      (await postingFeePrivatesFor(models, user, me?.id)).postingFeePiconeros,
-    postingFeeFloorPiconeros: async (user, args, { models, me }) =>
-      (await postingFeePrivatesFor(models, user, me?.id)).postingFeeFloorPiconeros,
-    freePostThresholdPiconeros: async (user, args, { models, me }) =>
-      (await postingFeePrivatesFor(models, user, me?.id)).freePostThresholdPiconeros,
-    freePostMinAgeDays: async (user, args, { models, me }) =>
-      (await postingFeePrivatesFor(models, user, me?.id)).freePostMinAgeDays,
-    territoryMonthlyPiconeros: async (user, args, { models, me }) =>
-      (await territoryFeePrivatesFor(models, me?.id)).territoryMonthlyPiconeros,
-    territoryYearlyPiconeros: async (user, args, { models, me }) =>
-      (await territoryFeePrivatesFor(models, me?.id)).territoryYearlyPiconeros,
-    territoryOncePiconeros: async (user, args, { models, me }) =>
-      (await territoryFeePrivatesFor(models, me?.id)).territoryOncePiconeros,
-    commentFeePiconeros: async (user, args, { models, me }) =>
-      (await territoryFeePrivatesFor(models, me?.id)).commentFeePiconeros,
+    freePostsLeft: async (user, args, ctx) =>
+      (await postQuotaOf(user, ctx)).left,
+    freePostsQuota: async (user, args, ctx) =>
+      (await postQuotaOf(user, ctx)).baseQuota,
+    freePostCredits: async (user, args, ctx) =>
+      (await postQuotaOf(user, ctx)).credits,
+    freePostCreditsExpireAt: async (user, args, ctx) =>
+      (await postQuotaOf(user, ctx)).nextExpiresAt,
+    postingFeeRequired: async (user, args, ctx) =>
+      (await postingFeeOf(user, ctx)).postingFeeRequired,
+    postingFeePiconeros: async (user, args, ctx) =>
+      (await postingFeeOf(user, ctx)).postingFeePiconeros,
+    postingFeeFloorPiconeros: async (user, args, ctx) =>
+      (await postingFeeOf(user, ctx)).postingFeeFloorPiconeros,
+    freePostThresholdPiconeros: async (user, args, ctx) =>
+      (await postingFeeOf(user, ctx)).freePostThresholdPiconeros,
+    freePostMinAgeDays: async (user, args, ctx) =>
+      (await postingFeeOf(user, ctx)).freePostMinAgeDays,
+    territoryMonthlyPiconeros: async (user, args, ctx) =>
+      (await territoryFeeOf(user, ctx)).territoryMonthlyPiconeros,
+    territoryYearlyPiconeros: async (user, args, ctx) =>
+      (await territoryFeeOf(user, ctx)).territoryYearlyPiconeros,
+    territoryOncePiconeros: async (user, args, ctx) =>
+      (await territoryFeeOf(user, ctx)).territoryOncePiconeros,
+    commentFeePiconeros: async (user, args, ctx) =>
+      (await territoryFeeOf(user, ctx)).commentFeePiconeros,
     turfOwnerFees: () => process.env.TURF_OWNER_FEES === '1'
   },
 
@@ -1322,6 +1322,38 @@ export default {
     }
   }
 }
+
+// --- per-request memo for UserPrivates bundles ---
+
+// `me` (polled by every logged-in client) selects several fields off each of
+// these bundles, and GraphQL resolves every field on its own, so without a
+// memo each field recomputed its bundle's queries (5 posting-fee fields alone
+// ran ~4 queries each). The context object is built fresh per request
+// (pages/api/graphql.js), so entries never outlive the request. A rejected
+// computation is dropped so a later field in the same request retries.
+function requestMemo (ctx, name, userId, compute) {
+  ctx.requestMemo ??= new Map()
+  const key = `${name}:${userId}`
+  let pending = ctx.requestMemo.get(key)
+  if (!pending) {
+    pending = compute()
+    ctx.requestMemo.set(key, pending)
+    pending.catch(() => ctx.requestMemo.delete(key))
+  }
+  return pending
+}
+
+const commentQuotaOf = (user, ctx) =>
+  requestMemo(ctx, 'commentQuota', user.id, () => commentQuotaFor(ctx.models, user))
+const postQuotaOf = (user, ctx) =>
+  requestMemo(ctx, 'postQuota', user.id, () => postQuotaFor(ctx.models, user))
+const postingFeeOf = (user, ctx) =>
+  requestMemo(ctx, 'postingFee', user.id, () =>
+    postingFeePrivatesFor(ctx.models, user, ctx.me?.id, { postQuota: () => postQuotaOf(user, ctx) }))
+const territoryFeeOf = (user, ctx) =>
+  requestMemo(ctx, 'territoryFee', user.id, () => territoryFeePrivatesFor(ctx.models, ctx.me?.id))
+const questStateOf = (user, ctx) =>
+  requestMemo(ctx, 'questState', user.id, () => questStateFor(ctx.models, user))
 
 // --- quest privates helpers ---
 
