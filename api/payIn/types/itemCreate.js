@@ -8,7 +8,7 @@ import { GqlInputError } from '@/lib/error'
 import { moneroUriAmountPiconeros } from '@/lib/format'
 import { getItem } from '@/api/resolvers/item'
 import { getTempImgproxyUrls } from '../lib/upload'
-import { incrementFreeCommentCount, incrementFreePostCount } from '../lib/freebie'
+import { incrementFreeCommentCount, incrementFreePostCount, FREE_REPLY_PRICE_CHANGED } from '../lib/freebie'
 import { postingFeePiconeros, commentQuotaFor, postQuotaFor } from '@/api/monero/postingFee'
 import { resolveOwnerFeeRoute, postFeePiconerosForSubs, postFloorPiconerosForSubs, commentFeePiconerosForSubs, commentFloorPiconerosForSubs } from '@/api/monero/turfFeeRouting'
 import { createOwnerFeeLeg, createPlatformFeeLeg } from '@/api/monero/ownerFeeLeg'
@@ -204,8 +204,10 @@ export async function getInitial (models, args, { me }) {
     const config = await models.platformFeeConfig.findUnique({ where: { id: 1 } })
     if (!config) throw new GqlInputError('fee config not initialized')
     const commenter = await models.user.findUnique({ where: { id: me.id } })
-    const commentsLeft = (await commentQuotaFor(models, commenter)).left
-    if (commentsLeft > 0) {
+    // freeNow: a free reply left AND no free-reply cooldown running. Inside the
+    // cooldown the reply pays the normal (escalated) comment fee even with
+    // free replies banked.
+    if ((await commentQuotaFor(models, commenter)).freeNow) {
       if (uploadFeesPiconeros > 0n) {
         return await uploadFeeLeg(models, { me, uploadFeesPiconeros, beneficiaries })
       }
@@ -297,35 +299,6 @@ export async function getInitial (models, args, { me }) {
   })
 }
 
-export async function validateBeforeCreate (tx, payInProspect, payInArgs, { me }) {
-  if (me.id === USER_ID.anon || payInArgs.bio || (payInArgs.parentId && payInProspect.piconeros === 0n)) {
-    return
-  }
-
-  const recentItems = await tx.item.findMany({
-    where: { userId: me.id },
-    orderBy: { createdAt: 'desc' },
-    take: 3,
-    select: {
-      id: true,
-      itemPayIns: {
-        where: {
-          payIn: {
-            payInType: 'ITEM_CREATE',
-            payInState: 'PAID'
-          }
-        },
-        select: { payInId: true },
-        take: 1
-      }
-    }
-  })
-
-  if (recentItems.length >= 3 && recentItems.every(item => item.itemPayIns.length === 0)) {
-    throw new GqlInputError('you have too many unpaid items')
-  }
-}
-
 export async function onBegin (tx, payInId, args) {
   const { parentId, uploadIds = [], options: pollOptions = [], subNames = [], ...data } = args
   // never persist signed imgproxy preview urls: decode them to their embedded
@@ -372,29 +345,39 @@ export async function onBegin (tx, payInId, args) {
         const quota = parentId
           ? await commentQuotaFor(tx, payer)
           : await postQuotaFor(tx, payer, quotaConfig)
-        feeQuotaEligible = quota.left > 0
-        // Concurrent double-submit guard: this pay-in was priced
-        // upload-fee-ONLY (the quota had a slot at getInitial), but under the
-        // lock the reservation-aware quota has none left — another submission
-        // reserved or spent the unit in between. Throwing rolls back the
-        // unpaid payIn/item; a fresh submit re-prices against the held unit.
-        //
-        // "Priced upload-fee-only" is recognizable from the stored payIn's
-        // full quote alone: getInitial's in-quota branch prices the URI at
-        // exactly the upload fees. A charged URI is item fee + upload fees >
+        // An in-quota creation with uploads is priced at EXACTLY its upload
+        // fees (getInitial's in-quota branch); a charged URI is item fee +
         // upload fees, and an owner-direct leg never carries upload fees
         // (resolveOwnerFeeRoute refuses them) while its item fee is positive,
         // so both fail the amount equality — for legacy subaddress and
         // integrated invoices alike. Owner-free items, bios, and anons never
         // enter the quota block.
-        if (!feeQuotaEligible) {
-          const expected = moneroUriAmountPiconeros(payIn.moneroUri)
-          if (expected != null && expected > 0n) {
-            const { totalFeesPiconeros } = await uploadFees(uploadIds, { models: tx, me: { id: payIn.userId } })
-            if (expected === totalFeesPiconeros) {
-              throw new Error(parentId ? 'no free comments left' : 'no free posts left')
-            }
-          }
+        const expected = moneroUriAmountPiconeros(payIn.moneroUri)
+        const pricedUploadFeeOnly = expected != null && expected > 0n &&
+          expected === (await uploadFees(uploadIds, { models: tx, me: { id: payIn.userId } })).totalFeesPiconeros
+        // Eligible only when priced upload-fee-only AND the quota still has a
+        // unit under the lock (comments also need the cooldown clear). That
+        // covers both races between getInitial (before the payer lock) and
+        // here:
+        // - priced with the full fee, but a unit/cooldown freed up in between:
+        //   the creation is a paid one and must not also hold a free unit,
+        //   spend it at the flip, or restart the clock;
+        // - priced upload-fee-only, but another submission reserved/spent the
+        //   unit (or claimed the cooldown) first: throwing rolls back the
+        //   unpaid payIn/item and a fresh submit re-prices it.
+        feeQuotaEligible = pricedUploadFeeOnly && (parentId ? quota.freeNow : quota.left > 0)
+        if (pricedUploadFeeOnly && !feeQuotaEligible) {
+          // A comment with a unit left was refused by the cooldown, not
+          // exhaustion: say the price changed, not "no free comments left".
+          throw new GqlInputError(parentId
+            ? (quota.left > 0 ? FREE_REPLY_PRICE_CHANGED : 'no free comments left')
+            : 'no free posts left')
+        }
+        // An in-quota upload-fee reply claims its free reply NOW (it holds the
+        // unit from creation), so the free-reply cooldown starts here, not at
+        // the fee flip (consumeQuotaForFlippedItem neither checks nor stamps).
+        if (feeQuotaEligible && parentId) {
+          await tx.user.update({ where: { id: payIn.userId }, data: { lastFreeReplyAt: new Date() } })
         }
       }
     }

@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { canPostFree, postingFeePiconeros, postingFeePrivatesFor, freeCommentsQuota, freePostsQuota, commentsFreeLeft, postsFreeLeft, feeReceivedPiconerosForPayIn, __resetFeeConfigCacheForTests, commentQuotaFor, postQuotaFor, bankedPostCredits, bankedReplyCredits } from '@/api/monero/postingFee'
+import { canPostFree, postingFeePiconeros, postingFeePrivatesFor, freeCommentsQuota, freePostsQuota, commentsFreeLeft, postsFreeLeft, feeReceivedPiconerosForPayIn, __resetFeeConfigCacheForTests, commentQuotaFor, postQuotaFor, bankedPostCredits, bankedReplyCredits, freeReplyCooldownEndsAt } from '@/api/monero/postingFee'
 
 const DAY = 86_400_000
 const CONFIG = { freePostThresholdPiconeros: 10_000_000_000n, freePostMinAgeDays: 7, postingFeeFloorPiconeros: 1_000_000_000n }
@@ -43,7 +43,7 @@ describe('postingFeePrivatesFor', () => {
   test('low-rep self-view with the free post available reports no fee', async () => {
     const result = await postingFeePrivatesFor(
       MODELS,
-      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0 },
+      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0, lastFreeReplyAt: null },
       7
     )
     expect(result).toEqual({
@@ -55,7 +55,6 @@ describe('postingFeePrivatesFor', () => {
       freePostsLeft: 1,
       freePostCount: 0,
       freePostsQuota: 1,
-      freeCommentsQuota: 1,
       freePostCredits: 0,
       freePostCreditsExpireAt: null
     })
@@ -64,7 +63,7 @@ describe('postingFeePrivatesFor', () => {
   test('low-rep self-view with the free post used reports the floor fee', async () => {
     const result = await postingFeePrivatesFor(
       MODELS,
-      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 1, freePostResetAt: null, streak: null, freeCommentCount: 0 },
+      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 1, freePostResetAt: null, streak: null, freeCommentCount: 0, lastFreeReplyAt: null },
       7
     )
     expect(result.postingFeeRequired).toBe(true)
@@ -77,7 +76,7 @@ describe('postingFeePrivatesFor', () => {
     const now = Date.now()
     const result = await postingFeePrivatesFor(
       MODELS,
-      { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0 },
+      { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0, lastFreeReplyAt: null },
       7
     )
     expect(result).toEqual({
@@ -89,7 +88,6 @@ describe('postingFeePrivatesFor', () => {
       freePostsLeft: 1,
       freePostCount: 0,
       freePostsQuota: 1,
-      freeCommentsQuota: 1,
       freePostCredits: 0,
       freePostCreditsExpireAt: null
     })
@@ -99,7 +97,7 @@ describe('postingFeePrivatesFor', () => {
     const now = Date.now()
     const result = await postingFeePrivatesFor(
       MODELS,
-      { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY), freePostCount: 1, freePostResetAt: null, streak: null, freeCommentCount: 0 },
+      { id: 7, stackedPiconeros: 10_000_000_000n, createdAt: new Date(now - 8 * DAY), freePostCount: 1, freePostResetAt: null, streak: null, freeCommentCount: 0, lastFreeReplyAt: null },
       7
     )
     expect(result.postingFeeRequired).toBe(true)
@@ -114,7 +112,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       8
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
   })
 
   test('a logged-out viewer never sees fee info', async () => {
@@ -123,7 +121,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       null
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
   })
 
   test('missing config reports no fee', async () => {
@@ -133,7 +131,7 @@ describe('postingFeePrivatesFor', () => {
       { id: 7, stackedPiconeros: 0n, createdAt: new Date() },
       7
     )
-    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freeCommentsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
+    expect(result).toEqual({ postingFeeRequired: false, postingFeePiconeros: 0n, postingFeeFloorPiconeros: 0n, freePostThresholdPiconeros: 0n, freePostMinAgeDays: 0, freePostsLeft: 0, freePostCount: 0, freePostsQuota: 0, freePostCredits: 0, freePostCreditsExpireAt: null })
   })
 
   // Turf repost (2026-09-24): a repost (turf addition via pay('ITEM_UPDATE'))
@@ -143,7 +141,7 @@ describe('postingFeePrivatesFor', () => {
   test('self-view with free posts left still exposes the live floor', async () => {
     const result = await postingFeePrivatesFor(
       MODELS,
-      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0 },
+      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0, lastFreeReplyAt: null },
       7
     )
     expect(result.postingFeeRequired).toBe(false)
@@ -159,7 +157,7 @@ describe('postingFeePrivatesFor', () => {
     const models = mkPrisma({ reservedPosts: 1 })
     const result = await postingFeePrivatesFor(
       models,
-      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0 },
+      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0, lastFreeReplyAt: null },
       7
     )
     expect(result.freePostsLeft).toBe(0)
@@ -167,7 +165,7 @@ describe('postingFeePrivatesFor', () => {
     // the reservation releases on abandonment: left returns to 1
     const released = await postingFeePrivatesFor(
       mkPrisma({ reservedPosts: 0 }),
-      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0 },
+      { id: 7, stackedPiconeros: 0n, createdAt: new Date(), freePostCount: 0, freePostResetAt: null, streak: null, freeCommentCount: 0, lastFreeReplyAt: null },
       7
     )
     expect(released.freePostsLeft).toBe(1)
@@ -295,24 +293,24 @@ function mkPrisma ({ postCredits = 0, postExpiresAt = null, replyCredits = 0, re
 }
 
 describe('commentQuotaFor / bankedReplyCredits', () => {
-  const fullUser = { id: 5, freeCommentCount: 0, freeCommentResetAt: null, stackedPiconeros: 0n, createdAt: new Date() }
+  const fullUser = { id: 5, freeCommentCount: 0, freeCommentResetAt: null, stackedPiconeros: 0n, createdAt: new Date(), lastFreeReplyAt: null }
 
   test('the flat quota is one base reply, plus banked reply credits when held', async () => {
     const q = await commentQuotaFor(mkPrisma(), { ...fullUser })
-    expect(q).toEqual({ base: 1, baseLeft: 1, credits: 0, quota: 1, left: 1, nextExpiresAt: null })
+    expect(q).toEqual({ base: 1, baseLeft: 1, credits: 0, quota: 1, left: 1, nextExpiresAt: null, freeNow: true })
   })
 
   test('banked reply credits stack on the used base and report the soonest expiry', async () => {
     const soon = new Date(Date.now() + 5 * 86_400_000)
     const q = await commentQuotaFor(mkPrisma({ replyCredits: 2, replyExpiresAt: soon }), { ...fullUser, freeCommentCount: 1 })
-    expect(q).toEqual({ base: 1, baseLeft: 0, credits: 2, quota: 1, left: 2, nextExpiresAt: soon })
+    expect(q).toEqual({ base: 1, baseLeft: 0, credits: 2, quota: 1, left: 2, nextExpiresAt: soon, freeNow: true })
   })
 
   test('outstanding PENDING_FEE reservations subtract from left, clamp at zero (comment)', async () => {
     // base exhausted + 2 credits held, but 3 pending upload-fee replies already
     // reserved units: left clamps at 0 (never negative).
     const q = await commentQuotaFor(mkPrisma({ replyCredits: 2, reservedComments: 3 }), { ...fullUser, freeCommentCount: 1 })
-    expect(q).toEqual({ base: 1, baseLeft: 0, credits: 2, quota: 1, left: 0, nextExpiresAt: null })
+    expect(q).toEqual({ base: 1, baseLeft: 0, credits: 2, quota: 1, left: 0, nextExpiresAt: null, freeNow: false })
     // partial clamping: 1 base + 2 credits - 1 reserved = 2 still spendable
     const partial = await commentQuotaFor(mkPrisma({ replyCredits: 2, reservedComments: 1 }), { ...fullUser })
     expect(partial.left).toBe(2)
@@ -333,7 +331,7 @@ describe('commentQuotaFor / bankedReplyCredits', () => {
   test('an out-of-quota base with reservations still clamps left at zero', async () => {
     // over-quota author (baseLeft 0), no credits, 1 outstanding reservation
     const q = await commentQuotaFor(mkPrisma({ reservedComments: 1 }), { ...fullUser, freeCommentCount: 5 })
-    expect(q).toEqual({ base: 1, baseLeft: 0, credits: 0, quota: 1, left: 0, nextExpiresAt: null })
+    expect(q).toEqual({ base: 1, baseLeft: 0, credits: 0, quota: 1, left: 0, nextExpiresAt: null, freeNow: false })
   })
 
   test('bankedReplyCredits returns the aggregated row as-is', async () => {
@@ -367,19 +365,19 @@ describe('commentQuotaFor / bankedReplyCredits', () => {
   })
 
   test('missing config or missing user returns zeroes', async () => {
-    expect(await commentQuotaFor(mkPrisma(), null)).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null })
+    expect(await commentQuotaFor(mkPrisma(), null)).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null, freeNow: false })
     const noConfig = mkPrisma(); noConfig.platformFeeConfig.findUnique = async () => null
-    expect(await commentQuotaFor(noConfig, { ...fullUser })).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null })
+    expect(await commentQuotaFor(noConfig, { ...fullUser })).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null, freeNow: false })
   })
 
   test('null/empty user paths never issue a reservation count', async () => {
     // null user: returns zeroes before any aggregate runs
     const prisma = mkPrisma()
-    expect(await commentQuotaFor(prisma, null)).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null })
+    expect(await commentQuotaFor(prisma, null)).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null, freeNow: false })
     expect(prisma.$queryRaw).not.toHaveBeenCalled()
     // missing config: same short-circuit, still no aggregate
     const noConfig = mkPrisma(); noConfig.platformFeeConfig.findUnique = async () => null
-    expect(await commentQuotaFor(noConfig, { ...fullUser })).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null })
+    expect(await commentQuotaFor(noConfig, { ...fullUser })).toEqual({ base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null, freeNow: false })
     expect(noConfig.$queryRaw).not.toHaveBeenCalled()
   })
 })
@@ -417,4 +415,12 @@ describe('postQuotaFor / bankedPostCredits', () => {
     // end note; the `expiresAt > now_utc()` filter stays as a reviewed constant
     // in bankedPostCredits' SQL.
   })
+})
+
+test('freeReplyCooldownEndsAt: off at 0, over exactly at the end time', () => {
+  const now = new Date('2026-11-18T12:00:00Z')
+  const ago = min => ({ lastFreeReplyAt: new Date(now.getTime() - min * 60_000) })
+  expect(freeReplyCooldownEndsAt(ago(5), { freeReplyCooldownMinutes: 0 }, now)).toBeNull()
+  expect(freeReplyCooldownEndsAt(ago(5), { freeReplyCooldownMinutes: 60 }, now)).toEqual(new Date(now.getTime() + 55 * 60_000))
+  expect(freeReplyCooldownEndsAt(ago(60), { freeReplyCooldownMinutes: 60 }, now)).toBeNull()
 })

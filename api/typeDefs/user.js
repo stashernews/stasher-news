@@ -135,6 +135,7 @@ export default gql`
     authMethods: AuthMethods!
     freeCommentCount: Int!
     freeCommentsLeft: Int!
+    freeReplyAvailable: Boolean!
     freeCommentsQuota: Int!
     freeReplyCredits: Int!
     questUpvoteComplete: Boolean!

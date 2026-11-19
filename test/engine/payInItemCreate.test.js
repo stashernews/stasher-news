@@ -19,12 +19,15 @@
 
 import { expectPlatformFeeLeg } from '../../test/helpers/platformFeeRecipient'
 import { PrismaClient } from '@prisma/client'
+import { GraphQLError } from 'graphql'
 import pay from '@/api/payIn/index'
 import { onPaid, getInitial } from '@/api/payIn/types/itemCreate'
 import { performBotBehavior, countNonOwnedSubs } from '@/api/payIn/lib/item'
 import { flipPendingToLive } from '@/worker/rewardsWalletObserver'
 import { USER_ID } from '@/lib/constants'
 import { moneroUriAmountPiconeros } from '@/lib/format'
+import { clearSiteSettingsCache } from '@/lib/siteSettings'
+import { FREE_REPLY_PRICE_CHANGED } from '@/api/payIn/lib/freebie'
 
 // Fee legs register an lws webhook at issuance; never reach the real lws.
 jest.mock('../../api/monero/lwsClient', () => ({
@@ -1033,6 +1036,209 @@ describe('reply quota — stale prospects cannot double-spend a banked REPLY cre
       expect(user.freeCommentCount).toBe(1)
     } finally {
       await holder.$disconnect()
+    }
+  })
+})
+
+// --- free-reply cooldown (SiteSettings.freeReplyCooldownMinutes) ---
+// At most one free reply per window: inside it a reply pays the comment fee
+// even with free replies banked. The clock starts when a free reply is claimed
+// at creation (users.lastFreeReplyAt). Real-DB: the stamp, the pricing and the
+// under-lock refusal must agree across getInitial -> begin -> onPaid.
+describe('free-reply cooldown', () => {
+  const COOLDOWN = 60
+  async function setCooldown (minutes) {
+    await prisma.$executeRaw`UPDATE "SiteSettings" SET "freeReplyCooldownMinutes" = ${minutes}::int WHERE id = 1`
+    clearSiteSettingsCache()
+  }
+  beforeAll(() => setCooldown(COOLDOWN))
+  afterAll(() => setCooldown(0))
+
+  async function replyViaPay (userId, args) {
+    const result = await pay('ITEM_CREATE', { userId, text: 'cooldown reply', ...args }, { me: { id: userId } })
+    created.payIns.push(result.id)
+    const itemPayIn = await prisma.itemPayIn.findFirst({ where: { payInId: result.id } })
+    const item = await prisma.item.findUnique({ where: { id: itemPayIn.itemId } })
+    created.items.push(item.id)
+    return { result, item }
+  }
+  async function bankReplies (userId, n) {
+    for (let i = 0; i < n; i++) {
+      await prisma.$executeRaw`INSERT INTO "StreakReward" ("userId", "grantedAt", "expiresAt", "type") VALUES (${userId}::int, now_utc(), now_utc() + interval '20 days', 'REPLY')`
+    }
+  }
+  const lastFreeReplyAt = async userId => (await prisma.user.findUnique({ where: { id: userId } })).lastFreeReplyAt
+  afterAll(async () => {
+    await prisma.streakReward.deleteMany({ where: { userId: { in: created.users } } }).catch(() => {})
+  })
+
+  test('a free reply starts the cooldown; a paid reply inside it spends nothing and does not restart it; free again after it', async () => {
+    const authorId = await createUser()
+    const userId = await createUser()
+    await ensureFeeConfig()
+    await bankReplies(userId, 2)
+
+    const { item } = await replyViaPay(userId, { parentId: String(await createRootPost(authorId)) })
+    expect(item.freebie).toBe(true)
+    const stamped = await lastFreeReplyAt(userId)
+    expect(stamped).toBeInstanceOf(Date)
+
+    // inside the cooldown: charged the comment fee with replies still banked
+    const paid = await replyViaPay(userId, { parentId: String(await createRootPost(authorId)) })
+    expect(paid.item.feeStatus).toBe('PENDING_FEE')
+    expect(paid.item.feeQuotaEligible).toBe(false)
+    expect(await lastFreeReplyAt(userId)).toEqual(stamped)
+    expect(await prisma.streakReward.count({ where: { userId, consumedAt: { not: null } } })).toBe(0)
+
+    // an hour later: free again
+    await prisma.$executeRaw`UPDATE users SET "lastFreeReplyAt" = now() - interval '61 minutes' WHERE id = ${userId}::int`
+    const free = await getInitial(prisma, { parentId: String(await createRootPost(authorId)) }, { me: { id: userId } })
+    expect(free).toEqual({ payInType: 'ITEM_CREATE', userId, piconeros: 0n })
+  })
+
+  // Hold the payer row lock while `run` starts pay() calls, so they all price
+  // (getInitial) before any of them reaches begin(). `whileLocked` runs inside
+  // the lock holder's transaction before it releases.
+  async function underPayerLock (userId, run, whileLocked = async () => {}) {
+    const holder = new PrismaClient()
+    let locked, release
+    const lockedP = new Promise(resolve => { locked = resolve })
+    const releaseP = new Promise(resolve => { release = resolve })
+    const holding = holder.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::int FOR NO KEY UPDATE`
+      locked()
+      await releaseP
+      await whileLocked(tx)
+    }, { timeout: 15000 })
+    try {
+      await lockedP
+      const promises = run()
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      release()
+      await holding
+      return await Promise.allSettled(promises)
+    } finally {
+      await holder.$disconnect()
+    }
+  }
+
+  test('an in-quota upload-fee reply claims the cooldown at creation; the next one is charged the comment fee', async () => {
+    const authorId = await createUser()
+    const userId = await createUser()
+    await ensureFeeConfig()
+    await bankReplies(userId, 2)
+    const rootId = await createRootPost(authorId)
+    const { result, item } = await replyViaPay(userId, {
+      parentId: String(rootId),
+      uploadIds: [await createUpload(userId, { size: 11 * 1024 * 1024 })]
+    })
+    expect(item.feeStatus).toBe('PENDING_FEE')
+    expect(item.feeQuotaEligible).toBe(true)
+    expect(moneroUriAmountPiconeros(result.moneroUri)).toBe(1_000_000_000n) // upload fee only
+    expect(await lastFreeReplyAt(userId)).toBeInstanceOf(Date)
+
+    const next = await replyViaPay(userId, {
+      parentId: String(await createRootPost(authorId)),
+      uploadIds: [await createUpload(userId, { size: 11 * 1024 * 1024 })]
+    })
+    expect(next.item.feeQuotaEligible).toBe(false)
+    expect(moneroUriAmountPiconeros(next.result.moneroUri)).toBeGreaterThan(1_000_000_000n) // comment fee + upload fee
+  })
+
+  test('two concurrent free replies: one commits free, the other is refused with the price-changed error', async () => {
+    const authorId = await createUser()
+    const userId = await createUser()
+    await ensureFeeConfig()
+    await bankReplies(userId, 2)
+    const rootId = await createRootPost(authorId)
+
+    const results = await underPayerLock(userId, () => [1, 2].map(i =>
+      pay('ITEM_CREATE', { userId, parentId: String(rootId), text: `cooldown race ${i}` }, { me: { id: userId } })))
+    const replies = await prisma.item.findMany({ where: { userId, parentId: rootId } })
+    for (const reply of replies) created.items.push(reply.id)
+    const fulfilled = results.filter(r => r.status === 'fulfilled')
+    const rejected = results.filter(r => r.status === 'rejected')
+    for (const r of fulfilled) created.payIns.push(r.value.id)
+
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(String(rejected[0].reason.message)).toContain(FREE_REPLY_PRICE_CHANGED)
+    // an input error, so production shows the message instead of masking it
+    expect(rejected[0].reason).toBeInstanceOf(GraphQLError)
+    expect(replies).toHaveLength(1)
+    expect(replies[0].freebie).toBe(true)
+    // one unit spent: the weekly base; both banked credits survive
+    expect(await prisma.streakReward.count({ where: { userId, consumedAt: null } })).toBe(2)
+  })
+
+  test('a reply priced with the full fee stays paid when the cooldown ends before the lock', async () => {
+    const authorId = await createUser()
+    const userId = await createUser()
+    await ensureFeeConfig()
+    await bankReplies(userId, 2)
+    await replyViaPay(userId, { parentId: String(await createRootPost(authorId)) })
+    const consumedBefore = await prisma.streakReward.count({ where: { userId, consumedAt: { not: null } } })
+    const backdated = new Date(Date.now() - 61 * 60_000)
+
+    const rootId = await createRootPost(authorId)
+    const uploadId = await createUpload(userId, { size: 11 * 1024 * 1024 })
+    const [settled] = await underPayerLock(userId,
+      // priced inside the cooldown: comment fee + upload fee
+      () => [pay('ITEM_CREATE', { userId, parentId: String(rootId), text: 'reverse race', uploadIds: [uploadId] }, { me: { id: userId } })],
+      // ...then the cooldown ends before the reply takes the lock
+      tx => tx.$executeRaw`UPDATE users SET "lastFreeReplyAt" = ${backdated} WHERE id = ${userId}::int`)
+    expect(settled.status).toBe('fulfilled')
+    created.payIns.push(settled.value.id)
+    const itemPayIn = await prisma.itemPayIn.findFirst({ where: { payInId: settled.value.id } })
+    const item = await prisma.item.findUnique({ where: { id: itemPayIn.itemId } })
+    created.items.push(item.id)
+
+    expect(moneroUriAmountPiconeros(settled.value.moneroUri)).toBeGreaterThan(1_000_000_000n)
+    expect(item.feeStatus).toBe('PENDING_FEE')
+    expect(item.feeQuotaEligible).toBe(false) // holds no free unit
+    expect(await lastFreeReplyAt(userId)).toEqual(backdated) // clock not restarted
+    expect(await prisma.streakReward.count({ where: { userId, consumedAt: { not: null } } })).toBe(consumedBefore)
+  })
+
+  test('two concurrent upload-fee replies: one holds the free unit, the other is refused with the price-changed error', async () => {
+    const authorId = await createUser()
+    const userId = await createUser()
+    await ensureFeeConfig()
+    await bankReplies(userId, 2)
+    const rootId = await createRootPost(authorId)
+    const uploads = [await createUpload(userId, { size: 11 * 1024 * 1024 }), await createUpload(userId, { size: 11 * 1024 * 1024 })]
+
+    const results = await underPayerLock(userId, () => uploads.map((uploadId, i) =>
+      pay('ITEM_CREATE', { userId, parentId: String(rootId), text: `upload race ${i}`, uploadIds: [uploadId] }, { me: { id: userId } })))
+    const replies = await prisma.item.findMany({ where: { userId, parentId: rootId } })
+    for (const reply of replies) created.items.push(reply.id)
+    const fulfilled = results.filter(r => r.status === 'fulfilled')
+    const rejected = results.filter(r => r.status === 'rejected')
+    for (const r of fulfilled) created.payIns.push(r.value.id)
+
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(String(rejected[0].reason.message)).toContain(FREE_REPLY_PRICE_CHANGED)
+    expect(rejected[0].reason).toBeInstanceOf(GraphQLError)
+    expect(replies).toHaveLength(1)
+    expect(replies[0].feeQuotaEligible).toBe(true)
+    expect(moneroUriAmountPiconeros(fulfilled[0].value.moneroUri)).toBe(1_000_000_000n) // upload fee only
+  })
+
+  test('with the cooldown off, back-to-back free replies stay free and still stamp', async () => {
+    await setCooldown(0)
+    try {
+      const authorId = await createUser()
+      const userId = await createUser()
+      await ensureFeeConfig()
+      await bankReplies(userId, 1)
+      const first = await replyViaPay(userId, { parentId: String(await createRootPost(authorId)) })
+      const second = await replyViaPay(userId, { parentId: String(await createRootPost(authorId)) })
+      expect(first.item.freebie).toBe(true)
+      expect(second.item.freebie).toBe(true)
+      expect(await lastFreeReplyAt(userId)).toBeInstanceOf(Date)
+    } finally {
+      await setCooldown(COOLDOWN)
     }
   })
 })

@@ -1,9 +1,10 @@
 import { USER_ID } from '@/lib/constants'
-import { freeCommentsQuota, freePostsQuota } from '@/api/monero/postingFee'
+import { freeCommentsQuota, freePostsQuota, freeReplyCooldownEndsAt } from '@/api/monero/postingFee'
 import { lockRewardUser } from '@/api/quests/boost-credit'
 import { Prisma } from '@prisma/client'
 import { nextUtcWeekStart } from '@/lib/utcWeek'
 import { getSiteSettings } from '@/lib/siteSettings'
+import { GqlInputError } from '@/lib/error'
 
 // Get the first day of next month at midnight UTC
 export function getNextMonthStart () {
@@ -19,6 +20,16 @@ export function getNextWeekStart () {
   return nextUtcWeekStart()
 }
 
+// Thrown when a reply priced free (before the payer lock) lands inside the
+// free-reply cooldown once re-checked under the lock: a concurrent free reply
+// claimed the window first, or an admin enabled/raised the cooldown within the
+// settings-cache TTL. The user still has banked replies, so 'no free comments
+// left' would mislead; begin() rolls the unpaid free creation back and a fresh
+// submit re-prices it with the reply fee. The quota refusals are input errors
+// (GqlInputError) so production shows their message instead of masking them
+// as an internal error.
+export const FREE_REPLY_PRICE_CHANGED = 'the price of your reply changed, please submit again'
+
 /**
  * Spend one unit of the free-comment quota for a user, base-first: a live
  * weekly window increments the base counter; once the base is exhausted a
@@ -33,13 +44,25 @@ export function getNextWeekStart () {
  * BEFORE payIn's payer lock. The optimistic where-guards below are kept as
  * belt and braces, mirroring the pre-existing base-increment guard.
  *
+ * `claim` (creation path only) applies the free-reply cooldown: refuse a spend
+ * inside it (FREE_REPLY_PRICE_CHANGED) and stamp lastFreeReplyAt, which starts
+ * the next cooldown. The stamp is written even while the cooldown is off (0),
+ * so enabling it takes effect immediately. The fee-flip path passes
+ * claim=false: an upload-fee reply claimed its window at creation (onBegin),
+ * and the already-paid flip must never be refused or restart the clock.
+ *
  * @param {Object} tx - Prisma transaction
- * @param {Object} params - { user, userId, itemId, config }
+ * @param {Object} params - { user, userId, itemId, config, claim }
  */
-async function spendCommentQuota (tx, { user, userId, itemId, config = null }) {
-  const quota = freeCommentsQuota(user, await getSiteSettings(tx))
+async function spendCommentQuota (tx, { user, userId, itemId, config = null, claim = false }) {
+  const settings = await getSiteSettings(tx)
+  const quota = freeCommentsQuota(user, settings)
   const now = new Date()
   const needsReset = user.freeCommentResetAt && now >= new Date(user.freeCommentResetAt)
+  if (claim && freeReplyCooldownEndsAt(user, settings, now)) {
+    throw new GqlInputError(FREE_REPLY_PRICE_CHANGED)
+  }
+  const stamp = claim ? { lastFreeReplyAt: now } : {}
 
   if (quota > 0 && (needsReset || !user.freeCommentResetAt)) {
     await tx.user.update({
@@ -49,7 +72,8 @@ async function spendCommentQuota (tx, { user, userId, itemId, config = null }) {
       },
       data: {
         freeCommentCount: 1,
-        freeCommentResetAt: getNextWeekStart()
+        freeCommentResetAt: getNextWeekStart(),
+        ...stamp
       }
     })
   } else if ((user.freeCommentCount || 0) >= quota) {
@@ -59,7 +83,8 @@ async function spendCommentQuota (tx, { user, userId, itemId, config = null }) {
     // that expired in flight): fail closed so the caller rolls the unpaid
     // free creation back instead of committing it for free.
     const consumed = await consumeStreakReward(tx, userId, 'REPLY', itemId ?? null)
-    if (!consumed) throw new Error('no free comments left')
+    if (!consumed) throw new GqlInputError('no free comments left')
+    if (claim) await tx.user.update({ where: { id: userId }, data: stamp })
   } else {
     await tx.user.update({
       where: {
@@ -67,7 +92,8 @@ async function spendCommentQuota (tx, { user, userId, itemId, config = null }) {
         freeCommentCount: { lt: quota }
       },
       data: {
-        freeCommentCount: { increment: 1 }
+        freeCommentCount: { increment: 1 },
+        ...stamp
       }
     })
   }
@@ -81,6 +107,8 @@ async function spendCommentQuota (tx, { user, userId, itemId, config = null }) {
  * Base-first: once the weekly base is exhausted, a banked REPLY credit is
  * consumed instead (soonest-expiring first), and exhaustion fails CLOSED
  * ('no free comments left') so begin() rolls the unpaid creation back.
+ * Claims the free-reply cooldown: a spend inside it fails CLOSED the same way
+ * (FREE_REPLY_PRICE_CHANGED), and a successful spend stamps lastFreeReplyAt.
  * Self-contained: fetches user + config inside the tx.
  * @param {Object} tx - Prisma transaction
  * @param {Object} params - { item, userId }
@@ -97,14 +125,14 @@ export async function incrementFreeCommentCount (tx, { item, userId }) {
     // Optimistic updates prevent races between the freebie check (outside this tx).
     // If another concurrent freebie snuck in reaching/resetting the limit, this
     // prevents this freebie from being created.
-    await spendCommentQuota(tx, { user, userId, itemId: item.id ?? null, config })
+    await spendCommentQuota(tx, { user, userId, itemId: item.id ?? null, config, claim: true })
   } catch (error) {
-    if (error?.message === 'no free comments left') {
-      // expected exhaustion — not an unexpected failure
+    if (error?.message === 'no free comments left' || error?.message === FREE_REPLY_PRICE_CHANGED) {
+      // expected exhaustion / cooldown — not an unexpected failure
       throw error
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2025', 'P2034'].includes(error.code)) {
-      throw new Error('no free comments left')
+      throw new GqlInputError('no free comments left')
     }
 
     console.error('unexpected error', error)
@@ -183,14 +211,14 @@ export async function incrementFreePostCount (tx, { item, userId }) {
       })
     } else {
       const consumed = await consumeStreakReward(tx, userId, 'POST', item.id ?? null)
-      if (!consumed) throw new Error('no free posts left')
+      if (!consumed) throw new GqlInputError('no free posts left')
     }
   } catch (error) {
     if (error?.message === 'no free posts left') {
       throw error
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2025', 'P2034'].includes(error.code)) {
-      throw new Error('no free posts left')
+      throw new GqlInputError('no free posts left')
     }
 
     console.error('unexpected error', error)

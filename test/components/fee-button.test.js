@@ -78,7 +78,7 @@ describe('postCommentBaseLineItems — posts', () => {
 
 describe('postCommentBaseLineItems — comments and bios', () => {
   test('comments within the freebie quota show the free base line', () => {
-    const lines = postCommentBaseLineItems({ comment: true, me: { privates: { freeCommentsLeft: 3 } } })
+    const lines = postCommentBaseLineItems({ comment: true, me: { privates: { freeCommentsLeft: 3, freeReplyAvailable: true } } })
     expect(lines.baseCost.term).toBe(1)
     expect(lines.baseCost.label).toBe('comment')
     expect(lines.baseCost.isComment).toBe(true)
@@ -325,4 +325,12 @@ describe('payableFeeTotal', () => {
     expect(baseCostLine.allowFreebies).toBe(false)
     expect(payableFeeTotal(baseCostLine, 1000000)).toBe(1000000)
   })
+})
+
+test('inside the free-reply cooldown a reply with banked free replies shows the comment fee', () => {
+  const lines = postCommentBaseLineItems({
+    comment: true,
+    me: { privates: { freeCommentsLeft: 3, freeReplyAvailable: false, commentFeePiconeros: 600000000 } }
+  })
+  expect(Object.keys(lines)).toEqual(['commentFee'])
 })

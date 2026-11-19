@@ -54,6 +54,7 @@ model User {
   commentsPiconerosFilter BigInt?              @default(-25000000000)
   freeCommentCount        Int                  @default(0)
   freeCommentResetAt      DateTime?
+  lastFreeReplyAt         DateTime?
   freePostCount           Int                  @default(0)
   freePostResetAt         DateTime?
   nsfwMode                Boolean              @default(false)
@@ -2478,6 +2479,7 @@ model SiteSettings {
   spamEscalationDenominator     Int      @default(2)
   freePostsPerMonth             Int      @default(1)
   freeCommentsPerWeek           Int      @default(1)
+  freeReplyCooldownMinutes      Int      @default(0)
   homepagePostsFilterPiconeros   BigInt   @default(-25000000000)
   defaultPostsFilterPiconeros    BigInt   @default(-25000000000)
   defaultCommentsFilterPiconeros BigInt   @default(-25000000000)
