@@ -11,7 +11,7 @@ jest.mock('../../lib/lexical/server/mentions', () => ({ extractMentions: () => (
 jest.mock('../../lib/lexical/server/html', () => ({ lexicalHTMLGenerator: jest.fn() }))
 
 beforeEach(() => { __resetSiteSettingsForTests(); __resetFeeConfigCacheForTests() })
-const user = { id: 7, freeCommentCount: 1, freePostCount: 1, createdAt: new Date(), stackedPiconeros: 0n }
+const user = { id: 7, freeCommentCount: 1, freePostCount: 1, createdAt: new Date(), stackedPiconeros: 0n, lastFreeReplyAt: null }
 const modelsFor = overrides => ({ siteSettings: { findUnique: async () => ({ ...SITE_SETTINGS_DEFAULTS, ...overrides }) } })
 
 test('pure quota math honors supplied live quotas', () => {

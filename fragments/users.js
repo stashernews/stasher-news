@@ -25,6 +25,7 @@ ${STREAK_FIELDS}
       piconeros
       credits
       freeCommentsLeft
+      freeReplyAvailable
       freeCommentsQuota
       freeReplyCredits
       questUpvoteComplete

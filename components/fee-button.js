@@ -16,6 +16,13 @@ import { SubmitButton } from './form'
 
 const FeeButtonContext = createContext()
 
+// Whether the viewer's next reply is free: a free reply left AND no free-reply
+// cooldown running (server-computed freeReplyAvailable; the cooldown end time
+// is deliberately never sent, so nothing here can show a countdown).
+function freeReplyNow (me) {
+  return !!me?.privates?.freeReplyAvailable
+}
+
 export function postCommentBaseLineItems ({ comment = false, bio = false, me, subs = [], siteSettings }) {
   if (!siteSettings) return {}
   // Anonymous post and reply multipliers come from the server's public settings.
@@ -37,7 +44,7 @@ export function postCommentBaseLineItems ({ comment = false, bio = false, me, su
   if (comment || bio) {
     const nonOwnedSubs = me ? subs.filter(s => Number(s.userId) !== Number(me.id)) : subs
     const ownerFree = subs.length > 0 && nonOwnedSubs.length === 0
-    const freebie = ownerFree || !comment || (me?.privates?.freeCommentsLeft ?? 0) > 0
+    const freebie = ownerFree || !comment || freeReplyNow(me)
     const commentFee = me?.privates?.commentFeePiconeros
       ? BigInt(me.privates.commentFeePiconeros)
       : (me ? 0n : BigInt(siteSettings.commentFeePiconeros))
@@ -184,7 +191,7 @@ export function postCommentUseRemoteLineItems ({ parentId, subs = [] } = {}) {
       // free allowance (1 reply/day, 1 post/month for everyone). Free replies
       // (base 1) and free posts must never be multiplied.
       const feeApplies = multiplier > 0 && (parentId
-        ? (me?.privates?.freeCommentsLeft ?? 0) <= 0
+        ? !freeReplyNow(me)
         : !!me?.privates?.postingFeeRequired)
       if (!repetition || !feeApplies || !siteSettings) return setLine({})
       const factor = siteSettings.spamEscalationNumerator / siteSettings.spamEscalationDenominator
@@ -199,7 +206,7 @@ export function postCommentUseRemoteLineItems ({ parentId, subs = [] } = {}) {
           )
         }
       })
-    }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.postingFeeRequired, multiplier, siteSettings])
+    }, [data?.itemRepetition, me?.privates?.freeCommentsLeft, me?.privates?.freeReplyAvailable, me?.privates?.postingFeeRequired, multiplier, siteSettings])
 
     return line
   }
@@ -289,7 +296,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
     const free = me &&
       total === baseCostLine?.modifier(0) &&
       baseCostLine?.allowFreebies &&
-      (baseCostLine?.ownerFree || !isComment || freeCommentsLeft > 0)
+      (baseCostLine?.ownerFree || !isComment || freeReplyNow(me))
     return {
       lines,
       merge: mergeLineItems,
@@ -303,7 +310,7 @@ export function FeeButtonProvider ({ baseLineItems = DEFAULT_BASE_LINE_ITEMS, us
       freePostsLeft: isComment === false ? freePostsLeft : null,
       freePostCredits: isComment === false ? freePostCredits : null
     }
-  }, [me, me?.privates?.freeCommentsLeft, me?.privates?.freePostsLeft, me?.privates?.freePostCredits, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
+  }, [me, me?.privates?.freeCommentsLeft, me?.privates?.freeReplyAvailable, me?.privates?.freePostsLeft, me?.privates?.freePostCredits, baseLineItems, lineItems, remoteLineItems, mergeLineItems, disabledReasons, setDisabled])
 
   return (
     <FeeButtonContext.Provider value={value}>

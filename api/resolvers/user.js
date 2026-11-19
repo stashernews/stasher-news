@@ -2,7 +2,7 @@ import { readFile } from 'fs/promises'
 import { sqlValueBinder } from '@/lib/sql-parameters'
 import { join, resolve } from 'path'
 import { decodeCursor, LIMIT, nextCursorEncoded } from '@/lib/cursor'
-import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentQuotaFor, postQuotaFor, bankedReplyCredits } from '@/api/monero/postingFee'
+import { postingFeePrivatesFor, getCachedPlatformFeeConfig, canPostFree, commentQuotaForResolver, postQuotaFor, bankedReplyCredits } from '@/api/monero/postingFee'
 import { flamePosition } from '@/lib/quests'
 import { questDay, questResetsAt } from '@/lib/questClock'
 import { resolveDraw } from '@/api/quests/draw'
@@ -1085,9 +1085,13 @@ export default {
       return user.freeCommentCount || 0
     },
     freeCommentsLeft: async (user, args, { models }) =>
-      (await commentQuotaFor(models, user)).left,
+      (await commentQuotaForResolver(models, user)).left,
     freeCommentsQuota: async (user, args, { models }) =>
-      (await commentQuotaFor(models, user)).quota,
+      (await commentQuotaForResolver(models, user)).quota,
+    // Whether the NEXT reply is free: a unit left and no free-reply cooldown
+    // running. A boolean on purpose — the cooldown end time is never exposed.
+    freeReplyAvailable: async (user, args, { models }) =>
+      (await commentQuotaForResolver(models, user)).freeNow,
     freeReplyCredits: async (user, args, { models }) =>
       (await bankedReplyCredits(models, user.id)).credits,
     questUpvoteComplete: async (user, args, { models }) =>

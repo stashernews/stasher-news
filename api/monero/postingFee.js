@@ -73,6 +73,20 @@ export function commentsFreeLeft (user, config) {
   return Math.max(0, quota - (user.freeCommentCount || 0))
 }
 
+/**
+ * When the user's free-reply cooldown ends, or null when no cooldown is
+ * active (setting 0 = off, never claimed a free reply, or the window has
+ * passed). The cooldown starts when a free reply is CLAIMED (lastFreeReplyAt,
+ * stamped at creation); paid replies never touch it. Server-side only: no
+ * end time is ever sent to the client, so the UI cannot show a countdown.
+ */
+export function freeReplyCooldownEndsAt (user, config, now = new Date()) {
+  const minutes = Number(config?.freeReplyCooldownMinutes ?? SITE_SETTINGS_DEFAULTS.freeReplyCooldownMinutes)
+  if (!user?.lastFreeReplyAt || !(minutes > 0)) return null
+  const endsAt = new Date(new Date(user.lastFreeReplyAt).getTime() + minutes * 60_000)
+  return now < endsAt ? endsAt : null
+}
+
 /** How many free posts the user has left this month (1 of the quota until used). */
 export function postsFreeLeft (user, config) {
   if (!user) return 0
@@ -82,32 +96,53 @@ export function postsFreeLeft (user, config) {
   return Math.max(0, freePostsQuota(user, config) - (user.freePostCount || 0))
 }
 
-const EMPTY_COMMENT_QUOTA = { base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null }
+const EMPTY_COMMENT_QUOTA = { base: 0, baseLeft: 0, credits: 0, quota: 0, left: 0, nextExpiresAt: null, freeNow: false }
 const EMPTY_POST_QUOTA = { baseQuota: 0, baseLeft: 0, credits: 0, left: 0, nextExpiresAt: null }
 
 /** Credit-aware comment quota for DB-holding callers (models or tx): the flat
  * weekly base plus unconsumed, unexpired banked REPLY rewards, NET of the
  * user's outstanding reservations (PENDING_FEE upload-fee items already hold a
- * free unit — see pendingQuotaReservations). `left` is what gates free
- * comments. Refetches the user row when quota-relevant columns are absent
- * (partial GraphQL parents), mirroring the hasWallet resolver. */
+ * free unit — see pendingQuotaReservations). `left` is the banked, spendable
+ * count (what "N free replies left" shows); `freeNow` is what gates a free
+ * reply: a unit left AND no free-reply cooldown running.
+ * Refetches the user row when quota-relevant columns are absent (partial
+ * GraphQL parents), mirroring the hasWallet resolver. */
 export async function commentQuotaFor (prisma, user) {
   if (!user) return { ...EMPTY_COMMENT_QUOTA }
   const feeConfig = await getCachedPlatformFeeConfig(prisma)
   if (!feeConfig) return { ...EMPTY_COMMENT_QUOTA }
   const config = { ...feeConfig, ...await getSiteSettings(prisma) }
-  const u = (user.createdAt != null && user.stackedPiconeros != null && user.freeCommentCount !== undefined)
+  const u = (user.createdAt != null && user.stackedPiconeros != null && user.freeCommentCount !== undefined && user.lastFreeReplyAt !== undefined)
     ? user
     : await prisma.user.findUnique({
       where: { id: user.id },
-      select: { id: true, createdAt: true, stackedPiconeros: true, freeCommentCount: true, freeCommentResetAt: true }
+      select: { id: true, createdAt: true, stackedPiconeros: true, freeCommentCount: true, freeCommentResetAt: true, lastFreeReplyAt: true }
     })
   if (!u) return { ...EMPTY_COMMENT_QUOTA }
   const baseLeft = commentsFreeLeft(u, config)
   const { credits, nextExpiresAt } = await bankedReplyCredits(prisma, u.id)
   const reserved = (await pendingQuotaReservations(prisma, u.id)).comments
   const quota = freeCommentsQuota(u, config)
-  return { base: quota, baseLeft, credits, quota, left: Math.max(0, baseLeft + credits - reserved), nextExpiresAt }
+  const left = Math.max(0, baseLeft + credits - reserved)
+  return { base: quota, baseLeft, credits, quota, left, nextExpiresAt, freeNow: left > 0 && !freeReplyCooldownEndsAt(u, config) }
+}
+
+// Per-request memo for the GraphQL UserPrivates resolvers: freeCommentsLeft,
+// freeCommentsQuota and freeReplyAvailable all resolve off the same parent
+// object within one request (and `me` polls), so they share one computation
+// instead of each re-running the credit/reservation queries. Keyed by the
+// parent object, so it never outlives the request. Not for payIn/tx paths,
+// which must read fresh state under their locks.
+const commentQuotaMemo = new WeakMap()
+export function commentQuotaForResolver (models, user) {
+  if (!user || typeof user !== 'object') return commentQuotaFor(models, user)
+  let pending = commentQuotaMemo.get(user)
+  if (!pending) {
+    pending = commentQuotaFor(models, user)
+    commentQuotaMemo.set(user, pending)
+    pending.catch(() => commentQuotaMemo.delete(user))
+  }
+  return pending
 }
 
 /** Unconsumed, unexpired banked REPLY rewards for a user. */

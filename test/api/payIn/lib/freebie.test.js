@@ -2,14 +2,17 @@
 import { Prisma } from '@prisma/client'
 import { incrementFreeCommentCount, incrementFreePostCount, getNextWeekStart, consumeQuotaForFlippedItem, consumeStreakReward } from '@/api/payIn/lib/freebie'
 import { USER_ID } from '@/lib/constants'
+import { SITE_SETTINGS_DEFAULTS, __resetSiteSettingsForTests } from '@/lib/siteSettings'
 
 // A mock tx whose user.update is a jest.fn; config always resolves so the helpers
 // proceed to the quota/branch logic. $queryRaw dispatches on the SQL text: the
 // ObservedTip quest check returns the given tips, the StreakReward consume
 // returns the given credits (default: one available), and the first-responder
 // scan returns nothing. resolveDraw's turf lookup returns no turfs.
-function mkTx (user, { tips = [], credits = [{ id: 11 }] } = {}) {
+function mkTx (user, { tips = [], credits = [{ id: 11 }], freeReplyCooldownMinutes = 0 } = {}) {
+  __resetSiteSettingsForTests()
   return {
+    siteSettings: { findUnique: async () => ({ ...SITE_SETTINGS_DEFAULTS, freeReplyCooldownMinutes }) },
     user: {
       findUnique: async () => user,
       update: jest.fn(async () => ({}))
@@ -60,6 +63,8 @@ test('incrementFreeCommentCount increments within the flat weekly quota', async 
   await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1 }, userId: 5 })
   // one tier: every user's increment guard is the flat quota of 1
   expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 5, freeCommentCount: { lt: 1 } }) }))
+  // a claimed free reply starts the free-reply cooldown
+  expect(tx.user.update.mock.calls[0][0].data.lastFreeReplyAt).toEqual(expect.any(Date))
 })
 
 test('the weekly quota is flat: a recent tip does not raise the increment guard', async () => {
@@ -109,8 +114,10 @@ test('incrementFreeCommentCount consumes a banked REPLY credit when the weekly b
   await incrementFreeCommentCount(tx, { item: { freebie: true, parentId: 1, id: 888 }, userId: 5 })
   expect(consumed.length).toBe(1)
   expect(consumed[0]).toContain('StreakReward')
-  // base-first: the counter is left alone, the credit takes the spend
-  expect(tx.user.update).not.toHaveBeenCalled()
+  // base-first: the counter is left alone, the credit takes the spend; the
+  // only user write is the free-reply cooldown stamp
+  expect(tx.user.update).toHaveBeenCalledTimes(1)
+  expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 5 }, data: { lastFreeReplyAt: expect.any(Date) } })
 })
 
 test('incrementFreeCommentCount rejects when the base is exhausted and no REPLY credit is left (no fail-open freebie)', async () => {
@@ -210,7 +217,7 @@ test('incrementFreeCommentCount rolls a stale counter over to a fresh weekly win
     // the stale count (2) re-baselines to exactly 1, and the window runs to next Monday
     expect(tx.user.update).toHaveBeenCalledWith({
       where: { id: 5, freeCommentResetAt: stale },
-      data: { freeCommentCount: 1, freeCommentResetAt: new Date(Date.UTC(2026, 8, 14, 0, 0, 0, 0)) }
+      data: { freeCommentCount: 1, freeCommentResetAt: new Date(Date.UTC(2026, 8, 14, 0, 0, 0, 0)), lastFreeReplyAt: expect.any(Date) }
     })
   } finally {
     jest.useRealTimers()
@@ -416,5 +423,13 @@ test('consumeQuotaForFlippedItem rejects when the base is exhausted and no valid
   // surfaces this (log + alert); the already-paid item still goes live.
   const tx = mkTx({ freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000) }, { credits: [] })
   await expect(consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1, id: 7 }, userId: 5 })).rejects.toThrow('no free comments left')
+  expect(tx.user.update).not.toHaveBeenCalled()
+})
+
+test('consumeQuotaForFlippedItem spends the held unit inside the free-reply cooldown without refusing or restarting it', async () => {
+  // the upload-fee reply claimed its cooldown at creation; the paid flip must not be refused by it
+  const tx = mkTx({ freeCommentCount: 1, freeCommentResetAt: new Date(Date.now() + 86_400_000), lastFreeReplyAt: new Date(Date.now() - 60_000) }, { freeReplyCooldownMinutes: 60 })
+  await consumeQuotaForFlippedItem(tx, { item: { feeQuotaEligible: true, parentId: 1, id: 7 }, userId: 5 })
+  expect(streakRewardSql(tx)).toHaveLength(1)
   expect(tx.user.update).not.toHaveBeenCalled()
 })
