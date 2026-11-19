@@ -13,7 +13,7 @@ import ImageIcon from '@/svgs/image-fill.svg'
 import VideoIcon from '@/svgs/video-on-fill.svg'
 import { piconerosToMXmr } from '@/lib/format'
 import ItemInfo from './item-info'
-import { CardMedia, hasVideoUpload } from './card-media'
+import { CardMedia, cardPreviews, hasVideoUpload } from './card-media'
 import { XPreviewCard } from './x-preview'
 import { commentsViewedAt } from '@/lib/new-comments'
 import { useRouter } from 'next/router'
@@ -112,6 +112,9 @@ export default function Item ({
   // an unrelated main URL stays visible next to a body-derived preview
   const mainStatus = canonicalXStatus(item.url)
   const mainIsSelected = mainStatus != null && mainStatus.statusUrl === item.xPreview?.statusUrl
+  // feed previews show at most one image: when the post's own uploads render
+  // in CardMedia, the X card drops its image (often the same picture re-uploaded)
+  const showsUploadPreview = !full && !noMedia && cardPreviews(item, me).length > 0
 
   return (
     <>
@@ -156,7 +159,7 @@ export default function Item ({
           {!full && item.moneroWall?.locked && !props.noMoneroWallChip && (
             <span className={`badge ms-2 ${styles.moneroWallChip}`}>monerowalled</span>
           )}
-          {!full && item.xPreview && <XPreviewCard xPreview={item.xPreview} url={item.url} showImage={!noMedia && me?.privates?.showImagesAndVideos !== false} feed />}
+          {!full && item.xPreview && <XPreviewCard xPreview={item.xPreview} url={item.url} showImage={!noMedia && !showsUploadPreview && me?.privates?.showImagesAndVideos !== false} feed />}
           <ItemInfo
             full={full} item={item}
             onQuoteReply={onQuoteReply}

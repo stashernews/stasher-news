@@ -61,22 +61,27 @@ export function pickUploadKeys (imgproxyUrls, itemUrl, text) {
     .sort((a, b) => (pos(a) - pos(b)) || (id(a) - id(b)))
 }
 
+// render descriptors for the uploads CardMedia shows for this item and viewer.
+// Also used by the feed item to decide whether the X preview card may show its
+// own image: the feed shows at most one image per post, and uploads win.
+export function cardPreviews (item, me) {
+  // Monerowall: media embedded in the locked portion is hidden from rendered
+  // output. `locked` is viewer-relative, so the author,
+  // entitled viewers, and publicly unlocked posts still get the preview.
+  if (item?.moneroWall?.locked) return []
+  return pickUploadKeys(item?.imgproxyUrls, item?.url, item?.text)
+    .map(key => item.imgproxyUrls[key])
+    .filter(entry => !previewDisabled(me, entry))
+    .map(entry => buildPreview(entry))
+    .filter(Boolean)
+}
+
 export function CardMedia ({ item, onClick }) {
   const { me } = useMe()
   const [index, setIndex] = useState(0)
   const prevRef = useRef()
   const nextRef = useRef()
-  const previews = useMemo(() => {
-    // Monerowall: media embedded in the locked portion is hidden from rendered
-    // output. `locked` is viewer-relative, so the author,
-    // entitled viewers, and publicly unlocked posts still get the preview.
-    if (item?.moneroWall?.locked) return []
-    return pickUploadKeys(item?.imgproxyUrls, item?.url, item?.text)
-      .map(key => item.imgproxyUrls[key])
-      .filter(entry => !previewDisabled(me, entry))
-      .map(entry => buildPreview(entry))
-      .filter(Boolean)
-  }, [item?.moneroWall?.locked, item?.imgproxyUrls, item?.url, item?.text, me])
+  const previews = useMemo(() => cardPreviews(item, me), [item, me])
   if (!previews.length) return null
   const current = Math.min(index, previews.length - 1)
   const preview = previews[current]
